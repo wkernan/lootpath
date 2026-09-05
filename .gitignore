@@ -48,3 +48,6 @@ Lootpath/Libs/AceDB-3.0/
 .release/
 .lua/
 .luarocks/
+
+# Editor state (the Ketho WoW API VS Code extension writes .vscode/settings.json)
+.vscode/
