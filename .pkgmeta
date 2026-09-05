@@ -1,0 +1,26 @@
+# BigWigsMods/packager configuration. The packager runs from the repo root (it
+# needs .git in its topdir), copies the repo into .release/Lootpath/, fetches
+# the externals, then `move-folders` lifts the Lootpath/ addon folder to the
+# top of the package so the zip holds Lootpath/Lootpath.toc. Dev files are
+# ignored; dotfiles are excluded by the packager itself. Externals are the
+# wowace SVN trunks; tools/fetch-libs.ps1 fetches the same files locally.
+package-as: Lootpath
+
+externals:
+  Lootpath/Libs/LibStub: https://repos.wowace.com/wow/libstub/trunk
+  Lootpath/Libs/CallbackHandler-1.0: https://repos.wowace.com/wow/callbackhandler/trunk/CallbackHandler-1.0
+  Lootpath/Libs/AceDB-3.0: https://repos.wowace.com/wow/ace3/trunk/AceDB-3.0
+
+move-folders:
+  Lootpath/Lootpath: Lootpath
+
+ignore:
+  - spec
+  - tools
+  - docs
+  - CLAUDE.md
+  - CHANGELOG.md
+  - README.md
+  - stylua.toml
+
+enable-nolib-creation: no

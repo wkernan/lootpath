@@ -1,0 +1,22 @@
+# Tagged release: `v*` tags build the zip and attach it to a GitHub release.
+# No CurseForge or Wago upload for the MVP (decision 2026-09-05).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: package and release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: BigWigsMods/packager@v2.5.1
+        env:
+          GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}

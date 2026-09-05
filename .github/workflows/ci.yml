@@ -1,0 +1,83 @@
+# Quality gates. Every job is a real failure: branch protection (WKE-515)
+# requires all five before a PR to main can merge. Never bypass a check and
+# never disable a test to get green.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  luacheck:
+    name: luacheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: leafo/gh-actions-lua@v13.0.0
+        with:
+          luaVersion: "5.1"
+      - uses: leafo/gh-actions-luarocks@v6.1.0
+      - run: luarocks install luacheck
+      - run: luacheck . --no-color
+
+  stylua:
+    name: stylua
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: JohnnyMorganz/stylua-action@v5.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: 2.5.2
+          args: --check .
+
+  luals:
+    name: luals
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Fetch Ketho's WoW API annotations (MIT)
+        run: >
+          git clone --depth 1 --recurse-submodules --shallow-submodules
+          https://github.com/Ketho/vscode-wow-api.git .luals/vscode-wow-api
+      - name: Install lua-language-server 3.18.2
+        run: |
+          curl -sSL -o luals.tar.gz https://github.com/LuaLS/lua-language-server/releases/download/3.18.2/lua-language-server-3.18.2-linux-x64.tar.gz
+          mkdir -p "$HOME/luals"
+          tar -xzf luals.tar.gz -C "$HOME/luals"
+          echo "$HOME/luals/bin" >> "$GITHUB_PATH"
+      - run: bash tools/luals-check.sh
+
+  busted:
+    name: busted
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: leafo/gh-actions-lua@v13.0.0
+        with:
+          luaVersion: "5.1"
+      - uses: leafo/gh-actions-luarocks@v6.1.0
+      - run: luarocks install busted
+      - run: busted
+
+  package:
+    name: packager
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Build the zip (no upload)
+        uses: BigWigsMods/packager@v2.5.1
+        with:
+          args: -d
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: Lootpath-zip
+          path: .release/*.zip
+          include-hidden-files: true # .release is a dot-directory, skipped by default
+          if-no-files-found: error

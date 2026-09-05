@@ -1,0 +1,22 @@
+## Interface: 120100
+## Title: Lootpath
+## Notes: QE Live's gear answers inside the game, next to the loot they are about. Lootpath never computes a healer value.
+## Author: wkernan
+## Version: @project-version@
+## SavedVariables: LootpathDB
+## X-License: MIT
+## X-Website: https://github.com/wkernan/lootpath
+
+Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.xml
+Libs\AceDB-3.0\AceDB-3.0.xml
+Libs\json.lua
+
+Core.lua
+Captures.lua
+Modules\Inventory.lua
+Modules\Journal.lua
+Modules\Vault.lua
+Modules\QEImport.lua
+Modules\Match.lua
+UI\MainFrame.lua

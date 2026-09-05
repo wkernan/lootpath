@@ -39,3 +39,15 @@ luac.out
 *.x86_64
 *.hex
 
+
+# Lootpath: fetched at build/dev time, never committed
+Lootpath/Libs/LibStub/
+Lootpath/Libs/CallbackHandler-1.0/
+Lootpath/Libs/AceDB-3.0/
+.luals/
+.release/
+.lua/
+.luarocks/
+
+# Editor state (the Ketho WoW API VS Code extension writes .vscode/settings.json)
+.vscode/
