@@ -18,7 +18,5 @@ jobs:
         with:
           fetch-depth: 0
       - uses: BigWigsMods/packager@v2.5.1
-        with:
-          args: -t Lootpath -m .pkgmeta -r .release
         env:
           GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}

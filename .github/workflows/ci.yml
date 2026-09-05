@@ -50,7 +50,7 @@ jobs:
           mkdir -p "$HOME/luals"
           tar -xzf luals.tar.gz -C "$HOME/luals"
           echo "$HOME/luals/bin" >> "$GITHUB_PATH"
-      - run: tools/luals-check.sh
+      - run: bash tools/luals-check.sh
 
   busted:
     name: busted
@@ -74,7 +74,7 @@ jobs:
       - name: Build the zip (no upload)
         uses: BigWigsMods/packager@v2.5.1
         with:
-          args: -d -t Lootpath -m .pkgmeta -r .release
+          args: -d
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: Lootpath-zip
