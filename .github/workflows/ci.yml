@@ -79,4 +79,5 @@ jobs:
         with:
           name: Lootpath-zip
           path: .release/*.zip
+          include-hidden-files: true # .release is a dot-directory, skipped by default
           if-no-files-found: error
