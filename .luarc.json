@@ -1,0 +1,15 @@
+{
+    "$schema": "https://raw.githubusercontent.com/LuaLS/vscode-lua/master/setting/schema.json",
+    "runtime.version": "Lua 5.1",
+    "workspace.library": [".luals/vscode-wow-api/Annotations"],
+    "workspace.ignoreDir": [".git", ".luals", ".release", ".lua", ".luarocks", "Lootpath/Libs", "spec", "tools", "docs"],
+    "workspace.checkThirdParty": false,
+    "workspace.maxPreload": 10000,
+    "workspace.preloadFileSize": 10000,
+    "diagnostics.globals": ["SLASH_LOOTPATH1"],
+    "diagnostics.severity": {
+        "undefined-global": "Error",
+        "undefined-field": "Warning",
+        "lowercase-global": "Error"
+    }
+}

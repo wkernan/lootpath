@@ -1,0 +1,5 @@
+Lootpath/Libs/
+.luals/
+.release/
+.lua/
+.luarocks/
