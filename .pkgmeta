@@ -24,3 +24,4 @@ ignore:
   - stylua.toml
 
 enable-nolib-creation: no
+	gate-probe: tab-indented
