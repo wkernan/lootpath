@@ -5,5 +5,3 @@
 local _, ns = ...
 
 ns.Vault = {}
-
-ns.Vault.gateProbe={1,2}
