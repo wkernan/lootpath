@@ -1,4 +1,5 @@
 Lootpath/Libs/
+spec/fixtures/
 .luals/
 .release/
 .lua/

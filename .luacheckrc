@@ -7,6 +7,7 @@ codes = true
 
 exclude_files = {
     "Lootpath/Libs/**",
+    "spec/fixtures/**", -- raw SavedVariables transcripts and QE exports, never linted or formatted
     ".luals/**",
     ".release/**",
     ".lua/**",
