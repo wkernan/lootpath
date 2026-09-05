@@ -342,3 +342,13 @@ describe("Core", function()
         end)
     end)
 end)
+
+describe("gate probe", function()
+
+    it("fails on purpose", function()
+
+        assert.equal(1, 2)
+
+    end)
+
+end)
