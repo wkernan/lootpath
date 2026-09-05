@@ -5,3 +5,5 @@
 local _, ns = ...
 
 ns.Match = {}
+
+ns.Match.gateProbe = UndefinedGlobalForGateTest
