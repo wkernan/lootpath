@@ -85,6 +85,8 @@ read_globals = {
     "Settings",
     "UIParent",
     "DifficultyUtil",
+    "GetDifficultyInfo",
+    "UIParent",
     "WeeklyRewardsFrame",
     "INVSLOT_FIRST_EQUIPPED",
     "INVSLOT_LAST_EQUIPPED",

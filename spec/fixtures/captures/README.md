@@ -7,6 +7,13 @@
   the reset: `/lootpath capture vault` before and after opening the window, to
   settle the shape of `rewards[]` and `itemDBID`. Progress was already non-zero
   on 2026-09-06 (see below), so the reset will generate rewards.
+  **M3-3 depends on this one.** `Lootpath/Modules/Vault.lua` reads a generated
+  reward through Blizzard's exported `WeeklyRewardActivityRewardInfo`
+  (`{ type, id, quantity, itemDBID? }`) because no committed snapshot has ever
+  carried one; `spec/vault_spec.lua` and `spec/vaultpanel_spec.lua` drive that
+  shape through the stub and say so in their headers. When this capture lands,
+  re-run those two against the real shape and turn the file header's
+  "documented, not measured" note into a measured one.
 
 ## Committed
 

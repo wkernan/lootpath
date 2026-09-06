@@ -365,6 +365,7 @@ function Stub.install()
         vaultOpen = false,
         vault = { hasAvailable = false, canClaim = false, activities = {}, links = {}, examples = {} },
         secondsUntilReset = 3600,
+        difficultyNames = {},
         printed = {},
         frames = {},
         equipCalls = {},
@@ -499,6 +500,17 @@ function Stub.install()
             return 105, "Restoration", "placeholder", 136041, "HEALER", 4
         end
         return nil
+    end)
+    -- GetDifficultyInfo(difficultyID) -> name, instanceType, ... (Blizzard's
+    -- exported InstanceDocumentation via Ketho). Names here are placeholders;
+    -- world.difficultyNames is what a test drives, and an empty table is a
+    -- client that does not answer, which the M3-3 panel has to survive.
+    define("GetDifficultyInfo", function(difficultyID)
+        local name = world.difficultyNames[difficultyID]
+        if not name then
+            return nil
+        end
+        return name, "party", false, false, false, false
     end)
     define("debugprofilestop", function()
         return os.clock() * 1000
@@ -638,7 +650,19 @@ function Stub.install()
             AccountBankTab_5 = 16,
         },
         BankType = { Character = 0, Guild = 1, Account = 2 },
-        WeeklyRewardChestThresholdType = { None = 0, Activities = 1, RankedPvP = 2, Raid = 3, World = 6 },
+        -- Enum.WeeklyRewardChestThresholdType exactly as the 12.1.0 client
+        -- enumerated it (transcript 2026-09-05, capture env): AlsoReceive and
+        -- Concession were missing here until M3-3, and the vault's Concession
+        -- row (type 5) is a real row in both committed transcripts.
+        WeeklyRewardChestThresholdType = {
+            None = 0,
+            Activities = 1,
+            RankedPvP = 2,
+            Raid = 3,
+            AlsoReceive = 4,
+            Concession = 5,
+            World = 6,
+        },
         CachedRewardType = { None = 0, Item = 1, Currency = 2, Quest = 3 },
         ItemQuality = { Poor = 0, Common = 1, Uncommon = 2, Rare = 3, Epic = 4, Legendary = 5 },
     })

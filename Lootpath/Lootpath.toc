@@ -22,3 +22,5 @@ Modules\Match.lua
 UI\EquipPanel.lua
 UI\Options.lua
 UI\MainFrame.lua
+UI\UpgradeMapPanel.lua
+UI\VaultPanel.lua
