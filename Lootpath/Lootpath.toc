@@ -19,4 +19,6 @@ Modules\Journal.lua
 Modules\Vault.lua
 Modules\QEImport.lua
 Modules\Match.lua
+UI\EquipPanel.lua
+UI\Options.lua
 UI\MainFrame.lua

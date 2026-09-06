@@ -14,10 +14,14 @@ exclude_files = {
     ".luarocks/**",
 }
 
--- Globals the addon defines (its slash command) or mutates.
+-- Globals the addon defines (its slash command) or mutates. UISpecialFrames is
+-- FrameXML's list of frame NAMES that Escape closes (Blizzard_UIParentPanelManager
+-- iterates it); appending the main frame's name is how a panel opts in, so this
+-- one is mutated rather than only read.
 globals = {
     "SLASH_LOOTPATH1",
     "SlashCmdList",
+    "UISpecialFrames",
 }
 
 read_globals = {
@@ -77,6 +81,9 @@ read_globals = {
     "EJ_SetLootFilter",
     -- FrameXML
     "BankFrame",
+    "GameTooltip",
+    "Settings",
+    "UIParent",
     "DifficultyUtil",
     "WeeklyRewardsFrame",
     "INVSLOT_FIRST_EQUIPPED",

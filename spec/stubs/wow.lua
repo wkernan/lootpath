@@ -41,13 +41,144 @@ local function define(name, value)
     _G[name] = value
 end
 
-local function newFrame(kind, world)
-    local f = { kind = kind or "Frame", events = {}, scripts = {}, shown = false }
+-- Widgets. Enough of the real thing for the UI (M2-2) to be built and driven
+-- headlessly: anchors, sizes, show/hide, scripts, font strings, buttons and an
+-- editbox. It models the API's CONTRACT (SetMaxLetters(0) means no limit;
+-- SetEnabled(false) means OnClick does not fire), never its pixels - what a
+-- frame looks like on the owner's screen is an in-game step (M2-3), not a test.
+-- Appearance-only setters: accepted and ignored, because a headless test has no
+-- pixels to check them against.
+local IGNORED_REGION_METHODS = {
+    "SetAlpha",
+    "SetTextColor",
+    "SetVertexColor",
+    "SetJustifyH",
+    "SetJustifyV",
+    "SetWordWrap",
+    "SetFontObject",
+    "SetFont",
+    "SetTexture",
+    "SetAtlas",
+    "SetNonSpaceWrap",
+    "SetDrawLayer",
+}
+
+local function newRegion(kind, parent)
+    local r = {
+        kind = kind,
+        parent = parent,
+        points = {},
+        shown = true,
+        text = "",
+        width = 0,
+        height = 0,
+        children = {},
+        regions = {},
+    }
+    function r:GetObjectType()
+        return self.kind
+    end
+    function r:GetParent()
+        return self.parent
+    end
+    function r:SetParent(p)
+        self.parent = p
+    end
+    function r:SetPoint(...)
+        self.points[#self.points + 1] = { ... }
+    end
+    function r:ClearAllPoints()
+        self.points = {}
+    end
+    function r:SetAllPoints()
+        self.points[#self.points + 1] = { "ALL" }
+    end
+    function r:SetSize(w, h)
+        self.width, self.height = w, h
+    end
+    function r:SetWidth(w)
+        self.width = w
+    end
+    function r:SetHeight(h)
+        self.height = h
+    end
+    function r:GetWidth()
+        return self.width
+    end
+    function r:GetHeight()
+        return self.height
+    end
+    function r:Show()
+        self.shown = true
+    end
+    function r:Hide()
+        self.shown = false
+    end
+    function r:SetShown(value)
+        self.shown = value and true or false
+    end
+    function r:IsShown()
+        return self.shown
+    end
+    function r:IsVisible()
+        return self.shown
+    end
+    function r:SetText(value)
+        self.text = value == nil and "" or tostring(value)
+    end
+    function r:GetText()
+        return self.text
+    end
+    for _, name in ipairs(IGNORED_REGION_METHODS) do
+        r[name] = function() end
+    end
+    return r
+end
+
+local newFrame
+
+local function attachTemplate(f, world, template)
+    if type(template) ~= "string" then
+        return
+    end
+    -- BasicFrameTemplate -> BaseBasicFrameTemplate carries TitleText and
+    -- CloseButton (Blizzard_UIPanelTemplates/UIPanelTemplates.xml).
+    if template:find("BasicFrameTemplate", 1, true) then
+        f.TitleText = f:CreateFontString()
+        f.CloseButton = newFrame("Button", world, f)
+    end
+    -- InputScrollFrameTemplate's scroll child is a multiLine EditBox at
+    -- parentKey EditBox, with maxLetters 0 and a CharCount label
+    -- (Blizzard_SharedXML/SecureUIPanelTemplates.xml).
+    if template:find("InputScrollFrameTemplate", 1, true) then
+        f.maxLetters = 0
+        f.CharCount = f:CreateFontString()
+        local box = newFrame("EditBox", world, f)
+        box:SetMultiLine(true)
+        box:SetMaxLetters(f.maxLetters)
+        box.Instructions = box:CreateFontString()
+        f.EditBox = box
+        f.scrollChild = box
+    end
+end
+
+function newFrame(kind, world, parent, template)
+    kind = kind or "Frame"
+    local f = newRegion(kind, parent)
+    f.events = {}
+    f.scripts = {}
+    f.shown = false
+    f.enabled = true
+    f.template = template
+
     function f:RegisterEvent(event)
         self.events[event] = true
     end
     function f:UnregisterEvent(event)
         self.events[event] = nil
+    end
+    function f:UnregisterAllEvents()
+        self.events = {}
     end
     function f:SetScript(handler, fn)
         self.scripts[handler] = fn
@@ -55,18 +186,160 @@ local function newFrame(kind, world)
     function f:GetScript(handler)
         return self.scripts[handler]
     end
-    function f:GetObjectType()
-        return self.kind
+    function f:HookScript(handler, fn)
+        local previous = self.scripts[handler]
+        self.scripts[handler] = function(...)
+            if previous then
+                previous(...)
+            end
+            fn(...)
+        end
     end
-    function f:IsShown()
-        return self.shown
+    function f:CreateFontString()
+        local fs = newRegion("FontString", self)
+        self.regions[#self.regions + 1] = fs
+        return fs
     end
-    function f:Show()
-        self.shown = true
+    function f:CreateTexture()
+        local tex = newRegion("Texture", self)
+        self.regions[#self.regions + 1] = tex
+        return tex
     end
-    function f:Hide()
-        self.shown = false
+    function f:SetMovable(value)
+        self.movable = value
     end
+    function f:IsMovable()
+        return self.movable
+    end
+    function f:EnableMouse(value)
+        self.mouseEnabled = value
+    end
+    function f:RegisterForDrag(...)
+        self.dragButtons = { ... }
+    end
+    f.StartMoving = function() end
+    f.StopMovingOrSizing = function() end
+    function f:SetClampedToScreen(value)
+        self.clamped = value
+    end
+    function f:SetFrameStrata(value)
+        self.strata = value
+    end
+    function f:SetToplevel(value)
+        self.toplevel = value
+    end
+    function f:SetHyperlinksEnabled(value)
+        self.hyperlinksEnabled = value
+    end
+    function f:SetScrollChild(child)
+        self.scrollChild = child
+    end
+    function f:GetScrollChild()
+        return self.scrollChild
+    end
+    function f:SetVerticalScroll(value)
+        self.verticalScroll = value
+    end
+    f.GetVerticalScrollRange = function()
+        return 0
+    end
+    f.UpdateScrollChildRect = function() end
+
+    if kind == "Button" or kind == "CheckButton" then
+        function f:SetEnabled(value)
+            self.enabled = value and true or false
+        end
+        function f:Enable()
+            self.enabled = true
+        end
+        function f:Disable()
+            self.enabled = false
+        end
+        function f:IsEnabled()
+            return self.enabled
+        end
+        function f:GetFontString()
+            return self.fontString
+        end
+        f.SetNormalFontObject = function() end
+        f.SetDisabledFontObject = function() end
+        f.SetHighlightFontObject = function() end
+        f.RegisterForClicks = function() end
+        -- A disabled button swallows the click, exactly as the client does; its
+        -- OnEnter still fires, which is how the combat tooltip is reachable.
+        function f:Click(button)
+            if not self.enabled then
+                return false
+            end
+            local fn = self.scripts.OnClick
+            if fn then
+                fn(self, button or "LeftButton")
+            end
+            return true
+        end
+        function f:Enter()
+            local fn = self.scripts.OnEnter
+            if fn then
+                fn(self)
+            end
+        end
+        function f:Leave()
+            local fn = self.scripts.OnLeave
+            if fn then
+                fn(self)
+            end
+        end
+    end
+
+    if kind == "EditBox" then
+        f.maxLetters = 0
+        function f:SetMaxLetters(value)
+            self.maxLetters = tonumber(value) or 0
+        end
+        function f:GetMaxLetters()
+            return self.maxLetters
+        end
+        -- The one behaviour the paste box depends on: 0 means no limit, and any
+        -- other value truncates.
+        function f:SetText(value)
+            value = value == nil and "" or tostring(value)
+            if self.maxLetters and self.maxLetters > 0 then
+                value = value:sub(1, self.maxLetters)
+            end
+            self.text = value
+            local fn = self.scripts.OnTextChanged
+            if fn then
+                fn(self, false)
+            end
+        end
+        function f:GetNumLetters()
+            return #self.text
+        end
+        function f:Insert(value)
+            self:SetText(self.text .. tostring(value))
+        end
+        function f:SetMultiLine(value)
+            self.multiLine = value and true or false
+        end
+        function f:IsMultiLine()
+            return self.multiLine
+        end
+        function f:SetAutoFocus(value)
+            self.autoFocus = value
+        end
+        function f:SetFocus()
+            self.focused = true
+        end
+        function f:ClearFocus()
+            self.focused = false
+        end
+        f.HighlightText = function() end
+        f.SetCountInvisibleLetters = function() end
+        f.SetTextInsets = function() end
+    end
+
+    attachTemplate(f, world, template)
+
     world.frames[#world.frames + 1] = f
     return f
 end
@@ -239,10 +512,99 @@ function Stub.install()
         end
         world.printed[#world.printed + 1] = table.concat(parts, " ")
     end)
-    define("CreateFrame", function(kind)
-        return newFrame(kind, world)
+    define("CreateFrame", function(kind, name, parent, template)
+        local f = newFrame(kind, world, parent, template)
+        if type(name) == "string" and name ~= "" then
+            f.frameName = name
+            define(name, f)
+        end
+        return f
     end)
     define("SlashCmdList", {})
+    define("UIParent", newFrame("Frame", world))
+    define("UISpecialFrames", {})
+
+    -- GameTooltip: what it was told to show is recorded so a test can read the
+    -- combat message back off it.
+    local tooltip = newFrame("Frame", world)
+    world.tooltip = tooltip
+    tooltip.lines = {}
+    function tooltip:SetOwner(owner, anchor)
+        self.owner, self.anchor = owner, anchor
+        self.lines = {}
+    end
+    function tooltip:SetText(text)
+        self.lines = { tostring(text) }
+    end
+    function tooltip:AddLine(text)
+        self.lines[#self.lines + 1] = tostring(text)
+    end
+    function tooltip:SetHyperlink(link)
+        self.hyperlink = link
+        self.lines = { tostring(link) }
+    end
+    function tooltip:ClearLines()
+        self.lines = {}
+    end
+    function tooltip:Text()
+        return table.concat(self.lines, "\n")
+    end
+    define("GameTooltip", tooltip)
+
+    -- The Settings API, from Blizzard's shipped Blizzard_Settings.lua (read
+    -- 2026-09-06). Only the six calls the options page makes are modelled, and
+    -- what was registered is recorded in world.settings.
+    world.settings = { categories = {}, settings = {}, dropdowns = {}, opened = {} }
+    local nextCategoryID = 0
+    define("Settings", {
+        VarType = { Boolean = "boolean", String = "string", Number = "number" },
+        RegisterVerticalLayoutCategory = function(name)
+            nextCategoryID = nextCategoryID + 1
+            local id = nextCategoryID
+            local category = {
+                name = name,
+                GetID = function()
+                    return id
+                end,
+            }
+            world.settings.categories[#world.settings.categories + 1] = category
+            return category
+        end,
+        RegisterProxySetting = function(category, variable, variableType, name, default, getValue, setValue)
+            local setting = {
+                category = category,
+                variable = variable,
+                variableType = variableType,
+                name = name,
+                default = default,
+                GetValue = getValue,
+                SetValue = setValue,
+            }
+            world.settings.settings[variable] = setting
+            return setting
+        end,
+        CreateControlTextContainer = function()
+            local container = { data = {} }
+            function container:Add(value, label, tooltipText)
+                self.data[#self.data + 1] = { value = value, label = label, tooltip = tooltipText }
+            end
+            function container:GetData()
+                return self.data
+            end
+            return container
+        end,
+        CreateDropdown = function(category, setting, options, tooltipText)
+            local entry = { category = category, setting = setting, options = options, tooltip = tooltipText }
+            world.settings.dropdowns[#world.settings.dropdowns + 1] = entry
+            return entry
+        end,
+        RegisterAddOnCategory = function(category)
+            category.registered = true
+        end,
+        OpenToCategory = function(categoryID)
+            world.settings.opened[#world.settings.opened + 1] = categoryID
+        end,
+    })
 
     -- FrameXML constants (Blizzard_FrameXMLBase/Constants.lua via Ketho).
     define("INVSLOT_FIRST_EQUIPPED", 1)

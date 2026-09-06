@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+### M2-2 (WKE-520) - Match, the paste editbox and the Equip Now panel
+
+- `ns.Match.Build(inventory, verdict)`: QE Live's top set joined to the
+  Inventory scan, one row per gear slot the export names plus one for anything
+  worn in a slot it does not. Statuses `equipped_is_best`, `swap`,
+  `best_not_owned` (saying whether it is an unclaimed vault option, a bank
+  Lootpath cannot see into, or simply absent) and `no_verdict`. Exact
+  `ns.ItemKey` first; an itemID + item-level fallback that reaches both the
+  result and the chat frame; an itemID-only match is never accepted. Each
+  inventory record is claimed once, so a matched pair of rings needs two.
+- The first window. `/lootpath` opens a movable native frame with the paste
+  editbox (`InputScrollFrameTemplate`, `SetMaxLetters(0)`), an import status
+  line showing the spec, content type, export age and item count - or the
+  parser's refusal verbatim - and the Equip Now panel: one row per slot,
+  equipped -> best with item links, an **Equip** button per swap and an
+  **Equip all**. Equipping goes through `C_Item.EquipItemByName(link, dstSlot)`
+  with `dstSlot` taken from the scan, so two rings and two trinkets never
+  fight over one slot.
+- Nothing equips in combat: the buttons disable with a tooltip saying so, the
+  refusal is repeated inside `Equip` itself, and the panel keeps the last scan
+  on screen marked stale rather than blanking mid-pull.
+- Options page through the `Settings` API, one setting: which content type's
+  verdict the panels read. **QE Live's content types are `Dungeon` and `Raid`**
+  (`src/globalTypes.d.ts`), so the default moved from `Mythic+`, a string no
+  export can carry, to `Dungeon`. Imports are now filed by content type in
+  `db.char.qeImports` as well as most-recent in `db.char.qeImport`, so pasting
+  a Raid export no longer loses the Dungeon one.
+- The test stub grew a widget model (frames, buttons, font strings, an editbox,
+  GameTooltip and the Settings API), so the window is driven headlessly: a
+  click really reaches `QEImport.Parse` and a 200 KB paste really round-trips.
+
 ### M3-1 (WKE-522, PR 1) - Journal adapter and `capture journal`
 
 - `ns.JournalAdapter`: the only place the addon touches the Encounter Journal.
