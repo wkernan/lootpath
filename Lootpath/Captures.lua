@@ -8,6 +8,14 @@
 -- (secret guard, cycle/depth/node guards) inside ns.RunCapture. No capture
 -- calls a client function that could act on the character: only reads, and
 -- only functions named here, never anything discovered by iterating a namespace.
+--
+-- `/lootpath capture journal` is registered in Modules/Journal.lua instead,
+-- beside the adapter that names every Encounter Journal function it calls: the
+-- rule is that a capture calls only what its own file names, and the journal's
+-- list belongs with the adapter. It is also the one capture that is not purely
+-- a read - selecting a tier, instance, difficulty or loot filter changes the
+-- Adventure Guide's view state (nothing about the character), and it puts all
+-- three back when it is done.
 
 local _, ns = ...
 

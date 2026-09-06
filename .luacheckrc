@@ -37,6 +37,7 @@ read_globals = {
     "C_Item",
     "C_MythicPlus",
     "C_Secrets",
+    "C_Timer",
     "C_WeeklyRewards",
     "Enum",
     -- Blizzard API, globals
@@ -52,8 +53,30 @@ read_globals = {
     "ItemLocation",
     "UnitClass",
     "UnitName",
+    -- Encounter Journal globals (Modules/Journal.lua names every one it calls;
+    -- they are not in Blizzard's generated docs, but the 12.1.0 client lists
+    -- all of them - transcript 2026-09-05, capture env, globals.EJ)
+    "EJ_GetCurrentTier",
+    "EJ_GetDifficulty",
+    "EJ_GetEncounterInfoByIndex",
+    "EJ_GetInstanceByIndex",
+    "EJ_GetInstanceForMap",
+    "EJ_GetInstanceInfo",
+    "EJ_GetLootFilter",
+    "EJ_GetNumLoot",
+    "EJ_GetNumTiers",
+    "EJ_GetTierInfo",
+    "EJ_InstanceIsRaid",
+    "EJ_IsLootListOutOfDate",
+    "EJ_IsValidInstanceDifficulty",
+    "EJ_ResetLootFilter",
+    "EJ_SelectInstance",
+    "EJ_SelectTier",
+    "EJ_SetDifficulty",
+    "EJ_SetLootFilter",
     -- FrameXML
     "BankFrame",
+    "DifficultyUtil",
     "WeeklyRewardsFrame",
     "INVSLOT_FIRST_EQUIPPED",
     "INVSLOT_LAST_EQUIPPED",
