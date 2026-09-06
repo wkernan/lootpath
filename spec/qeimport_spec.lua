@@ -3,8 +3,8 @@
 -- to be one, so the decoder is in the loop every time.
 --
 -- SAMPLE is hand-built (see spec/fixtures/qe/README.md): it mirrors QE Live's
--- exporter field for field but no number in it came from QE Live. The test that
--- reads a genuine export is `pending` until WKE-519 commits one.
+-- exporter field for field but no number in it came from QE Live. The last
+-- block reads the genuine export WKE-519 committed.
 local H = require("spec.helpers.addon")
 
 local SAMPLE_PATH = "spec/fixtures/qe/sample-handbuilt-v1.json"
@@ -379,6 +379,90 @@ describe("QEImport storage", function()
     end)
 end)
 
-describe("QEImport over a genuine QE Live export", function()
-    pending("reads the real Top Gear JSON committed by WKE-519 (M2-1b) - fixture not yet in the repo")
+describe("QEImport.Parse over a genuine QE Live export", function()
+    -- qe-droptimizer-Hotornot-cxeiassqdyvz.json: produced by QE Live's own
+    -- engine on the owner's fork, 2026-09-06, Restoration, contentType Raid,
+    -- with no extra items selected on the gear screen (see the fixture README).
+    -- Every number asserted here was read from that file, none from the module.
+    local REAL_PATH = "spec/fixtures/qe/qe-droptimizer-Hotornot-cxeiassqdyvz.json"
+    local ns, result
+
+    before_each(function()
+        ns = H.load()
+        result = ns.QEImport.Parse(readFile(REAL_PATH))
+        assert.is_true(result.ok, result.reason)
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("passes every refusal gate: schema, numeric version 1, topSet, Retail", function()
+        local v = result.verdict
+        assert.equal("2026-09-06T21:14:24.465Z", v.exportedAt)
+        assert.equal("Restoration Druid", v.spec)
+        assert.equal("Raid", v.contentType)
+        assert.equal("cxeiassqdyvz", v.reportId)
+        assert.equal("Hotornot", v.player.name)
+        assert.equal("Arthas", v.player.realm)
+        assert.equal("US", v.player.region)
+        assert.equal("Retail", v.player.gameType)
+    end)
+
+    it("carries the real score and the full stats block, extra keys included", function()
+        local topSet = result.verdict.topSet
+        assert.equal(5452.55, topSet.score)
+        assert.equal(12, countKeys(topSet.stats))
+        assert.equal(763, topSet.stats.crit)
+        assert.equal(811, topSet.stats.mastery)
+        assert.equal(550, topSet.stats.versatility)
+        assert.equal(249, topSet.stats.leech)
+        assert.equal(2780.5365, topSet.stats.intellect)
+        assert.equal(1895.0843266929514, topSet.stats.haste)
+        assert.equal(2611.4102495719035, topSet.stats.hps)
+        assert.equal(1.04, topSet.stats.manaPerc)
+    end)
+
+    it("keys the fifteen equipped items and keeps the export's slot order", function()
+        local topSet = result.verdict.topSet
+        assert.equal(15, #topSet.order)
+        assert.equal(15, countKeys(topSet.items))
+        assert.equal(0, result.verdict.skippedItems)
+        -- The head is the same item the 2026-09-05 inventory transcript carries.
+        local headKey = ns.ItemKey(271528, { 6652, 13439, 13696, 12838, 13692, 13698, 1561 })
+        assert.equal("271528:1561:6652:12838:13439:13692:13696:13698", headKey)
+        assert.equal(headKey, topSet.order[1])
+        assert.equal("Head", topSet.items[headKey].slot)
+        assert.equal(308, topSet.items[headKey].level)
+        assert.equal(2057, topSet.items[headKey].setId)
+        assert.equal("Empowered Hex of Leeching", topSet.items[headKey].enchant)
+        assert.equal("2H Weapon", topSet.items[topSet.order[15]].slot)
+        assert.equal(302, topSet.items[topSet.order[15]].level)
+    end)
+
+    it("keeps two rings with different itemIDs as two Finger entries", function()
+        local items = result.verdict.topSet.items
+        local signet = ns.ItemKey(259912, { 6652, 13668, 12790 })
+        local band = ns.ItemKey(151311, { 13440, 6652, 13668, 12699, 12790 })
+        assert.equal("Finger", items[signet].slot)
+        assert.equal("Finger", items[band].slot)
+        assert.same({ 240892 }, items[signet].gems)
+        assert.equal(1331, items[band].setId)
+        assert.equal(1, items[signet].count)
+    end)
+
+    it("reads an export made with no comparison items as a bare top set", function()
+        assert.same({}, result.verdict.alternatives)
+        assert.equal(0, countKeys(result.verdict.vault))
+        for _, key in ipairs(result.verdict.topSet.order) do
+            assert.is_false(result.verdict.topSet.items[key].isVault)
+        end
+    end)
+
+    it("stores it like any other verdict", function()
+        local imported = ns.QEImport.Import(readFile(REAL_PATH))
+        assert.is_true(imported.ok, imported.reason)
+        assert.equal("cxeiassqdyvz", ns.db.char.qeImport.reportId)
+        assert.equal("2026-09-06T21:14:24.465Z", ns.QEImport.Current().exportedAt)
+    end)
 end)
