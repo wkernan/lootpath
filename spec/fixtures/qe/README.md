@@ -18,10 +18,22 @@ an alternative that is *worse*: `scorePercent > 0`, `hpsDifference < 0`).
 
 ## Real exports (WKE-519, owner)
 
-A genuine Top Gear JSON for hotornot, run **in Restoration spec**, downloaded
-with QE Live's Download JSON button and committed unedited. Until one lands, the
-test that reads it is `pending` in `spec/qeimport_spec.lua`; that pending is
-removed in the PR that follows WKE-519.
+A genuine Top Gear JSON for hotornot, produced by QE Live's own engine and
+committed unedited. The live site has no Download JSON control (WKE-527), so
+the file comes from the owner's fork running locally (`c:\Code\qe-live-fork`,
+branch `lootpath/upgrade-finder-export`, Export > Download JSON).
+
+- `qe-droptimizer-Hotornot-cxeiassqdyvz.json` - exported 2026-09-06T21:14:24Z,
+  **Restoration Druid**, **contentType `Raid`** (not Mythic+: the owner left the
+  fork's default), from a `/simc` taken the same evening with no vault rewards
+  available and **no extra items selected** on the gear screen, so `topSet` is
+  the 15 equipped items, `differentials` is `[]`, and no item is `isVault`. It
+  proves the header, the item shape, the real `stats` block (12 keys: the six
+  the hand-built sample has plus `hps`, `dps`, `mana`, `manaPerc`, `allyStats`,
+  `bonusHPS`) and the `version: 1` number. A second export with Mythic+ content,
+  bag items selected and vault options present is the next fixture to add.
+
+`spec/qeimport_spec.lua` reads this file in its "genuine QE Live export" block.
 
 Files here are excluded from luacheck and StyLua (raw third-party payloads,
 never linted or formatted).
