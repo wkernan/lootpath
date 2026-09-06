@@ -12,11 +12,36 @@ QE Live's `qe-live-droptimizer` v1 export, transported unchanged. Lootpath
 scans, walks the journal, matches, and displays. If a gap tempts you to
 estimate, stop.
 
+## Before you start building: your own worktree
+
+Several sessions work on this repo at the same time, one Linear issue each.
+A branch alone is not enough: two branches checked out in one directory
+still edit the same files on disk. **Every issue gets its own git worktree,
+created before the first edit, even if the checkout looks idle:**
+
+```powershell
+cd C:\Code\lootpath
+git fetch origin
+git worktree add C:\Code\lootpath-<n> -b lp-<n>-<slug> origin/main
+cd C:\Code\lootpath-<n>
+.\tools\fetch-libs.ps1          # Lootpath/Libs is gitignored, so each worktree needs it
+.\tools\fetch-annotations.ps1   # same for .luals (only if you will run the LuaLS gate)
+```
+
+Work, commit, push and open the PR from that directory. `tools\check.ps1`
+and `tools\sync.ps1` work from any worktree; the Docker image is shared.
+Never edit files under `C:\Code\lootpath` itself while another session may
+be active there, and never `git add -A` in a directory you did not create.
+After your PR merges: `git worktree remove C:\Code\lootpath-<n>` from the
+main checkout, then `git worktree prune`. If you inherit a session that
+already edited the shared checkout, move the work to a worktree first
+(`git stash`, create the worktree, `git stash pop` there).
+
 ## How work moves
 
-- Branch per issue (`lp-<n>-<slug>`), PR to `main`, never commit to `main`
-  directly. Merge your own PR only when every CI check is green. Never bypass
-  a check; never disable a test to get green.
+- Branch per issue (`lp-<n>-<slug>`) in its own worktree, PR to `main`,
+  never commit to `main` directly. Merge your own PR only when every CI
+  check is green. Never bypass a check; never disable a test to get green.
 - Read the whole Linear issue, including its "Working in this repo" section.
   Verify the issue's premise against the code before building. A wrong premise
   is reported in the PR and the right thing is built instead: scaling down is
@@ -24,9 +49,6 @@ estimate, stop.
 - Commits end with `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
   PR bodies end with the Claude Code attribution line and carry every section
   of `.github/pull_request_template.md`.
-- The checkout may be shared with another session. Run `git status` and
-  `git branch --show-current` before editing; if the tree holds work that is
-  not yours, use a git worktree for yours and never `git add -A` there.
 - A PR that conflicts with `main` gets no CI run at all. Zero checks means
   rebase, not broken CI.
 
