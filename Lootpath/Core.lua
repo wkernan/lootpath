@@ -156,6 +156,67 @@ function ns.ItemKey(itemID, bonusIDs)
     return tostring(id) .. ":" .. table.concat(sorted, ":")
 end
 
+-- Item link parser. Field layout after `item:` measured on the 2026-09-05
+-- transcript and identical to the SimulationCraft addon's offsets: itemID(1),
+-- enchantID(2), gems(3-6), suffixID(7), uniqueID(8), linkLevel(9), specID(10),
+-- flags(11), context(12), numBonusIDs(13), the bonus IDs, then numModifiers
+-- and type:value pairs. Returns nil for anything that is not an item link.
+function ns.ParseItemLink(link)
+    if type(link) ~= "string" then
+        return nil
+    end
+    -- The item string is not all digits: crafted items carry the crafter's
+    -- GUID (`Player-69-0F82625A`) in a trailing field (transcript 2026-09-05,
+    -- bank tab 6 slot 32), so anything up to `|h` is accepted and non-numeric
+    -- fields read as 0.
+    local body = link:match("|Hitem:([^|]+)|h") or link:match("^item:([^|]+)$")
+    if not body then
+        return nil
+    end
+    local fields = {}
+    for field in (body .. ":"):gmatch("([^:]*):") do
+        fields[#fields + 1] = tonumber(field) or 0
+    end
+    local itemID = fields[1]
+    if not itemID or itemID <= 0 then
+        return nil
+    end
+    local numBonus = fields[13] or 0
+    local bonusIDs = {}
+    for i = 1, numBonus do
+        local id = fields[13 + i]
+        if id and id ~= 0 then
+            bonusIDs[#bonusIDs + 1] = id
+        end
+    end
+    table.sort(bonusIDs)
+    local gems = {}
+    for i = 3, 6 do
+        if fields[i] and fields[i] ~= 0 then
+            gems[#gems + 1] = fields[i]
+        end
+    end
+    local modIndex = 13 + numBonus + 1
+    local numModifiers = fields[modIndex] or 0
+    local modifiers = {}
+    for i = 1, numModifiers do
+        local base = modIndex + (i - 1) * 2
+        modifiers[i] = { type = fields[base + 1] or 0, value = fields[base + 2] or 0 }
+    end
+    return {
+        itemID = itemID,
+        enchantID = fields[2] ~= 0 and fields[2] or nil,
+        gems = gems,
+        linkLevel = fields[9],
+        specID = fields[10],
+        context = fields[12],
+        numBonusIDs = numBonus,
+        bonusIDs = bonusIDs,
+        modifiers = modifiers,
+        key = ns.ItemKey(itemID, bonusIDs),
+    }
+end
+
 -- Capture registry. `/lootpath capture <name>` runs a registered function and
 -- stores its raw result under db.global.captures[name]; tools/sync.ps1 -Pull
 -- copies the SavedVariables file back into spec/fixtures/captures/.

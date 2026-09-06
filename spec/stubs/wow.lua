@@ -179,7 +179,8 @@ function Stub.install()
     define("NUM_BAG_SLOTS", 4)
     define("NUM_TOTAL_EQUIPPED_BAG_SLOTS", 5)
 
-    -- Enum values from Blizzard's docs (Ketho Annotations/Core/Data/Enum.lua); subset.
+    -- Enum.BagIndex as the 12.1.0 client enumerated it (transcript 2026-09-05,
+    -- capture env); the other enums from Blizzard's docs via Ketho.
     define("Enum", {
         BagIndex = {
             Accountbanktab = -3,
@@ -192,6 +193,16 @@ function Stub.install()
             Bag_4 = 4,
             ReagentBag = 5,
             CharacterBankTab_1 = 6,
+            CharacterBankTab_2 = 7,
+            CharacterBankTab_3 = 8,
+            CharacterBankTab_4 = 9,
+            CharacterBankTab_5 = 10,
+            CharacterBankTab_6 = 11,
+            AccountBankTab_1 = 12,
+            AccountBankTab_2 = 13,
+            AccountBankTab_3 = 14,
+            AccountBankTab_4 = 15,
+            AccountBankTab_5 = 16,
         },
         BankType = { Character = 0, Guild = 1, Account = 2 },
         WeeklyRewardChestThresholdType = { None = 0, Activities = 1, RankedPvP = 2, Raid = 3, World = 6 },
@@ -267,6 +278,9 @@ function Stub.install()
             if not item then
                 return nil
             end
+            if item.detailed then
+                return unpack(item.detailed, 1, item.detailed.n or 3)
+            end
             return item.level, false, item.level
         end,
         GetItemInfo = function(link)
@@ -274,7 +288,8 @@ function Stub.install()
             if not item or not item.info then
                 return nil
             end
-            return unpack(item.info, 1, 17)
+            -- 18 returns on 12.1.0 (transcript 2026-09-05); replayed tables carry n.
+            return unpack(item.info, 1, item.info.n or #item.info)
         end,
         GetItemInfoInstant = function(link)
             local item = world.items[link]
@@ -326,12 +341,14 @@ function Stub.install()
         end,
     })
 
+    -- Transcript 2026-09-05: Character and Account answer true only while the
+    -- bank frame is open; Guild is false either way.
     define("C_Bank", {
-        CanViewBank = function()
-            return world.bankOpen
+        CanViewBank = function(bankType)
+            return world.bankOpen and bankType ~= 1
         end,
-        CanUseBank = function()
-            return world.bankOpen
+        CanUseBank = function(bankType)
+            return world.bankOpen and bankType ~= 1
         end,
         CanPurchaseBankTab = function()
             return false
