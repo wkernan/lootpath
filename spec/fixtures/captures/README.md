@@ -15,10 +15,10 @@
   build, hotornot on Arthas in **Restoration spec (105)**. Carries the five
   09-05 snapshots again (SavedVariables accumulate) plus three new ones:
   journal x1 (16:11:01; 30 targets = 8 season dungeons x Heroic/Mythic/M+ at
-  preview level 10 + 3 raids x Heroic/Mythic; 573 loot rows, 351
+  preview level 10 + 3 raids x Heroic/Mythic; 613 loot rows, 351
   `EJ_LOOT_DATA_RECIEVED` events, 0 waits, 0 timeouts, walk 434 ms; every map
   resolved by `C_EncounterJournal.GetInstanceForGameMap`, the global
-  `EJ_GetInstanceForMap` answered 0 for all eight; 244 of the 573 rows carried a
+  `EJ_GetInstanceForMap` answered 0 for all eight; 244 of the 613 rows carried a
   `link`, the rest only `itemID`/`encounterID`), vault x2 (16:11:30 before and
   16:11:56 after opening the window; progress non-zero, `rewards` empty in
   both). No secrets seen.
