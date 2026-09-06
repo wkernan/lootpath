@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### M2-1 (WKE-518) - QEImport
+
+- `ns.QEImport.Parse(text)`: QE Live's `qe-live-droptimizer` v1 Top Gear JSON
+  in, a verdict model out, or one plain refusal. Refuses an empty paste,
+  non-JSON, non-object JSON, another tool's schema, any `version` that is not
+  the number `1` (naming both), a missing `topSet`, and a non-Retail export.
+  Warns without refusing when the export is for another character, when the
+  top set is empty, and when an item carried no usable itemID.
+- Verdict: `topSet` keyed by `ns.ItemKey` with the export's own order and a
+  count per matched pair, `alternatives` carrying QE Live's `scorePercent` and
+  `hpsDifference` unchanged, and `vault` gathering every vault option the
+  export mentions - including the ones QE Live ranked below the top set.
+- `ns.QEImport.AlternativeIsBetter` is the single reading of QE Live's sign
+  convention, verified twice from its source and pinned in the tests.
+- The last import is stored in `db.char.qeImport` with its `exportedAt`.
+- Tests run over real JSON text: a hand-built v1 sample under
+  `spec/fixtures/qe/` until the owner commits a genuine export (WKE-519), for
+  which the spec carries a `pending`.
+
 ### M1-1 (WKE-516) - Inventory
 
 - `ns.Inventory:Scan()`: equipped slots, owned bags and, while the bank is
