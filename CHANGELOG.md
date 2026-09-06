@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### M1-1 (WKE-516) - Inventory
+
+- `ns.Inventory:Scan()`: equipped slots, owned bags and, while the bank is
+  open, every bank tab, normalised to one record per piece of gear with a
+  QE Live slot name and the item key. Refuses in combat; reports
+  `bankAvailable`; drops and counts secret values.
+- `ns.ParseItemLink`: the one item-link parser (bonus IDs sorted, crafter GUID
+  and atlas markup tolerated, keystone links rejected).
+- Tests replay the 2026-09-05 transcript through the stub; golden fixtures
+  under `spec/fixtures/expected/`.
+
 ### M0-1 (WKE-514) - skeleton
 
 - Addon layout under `Lootpath/`, AceDB SavedVariables, the shared namespace,
