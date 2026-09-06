@@ -220,38 +220,25 @@ end
 -- Capture registry. `/lootpath capture <name>` runs a registered function and
 -- stores its raw result under db.global.captures[name]; tools/sync.ps1 -Pull
 -- copies the SavedVariables file back into spec/fixtures/captures/.
-function ns.RegisterCapture(name, help, run)
+--
+-- A capture registered with `{ async = true }` is handed a `finish(data,
+-- failure)` callback instead of returning its data: the Encounter Journal
+-- loads loot asynchronously (EJ_LOOT_DATA_RECIEVED), so `capture journal`
+-- cannot be one synchronous call the way env, inventory and vault are. Only
+-- one capture runs at a time, and an async one that never calls back is
+-- abandoned after ns.CAPTURE_TIMEOUT_SECONDS rather than wedging the command.
+ns.CAPTURE_TIMEOUT_SECONDS = 180
+
+function ns.RegisterCapture(name, help, run, opts)
     assert(type(name) == "string" and name ~= "", "capture name required")
     assert(type(run) == "function", "capture '" .. tostring(name) .. "' needs a function")
     if not ns.captures[name] then
         ns.captureOrder[#ns.captureOrder + 1] = name
     end
-    ns.captures[name] = { help = help or "", run = run }
+    ns.captures[name] = { help = help or "", run = run, async = (opts and opts.async) or false }
 end
 
-function ns.RunCapture(name)
-    local entry = ns.captures[name]
-    if not entry then
-        return {
-            ok = false,
-            reason = string.format(
-                "unknown capture '%s' (known: %s)",
-                tostring(name),
-                table.concat(ns.captureOrder, ", ")
-            ),
-        }
-    end
-    if not ns.db then
-        return { ok = false, reason = "database not loaded yet" }
-    end
-    if InCombatLockdown() then
-        return { ok = false, reason = "combat" }
-    end
-    local startedAt = debugprofilestop and debugprofilestop() or nil
-    local ok, data = pcall(entry.run)
-    if not ok then
-        return { ok = false, reason = string.format("capture '%s' errored: %s", name, tostring(data)) }
-    end
+local function storeSnapshot(name, data, startedAt)
     local copy, sawSecret = ns.CopyRaw(data)
     local snapshot = {
         name = name,
@@ -267,6 +254,75 @@ function ns.RunCapture(name)
     ns.db.global.captures[name] = list
     list[#list + 1] = snapshot
     return { ok = true, snapshot = snapshot, count = #list }
+end
+
+-- Returns the result for a synchronous capture, or `{ ok = true, pending =
+-- true }` for an async one that has not finished yet. `onComplete` is called
+-- with the final result either way, exactly once. `args` is whatever the
+-- slash command carried after the capture name; captures that take no
+-- arguments ignore it.
+function ns.RunCapture(name, onComplete, args)
+    local function complete(result)
+        if onComplete then
+            onComplete(result)
+        end
+        return result
+    end
+    local entry = ns.captures[name]
+    if not entry then
+        return complete({
+            ok = false,
+            reason = string.format(
+                "unknown capture '%s' (known: %s)",
+                tostring(name),
+                table.concat(ns.captureOrder, ", ")
+            ),
+        })
+    end
+    if not ns.db then
+        return complete({ ok = false, reason = "database not loaded yet" })
+    end
+    if InCombatLockdown() then
+        return complete({ ok = false, reason = "combat" })
+    end
+    if ns.runningCapture then
+        return complete({
+            ok = false,
+            reason = string.format("capture '%s' is still running", ns.runningCapture),
+        })
+    end
+    local startedAt = debugprofilestop and debugprofilestop() or nil
+    if not entry.async then
+        local ok, data = pcall(entry.run, args)
+        if not ok then
+            return complete({ ok = false, reason = string.format("capture '%s' errored: %s", name, tostring(data)) })
+        end
+        return complete(storeSnapshot(name, data, startedAt))
+    end
+
+    ns.runningCapture = name
+    local settled
+    local function finish(data, failure)
+        if settled then
+            return
+        end
+        ns.runningCapture = nil
+        if failure then
+            settled = complete({ ok = false, reason = string.format("capture '%s' %s", name, tostring(failure)) })
+        else
+            settled = complete(storeSnapshot(name, data, startedAt))
+        end
+    end
+    if C_Timer and C_Timer.After then
+        C_Timer.After(ns.CAPTURE_TIMEOUT_SECONDS, function()
+            finish(nil, string.format("gave up after %d seconds", ns.CAPTURE_TIMEOUT_SECONDS))
+        end)
+    end
+    local ok, err = pcall(entry.run, finish, args)
+    if not ok then
+        finish(nil, string.format("errored: %s", tostring(err)))
+    end
+    return settled or { ok = true, pending = true, name = name }
 end
 
 -- SavedVariables through AceDB. `char` holds the last QE import (M2-1),
@@ -307,7 +363,7 @@ local HELP = {
 }
 
 local function captureCommand(rest)
-    local name = rest:match("^(%S+)")
+    local name, args = rest:match("^(%S+)%s*(.-)$")
     if not name then
         ns.Log("captures: %s", table.concat(ns.captureOrder, ", "))
         for _, known in ipairs(ns.captureOrder) do
@@ -323,16 +379,20 @@ local function captureCommand(rest)
         ns.Log("captures cleared. /reload to flush.")
         return
     end
-    local result = ns.RunCapture(name)
-    if result.ok then
-        ns.Log(
-            "capture '%s' stored (#%d, %s). /reload, then tools\\sync.ps1 -Pull.",
-            name,
-            result.count,
-            result.snapshot.sawSecret and "secrets seen and masked" or "no secrets"
-        )
-    else
-        ns.Log("capture '%s' refused: %s", name, result.reason)
+    local result = ns.RunCapture(name, function(final)
+        if final.ok then
+            ns.Log(
+                "capture '%s' stored (#%d, %s). /reload, then tools\\sync.ps1 -Pull.",
+                name,
+                final.count,
+                final.snapshot.sawSecret and "secrets seen and masked" or "no secrets"
+            )
+        else
+            ns.Log("capture '%s' refused: %s", name, final.reason)
+        end
+    end, args)
+    if result.pending then
+        ns.Log("capture '%s' is running; it reports when it finishes. Stay out of combat.", name)
     end
 end
 

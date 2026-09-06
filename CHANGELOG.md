@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### M3-1 (WKE-522, PR 1) - Journal adapter and `capture journal`
+
+- `ns.JournalAdapter`: the only place the addon touches the Encounter Journal.
+  Every call goes through `ns.Probe` and `ns.CopyRaw`, so returns stay exactly
+  as the client gave them, secrets are masked and counted, and a function this
+  client does not have is a finding (`Availability()`) rather than a crash.
+- `JournalAdapter.Walk` drives instance / difficulty / loot filter / M+ preview
+  level per target, waits for `EJ_LOOT_DATA_RECIEVED` on a bound (8 attempts,
+  0.25s apart) rather than assuming the loot list is ready, counts the events,
+  waits, timeouts and elapsed time, abandons the walk if combat starts, and
+  restores the journal's tier, difficulty and loot filter when it finishes.
+- `/lootpath capture journal [preview level]` dumps the season's M+ pool, both
+  candidate map-to-instance lookups side by side, the maps neither resolved,
+  the tiers, the raid list, and every raw loot row per target with the item
+  level and equip location the loot rows themselves do not carry. For WKE-523.
+- Captures can now be asynchronous: `ns.RegisterCapture(..., { async = true })`
+  gets a `finish` callback, `RunCapture` answers `pending`, only one capture
+  runs at a time, and one that never calls back is abandoned after 180s.
+- `ns.Journal` (the pure aggregator and its cache) lands in PR 2, written
+  against WKE-523's transcript rather than against a guess.
+
 ### M2-1 (WKE-518) - QEImport
 
 - `ns.QEImport.Parse(text)`: QE Live's `qe-live-droptimizer` v1 Top Gear JSON

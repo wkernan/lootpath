@@ -96,6 +96,40 @@ function Stub.install()
         frames = {},
         equipCalls = {},
         secrets = setmetatable({}, { __mode = "k" }),
+        -- C_Timer.After runs on a fake clock a test drives with runTimers.
+        now = 0,
+        timers = {},
+        -- The Encounter Journal. Placeholders in every particular: WKE-523's
+        -- transcript is what settles the real shapes. What is modelled here is
+        -- the BEHAVIOUR the adapter has to survive - loot that is out of date
+        -- until EJ_LOOT_DATA_RECIEVED arrives, and journal view state that a
+        -- walk must put back.
+        journal = {
+            numTiers = 3,
+            currentTier = 1,
+            tierInfo = { { "Tier One", "tierlink1" }, { "Tier Two", "tierlink2" }, { "Tier Three", "tierlink3" } },
+            difficulty = 1,
+            lootFilter = { 0, 0 },
+            previewLevel = nil,
+            previewLevelCalls = {},
+            selectedInstance = nil,
+            instances = { dungeons = {}, raids = {} },
+            encounters = {}, -- [instanceID] = { { name, description, encounterID } }
+            loot = {}, -- [instanceID] = { [difficultyID] = { EncounterJournalItemInfo } }
+            validDifficulty = {}, -- [instanceID] = { [difficultyID] = boolean }
+            mapTable = {},
+            mapUIInfo = {}, -- [mapChallengeModeID] = { name, id, timeLimit, texture, background, mapID }
+            instanceForGameMap = {}, -- [mapID] = journalInstanceID
+            instanceForMap = {}, -- [mapID] = journalInstanceID
+            season = 15,
+            -- nil = loot is ready the moment it is selected. A number delays
+            -- EJ_LOOT_DATA_RECIEVED by that many fake seconds; `false` means
+            -- the event never comes at all.
+            lootDelaySeconds = nil,
+            lootPending = false,
+            selectCalls = {},
+            lootFilterCalls = {},
+        },
     }
 
     -- Secrets: a sentinel registered here answers issecretvalue / issecrettable.
@@ -118,6 +152,34 @@ function Stub.install()
     end
     function world.output()
         return table.concat(world.printed, "\n")
+    end
+
+    -- Drives C_Timer.After on a fake clock: fires every pending timer whose
+    -- due time falls within `budgetSeconds` of now, earliest first, letting
+    -- callbacks schedule more. Nothing here sleeps, so an async walk runs to
+    -- completion inside a synchronous test.
+    function world.runTimers(budgetSeconds)
+        local deadline = world.now + (budgetSeconds or 0)
+        local guard = 0
+        while true do
+            guard = guard + 1
+            assert(guard < 100000, "stub: runaway timer loop")
+            local pick
+            for i = 1, #world.timers do
+                local timer = world.timers[i]
+                if not timer.done and (not pick or timer.at < pick.at) then
+                    pick = timer
+                end
+            end
+            if not pick or pick.at > deadline then
+                return
+            end
+            pick.done = true
+            if pick.at > world.now then
+                world.now = pick.at
+            end
+            pick.fn()
+        end
     end
 
     define("issecretvalue", function(value)
@@ -396,13 +458,207 @@ function Stub.install()
         end,
     })
 
-    -- Namespaces the env capture lists; empty until their issues fill them.
-    define("C_EncounterJournal", { GetLootInfoByIndex = function() end })
-    define("C_MythicPlus", { GetCurrentSeason = function() end })
-    define("C_ChallengeMode", { GetMapTable = function() end })
-    define("EJ_GetNumLoot", function()
-        return 0
+    define("C_Timer", {
+        After = function(delay, fn)
+            world.timers[#world.timers + 1] = { at = world.now + (tonumber(delay) or 0), fn = fn }
+        end,
+    })
+
+    -- DifficultyUtil.ID, from Blizzard's shipped DifficultyUtil.lua (the
+    -- annotated FrameXML source under .luals, lines 3-21), not the wiki.
+    define("DifficultyUtil", {
+        ID = {
+            DungeonNormal = 1,
+            DungeonHeroic = 2,
+            DungeonChallenge = 8,
+            DungeonMythic = 23,
+            PrimaryRaidNormal = 14,
+            PrimaryRaidHeroic = 15,
+            PrimaryRaidMythic = 16,
+        },
+    })
+
+    -- The Encounter Journal. Selecting an instance or a difficulty starts the
+    -- client fetching loot: until it arrives EJ_IsLootListOutOfDate answers
+    -- true and EJ_GetNumLoot answers 0, exactly the behaviour Blizzard's own
+    -- journal codes around. world.journal.lootDelaySeconds decides how that
+    -- resolves: nil = immediately, a number = after that many fake seconds and
+    -- an EJ_LOOT_DATA_RECIEVED, false = never.
+    local J = world.journal
+
+    local function currentLoot()
+        local byDifficulty = J.loot[J.selectedInstance]
+        return (byDifficulty and byDifficulty[J.difficulty]) or {}
+    end
+
+    -- Only the latest fetch resolves, so selecting an instance and then a
+    -- difficulty produces one loot list and one event, not two.
+    local function startLootFetch()
+        J.fetchToken = (J.fetchToken or 0) + 1
+        if J.lootDelaySeconds == nil then
+            J.lootPending = false
+            return
+        end
+        J.lootPending = true
+        if J.lootDelaySeconds == false then
+            return
+        end
+        local token = J.fetchToken
+        _G.C_Timer.After(J.lootDelaySeconds, function()
+            if J.fetchToken ~= token then
+                return
+            end
+            J.lootPending = false
+            local first = currentLoot()[1]
+            world.fireEvent("EJ_LOOT_DATA_RECIEVED", first and first.itemID or nil)
+        end)
+    end
+    world.journal.startLootFetch = startLootFetch
+
+    define("EJ_GetNumTiers", function()
+        return J.numTiers
     end)
+    define("EJ_GetCurrentTier", function()
+        return J.currentTier
+    end)
+    define("EJ_GetTierInfo", function(index)
+        local tier = J.tierInfo[index]
+        if not tier then
+            return nil
+        end
+        return tier[1], tier[2]
+    end)
+    define("EJ_SelectTier", function(index)
+        J.currentTier = index
+    end)
+    define("EJ_GetInstanceByIndex", function(index, isRaid)
+        local list = isRaid and J.instances.raids or J.instances.dungeons
+        local instance = list[index]
+        if not instance then
+            return nil
+        end
+        -- Ketho's ordering: 1 instanceID, 2 name, 3 description, 4-10 art and
+        -- flags, 11 mapID.
+        local nothing = nil
+        return instance.instanceID,
+            instance.name,
+            instance.description,
+            nothing,
+            nothing,
+            nothing,
+            nothing,
+            nothing,
+            nothing,
+            nothing,
+            instance.mapID
+    end)
+    define("EJ_GetInstanceInfo", function()
+        local list = J.instances.dungeons
+        for _, instance in ipairs(list) do
+            if instance.instanceID == J.selectedInstance then
+                return instance.name
+            end
+        end
+        return nil
+    end)
+    define("EJ_GetInstanceForMap", function(mapID)
+        return J.instanceForMap[mapID]
+    end)
+    define("EJ_SelectInstance", function(journalInstanceID)
+        J.selectedInstance = journalInstanceID
+        J.selectCalls[#J.selectCalls + 1] = { instance = journalInstanceID }
+        startLootFetch()
+    end)
+    define("EJ_InstanceIsRaid", function()
+        for _, instance in ipairs(J.instances.raids) do
+            if instance.instanceID == J.selectedInstance then
+                return true
+            end
+        end
+        return false
+    end)
+    define("EJ_GetDifficulty", function()
+        return J.difficulty
+    end)
+    define("EJ_SetDifficulty", function(difficultyID)
+        J.difficulty = difficultyID
+        J.selectCalls[#J.selectCalls + 1] = { difficulty = difficultyID }
+        startLootFetch()
+    end)
+    define("EJ_IsValidInstanceDifficulty", function(difficultyID)
+        local valid = J.validDifficulty[J.selectedInstance]
+        if not valid then
+            return true
+        end
+        return valid[difficultyID] == true
+    end)
+    define("EJ_GetLootFilter", function()
+        return J.lootFilter[1], J.lootFilter[2]
+    end)
+    define("EJ_SetLootFilter", function(classID, specID)
+        J.lootFilter = { classID, specID }
+        J.lootFilterCalls[#J.lootFilterCalls + 1] = { classID, specID }
+    end)
+    define("EJ_ResetLootFilter", function()
+        J.lootFilter = { 0, 0 }
+    end)
+    define("EJ_GetEncounterInfoByIndex", function(index, journalInstanceID)
+        local encounters = J.encounters[journalInstanceID or J.selectedInstance] or {}
+        local encounter = encounters[index]
+        if not encounter then
+            return nil
+        end
+        return encounter.name, encounter.description, encounter.encounterID
+    end)
+    define("EJ_GetNumLoot", function()
+        if J.lootPending then
+            return 0
+        end
+        return #currentLoot()
+    end)
+    define("EJ_IsLootListOutOfDate", function()
+        return J.lootPending
+    end)
+
+    define("C_EncounterJournal", {
+        GetLootInfoByIndex = function(index)
+            if J.lootPending then
+                return nil
+            end
+            return deepcopy(currentLoot()[index])
+        end,
+        GetInstanceForGameMap = function(mapID)
+            return J.instanceForGameMap[mapID]
+        end,
+        SetPreviewMythicPlusLevel = function(level)
+            J.previewLevel = level
+            J.previewLevelCalls[#J.previewLevelCalls + 1] = level
+        end,
+        InstanceHasLoot = function()
+            return true
+        end,
+    })
+    define("C_MythicPlus", {
+        GetCurrentSeason = function()
+            return J.season
+        end,
+        GetCurrentSeasonValues = function()
+            return J.season, J.season, J.season
+        end,
+        RequestMapInfo = function() end,
+    })
+    define("C_ChallengeMode", {
+        GetMapTable = function()
+            return deepcopy(J.mapTable)
+        end,
+        GetMapUIInfo = function(mapChallengeModeID)
+            local info = J.mapUIInfo[mapChallengeModeID]
+            if not info then
+                return nil
+            end
+            return info[1], info[2], info[3], info[4], info[5], info[6]
+        end,
+    })
 
     return world
 end

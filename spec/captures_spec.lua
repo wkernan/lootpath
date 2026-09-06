@@ -18,8 +18,10 @@ describe("captures", function()
         H.unload()
     end)
 
-    it("registers env, inventory and vault in that order", function()
-        assert.same({ "env", "inventory", "vault" }, ns.captureOrder)
+    it("registers env, inventory, vault and journal in that order", function()
+        -- `journal` registers in Modules/Journal.lua, which the .toc loads
+        -- after this file, so it comes last.
+        assert.same({ "env", "inventory", "vault", "journal" }, ns.captureOrder)
     end)
 
     describe("env", function()
@@ -54,8 +56,16 @@ describe("captures", function()
             local data = ns.RunCapture("env").snapshot.data
             assert.equal(0, data.enums.BagIndex.Backpack)
             assert.equal(2, data.enums.BankType.Account)
-            assert.same({ "GetLootInfoByIndex" }, data.namespaces.C_EncounterJournal)
-            assert.same({ "EJ_GetNumLoot=function" }, data.globals.EJ)
+            assert.same({
+                "GetInstanceForGameMap",
+                "GetLootInfoByIndex",
+                "InstanceHasLoot",
+                "SetPreviewMythicPlusLevel",
+            }, data.namespaces.C_EncounterJournal)
+            -- The stub's journal surface (M3-1); the real client listed 35 EJ_
+            -- globals in the 2026-09-05 transcript.
+            assert.truthy(table.concat(data.globals.EJ, " "):find("EJ_SetLootFilter=function", 1, true))
+            assert.equal(18, #data.globals.EJ)
             assert.equal("function", data.globals.equip["C_Item.EquipItemByName"])
             assert.equal("nil", data.globals.equip.EquipItemByName)
             assert.equal(1, data.constants.INVSLOT_FIRST_EQUIPPED)

@@ -276,6 +276,111 @@ describe("Core", function()
             assert.equal(before, #ns.captureOrder)
             assert.equal("again", ns.captures.probe.help)
         end)
+
+        it("passes the rest of the command through as arguments", function()
+            local seen
+            ns.RegisterCapture("witharg", "", function(args)
+                seen = args
+                return {}
+            end)
+            ns.HandleSlash("capture witharg 14")
+            assert.equal("14", seen)
+        end)
+    end)
+
+    -- Async captures exist because the Encounter Journal loads loot only after
+    -- EJ_LOOT_DATA_RECIEVED (M3-1, WKE-522), so `capture journal` cannot be one
+    -- synchronous call the way env, inventory and vault are.
+    describe("RunCapture, async", function()
+        local finishLater
+
+        before_each(function()
+            ns.RegisterCapture("slow", "async test capture", function(finish, args)
+                finishLater = function(data)
+                    finish(data or { answer = 42, args = args })
+                end
+            end, { async = true })
+            ns.RegisterCapture("quick", "sync test capture", function()
+                return { answer = 7 }
+            end)
+        end)
+
+        it("reports itself pending and stores nothing until it finishes", function()
+            local final
+            local immediate = ns.RunCapture("slow", function(result)
+                final = result
+            end, "seven")
+            assert.same({ ok = true, pending = true, name = "slow" }, immediate)
+            assert.is_nil(final)
+            assert.is_nil(ns.db.global.captures.slow)
+
+            finishLater()
+            assert.is_true(final.ok)
+            assert.equal(42, final.snapshot.data.answer)
+            assert.equal("seven", final.snapshot.data.args)
+            assert.equal(final.snapshot, ns.db.global.captures.slow[1])
+            assert.is_number(final.snapshot.durationMs)
+        end)
+
+        it("refuses a second capture while one is still running", function()
+            ns.RunCapture("slow")
+            local blocked = ns.RunCapture("quick")
+            assert.is_false(blocked.ok)
+            assert.truthy(blocked.reason:find("'slow' is still running", 1, true))
+            assert.is_nil(ns.db.global.captures.quick)
+
+            finishLater()
+            assert.is_true(ns.RunCapture("quick").ok)
+        end)
+
+        it("stores only the first finish, never a second", function()
+            local calls = 0
+            ns.RunCapture("slow", function()
+                calls = calls + 1
+            end)
+            finishLater()
+            finishLater()
+            assert.equal(1, calls)
+            assert.equal(1, #ns.db.global.captures.slow)
+        end)
+
+        it("gives up on one that never calls back, and lets the next one run", function()
+            local final
+            ns.RunCapture("slow", function(result)
+                final = result
+            end)
+            world.runTimers(ns.CAPTURE_TIMEOUT_SECONDS)
+            assert.is_false(final.ok)
+            assert.truthy(final.reason:find("gave up after 180 seconds", 1, true))
+            assert.is_nil(ns.db.global.captures.slow)
+            assert.is_true(ns.RunCapture("quick").ok)
+        end)
+
+        it("reports one that errors on the way in and stores nothing", function()
+            ns.RegisterCapture("brokenasync", "", function()
+                error("journal exploded")
+            end, { async = true })
+            local final = ns.RunCapture("brokenasync", function(result)
+                return result
+            end)
+            local reported
+            ns.RunCapture("brokenasync", function(result)
+                reported = result
+            end)
+            assert.is_false(final.ok)
+            assert.truthy(final.reason:find("journal exploded", 1, true))
+            assert.is_false(reported.ok)
+            assert.is_nil(ns.db.global.captures.brokenasync)
+        end)
+
+        it("refuses in combat before it starts anything", function()
+            world.inCombat = true
+            local final = ns.RunCapture("slow", function(result)
+                return result
+            end)
+            assert.same({ ok = false, reason = "combat" }, final)
+            assert.is_nil(ns.runningCapture)
+        end)
     end)
 
     describe("slash command", function()

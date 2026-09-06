@@ -37,8 +37,11 @@ Everything is documented in `docs/ARCHITECTURE.md`; the working rules are in
 .\tools\sync.ps1                # copy the addon into the game; -Watch; -Pull
 ```
 
-In game: `/lootpath help`. Captures: `/lootpath capture env|inventory|vault`,
-then `/reload` and `.\tools\sync.ps1 -Pull`.
+In game: `/lootpath help`. Captures:
+`/lootpath capture env|inventory|vault|journal`, then `/reload` and
+`.\tools\sync.ps1 -Pull`. `journal` runs asynchronously (it waits on the
+Encounter Journal's loot events) and reports when it finishes; it takes an
+optional Mythic+ preview level, e.g. `/lootpath capture journal 14`.
 
 ## Licence
 
