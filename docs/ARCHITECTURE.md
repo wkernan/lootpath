@@ -1,8 +1,39 @@
 # Lootpath - the central brain
 
-This document is the single source of truth for what Lootpath is, how it works, every decision made and why, what is verified and what is not, and where the work stands. **Every session that changes a decision, verifies a fact, or closes an issue updates this file in the same PR.** If this file and the code disagree, say so in the PR and fix whichever is wrong; never leave them disagreeing.
+This document is the single source of truth for what Lootpath is, how it works, every decision made and why, what is verified and what is not, and where the work stands. **Every session updates this file before it ends, after anything is learned, discussed, decided, created or worked on** - not only when a PR changes code. A conversation that settles a question, refutes a premise, or moves the plan is recorded here in the same session, through a docs-only PR if nothing else is in flight. If this file and the code disagree, say so in the PR and fix whichever is wrong; never leave them disagreeing. **A new session reads §0 first**, then the sections §0 points at.
 
-Last updated: 2026-09-06 (M3-1, WKE-522 PR 1: the Journal adapter and `capture journal` shipped, captures learned to be asynchronous, and the journal walk's one deviation from "captures only read" is recorded; see §6, §7, §9 and §11. Before it the same day, QE-1, WKE-527: fork branch with the Upgrade Finder export and the Top Gear Download/Copy JSON controls; the live site had no Download JSON control at all - see §4, §5, §10, §11 and docs/qe-live-pr.md).
+Last updated: 2026-09-06 (§0 status board added and the update rule widened to every session; before that, M3-1, WKE-522 PR 1: the Journal adapter and `capture journal` shipped, captures learned to be asynchronous, and the journal walk's one deviation from "captures only read" is recorded; see §6, §7, §9 and §11. Before it the same day, QE-1, WKE-527: fork branch with the Upgrade Finder export and the Top Gear Download/Copy JSON controls; the live site had no Download JSON control at all - see §4, §5, §10, §11 and docs/qe-live-pr.md).
+
+---
+
+## 0. Where we are (read this first; keep it current)
+
+**As of 2026-09-06, end of day.** Everything below is a pointer; the detail is in the numbered sections.
+
+**Merged to `main`:** PR #1 this document; PR #2 WKE-514 skeleton, five CI gates, captures `env`/`inventory`/`vault`; PR #3 WKE-515 first in-client transcript, branch protection; PR #4 WKE-516 Inventory module and `ns.ParseItemLink`; PR #5 WKE-518 QEImport parser (its real-fixture test is `pending` until 519); PR #6 WKE-527 QE Live fork branch and the finding that the live site has no Download JSON control.
+
+**Open:** PR #7 WKE-522 part 1, the Journal adapter and `/lootpath capture journal`; green and mergeable, the owner merges. Part 2 (the aggregator) waits on the 523 transcript. PR #8 this section.
+
+**Issues:** done 514, 515, 516, 518, 527; not needed 517 (owner closes it); in flight 522; waiting on the owner 519, 523, 528; blocked 520 (on 519), 524 (on 522 part 2 and 523), 525, 526; gated 529 (only if 528 says so).
+
+**The owner's next game session** (Tuesday 2026-09-08 or later, once the Great Vault has progress; hotornot **in Restoration spec**):
+1. WKE-519: `/simc` with the vault opened once, then `npm start` in `c:\Code\qe-live-fork` (branch `lootpath/upgrade-finder-export`), import, Top Gear for M+, Export > Download JSON, commit under `spec/fixtures/qe/`. The live site cannot produce this file today (§4).
+2. WKE-523: `/lootpath capture journal`, `/lootpath capture vault` before and after opening the vault window, `/reload`, `.\tools\sync.ps1 -Pull`, commit under `spec/fixtures/captures/`.
+3. WKE-528 whenever ready: the PR text for Voulk is in `docs/qe-live-pr.md`; the owner opens it from the fork, or decides not to.
+
+**What an agent can do next, and when:** after 519 lands, swap QEImport's pending test onto the real file and start 520 (Match, paste editbox, Equip Now); after 523 lands, 522 part 2 (the aggregator) then 524 (Upgrade Map and Vault panels). Nothing addon-side is unblocked before those two transcripts. One deviation the owner may choose: start 520 against the hand-built QE sample and swap the fixture later, as 518 did.
+
+**Decisions waiting on the owner:** merge PR #7; close 517; when and how to offer the QE Live PR (528).
+
+**Hazards a new session must know:** two agents have worked in `c:\Code\lootpath` at once; check `git status` and the branch first, and do your own work in a git worktree if the tree holds someone else's edits (§12). A PR that conflicts with `main` gets no CI run at all, so zero checks means rebase, not broken CI. Ketho's annotations are one patch behind the client (§11). `jq` is not on this machine.
+
+**Where things live:** the fork at `c:\Code\qe-live-fork`; transcripts under `spec/fixtures/captures/`; expected outputs under `spec/fixtures/expected/`; every gate locally via `.\tools\check.ps1`; the memory copy of this file that Claude Code sessions carry must be regenerated from this file whenever it changes.
+
+**Recent sessions (newest first; keep the last ten):**
+- 2026-09-06: WKE-527 built on the fork; found the Download JSON control never existed; PR #6 merged. WKE-522 part 1 built by a second session; PR #7 open. This section added (PR #8).
+- 2026-09-06: WKE-516 Inventory shipped (PR #4); WKE-518 QEImport shipped by a second session (PR #5).
+- 2026-09-05: WKE-514 skeleton and CI (PR #2); WKE-515 owner's first capture session, transcript committed (PR #3); SimC addon installed.
+- 2026-09-05: project created; this document written (PR #1); sixteen Linear issues filed.
 
 ---
 
@@ -254,4 +285,8 @@ One shipped package `Lootpath/` (what the packager zips) plus `spec/` (tests) an
 
 ## 12. Working rules (also in CLAUDE.md, shipped in 514)
 
-Branch per issue (`lp-<n>-<slug>`), PR to `main`, never commit to `main` directly, merge your own PR only when every CI check is green. Read the whole Linear issue including its "Working in this repo" section. Verify the issue's premise against the code before building; a wrong premise is reported in the PR and the right thing is built instead - scaling down is fine, widening is not. Never write a measured figure you did not read from a tool. Every guard proven red. Every client read secret-guarded; nothing in combat; no network; **Lootpath never computes a healer value.** In-game steps are the owner's: write the capture, hand it over as human-required, build against the transcript. Report in every PR: what shipped; premise check; measured figures with the tool; guards and how each went red; CI results; left undone, deliberately. **And update this file** with any decision, verified fact, or closed issue.
+Branch per issue (`lp-<n>-<slug>`), PR to `main`, never commit to `main` directly, merge your own PR only when every CI check is green. Read the whole Linear issue including its "Working in this repo" section. Verify the issue's premise against the code before building; a wrong premise is reported in the PR and the right thing is built instead - scaling down is fine, widening is not. Never write a measured figure you did not read from a tool. Every guard proven red. Every client read secret-guarded; nothing in combat; no network; **Lootpath never computes a healer value.** In-game steps are the owner's: write the capture, hand it over as human-required, build against the transcript. Report in every PR: what shipped; premise check; measured figures with the tool; guards and how each went red; CI results; left undone, deliberately. **And update this file**: §0 every session without exception, plus whichever numbered section holds the decision, verified fact, refuted premise, or closed issue. A session that only talked still updates §0 if the talk moved anything.
+
+**Sharing the checkout.** Before editing, run `git status` and `git branch --show-current`. If the tree holds work that is not yours, do yours in a worktree (`git worktree add C:\Code\lootpath-<slug> -b lp-<n>-<slug> origin/main`) and never `git add -A` in the shared tree. Remove the worktree after the merge.
+
+**Captures and the Encounter Journal.** Captures only read, with one recorded exception: `capture journal` changes the Adventure Guide's view state (tier, instance, difficulty, loot filter, M+ preview level) because the API has no other way to ask for loot, restores what has a getter, and says what it could not restore (§7, 2026-09-06). Nothing any capture calls acts on the character, its items or its money, and no capture calls what a namespace walk finds.

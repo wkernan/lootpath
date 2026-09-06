@@ -1,8 +1,11 @@
 # Lootpath - working rules
 
-**`docs/ARCHITECTURE.md` is the central brain. Read it first in every session.
-Every PR that changes a decision, verifies a fact, or closes an issue updates
-it in the same PR.** This file stays short; everything else lives there.
+**`docs/ARCHITECTURE.md` is the central brain. Read its §0 first in every
+session, then the sections it points at. Before the session ends, update it
+with anything learned, discussed, decided, created or worked on: §0 always,
+plus the numbered section the change belongs to. A conversation that only
+settled a question still updates §0, through a docs-only PR if nothing else
+is in flight.** This file stays short; everything else lives there.
 
 **Lootpath never computes a healer value.** Every healing number on screen is
 QE Live's `qe-live-droptimizer` v1 export, transported unchanged. Lootpath
@@ -21,6 +24,11 @@ estimate, stop.
 - Commits end with `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
   PR bodies end with the Claude Code attribution line and carry every section
   of `.github/pull_request_template.md`.
+- The checkout may be shared with another session. Run `git status` and
+  `git branch --show-current` before editing; if the tree holds work that is
+  not yours, use a git worktree for yours and never `git add -A` there.
+- A PR that conflicts with `main` gets no CI run at all. Zero checks means
+  rebase, not broken CI.
 
 ## Evidence
 
@@ -39,8 +47,12 @@ estimate, stop.
   (`issecretvalue` / `issecrettable`). Nothing runs in combat. No network. No
   backend. Everything external arrives by paste. SavedVariables flush only on
   `/reload` or logout.
-- Captures (`/lootpath capture <name>`) only read, and only call functions
-  named in `Lootpath/Captures.lua`. Never call what a namespace walk finds.
+- Captures (`/lootpath capture <name>`) only read, with one recorded exception:
+  `capture journal` sets the Adventure Guide's view state because the API has
+  no other way to ask for loot, and restores what it can (ARCHITECTURE.md §7).
+  Every function a capture calls is named in `Lootpath/Captures.lua` or
+  `Lootpath/Modules/Journal.lua`; nothing acts on the character, its items or
+  its money. Never call what a namespace walk finds.
 
 ## Tooling
 
