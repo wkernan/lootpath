@@ -1,4 +1,4 @@
--- Lootpath/Modules/Journal.lua (M3-1, WKE-522 - PR 1: the adapter and its capture)
+-- Lootpath/Modules/Journal.lua (M3-1, WKE-522 - PR 1 the adapter, PR 2 the aggregator)
 --
 -- Two halves, deliberately separated:
 --   ns.JournalAdapter - every Encounter Journal call, raw and secret-guarded.
@@ -7,21 +7,27 @@
 --     (`{ n = <count>, ... }`, or `{ absent = true }` / `{ error = ... }`)
 --     exactly as the client answered. Untestable headless - wowless lists the
 --     EJ functions but its loot functions return nothing - so it is proven by
---     the capture below and by the stub in spec/stubs/wow.lua, which is a
---     placeholder until WKE-523 commits a real transcript.
---   ns.Journal - the pure aggregator over adapter output. It lands in PR 2,
---     written against that transcript rather than against a guess.
+--     the capture below and by the stub in spec/stubs/wow.lua.
+--   ns.Journal - the pure aggregator over adapter output (PR 2), written
+--     against spec/fixtures/captures/Lootpath-20260906-161213.lua rather than
+--     against a guess.
 --
 -- Three things about the journal that shape this file:
---   1. Loot loads ASYNCHRONOUSLY. EJ_GetNumLoot() answers 0 (or the previous
---      instance's list) until the client has the data, then fires
+--   1. Loot loads ASYNCHRONOUSLY, in TWO stages. EJ_GetNumLoot() answers 0 (or
+--      the previous instance's list) until the client has the LIST, then fires
 --      EJ_LOOT_DATA_RECIEVED - Blizzard's spelling, confirmed in its own
 --      Blizzard_EncounterJournal.lua, which gates its re-read on
 --      EJ_IsLootListOutOfDate(). So the walk is a state machine over
 --      C_Timer.After, not a loop, and `capture journal` is an async capture.
+--      The second stage is the ITEM data behind each row: 369 of the 613 rows
+--      in the 2026-09-06 transcript came back carrying only itemID,
+--      encounterID and the displayAs* flags, while EJ_IsLootListOutOfDate was
+--      false on every read - so that gate says nothing about it. The walk
+--      therefore reads each target a second time (Adapter.Walk, below).
 --   2. EncounterJournalItemInfo carries NO item level (Blizzard's exported
 --      docs, checked 2026-09-05). The level comes from
---      C_Item.GetDetailedItemLevelInfo on the row's `link`.
+--      C_Item.GetDetailedItemLevelInfo on the row's `link`, which is why a row
+--      that arrives without a link is "not known yet", never "no item level".
 --   3. Selecting a tier, an instance, a difficulty or a loot filter MUTATES
 --      the journal's view state. That is the one place a Lootpath capture is
 --      not purely a read: it changes what the Adventure Guide shows, nothing
@@ -35,10 +41,10 @@ local _, ns = ...
 ns.JournalAdapter = {}
 local Adapter = ns.JournalAdapter
 
--- The aggregator. PR 2 (still WKE-522) fills this in against the WKE-523
--- transcript: Build(opts) -> { [itemID] = { { instanceID, instanceName,
+-- The aggregator: Build(opts) -> { [itemID] = { { instanceID, instanceName,
 -- encounterID, encounterName, difficultyID, itemLevel, slot, isRaid } ... } },
 -- cached in db.global.journalCache keyed (build, seasonID, specID, difficultyID).
+-- Implemented at the bottom of this file, after the adapter it reads.
 ns.Journal = {}
 
 -- Difficulty IDs, read from Blizzard's own DifficultyUtil.lua (shipped source,
@@ -91,6 +97,14 @@ end
 Adapter.LOOT_WAIT_SECONDS = 0.25
 Adapter.LOOT_MAX_ATTEMPTS = 8
 
+-- The second stage's bound, kept as its own pair of constants because it is a
+-- different wait: the loot LIST is there, but the ITEM data behind some of its
+-- rows is not. Same shape, so a target that never fills costs a known number
+-- of seconds instead of hanging the walk, and every re-read and every timeout
+-- is counted into the transcript.
+Adapter.ITEM_DATA_WAIT_SECONDS = 0.25
+Adapter.ITEM_DATA_MAX_ATTEMPTS = 8
+
 -- Every client function this file calls, named here and nowhere discovered by
 -- walking a namespace. All of them read or set journal view state; none of
 -- them acts on the character or its items. The list is names rather than
@@ -114,6 +128,7 @@ Adapter.FUNCTION_NAMES = {
     "EJ_SetLootFilter",
     "EJ_ResetLootFilter",
     "EJ_GetEncounterInfoByIndex",
+    "EJ_GetEncounterInfo",
     "EJ_GetNumLoot",
     "EJ_IsLootListOutOfDate",
     "C_EncounterJournal.GetLootInfoByIndex",
@@ -324,6 +339,47 @@ local function lootIsPending(read)
     return read.outOfDate[1] == true
 end
 
+-- Blizzard's own test for "this row's item data has not arrived yet":
+-- EncounterJournalItemMixin:Init draws RETRIEVING_ITEM_INFO and blanks the
+-- slot and armour type when `itemInfo.name` is missing
+-- (Blizzard_EncounterJournal.lua, Mainline). The link is checked with it
+-- because the link is what carries the item level.
+function Adapter.RowIsPending(row)
+    local info = row and row.itemInfo and row.itemInfo[1]
+    if type(info) ~= "table" then
+        return true
+    end
+    return type(info.name) ~= "string" or type(info.link) ~= "string"
+end
+
+function Adapter.CountPendingRows(read)
+    local pending = 0
+    for _, row in ipairs((read and read.rows) or {}) do
+        if Adapter.RowIsPending(row) then
+            pending = pending + 1
+        end
+    end
+    return pending
+end
+
+-- Boss names for the encounters a read's rows point at. Blizzard's own loot
+-- button resolves a row's boss exactly this way - EJ_GetEncounterInfo(
+-- itemInfo.encounterID) in EncounterJournalItemMixin:Init - because
+-- EJ_GetEncounterInfoByIndex answers nothing at some difficulties (measured:
+-- every DungeonChallenge target and both Midnight targets in the 2026-09-06
+-- transcript listed zero encounters, leaving 95 of 613 rows unnamed).
+function Adapter.EncounterNames(read)
+    local names = {}
+    for _, row in ipairs((read and read.rows) or {}) do
+        local info = row.itemInfo and row.itemInfo[1]
+        local encounterID = type(info) == "table" and info.encounterID or nil
+        if type(encounterID) == "number" and names[encounterID] == nil then
+            names[encounterID] = Adapter.Call(_G.EJ_GetEncounterInfo, encounterID)
+        end
+    end
+    return names
+end
+
 -- Journal view state, so the walk can put back what it changed. There is no
 -- getter for the M+ preview level, so it is not in here.
 function Adapter.ViewState()
@@ -401,7 +457,19 @@ end
 -- The walk. `targets` is a flat list of { instanceID, instanceName, isRaid,
 -- difficultyID, difficultyName, previewLevel }; each one is selected, given up
 -- to LOOT_MAX_ATTEMPTS x LOOT_WAIT_SECONDS for its loot list to stop being out
--- of date, then read. onDone(result) is called exactly once.
+-- of date, then read TWICE. onDone(result) is called exactly once.
+--
+-- Why twice, and which of Blizzard's patterns this mirrors. Its
+-- EncounterJournal_OnEvent splits EJ_LOOT_DATA_RECIEVED two ways: an event
+-- carrying an itemID while the list is current refreshes just that row
+-- (EncounterJournal_LootCallback), and anything else re-reads the whole list
+-- (EncounterJournal_LootUpdate, an EJ_GetNumLoot loop over
+-- C_EncounterJournal.GetLootInfoByIndex). The walk mirrors the second: it has
+-- no frame per row to refresh, and it cannot come back to a target once the
+-- next EJ_SelectInstance has moved the journal on, so the whole list is read
+-- again in place. The first read is kept as `record.loot` and the second as
+-- `record.reread`, so the transcript carries both and the next `capture
+-- journal` can show what the second one filled in.
 --
 -- Nothing in here runs in combat: the walk checks before every target and
 -- abandons the rest with `abortedInCombat` if the player is pulled into one.
@@ -414,6 +482,11 @@ function Adapter.Walk(opts, onDone)
         lootEventItemIDs = {},
         waits = 0,
         timeouts = 0,
+        rereads = 0,
+        itemDataTimeouts = 0,
+        pendingRowsFirstRead = 0,
+        pendingRowsFinalRead = 0,
+        rowsFilledByReread = 0,
         abortedInCombat = false,
     }
     local startedAt = now()
@@ -483,6 +556,56 @@ function Adapter.Walk(opts, onDone)
         result.targets[index] = record
 
         local attemptStartedAt = now()
+        local itemDataStartedAt
+        local settleItemData, waitForItemData
+
+        -- Stage two: the list is in, but some rows have no name and no link.
+        -- Wait for EJ_LOOT_DATA_RECIEVED (or the bound), then re-read the
+        -- whole list the way EncounterJournal_LootUpdate does.
+        function settleItemData()
+            if finished then
+                return
+            end
+            record.rereads = record.rereads + 1
+            result.rereads = result.rereads + 1
+            local reread = Adapter.LootRows()
+            record.reread = reread
+            record.rereadPendingRows = Adapter.CountPendingRows(reread)
+            if record.rereadPendingRows > 0 and record.rereads < Adapter.ITEM_DATA_MAX_ATTEMPTS then
+                return waitForItemData()
+            end
+            record.itemDataWaitedMs = now() - itemDataStartedAt
+            result.pendingRowsFinalRead = result.pendingRowsFinalRead + record.rereadPendingRows
+            result.rowsFilledByReread = result.rowsFilledByReread + (record.pendingRows - record.rereadPendingRows)
+            record.encounterNames = Adapter.EncounterNames(reread)
+            after(0, nextTarget)
+        end
+
+        function waitForItemData()
+            if finished then
+                return
+            end
+            local resumed = false
+            local function resume()
+                if resumed or finished then
+                    return
+                end
+                resumed = true
+                settleItemData()
+            end
+            waiting = resume
+            after(Adapter.ITEM_DATA_WAIT_SECONDS, function()
+                if waiting == resume then
+                    waiting = nil
+                end
+                if not resumed and not finished then
+                    record.itemDataTimeouts = (record.itemDataTimeouts or 0) + 1
+                    result.itemDataTimeouts = result.itemDataTimeouts + 1
+                end
+                resume()
+            end)
+        end
+
         local function read()
             if finished then
                 return
@@ -516,6 +639,15 @@ function Adapter.Walk(opts, onDone)
             record.loot = loot
             record.stillOutOfDate = lootIsPending(loot)
             record.waitedMs = now() - attemptStartedAt
+            record.pendingRows = Adapter.CountPendingRows(loot)
+            record.rereads = 0
+            result.pendingRowsFirstRead = result.pendingRowsFirstRead + record.pendingRows
+            if record.pendingRows > 0 then
+                itemDataStartedAt = now()
+                return waitForItemData()
+            end
+            result.pendingRowsFinalRead = result.pendingRowsFinalRead + record.pendingRows
+            record.encounterNames = Adapter.EncounterNames(loot)
             after(0, nextTarget)
         end
         read()
@@ -567,6 +699,311 @@ function Adapter.BuildTargets(pool, raidInstances, plan, previewLevel)
         end
     end
     return targets, unresolved
+end
+
+-- ---------------------------------------------------------------------------
+-- ns.Journal - the pure aggregator (PR 2)
+--
+-- Build(opts) turns one journal walk into the loot map:
+--
+--   { [itemID] = { { instanceID, instanceName, encounterID, encounterName,
+--                    difficultyID, itemLevel, slot, isRaid, pending } ... } }
+--
+-- It is pure Lua over a table the adapter already produced - the same shape a
+-- `capture journal` snapshot stores - so like QEImport.Parse it carries no
+-- combat guard and reads nothing from the client. The walk in front of it does
+-- both (decision 2026-09-06).
+--
+-- Three things the 2026-09-06 transcript decided, none of them guessed:
+--   * `slot` comes from the row's C_Item.GetItemInfoInstant equipLoc through
+--     ns.Inventory.SlotForEquipLoc, NOT from EncounterJournalItemInfo.slot.
+--     Both were measured, and they agree one-for-one across all 244 rows that
+--     carried an equipLoc (e.g. "One-Hand"/INVTYPE_WEAPON, "Held In
+--     Off-hand"/INVTYPE_HOLDABLE), but the row's own string is the client's
+--     localised UI text while the equipLoc is not - and going through
+--     Inventory's table is what makes Journal and Inventory speak one slot
+--     vocabulary, which is QE Live's, which is what M3-3 joins them on.
+--   * A row whose item data had not arrived (no name, no link) is carried with
+--     `pending = true` and a nil itemLevel and slot. "Not known yet" is never
+--     "no item level": 240 of the 376 itemIDs in that walk were link-less on
+--     EVERY row, so treating them as slotless would silently lose 64% of the
+--     map.
+--   * Boss names are an instance-wide fact, not a per-difficulty one. The
+--     walk's own encounter list came back empty for every DungeonChallenge
+--     target, so names seen at one difficulty of an instance name the same
+--     encounters at its others.
+local Journal = ns.Journal
+
+-- Numbers numerically, anything else by its string form: difficulty IDs are
+-- numbers, and 2:8:15:16:23 reads better than the lexicographic order.
+function Journal.CompareIDs(a, b)
+    if type(a) == "number" and type(b) == "number" then
+        return a < b
+    end
+    return tostring(a) < tostring(b)
+end
+
+-- Cache key. The issue's four parts, in order, with the difficulties joined
+-- and sorted so the same walk always produces the same key.
+function Journal.CacheKey(build, seasonID, specID, difficultyIDs)
+    local sorted = {}
+    for _, id in ipairs(difficultyIDs or {}) do
+        sorted[#sorted + 1] = tonumber(id) or id
+    end
+    table.sort(sorted, Journal.CompareIDs)
+    local difficulties = #sorted > 0 and table.concat(sorted, ":") or "none"
+    return table.concat({ tostring(build), tostring(seasonID), tostring(specID), difficulties }, "|")
+end
+
+-- Everything the client built for another build is gone the moment the build
+-- changes: item levels, bonus IDs and the season's pool all move with a patch,
+-- so a stale entry is worse than no entry. Returns how many it dropped.
+function Journal.Invalidate(db, build)
+    local cache = db and db.global and db.global.journalCache
+    if type(cache) ~= "table" then
+        return 0
+    end
+    local dropped = 0
+    for key, entry in pairs(cache) do
+        if type(entry) ~= "table" or tostring(entry.build) ~= tostring(build) then
+            cache[key] = nil
+            dropped = dropped + 1
+        end
+    end
+    return dropped
+end
+
+-- The read a target's rows are taken from: the second one whenever the walk
+-- made it, because that is the one taken after EJ_LOOT_DATA_RECIEVED.
+local function finalRead(target)
+    return target.reread or target.loot
+end
+
+local function probeValue(pack)
+    return type(pack) == "table" and pack[1] or nil
+end
+
+-- GetBuildInfo() -> version, build, date, tocversion. The cache is keyed on
+-- the BUILD number (69587 on 2026-09-06), not the version string: a hotfix
+-- build can move item levels without moving "12.1.0".
+function Journal.BuildNumber(pack)
+    if type(pack) ~= "table" then
+        return nil
+    end
+    return pack[2] or pack[1]
+end
+
+-- [instanceID][encounterID] = boss name, gathered across every target of an
+-- instance before any row is read.
+local function encounterIndex(targets)
+    local byInstance = {}
+    for _, target in ipairs(targets) do
+        local names = byInstance[target.instanceID]
+        if not names then
+            names = {}
+            byInstance[target.instanceID] = names
+        end
+        for _, encounter in ipairs(target.encounters or {}) do
+            if type(encounter.encounterID) == "number" and type(encounter.name) == "string" then
+                names[encounter.encounterID] = encounter.name
+            end
+        end
+        for encounterID, pack in pairs(target.encounterNames or {}) do
+            local name = probeValue(pack)
+            if type(name) == "string" and names[encounterID] == nil then
+                names[encounterID] = name
+            end
+        end
+    end
+    return byInstance
+end
+
+-- Deterministic order, so a golden fixture is stable: dungeons before raids,
+-- then instance, difficulty, encounter, and a known row before a pending one.
+local function sortSources(list)
+    table.sort(list, function(a, b)
+        if (a.isRaid == true) ~= (b.isRaid == true) then
+            return b.isRaid == true
+        end
+        if a.instanceID ~= b.instanceID then
+            return (a.instanceID or 0) < (b.instanceID or 0)
+        end
+        if a.difficultyID ~= b.difficultyID then
+            return (a.difficultyID or 0) < (b.difficultyID or 0)
+        end
+        if a.encounterID ~= b.encounterID then
+            return (a.encounterID or 0) < (b.encounterID or 0)
+        end
+        return (a.pending and 1 or 0) < (b.pending and 1 or 0)
+    end)
+end
+
+local function aggregate(targets, wanted)
+    local names = encounterIndex(targets)
+    local sources, seen = {}, {}
+    local summary = {
+        targets = 0,
+        rows = 0,
+        skippedRows = 0,
+        nonGearRows = 0,
+        pendingRows = 0,
+        duplicateRows = 0,
+        rereadTargets = 0,
+        sources = 0,
+        items = 0,
+        pendingItems = 0,
+        unnamedEncounters = 0,
+    }
+
+    for _, target in ipairs(targets) do
+        if not wanted or wanted[target.difficultyID] then
+            summary.targets = summary.targets + 1
+            if target.reread then
+                summary.rereadTargets = summary.rereadTargets + 1
+            end
+            local read = finalRead(target)
+            for _, row in ipairs((read and read.rows) or {}) do
+                summary.rows = summary.rows + 1
+                local info = row.itemInfo and row.itemInfo[1]
+                local itemID = type(info) == "table" and tonumber(info.itemID) or nil
+                local pending = Adapter.RowIsPending(row)
+                local slot = ns.Inventory and ns.Inventory.SlotForEquipLoc(row.instant and row.instant[4]) or nil
+                if not itemID or itemID <= 0 or itemID % 1 ~= 0 then
+                    summary.skippedRows = summary.skippedRows + 1
+                elseif not pending and not slot then
+                    -- Known, and known not to be gear: a pattern, a mount, a
+                    -- toy. Inventory drops these too (decision 2026-09-06).
+                    summary.nonGearRows = summary.nonGearRows + 1
+                else
+                    if pending then
+                        summary.pendingRows = summary.pendingRows + 1
+                    end
+                    local encounterID = info.encounterID
+                    local encounterName = names[target.instanceID] and names[target.instanceID][encounterID] or nil
+                    if encounterID ~= nil and encounterName == nil then
+                        summary.unnamedEncounters = summary.unnamedEncounters + 1
+                    end
+                    local key = table.concat({
+                        itemID,
+                        tostring(target.instanceID),
+                        tostring(encounterID),
+                        tostring(target.difficultyID),
+                    }, "|")
+                    local existing = seen[key]
+                    if existing then
+                        summary.duplicateRows = summary.duplicateRows + 1
+                        if existing.pending and not pending then
+                            existing.pending = nil
+                            existing.slot = slot
+                            existing.itemLevel = tonumber(probeValue(row.detailedLevel))
+                        end
+                    else
+                        local entry = {
+                            instanceID = target.instanceID,
+                            instanceName = target.instanceName,
+                            encounterID = encounterID,
+                            encounterName = encounterName,
+                            difficultyID = target.difficultyID,
+                            itemLevel = not pending and tonumber(probeValue(row.detailedLevel)) or nil,
+                            slot = slot,
+                            isRaid = target.isRaid == true,
+                            pending = pending or nil,
+                        }
+                        seen[key] = entry
+                        local list = sources[itemID]
+                        if not list then
+                            list = {}
+                            sources[itemID] = list
+                        end
+                        list[#list + 1] = entry
+                        summary.sources = summary.sources + 1
+                    end
+                end
+            end
+        end
+    end
+
+    for _, list in pairs(sources) do
+        sortSources(list)
+        summary.items = summary.items + 1
+        local known = false
+        for _, entry in ipairs(list) do
+            if not entry.pending then
+                known = true
+            end
+        end
+        if not known then
+            summary.pendingItems = summary.pendingItems + 1
+        end
+    end
+    return sources, summary
+end
+
+-- Build(opts) -> sources, summary, fromCache
+--
+-- opts.data       the `data` table of a `capture journal` snapshot (required),
+--                 or opts.snapshot and its .data is used
+-- opts.difficultyIDs  only these difficulties (default: every one the walk saw)
+-- opts.db         AceDB (default ns.db); no db means no caching, never an error
+-- opts.build / opts.seasonID / opts.specID   override what the walk recorded
+-- opts.refresh    rebuild even when the cache already holds this key
+function Journal.Build(_, opts)
+    opts = opts or {}
+    local snapshot = opts.snapshot
+    local data = opts.data or (snapshot and snapshot.data)
+    if type(data) ~= "table" or type(data.walk) ~= "table" then
+        return nil, { ok = false, reason = "no walk data" }, false
+    end
+    local targets = data.walk.targets or {}
+
+    local wanted, difficultyIDs = nil, {}
+    if opts.difficultyIDs then
+        wanted = {}
+        for _, id in ipairs(opts.difficultyIDs) do
+            wanted[id] = true
+            difficultyIDs[#difficultyIDs + 1] = id
+        end
+    else
+        local seen = {}
+        for _, target in ipairs(targets) do
+            if target.difficultyID ~= nil and not seen[target.difficultyID] then
+                seen[target.difficultyID] = true
+                difficultyIDs[#difficultyIDs + 1] = target.difficultyID
+            end
+        end
+    end
+
+    table.sort(difficultyIDs, Journal.CompareIDs)
+
+    local build = opts.build or (snapshot and Journal.BuildNumber(snapshot.build)) or Journal.BuildNumber(data.build)
+    local seasonID = opts.seasonID or probeValue(data.season and data.season.currentSeason)
+    local specID = opts.specID or (data.player and data.player.specID) or (data.requested and data.requested.specID)
+    local key = Journal.CacheKey(build, seasonID, specID, difficultyIDs)
+
+    local db = opts.db
+    if db == nil then
+        db = ns.db
+    end
+    local cache = db and db.global and db.global.journalCache or nil
+    if cache then
+        Journal.Invalidate(db, build)
+        local entry = cache[key]
+        if entry and not opts.refresh then
+            return entry.sources, entry.summary, true
+        end
+    end
+
+    local sources, summary = aggregate(targets, wanted)
+    summary.ok = true
+    summary.cacheKey = key
+    summary.build = build
+    summary.seasonID = seasonID
+    summary.specID = specID
+    summary.difficultyIDs = difficultyIDs
+    if cache then
+        cache[key] = { build = build, sources = sources, summary = summary }
+    end
+    return sources, summary, false
 end
 
 -- /lootpath capture journal [preview M+ level]

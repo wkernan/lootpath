@@ -127,6 +127,15 @@ function Stub.install()
             -- the event never comes at all.
             lootDelaySeconds = nil,
             lootPending = false,
+            -- The SECOND stage the 2026-09-06 transcript found: the loot list
+            -- is current, but the item data behind its rows is not cached, so
+            -- GetLootInfoByIndex answers rows carrying only itemID,
+            -- encounterID and the displayAs* flags. nil = every row is already
+            -- cached; a number = the rows arrive bare and fill in that many
+            -- fake seconds later, one EJ_LOOT_DATA_RECIEVED per row; false =
+            -- the item data never arrives at all.
+            itemDataDelaySeconds = nil,
+            itemDataPending = false,
             selectCalls = {},
             lootFilterCalls = {},
         },
@@ -491,19 +500,44 @@ function Stub.install()
         return (byDifficulty and byDifficulty[J.difficulty]) or {}
     end
 
+    -- Stage two: once the list is current, the item data behind each row
+    -- lands later and fires one EJ_LOOT_DATA_RECIEVED per row, exactly as the
+    -- 2026-09-06 transcript showed (351 events across a 434 ms walk).
+    local function startItemDataFetch(token)
+        if J.itemDataDelaySeconds == nil then
+            J.itemDataPending = false
+            return
+        end
+        J.itemDataPending = true
+        if J.itemDataDelaySeconds == false then
+            return
+        end
+        _G.C_Timer.After(J.itemDataDelaySeconds, function()
+            if J.fetchToken ~= token then
+                return
+            end
+            J.itemDataPending = false
+            for _, row in ipairs(currentLoot()) do
+                world.fireEvent("EJ_LOOT_DATA_RECIEVED", row.itemID)
+            end
+        end)
+    end
+
     -- Only the latest fetch resolves, so selecting an instance and then a
     -- difficulty produces one loot list and one event, not two.
     local function startLootFetch()
         J.fetchToken = (J.fetchToken or 0) + 1
+        local token = J.fetchToken
         if J.lootDelaySeconds == nil then
             J.lootPending = false
+            startItemDataFetch(token)
             return
         end
         J.lootPending = true
+        J.itemDataPending = J.itemDataDelaySeconds ~= nil
         if J.lootDelaySeconds == false then
             return
         end
-        local token = J.fetchToken
         _G.C_Timer.After(J.lootDelaySeconds, function()
             if J.fetchToken ~= token then
                 return
@@ -511,6 +545,7 @@ function Stub.install()
             J.lootPending = false
             local first = currentLoot()[1]
             world.fireEvent("EJ_LOOT_DATA_RECIEVED", first and first.itemID or nil)
+            startItemDataFetch(token)
         end)
     end
     world.journal.startLootFetch = startLootFetch
@@ -602,6 +637,17 @@ function Stub.install()
     define("EJ_ResetLootFilter", function()
         J.lootFilter = { 0, 0 }
     end)
+    -- Blizzard's loot button resolves a row's boss with this, by encounterID.
+    define("EJ_GetEncounterInfo", function(encounterID)
+        for _, list in pairs(J.encounters) do
+            for _, encounter in ipairs(list) do
+                if encounter.encounterID == encounterID then
+                    return encounter.name, encounter.description, encounterID
+                end
+            end
+        end
+        return nil
+    end)
     define("EJ_GetEncounterInfoByIndex", function(index, journalInstanceID)
         local encounters = J.encounters[journalInstanceID or J.selectedInstance] or {}
         local encounter = encounters[index]
@@ -625,7 +671,21 @@ function Stub.install()
             if J.lootPending then
                 return nil
             end
-            return deepcopy(currentLoot()[index])
+            local row = currentLoot()[index]
+            if not row then
+                return nil
+            end
+            if J.itemDataPending then
+                -- The bare shape the transcript recorded for 369 of 613 rows.
+                return {
+                    itemID = row.itemID,
+                    encounterID = row.encounterID,
+                    displayAsPerPlayerLoot = false,
+                    displayAsVeryRare = false,
+                    displayAsExtremelyRare = false,
+                }
+            end
+            return deepcopy(row)
         end,
         GetInstanceForGameMap = function(mapID)
             return J.instanceForGameMap[mapID]

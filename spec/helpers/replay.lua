@@ -8,6 +8,11 @@ local R = {}
 
 R.DEFAULT = "spec/fixtures/captures/Lootpath-20260905-133449.lua"
 
+-- The 2026-09-06 visit (WKE-523): the journal walk in Restoration spec 105,
+-- plus the before-reset vault pair. R.DEFAULT stays the 09-05 file because
+-- that is the one the inventory goldens were generated from.
+R.JOURNAL = "spec/fixtures/captures/Lootpath-20260906-161213.lua"
+
 local cache = {}
 
 -- Returns the LootpathDB table from a transcript, loaded in a sandbox so the

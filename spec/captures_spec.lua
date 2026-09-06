@@ -62,10 +62,11 @@ describe("captures", function()
                 "InstanceHasLoot",
                 "SetPreviewMythicPlusLevel",
             }, data.namespaces.C_EncounterJournal)
-            -- The stub's journal surface (M3-1); the real client listed 35 EJ_
-            -- globals in the 2026-09-05 transcript.
+            -- The stub's journal surface (M3-1, plus EJ_GetEncounterInfo in
+            -- PR 2); the real client listed 35 EJ_ globals in the 2026-09-05
+            -- transcript.
             assert.truthy(table.concat(data.globals.EJ, " "):find("EJ_SetLootFilter=function", 1, true))
-            assert.equal(18, #data.globals.EJ)
+            assert.equal(19, #data.globals.EJ)
             assert.equal("function", data.globals.equip["C_Item.EquipItemByName"])
             assert.equal("nil", data.globals.equip.EquipItemByName)
             assert.equal(1, data.constants.INVSLOT_FIRST_EQUIPPED)
