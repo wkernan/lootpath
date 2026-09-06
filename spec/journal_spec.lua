@@ -12,6 +12,10 @@
 -- The real return shapes arrive with WKE-523's transcript, and the aggregator
 -- (ns.Journal) is written against that transcript in PR 2.
 local H = require("spec.helpers.addon")
+local R = require("spec.helpers.replay")
+local S = require("spec.helpers.serialize")
+
+local EXPECTED_DIR = "spec/fixtures/expected/"
 
 -- Item links shaped like the client's (transcript 2026-09-05: itemID at field
 -- 1 after `item:`, bonus-ID count at field 13). Placeholder items.
@@ -539,5 +543,465 @@ describe("capture journal", function()
         assert.equal(2, world.journal.currentTier)
         assert.equal(DUNGEON_HEROIC, world.journal.difficulty)
         assert.same({ 7, 262 }, world.journal.lootFilter)
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- The second read (WKE-522 PR 2). The 2026-09-06 transcript found that a loot
+-- row can arrive carrying only itemID, encounterID and the displayAs* flags
+-- while EJ_IsLootListOutOfDate is false, so the list-level gate says nothing
+-- about it. These tests drive the stub's second stage - rows come back bare
+-- and EJ_LOOT_DATA_RECIEVED lands afterwards - and prove the walk re-reads.
+describe("JournalAdapter.Walk second read", function()
+    local ns, world
+
+    local function targets()
+        return {
+            { instanceID = 1201, instanceName = "Test Dungeon One", isRaid = false, difficultyID = DUNGEON_MYTHIC },
+        }
+    end
+
+    local function walk(opts)
+        local done
+        ns.JournalAdapter.Walk(opts, function(result)
+            done = result
+        end)
+        world.runTimers(120)
+        return done
+    end
+
+    before_each(function()
+        ns, world = H.load()
+        seedJournal(world)
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("counts a row with no name and no link as pending, the way Blizzard's loot button does", function()
+        local bare = { itemInfo = { { itemID = 220001, encounterID = 3001 }, n = 1 } }
+        local whole = { itemInfo = { { itemID = 220001, name = "Test Journal Helm", link = HELM }, n = 1 } }
+        assert.is_true(ns.JournalAdapter.RowIsPending(bare))
+        assert.is_false(ns.JournalAdapter.RowIsPending(whole))
+        assert.is_true(ns.JournalAdapter.RowIsPending({ itemInfo = { n = 0 } }))
+        assert.is_true(ns.JournalAdapter.RowIsPending(nil))
+    end)
+
+    it("re-reads the whole list after the item data lands, keeping both reads", function()
+        world.journal.itemDataDelaySeconds = 0.5
+        local result = walk({ targets = targets(), classID = 11, specID = 105 })
+        local record = result.targets[1]
+
+        -- First read: the bare shape, exactly what the transcript recorded.
+        assert.equal(2, record.pendingRows)
+        assert.is_nil(record.loot.rows[1].itemInfo[1].link)
+        assert.equal(220001, record.loot.rows[1].itemInfo[1].itemID)
+        -- Second read: the same rows, filled in.
+        assert.is_table(record.reread)
+        assert.equal(0, record.rereadPendingRows)
+        assert.equal(HELM, record.reread.rows[1].itemInfo[1].link)
+        assert.equal(639, record.reread.rows[1].detailedLevel[1])
+        assert.equal("INVTYPE_HEAD", record.reread.rows[1].instant[4])
+
+        assert.equal(2, result.pendingRowsFirstRead)
+        assert.equal(0, result.pendingRowsFinalRead)
+        assert.equal(2, result.rowsFilledByReread)
+        assert.is_true(result.rereads > 0)
+        assert.is_number(record.itemDataWaitedMs)
+    end)
+
+    it("does not re-read a target whose rows arrived whole", function()
+        local result = walk({ targets = targets(), classID = 11, specID = 105 })
+        assert.equal(0, result.targets[1].pendingRows)
+        assert.is_nil(result.targets[1].reread)
+        assert.equal(0, result.rereads)
+        assert.equal(0, result.rowsFilledByReread)
+    end)
+
+    it("gives up on a bound when the item data never arrives, and says so", function()
+        world.journal.itemDataDelaySeconds = false
+        local result = walk({ targets = targets(), classID = 11, specID = 105 })
+        local record = result.targets[1]
+        assert.equal(ns.JournalAdapter.ITEM_DATA_MAX_ATTEMPTS, record.rereads)
+        assert.equal(ns.JournalAdapter.ITEM_DATA_MAX_ATTEMPTS, record.itemDataTimeouts)
+        assert.equal(2, record.rereadPendingRows)
+        assert.equal(2, result.pendingRowsFinalRead)
+        assert.equal(0, result.rowsFilledByReread)
+        -- Bounded, not hung: the walk still finished and put the view back.
+        assert.is_false(result.abortedInCombat)
+        assert.is_table(result.restored)
+    end)
+
+    it("names each row's boss the way Blizzard's loot button does", function()
+        local result = walk({ targets = targets(), classID = 11, specID = 105 })
+        local names = result.targets[1].encounterNames
+        assert.equal("First Boss", names[3001][1])
+        assert.equal("Second Boss", names[3002][1])
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- The aggregator, over the real transcript (WKE-523's first visit, PR #10):
+-- hotornot in Restoration spec 105, 30 targets, 613 loot rows, 369 of them
+-- link-less. Every number asserted below was read out of that file.
+describe("ns.Journal over the 2026-09-06 transcript", function()
+    local ns, snapshot, sources, summary
+
+    before_each(function()
+        ns = H.load()
+        snapshot = R.snapshot("journal", 1, R.JOURNAL)
+        sources, summary = ns.Journal:Build({ snapshot = snapshot })
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- What the raw snapshot says, counted here rather than taken from the
+    -- module, so the assertions below are checked against the transcript.
+    local function rawRows()
+        local rows = {}
+        for _, target in ipairs(snapshot.data.walk.targets) do
+            for _, row in ipairs((target.loot and target.loot.rows) or {}) do
+                rows[#rows + 1] = { target = target, row = row, info = row.itemInfo[1] }
+            end
+        end
+        return rows
+    end
+
+    it("reads the transcript the tests claim to read", function()
+        assert.equal("journal", snapshot.name)
+        assert.equal(105, snapshot.data.player.specID)
+        assert.equal(30, #snapshot.data.walk.targets)
+        assert.equal(613, #rawRows())
+    end)
+
+    it("gives every equippable item the journal listed at least one source", function()
+        local expected = {}
+        for _, entry in ipairs(rawRows()) do
+            local equipLoc = entry.row.instant and entry.row.instant[4]
+            if ns.JournalAdapter.RowIsPending(entry.row) or ns.Inventory.SlotForEquipLoc(equipLoc) then
+                expected[entry.info.itemID] = true
+            end
+        end
+        local count = 0
+        for itemID in pairs(expected) do
+            count = count + 1
+            assert.is_table(sources[itemID], "no source for itemID " .. itemID)
+            assert.is_true(#sources[itemID] >= 1)
+        end
+        assert.equal(375, count)
+        assert.equal(count, summary.items)
+        -- and nothing invented: every itemID in the map came from a row.
+        for itemID in pairs(sources) do
+            assert.is_true(expected[itemID] == true)
+        end
+    end)
+
+    it("speaks QE Live's slot vocabulary, from the same table Inventory reads", function()
+        local vocabulary = {}
+        for _, slot in pairs(ns.Inventory.SLOT_BY_EQUIPLOC) do
+            vocabulary[slot] = true
+        end
+        local slots = {}
+        for _, list in pairs(sources) do
+            for _, source in ipairs(list) do
+                if source.slot ~= nil then
+                    assert.is_true(vocabulary[source.slot] == true, "not a QE Live slot: " .. tostring(source.slot))
+                    slots[source.slot] = (slots[source.slot] or 0) + 1
+                end
+            end
+        end
+        -- The journal's own EncounterJournalItemInfo.slot is the client's
+        -- localised UI text ("One-Hand", "Held In Off-hand"); the equipLoc
+        -- behind it is not, and it is what the map speaks.
+        assert.equal(15, slots["1H Weapon"])
+        assert.equal(14, slots["2H Weapon"])
+        assert.equal(11, slots["Offhand"])
+        assert.equal(27, slots["Trinket"])
+        assert.is_nil(slots["One-Hand"])
+        assert.is_nil(slots["Held In Off-hand"])
+    end)
+
+    it("maps a dungeon item to its boss at every difficulty the walk read", function()
+        -- Vile Vial of Volatile Venom, Altar of Fangs, off Rav'i.
+        local list = sources[273796]
+        assert.equal(3, #list)
+        for _, source in ipairs(list) do
+            assert.is_false(source.isRaid)
+            assert.equal(1322, source.instanceID)
+            assert.equal("Altar of Fangs", source.instanceName)
+            assert.equal(2878, source.encounterID)
+            assert.equal("Rav'i", source.encounterName)
+            assert.equal("Trinket", source.slot)
+            assert.is_nil(source.pending)
+        end
+        assert.same({ 2, 8, 23 }, { list[1].difficultyID, list[2].difficultyID, list[3].difficultyID })
+        assert.same({ 276, 305, 292 }, { list[1].itemLevel, list[2].itemLevel, list[3].itemLevel })
+    end)
+
+    it("maps a raid item to its raid, flagged isRaid", function()
+        -- Gebbo's Bottomless Bag, The Venomous Abyss, off The Lost Explorers.
+        local list = sources[270164]
+        assert.equal(2, #list)
+        for _, source in ipairs(list) do
+            assert.is_true(source.isRaid)
+            assert.equal(1320, source.instanceID)
+            assert.equal("The Venomous Abyss", source.instanceName)
+            assert.equal("The Lost Explorers", source.encounterName)
+            assert.equal("Trinket", source.slot)
+        end
+        assert.same({ 15, 16 }, { list[1].difficultyID, list[2].difficultyID })
+        assert.same({ 308, 321 }, { list[1].itemLevel, list[2].itemLevel })
+    end)
+
+    it("puts dungeons before raids in an item's source list", function()
+        for _, list in pairs(sources) do
+            local seenRaid = false
+            for _, source in ipairs(list) do
+                if source.isRaid then
+                    seenRaid = true
+                else
+                    assert.is_false(seenRaid)
+                end
+            end
+        end
+    end)
+
+    it("never treats a link-less row as 'no item level'", function()
+        assert.equal(369, summary.pendingRows)
+        assert.equal(277, summary.pendingItems)
+        local pendingSources = 0
+        for _, list in pairs(sources) do
+            for _, source in ipairs(list) do
+                if source.pending then
+                    pendingSources = pendingSources + 1
+                    assert.is_nil(source.itemLevel)
+                    assert.is_nil(source.slot)
+                    -- Still a real source: the boss and the difficulty are known.
+                    assert.is_number(source.encounterID)
+                    assert.is_number(source.difficultyID)
+                end
+            end
+        end
+        assert.equal(369, pendingSources)
+        -- Kings' Rest, off The Golden Serpent: link-less at both difficulties
+        -- the walk read, so nothing about the item itself is known yet.
+        local list = sources[159617]
+        assert.equal(2, #list)
+        assert.is_true(list[1].pending)
+        assert.equal("The Golden Serpent", list[1].encounterName)
+    end)
+
+    it("drops what the journal lists but nobody can equip", function()
+        assert.equal(55, summary.nonGearRows)
+        assert.equal(0, summary.skippedRows)
+        assert.equal(613, summary.rows)
+        assert.equal(558, summary.sources)
+        -- Nothing the map kept is both known and slotless.
+        for itemID, list in pairs(sources) do
+            for _, source in ipairs(list) do
+                assert.is_true(source.pending == true or source.slot ~= nil, "slotless source for " .. itemID)
+            end
+        end
+        -- Exactly one itemID was read whole on every row it appeared in and
+        -- was not gear on any of them, so it is the only one with no source
+        -- at all. A pattern (270900) and a mount (276804) survive only as
+        -- pending rows elsewhere: a link-less row cannot be told from gear.
+        assert.is_nil(sources[268728])
+        assert.equal(1, #sources[270900])
+        assert.is_true(sources[270900][1].pending)
+        assert.is_true(sources[276804][1].pending)
+    end)
+
+    it("names a boss at a difficulty whose own encounter list came back empty", function()
+        -- EJ_GetEncounterInfoByIndex answered nothing on every DungeonChallenge
+        -- target, so 95 of the 613 rows had no boss name in their own target.
+        -- A boss name is an instance-wide fact, so the Heroic read names them.
+        local challenge = sources[273796][2]
+        assert.equal(8, challenge.difficultyID)
+        assert.equal("Rav'i", challenge.encounterName)
+        for _, target in ipairs(snapshot.data.walk.targets) do
+            if target.instanceID == 1322 and target.difficultyID == 8 then
+                assert.equal(0, #target.encounters)
+            end
+        end
+        -- Midnight's two targets both listed zero encounters, so its rows stay
+        -- unnamed until a walk that calls EJ_GetEncounterInfo runs in game.
+        assert.equal(22, summary.unnamedEncounters)
+    end)
+
+    it("prefers the second read when the walk made one", function()
+        -- The committed transcript predates the second read, so every target
+        -- here falls back to its first read; the aggregator says so.
+        assert.equal(0, summary.rereadTargets)
+        local target = snapshot.data.walk.targets[1]
+        target.reread = { rows = { target.loot.rows[1] } }
+        local reread, reSummary = ns.Journal:Build({ snapshot = snapshot, refresh = true })
+        assert.equal(1, reSummary.rereadTargets)
+        assert.is_true(reSummary.rows < summary.rows)
+        assert.is_table(reread)
+    end)
+
+    it("matches the committed expected fixture", function()
+        local expected = EXPECTED_DIR .. "journal-20260906-161213.lua"
+        if os.getenv("LOOTPATH_WRITE_EXPECTED") then
+            S.write(
+                expected,
+                { sources = sources, summary = summary },
+                "-- Generated by spec/journal_spec.lua over the 2026-09-06 journal transcript.\n"
+            )
+        end
+        assert.same(dofile(expected), { sources = sources, summary = summary })
+    end)
+end)
+
+describe("ns.Journal cache", function()
+    local ns, snapshot
+
+    before_each(function()
+        ns = H.load()
+        snapshot = R.snapshot("journal", 1, R.JOURNAL)
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("keys on the build, the season, the spec and the difficulties", function()
+        assert.equal("69587|18|105|2:8:23", ns.Journal.CacheKey(69587, 18, 105, { 23, 2, 8 }))
+        assert.equal("69587|18|105|none", ns.Journal.CacheKey(69587, 18, 105, {}))
+        -- the build number, not the version string: GetBuildInfo's second return
+        assert.equal("69587", ns.Journal.BuildNumber(snapshot.build))
+    end)
+
+    it("stores the build it was built for under that key", function()
+        local sources, summary = ns.Journal:Build({ snapshot = snapshot })
+        assert.equal("69587|18|105|2:8:15:16:23", summary.cacheKey)
+        assert.equal("69587", summary.build)
+        assert.equal(18, summary.seasonID)
+        assert.equal(105, summary.specID)
+        assert.same({ 2, 8, 15, 16, 23 }, summary.difficultyIDs)
+        local entry = ns.db.global.journalCache[summary.cacheKey]
+        assert.equal(sources, entry.sources)
+        assert.equal("69587", entry.build)
+    end)
+
+    it("answers the second Build from the cache, and rebuilds on request", function()
+        local first, firstSummary, fromCache = ns.Journal:Build({ snapshot = snapshot })
+        assert.is_false(fromCache)
+        local second, secondSummary, cached = ns.Journal:Build({ snapshot = snapshot })
+        assert.is_true(cached)
+        assert.equal(first, second)
+        assert.equal(firstSummary, secondSummary)
+        local third, _, refreshed = ns.Journal:Build({ snapshot = snapshot, refresh = true })
+        assert.is_false(refreshed)
+        assert.are_not.equal(first, third)
+    end)
+
+    it("keys a difficulty subset separately", function()
+        local raids, raidSummary = ns.Journal:Build({ snapshot = snapshot, difficultyIDs = { 15, 16 } })
+        assert.equal("69587|18|105|15:16", raidSummary.cacheKey)
+        assert.equal(6, raidSummary.targets)
+        for _, list in pairs(raids) do
+            for _, source in ipairs(list) do
+                assert.is_true(source.isRaid)
+            end
+        end
+    end)
+
+    it("throws away everything the last build cached", function()
+        ns.Journal:Build({ snapshot = snapshot })
+        assert.is_table(ns.db.global.journalCache["69587|18|105|2:8:15:16:23"])
+        assert.equal(1, ns.Journal.Invalidate(ns.db, "69999"))
+        assert.same({}, ns.db.global.journalCache)
+
+        -- and Build itself invalidates: the same walk under a newer build
+        -- leaves only the new entry behind.
+        ns.Journal:Build({ snapshot = snapshot })
+        ns.Journal:Build({ snapshot = snapshot, build = "69999" })
+        local keys = {}
+        for key in pairs(ns.db.global.journalCache) do
+            keys[#keys + 1] = key
+        end
+        assert.same({ "69999|18|105|2:8:15:16:23" }, keys)
+    end)
+
+    it("builds without a db rather than failing", function()
+        local sources, summary, fromCache = ns.Journal:Build({ snapshot = snapshot, db = false })
+        assert.is_false(fromCache)
+        assert.is_table(sources)
+        assert.is_true(summary.ok)
+        assert.same({}, ns.db.global.journalCache)
+    end)
+
+    it("refuses a walk it was not given", function()
+        local sources, summary = ns.Journal:Build({})
+        assert.is_nil(sources)
+        assert.is_false(summary.ok)
+        assert.equal("no walk data", summary.reason)
+    end)
+end)
+
+-- The aggregator's half of the second read: the same walk, aggregated with and
+-- without the re-read the client's late EJ_LOOT_DATA_RECIEVED makes possible.
+describe("ns.Journal over a walk whose item data arrives late", function()
+    local ns, world
+
+    before_each(function()
+        ns, world = H.load()
+        seedJournal(world)
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function walkData(delay)
+        world.journal.itemDataDelaySeconds = delay
+        local done
+        ns.JournalAdapter.Walk({
+            targets = {
+                { instanceID = 1201, instanceName = "Test Dungeon One", isRaid = false, difficultyID = DUNGEON_MYTHIC },
+            },
+            classID = 11,
+            specID = 105,
+        }, function(result)
+            done = result
+        end)
+        world.runTimers(120)
+        return { walk = done, player = { specID = 105 }, season = { currentSeason = { 15, n = 1 } } }
+    end
+
+    it("knows nothing but the itemID from the first read alone", function()
+        local data = walkData(0.5)
+        for _, target in ipairs(data.walk.targets) do
+            target.reread = nil -- what a one-pass walk would have left behind
+        end
+        local sources, summary = ns.Journal:Build({ data = data, build = "69587" })
+        assert.equal(2, summary.pendingItems)
+        assert.is_true(sources[220001][1].pending)
+        assert.is_nil(sources[220001][1].itemLevel)
+        assert.is_nil(sources[220001][1].slot)
+    end)
+
+    it("fills the item level and the slot from the second read", function()
+        local sources, summary = ns.Journal:Build({ data = walkData(0.5), build = "69587" })
+        assert.equal(0, summary.pendingItems)
+        assert.equal(0, summary.pendingRows)
+        assert.equal(1, summary.rereadTargets)
+        assert.equal(639, sources[220001][1].itemLevel)
+        assert.equal("Head", sources[220001][1].slot)
+        assert.equal(626, sources[220002][1].itemLevel)
+        assert.equal("Finger", sources[220002][1].slot)
+    end)
+
+    it("leaves the rows pending when the item data never arrives at all", function()
+        local sources, summary = ns.Journal:Build({ data = walkData(false), build = "69587" })
+        assert.equal(2, summary.pendingItems)
+        assert.equal(2, summary.pendingRows)
+        assert.is_true(sources[220001][1].pending)
+        assert.equal(3001, sources[220001][1].encounterID)
     end)
 end)

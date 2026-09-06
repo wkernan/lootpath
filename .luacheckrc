@@ -58,6 +58,7 @@ read_globals = {
     -- all of them - transcript 2026-09-05, capture env, globals.EJ)
     "EJ_GetCurrentTier",
     "EJ_GetDifficulty",
+    "EJ_GetEncounterInfo",
     "EJ_GetEncounterInfoByIndex",
     "EJ_GetInstanceByIndex",
     "EJ_GetInstanceForMap",
