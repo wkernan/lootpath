@@ -10,11 +10,11 @@ Last updated: 2026-09-06 (§0 status board added and the update rule widened to 
 
 **As of 2026-09-06, end of day.** Everything below is a pointer; the detail is in the numbered sections.
 
-**Merged to `main`:** PR #1 this document; PR #2 WKE-514 skeleton, five CI gates, captures `env`/`inventory`/`vault`; PR #3 WKE-515 first in-client transcript, branch protection; PR #4 WKE-516 Inventory module and `ns.ParseItemLink`; PR #5 WKE-518 QEImport parser (its real-fixture test is `pending` until 519); PR #6 WKE-527 QE Live fork branch and the finding that the live site has no Download JSON control.
+**Merged to `main`:** PR #1 this document; PR #2 WKE-514 skeleton, five CI gates, captures `env`/`inventory`/`vault`; PR #3 WKE-515 first in-client transcript, branch protection; PR #4 WKE-516 Inventory module and `ns.ParseItemLink`; PR #5 WKE-518 QEImport parser (its real-fixture test is `pending` until 519); PR #6 WKE-527 QE Live fork branch and the finding that the live site has no Download JSON control; PR #7 WKE-522 part 1, the Journal adapter, async captures and `/lootpath capture journal` (merged 2026-09-06 20:56 UTC); PR #8 this section and the one-worktree-per-issue rule.
 
-**Open:** PR #7 WKE-522 part 1, the Journal adapter and `/lootpath capture journal`; green and mergeable, the owner merges. Part 2 (the aggregator) waits on the 523 transcript. PR #8 this section.
+**Open:** nothing. WKE-522 part 2 (the aggregator) is not filed as a separate issue; it waits on the 523 transcript and is worked under 522's number in a new worktree.
 
-**Issues:** done 514, 515, 516, 518, 527; not needed 517 (owner closes it); in flight 522; waiting on the owner 519, 523, 528; blocked 520 (on 519), 524 (on 522 part 2 and 523), 525, 526; gated 529 (only if 528 says so).
+**Issues:** done 514, 515, 516, 518, 522 (part 1; Linear shows Done, part 2 still to build), 527; not needed 517 (owner closes it); waiting on the owner 519, 523, 528; blocked 520 (on 519), 524 (on 522 part 2 and 523), 525, 526; gated 529 (only if 528 says so).
 
 **The owner's next game session** (Tuesday 2026-09-08 or later, once the Great Vault has progress; hotornot **in Restoration spec**):
 1. WKE-519: `/simc` with the vault opened once, then `npm start` in `c:\Code\qe-live-fork` (branch `lootpath/upgrade-finder-export`), import, Top Gear for M+, Export > Download JSON, commit under `spec/fixtures/qe/`. The live site cannot produce this file today (§4).
@@ -23,14 +23,14 @@ Last updated: 2026-09-06 (§0 status board added and the update rule widened to 
 
 **What an agent can do next, and when:** after 519 lands, swap QEImport's pending test onto the real file and start 520 (Match, paste editbox, Equip Now); after 523 lands, 522 part 2 (the aggregator) then 524 (Upgrade Map and Vault panels). Nothing addon-side is unblocked before those two transcripts. One deviation the owner may choose: start 520 against the hand-built QE sample and swap the fixture later, as 518 did.
 
-**Decisions waiting on the owner:** merge PR #7; close 517; when and how to offer the QE Live PR (528).
+**Decisions waiting on the owner:** close 517; when and how to offer the QE Live PR (528); whether 520 may start against the hand-built QE sample before 519.
 
 **Hazards a new session must know:** several sessions run at once, one issue each, so **create your own worktree before the first edit** (CLAUDE.md, §12); two sessions collided in the shared checkout on 2026-09-06. A PR that conflicts with `main` gets no CI run at all, so zero checks means rebase, not broken CI. Ketho's annotations are one patch behind the client (§11). `jq` is not on this machine.
 
 **Where things live:** the fork at `c:\Code\qe-live-fork`; transcripts under `spec/fixtures/captures/`; expected outputs under `spec/fixtures/expected/`; every gate locally via `.\tools\check.ps1`; the memory copy of this file that Claude Code sessions carry must be regenerated from this file whenever it changes.
 
 **Recent sessions (newest first; keep the last ten):**
-- 2026-09-06: WKE-527 built on the fork; found the Download JSON control never existed; PR #6 merged. WKE-522 part 1 built by a second session; PR #7 open. This section added (PR #8).
+- 2026-09-06: WKE-527 built on the fork; found the Download JSON control never existed; PR #6 merged. WKE-522 part 1 built by a second session; PR #7 merged. Two sessions collided in the shared checkout, so one worktree per issue became the rule; this section added (PR #8).
 - 2026-09-06: WKE-516 Inventory shipped (PR #4); WKE-518 QEImport shipped by a second session (PR #5).
 - 2026-09-05: WKE-514 skeleton and CI (PR #2); WKE-515 owner's first capture session, transcript committed (PR #3); SimC addon installed.
 - 2026-09-05: project created; this document written (PR #1); sixteen Linear issues filed.
