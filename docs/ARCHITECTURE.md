@@ -2,34 +2,38 @@
 
 This document is the single source of truth for what Lootpath is, how it works, every decision made and why, what is verified and what is not, and where the work stands. **Every session updates this file before it ends, after anything is learned, discussed, decided, created or worked on** - not only when a PR changes code. A conversation that settles a question, refutes a premise, or moves the plan is recorded here in the same session, through a docs-only PR if nothing else is in flight. If this file and the code disagree, say so in the PR and fix whichever is wrong; never leave them disagreeing. **A new session reads §0 first**, then the sections §0 points at.
 
-Last updated: 2026-09-06 (§0 status board added and the update rule widened to every session; before that, M3-1, WKE-522 PR 1: the Journal adapter and `capture journal` shipped, captures learned to be asynchronous, and the journal walk's one deviation from "captures only read" is recorded; see §6, §7, §9 and §11. Before it the same day, QE-1, WKE-527: fork branch with the Upgrade Finder export and the Top Gear Download/Copy JSON controls; the live site had no Download JSON control at all - see §4, §5, §10, §11 and docs/qe-live-pr.md).
+Last updated: 2026-09-06, evening (pre-Tuesday plan: the game client was found to be running the 09-05 build and was re-synced; the journal capture was split off from the vault half of WKE-523 and scheduled for the weekend; WKE-519 re-pointed at the fork; the vault had zero progress on 09-05 so progress must be earned before Tuesday's reset - see §0, §9, §10. Before that the same day, §0 status board added and the update rule widened to every session; M3-1, WKE-522 PR 1: the Journal adapter and `capture journal` shipped, captures learned to be asynchronous, and the journal walk's one deviation from "captures only read" is recorded; see §6, §7, §9 and §11. Before it, QE-1, WKE-527: fork branch with the Upgrade Finder export and the Top Gear Download/Copy JSON controls; the live site had no Download JSON control at all - see §4, §5, §10, §11 and docs/qe-live-pr.md).
 
 ---
 
 ## 0. Where we are (read this first; keep it current)
 
-**As of 2026-09-06, end of day.** Everything below is a pointer; the detail is in the numbered sections.
+**As of 2026-09-06, evening (after the pre-Tuesday review).** Everything below is a pointer; the detail is in the numbered sections.
 
 **Merged to `main`:** PR #1 this document; PR #2 WKE-514 skeleton, five CI gates, captures `env`/`inventory`/`vault`; PR #3 WKE-515 first in-client transcript, branch protection; PR #4 WKE-516 Inventory module and `ns.ParseItemLink`; PR #5 WKE-518 QEImport parser (its real-fixture test is `pending` until 519); PR #6 WKE-527 QE Live fork branch and the finding that the live site has no Download JSON control; PR #7 WKE-522 part 1, the Journal adapter, async captures and `/lootpath capture journal` (merged 2026-09-06 20:56 UTC); PR #8 this section and the one-worktree-per-issue rule.
 
-**Open:** nothing. WKE-522 part 2 (the aggregator) is not filed as a separate issue; it waits on the 523 transcript and is worked under 522's number in a new worktree.
+**Open:** PR #9 (this update, docs-only); worktrees `C:\Code\lootpath-523` (branch `lp-523-captures`, waiting for the owner's transcripts) and `C:\Code\lootpath-brain` (this PR). WKE-522 part 2 (the aggregator) is not filed as a separate issue; it waits on the 523 transcript and is worked under 522's number in a new worktree.
 
-**Issues:** done 514, 515, 516, 518, 522 (part 1; Linear shows Done, part 2 still to build), 527; not needed 517 (owner closes it); waiting on the owner 519, 523, 528; blocked 520 (on 519), 524 (on 522 part 2 and 523), 525, 526; gated 529 (only if 528 says so).
+**Issues:** done 514, 515, 516, 517 (closed in Linear as not needed), 518, 522 (part 1; Linear shows Done, part 2 still to build), 527; waiting on the owner 519, 523, 528; blocked 520 (on 519), 524 (on 522 part 2 and 523), 525, 526; gated 529 (only if 528 says so).
 
-**The owner's next game session** (Tuesday 2026-09-08 or later, once the Great Vault has progress; hotornot **in Restoration spec**):
-1. WKE-519: `/simc` with the vault opened once, then `npm start` in `c:\Code\qe-live-fork` (branch `lootpath/upgrade-finder-export`), import, Top Gear for M+, Export > Download JSON, commit under `spec/fixtures/qe/`. The live site cannot produce this file today (§4).
-2. WKE-523: `/lootpath capture journal`, `/lootpath capture vault` before and after opening the vault window, `/reload`, `.\tools\sync.ps1 -Pull`, commit under `spec/fixtures/captures/`.
-3. WKE-528 whenever ready: the PR text for Voulk is in `docs/qe-live-pr.md`; the owner opens it from the fork, or decides not to.
+**The pre-Tuesday plan (agreed 2026-09-06 evening; the owner said "knock all of these out"):**
+1. **Done 2026-09-06 16:06:** `tools\sync.ps1` pushed the current addon into the client. Until then the client was running the 09-05 build (`Modules/Journal.lua` was the 11-line placeholder, so `/lootpath capture journal` did not exist in game); `diff -rq` against `Lootpath/` is clean now, Libs excluded.
+2. **Weekend, owner, in game, Restoration spec:** `/lootpath capture journal` (does not need the vault), `/lootpath capture vault` before and after opening the window (progress is zero this week, so this is the "no progress" pair), `/simc`, `/reload`; the agent pulls into `C:\Code\lootpath-523` and commits. The journal transcript unblocks WKE-522 part 2 before Tuesday.
+3. **Weekend, owner, browser:** the fork (`npm start` in `c:\Code\qe-live-fork`, branch `lootpath/upgrade-finder-export`; `node_modules` present, dev server booted 2026-09-06 to prove it) - import, Top Gear for M+, Export > Download JSON. A vault-less export is a valid WKE-519 fixture already; the pending test wants a real export, not a vault item. Linear WKE-519 was rewritten to say so (it had still pointed at the live site's non-existent control).
+4. **Before Tuesday's reset (2026-09-08, about 10:00 local: `GetSecondsUntilWeeklyReset` = 246378 at 13:33 on 09-05):** earn vault progress on hotornot - one M+ dungeon, one raid boss, or the world threshold. Every activity read `progress = 0` on 09-05, and the vault only offers rewards for the week that just ended; without this step the vault half of 519 and 523 slips a full week.
+5. **Tuesday, owner:** open the vault, `/lootpath capture vault` before and after, `/simc`, re-export from the fork with vault items, hand both over; the agent replaces the 519 fixture and adds the "with progress" vault snapshots to 523.
+6. WKE-528 whenever ready: the PR text for Voulk is in `docs/qe-live-pr.md`; the owner opens it from the fork, or decides not to.
 
 **What an agent can do next, and when:** after 519 lands, swap QEImport's pending test onto the real file and start 520 (Match, paste editbox, Equip Now); after 523 lands, 522 part 2 (the aggregator) then 524 (Upgrade Map and Vault panels). Nothing addon-side is unblocked before those two transcripts. One deviation the owner may choose: start 520 against the hand-built QE sample and swap the fixture later, as 518 did.
 
-**Decisions waiting on the owner:** close 517; when and how to offer the QE Live PR (528); whether 520 may start against the hand-built QE sample before 519.
+**Decisions waiting on the owner:** when and how to offer the QE Live PR (528); whether 520 may start against the hand-built QE sample before 519 (asked again 2026-09-06 evening; a real, vault-less export is expected this weekend either way).
 
-**Hazards a new session must know:** several sessions run at once, one issue each, so **create your own worktree before the first edit** (CLAUDE.md, §12); two sessions collided in the shared checkout on 2026-09-06. A PR that conflicts with `main` gets no CI run at all, so zero checks means rebase, not broken CI. Ketho's annotations are one patch behind the client (§11). `jq` is not on this machine.
+**Hazards a new session must know:** `tools\sync.ps1` is a manual step, and the client silently runs whatever was pushed last - check the AddOns folder's timestamps against `main` before asking the owner to run a capture (found 2026-09-06: the client was one day and five files behind). Several sessions run at once, one issue each, so **create your own worktree before the first edit** (CLAUDE.md, §12); two sessions collided in the shared checkout on 2026-09-06. A PR that conflicts with `main` gets no CI run at all, so zero checks means rebase, not broken CI. Ketho's annotations are one patch behind the client (§11). `jq` is not on this machine.
 
 **Where things live:** the fork at `c:\Code\qe-live-fork`; transcripts under `spec/fixtures/captures/`; expected outputs under `spec/fixtures/expected/`; every gate locally via `.\tools\check.ps1`; the memory copy of this file that Claude Code sessions carry must be regenerated from this file whenever it changes.
 
 **Recent sessions (newest first; keep the last ten):**
+- 2026-09-06 (evening): pre-Tuesday review. Found the client on the 09-05 build and re-synced it; split the journal capture off to the weekend; re-pointed WKE-519 at the fork; booted the fork's dev server; recorded that vault progress must be earned before the reset. Worktrees `lootpath-523` and `lootpath-brain` created. Docs-only PR #9.
 - 2026-09-06: WKE-527 built on the fork; found the Download JSON control never existed; PR #6 merged. WKE-522 part 1 built by a second session; PR #7 merged. Two sessions collided in the shared checkout, so one worktree per issue became the rule; this section added (PR #8).
 - 2026-09-06: WKE-516 Inventory shipped (PR #4); WKE-518 QEImport shipped by a second session (PR #5).
 - 2026-09-05: WKE-514 skeleton and CI (PR #2); WKE-515 owner's first capture session, transcript committed (PR #3); SimC addon installed.
@@ -249,7 +253,7 @@ One shipped package `Lootpath/` (what the packager zips) plus `spec/` (tests) an
 | Whether QE's Download JSON control is present and emits `version: 1` today; vault items present in Top Gear | M2-1b (owner's real export, **in Restoration spec**) |
 | Equip from the bank; editbox large-paste behaviour | M2-3 (in game) |
 | `GetMapUIInfo().mapID` -> `GetInstanceForGameMap` (or the global `EJ_GetInstanceForMap`) works; what `SetPreviewMythicPlusLevel` does to loot rows; `EJ_LOOT_DATA_RECIEVED` timing and count; walk duration; what `EJ_IsValidInstanceDifficulty` says per season dungeon | **M3-2** (WKE-523), now that M3-1 PR 1 has written the capture: `/lootpath capture journal` **in Restoration spec (105)**, out of combat, then `/reload` and `tools\\sync.ps1 -Pull`. The dump answers all of it: `availability`, `pool.maps[i].resolvedBy`, `unresolvedMaps`, `walk.lootEvents`, `walk.waits`, `walk.timeouts`, `walk.durationMs`, and every raw return per target |
-| Shape of `rewards[]` / `itemDBID` once the week has progress; whether `GetItemHyperlink` returns nil or nothing | M3-2 (`capture vault` on a week with vault progress) |
+| Shape of `rewards[]` / `itemDBID` once the week has progress; whether `GetItemHyperlink` returns nil or nothing | M3-2 (`capture vault` on a week with vault progress). **Progress was 0 on every activity on 09-05**, so this needs a dungeon or raid boss completed before the Tuesday 2026-09-08 reset, then the capture after it |
 
 ---
 
@@ -262,7 +266,7 @@ One shipped package `Lootpath/` (what the packager zips) plus `spec/` (tests) an
 
 **519 changed by 527's finding:** the live site has no Download JSON control, so the owner produces the fixture from the fork running locally, in Restoration spec, on a week with vault progress (Tuesday 2026-09-08 or later).
 
-**Dispatchable now (2026-09-06, after 518):** 527 (QE-1) any time; **519 is the next thing the owner does** - it needs hotornot in Restoration spec, and 520 (M2-2) waits on it. 520 can start against the hand-built sample if 519 lags, but its Equip Now panel is only trustworthy once a real export has been parsed.
+**Dispatchable now (2026-09-06 evening):** 523's journal half and 519's vault-less export are the owner's weekend steps (§0); 522 part 2 starts the moment the journal transcript is committed, 520 the moment the export is. 520 can start against the hand-built sample if 519 lags, but its Equip Now panel is only trustworthy once a real export has been parsed. **523 is now two visits:** journal + no-progress vault this weekend, with-progress vault on Tuesday; both go into the same PR from `C:\Code\lootpath-523`.
 
 **MVP done means:** 525's week of real use is commented, and 526 is tagged. "You, alone, using it."
 
