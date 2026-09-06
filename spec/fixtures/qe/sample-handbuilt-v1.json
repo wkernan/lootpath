@@ -1,0 +1,173 @@
+{
+  "schema": "qe-live-droptimizer",
+  "version": 1,
+  "exportedAt": "2026-09-06T18:22:41.113Z",
+  "player": {
+    "name": "Hotornot",
+    "realm": "TestRealm",
+    "region": "US",
+    "spec": "Restoration Druid",
+    "gameType": "Retail"
+  },
+  "contentType": "Mythic+",
+  "reportId": "handbuilt-0001",
+  "topSet": {
+    "score": 132456,
+    "stats": {
+      "intellect": 42110,
+      "haste": 8123,
+      "crit": 5401,
+      "mastery": 9902,
+      "versatility": 3115,
+      "leech": 480
+    },
+    "items": [
+      {
+        "slot": "Head",
+        "id": 271528,
+        "level": 308,
+        "bonusIDs": [6652, 13439, 13696, 12838, 13692, 13698, 1561],
+        "gems": [],
+        "enchant": "",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {}
+      },
+      {
+        "slot": "Neck",
+        "id": 271531,
+        "level": 311,
+        "bonusIDs": [10390, 12040],
+        "gems": [213743, 213743],
+        "enchant": "",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {}
+      },
+      {
+        "slot": "Chest",
+        "id": 271525,
+        "level": 314,
+        "bonusIDs": [13692, 1561, 6652],
+        "gems": [],
+        "enchant": "Crystalline Radiance",
+        "tertiary": "",
+        "setId": 1834,
+        "isVault": true,
+        "isExclusive": false,
+        "source": {}
+      },
+      {
+        "slot": "Finger",
+        "id": 268221,
+        "level": 311,
+        "bonusIDs": [10390, 6652],
+        "gems": [213743],
+        "enchant": "Radiant Haste",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {}
+      },
+      {
+        "slot": "Finger",
+        "id": 268221,
+        "level": 304,
+        "bonusIDs": [10390],
+        "gems": [213743],
+        "enchant": "Radiant Mastery",
+        "tertiary": "Leech",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {}
+      },
+      {
+        "slot": "Trinket",
+        "id": 268244,
+        "level": 311,
+        "bonusIDs": [10390],
+        "gems": [],
+        "enchant": "",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {}
+      },
+      {
+        "slot": "2H Weapon",
+        "id": 271570,
+        "level": 314,
+        "bonusIDs": [13692, 6652],
+        "gems": [],
+        "enchant": "Authority of Radiance",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {}
+      }
+    ]
+  },
+  "differentials": [
+    {
+      "scorePercent": 0.4194,
+      "hpsDifference": -557,
+      "items": [
+        {
+          "slot": "Finger",
+          "id": 268225,
+          "level": 311,
+          "bonusIDs": [10390, 6652],
+          "gems": [213743],
+          "enchant": "Radiant Haste",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": [213743]
+    },
+    {
+      "scorePercent": 1.8712,
+      "hpsDifference": -2480,
+      "items": [
+        {
+          "slot": "Trinket",
+          "id": 268261,
+          "level": 317,
+          "bonusIDs": [10390, 13692],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": true,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Head",
+          "id": 271534,
+          "level": 304,
+          "bonusIDs": [6652],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "Avoidance",
+          "setId": 1834,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    }
+  ]
+}
