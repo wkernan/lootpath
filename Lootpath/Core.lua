@@ -9,7 +9,21 @@
 local ADDON, ns = ...
 
 ns.ADDON = ADDON
-ns.VERSION = (C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata(ADDON, "Version")) or "dev"
+ns.VERSION = (function()
+    -- The .toc ships `## Version: @project-version@` and the BigWigs packager
+    -- substitutes that token only when it builds a release, so a copy synced
+    -- into the client by tools\sync.ps1 carries the token itself. Measured in
+    -- game 2026-09-06: the window's title bar read "Lootpath @project-version@"
+    -- (WKE-530 finding 5). A value that still starts with the substitution
+    -- marker is not a version, so the fallback below stands instead. The fix is
+    -- here rather than in sync.ps1 or the .toc, which stay what the packager
+    -- reads.
+    local value = C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata(ADDON, "Version")
+    if type(value) ~= "string" or value == "" or value:sub(1, 1) == "@" then
+        return "dev"
+    end
+    return value
+end)()
 ns.PREFIX = "|cff66ccffLootpath|r: "
 ns.onReady = {}
 ns.captures = {}

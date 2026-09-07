@@ -38,6 +38,19 @@ Panel.PENDING_NOTE = "%d drops are not identified yet: their item data had not a
 
 Panel.EMPTY_NOTE = "No loot map yet. Run /lootpath capture journal out of combat to walk the Adventure Guide."
 
+-- The Adventure Guide lists cosmetic and quest drops beside real loot, and
+-- C_Item.GetDetailedItemLevelInfo answers 1 for them: measured over the
+-- 2026-09-06 20:09 transcript, 87 rows of the cold walk's final read and 86 of
+-- the warm one came back {1, false, 1} (e.g. Hex Lord's Gaze, itemID 275938),
+-- of which 6 and 5 respectively were gear and reached a slot, sorting to the
+-- bottom of it. The owner's decision (WKE-530) is to hide them and say how
+-- many, because 1 is the CLIENT's own figure - hiding on it is a filter on a
+-- fact, not an estimate this addon made. Exactly 1 and no other threshold: a
+-- row at 44 is real loot and stays. Pending rows are untouched, because their
+-- level is unknown rather than 1 (see PENDING_NOTE).
+Panel.HIDDEN_ITEM_LEVEL = 1
+Panel.LEVEL_ONE_NOTE = "%d drops at item level 1 hidden: cosmetic and quest items"
+
 -- QE Live's slot vocabulary, in the order a character sheet reads. Inventory
 -- and Journal both speak it (ns.Inventory.SLOT_BY_EQUIPLOC), which is what
 -- makes this join a join.
@@ -96,6 +109,61 @@ function Panel.DifficultyLabel(difficultyID, previewMythicPlusLevel)
         return string.format("%s %d", name, previewMythicPlusLevel)
     end
     return name
+end
+
+-- One label per difficulty in a map, and no two the same.
+--
+-- GetDifficultyInfo hands back the bare localised word for dungeon Heroic (2)
+-- and raid Heroic (15) alike, and for dungeon Mythic (23) and raid Mythic (16)
+-- alike. Measured in game 2026-09-06 (WKE-530 finding 1): the filter row read
+-- "Heroic (67)", "Mythic Keystone 10 (54)", "Heroic (38)", "Mythic (39)" - two
+-- pairs of buttons that named different content identically. So when two IDs in
+-- the SAME map answer to one name, both fall back to Panel.DIFFICULTY_NAME,
+-- which already carries the qualified forms; a name nothing else shares keeps
+-- the client's own localised word, which is the reason to prefer it.
+--
+-- The set is the whole map's difficulties, not the filtered subset, so clicking
+-- a filter never renames the buttons.
+function Panel.DifficultyLabels(difficultyIDs, previewMythicPlusLevel)
+    local ids, labels, sharing = {}, {}, {}
+    for _, id in ipairs(difficultyIDs or {}) do
+        if labels[id] == nil then
+            ids[#ids + 1] = id
+            local name = Panel.DifficultyLabel(id, nil)
+            labels[id] = name
+            local list = sharing[name] or {}
+            sharing[name] = list
+            list[#list + 1] = id
+        end
+    end
+    table.sort(ids)
+    for _, shared in pairs(sharing) do
+        if #shared > 1 then
+            for _, id in ipairs(shared) do
+                -- Every member of a colliding group is qualified, so the row
+                -- that has a fallback name and the row that does not never end
+                -- up as "Brutal" beside "Brutal (difficulty 901)".
+                labels[id] = Panel.DIFFICULTY_NAME[id] or string.format("%s (difficulty %d)", labels[id], id)
+            end
+        end
+    end
+    -- The qualified fallbacks are unique on this client's five difficulties,
+    -- and nothing promises that of a client with others, so the ID itself is
+    -- the last word. Sorted, so the same map always labels the same way.
+    local taken = {}
+    for _, id in ipairs(ids) do
+        if taken[labels[id]] then
+            labels[id] = string.format("%s (difficulty %d)", labels[id], id)
+        end
+        taken[labels[id]] = true
+    end
+    -- The M+ row is the only one whose item levels mean nothing without the
+    -- keystone level the walk previewed, so that number stays part of its label.
+    local mythicPlus = mythicPlusDifficulty()
+    if labels[mythicPlus] and previewMythicPlusLevel then
+        labels[mythicPlus] = string.format("%s %d", labels[mythicPlus], previewMythicPlusLevel)
+    end
+    return labels
 end
 
 -- The line a covered row shows. Numbers are QE Live's, transported: the
@@ -214,9 +282,12 @@ function Panel.Model(opts)
     end
 
     local owned = ownedByItemID(opts.inventory)
-    local bySlot, pendingRows = {}, {}
+    local bySlot, pendingRows, hiddenBySlot = {}, {}, {}
     local difficultyCounts = {}
     local model = {
+        -- The model keeps the pinned note so a headless test can read it; the
+        -- frame prints it once, in its header, and Lines does NOT repeat it
+        -- (WKE-530 finding 3).
         note = Panel.NOTE,
         previewMythicPlusLevel = previewLevel,
         hasMap = false,
@@ -224,7 +295,7 @@ function Panel.Model(opts)
         slots = {},
         difficulties = {},
         pending = { count = 0, rows = pendingRows },
-        counts = { candidates = 0, covered = 0, owned = 0, slots = 0 },
+        counts = { candidates = 0, covered = 0, owned = 0, slots = 0, hiddenLevelOne = 0 },
     }
 
     local itemIDs = {}
@@ -234,9 +305,24 @@ function Panel.Model(opts)
     end
     table.sort(itemIDs)
 
+    -- First pass: which difficulties this map holds, and how many rows each
+    -- one carries. The counts are of the WHOLE map, before any filter, and the
+    -- labels are made unique against each other here rather than row by row, so
+    -- that two difficulties the client names identically end up on two
+    -- different buttons (finding 1).
+    local difficultyIDs = {}
     for _, itemID in ipairs(itemIDs) do
         for _, entry in ipairs(sources[itemID]) do
+            if difficultyCounts[entry.difficultyID] == nil then
+                difficultyIDs[#difficultyIDs + 1] = entry.difficultyID
+            end
             difficultyCounts[entry.difficultyID] = (difficultyCounts[entry.difficultyID] or 0) + 1
+        end
+    end
+    local difficultyLabels = Panel.DifficultyLabels(difficultyIDs, previewLevel)
+
+    for _, itemID in ipairs(itemIDs) do
+        for _, entry in ipairs(sources[itemID]) do
             if not wanted or wanted[entry.difficultyID] then
                 local ownedRecord = owned[itemID]
                 local row = {
@@ -253,7 +339,8 @@ function Panel.Model(opts)
                     isRaid = entry.isRaid == true,
                     pending = entry.pending == true,
                     sourceLabel = sourceLabel(entry),
-                    difficultyLabel = Panel.DifficultyLabel(entry.difficultyID, previewLevel),
+                    difficultyLabel = difficultyLabels[entry.difficultyID]
+                        or Panel.DifficultyLabel(entry.difficultyID, previewLevel),
                     owned = ownedRecord ~= nil or nil,
                     ownedItemLevel = ownedRecord and ownedRecord.itemLevel or nil,
                 }
@@ -272,8 +359,15 @@ function Panel.Model(opts)
                 if row.pending or not row.slot then
                     -- No slot means the item data never arrived, so there is no
                     -- slot to file it under. It is listed, not dropped, and it
-                    -- is listed as unknown rather than as a zero.
+                    -- is listed as unknown rather than as a zero. A pending row
+                    -- is never hidden below: unknown is not item level 1.
                     pendingRows[#pendingRows + 1] = row
+                elseif row.itemLevel == Panel.HIDDEN_ITEM_LEVEL then
+                    -- Hidden, and counted so the slot can say so (finding 4).
+                    -- It is still a candidate in model.counts, because the map
+                    -- keeps the fact; only this panel declines to list it.
+                    hiddenBySlot[row.slot] = (hiddenBySlot[row.slot] or 0) + 1
+                    model.counts.hiddenLevelOne = model.counts.hiddenLevelOne + 1
                 else
                     local list = bySlot[row.slot] or {}
                     bySlot[row.slot] = list
@@ -291,12 +385,15 @@ function Panel.Model(opts)
     for _, slot in ipairs(Panel.SLOT_ORDER) do
         local candidates = bySlot[slot]
         local worn = equipped[slot]
-        if candidates or worn then
+        local hidden = hiddenBySlot[slot] or 0
+        if candidates or worn or hidden > 0 then
             sortCandidates(candidates or {})
             model.slots[#model.slots + 1] = {
                 slot = slot,
                 equipped = worn or {},
                 candidates = candidates or {},
+                hiddenLevelOne = hidden,
+                hiddenNote = hidden > 0 and string.format(Panel.LEVEL_ONE_NOTE, hidden) or nil,
             }
             model.counts.slots = model.counts.slots + 1
         end
@@ -310,7 +407,7 @@ function Panel.Model(opts)
     for _, id in ipairs(ids) do
         model.difficulties[#model.difficulties + 1] = {
             difficultyID = id,
-            label = Panel.DifficultyLabel(id, previewLevel),
+            label = difficultyLabels[id] or Panel.DifficultyLabel(id, previewLevel),
             count = difficultyCounts[id],
             selected = (not wanted) or wanted[id] == true,
         }
@@ -321,12 +418,16 @@ end
 -- The model as display lines, which is what the frames put on screen and what
 -- the render tests read. Keeping it a pure function is what lets a test prove
 -- that an uncovered candidate renders no number at all.
+--
+-- The pinned note is NOT one of these lines. The panel header draws it once,
+-- above the list, and until WKE-530 the list printed it again as its first row
+-- - seen in game 2026-09-06 on both this tab and the Vault tab. The model still
+-- carries `note` for the headless tests that pin the wording.
 function Panel.Lines(model)
     local lines = {}
     local function add(text)
         lines[#lines + 1] = text
     end
-    add(model.note)
     if not model.hasMap then
         add(Panel.EMPTY_NOTE)
         return lines
@@ -354,6 +455,9 @@ function Panel.Lines(model)
                 text = text .. " - " .. row.value
             end
             add(text)
+        end
+        if section.hiddenNote then
+            add("  " .. section.hiddenNote)
         end
     end
     if model.pending.count > 0 then
@@ -471,20 +575,109 @@ function Panel.Create(parent)
     return frame
 end
 
+-- The difficulty row wraps rather than running off the frame. Measured in game
+-- 2026-09-06 (WKE-530 finding 2): five buttons laid out left to right from the
+-- "Difficulty:" label at a fixed 120 points overflowed the 620-wide window and
+-- the fifth was clipped at the edge. Words are kept - "Heroic dungeon (67)"
+-- stays "Heroic dungeon (67)" - and the row wraps instead.
+Panel.FILTER_BUTTON_GAP = 4
+Panel.FILTER_ROW_HEIGHT = 22
+Panel.FILTER_BUTTON_MIN_WIDTH = 60
+-- The UIPanelButtonTemplate's own inset, left and right together.
+Panel.FILTER_BUTTON_PADDING = 20
+-- Headless there is no font loaded, so a character costs a fixed number of
+-- points and a layout test can reproduce the packing exactly. In the client the
+-- button's own font string measures itself, which is the real width.
+Panel.FILTER_CHAR_WIDTH = 6
+
+function Panel.EstimateLabelWidth(label)
+    return #tostring(label) * Panel.FILTER_CHAR_WIDTH + Panel.FILTER_BUTTON_PADDING
+end
+
+-- Greedy packing: a button that would not finish inside `availableWidth` starts
+-- the next row. Pure, so the wrap is a headless assertion rather than something
+-- only the owner's eye can check.
+--
+-- Returns { rows = n, buttons = { { index, row, column, width } } }, one entry
+-- per label, in order.
+function Panel.FilterLayout(labels, availableWidth, measure)
+    measure = measure or Panel.EstimateLabelWidth
+    local width = tonumber(availableWidth) or 0
+    if width <= 0 then
+        width = PANEL_WIDTH
+    end
+    local layout = { rows = 0, buttons = {} }
+    local rowIndex, used = 0, nil
+    for index, label in ipairs(labels or {}) do
+        local buttonWidth = math.max(Panel.FILTER_BUTTON_MIN_WIDTH, math.ceil(measure(label, index)))
+        if used == nil or (used + Panel.FILTER_BUTTON_GAP + buttonWidth) > width then
+            rowIndex = rowIndex + 1
+            used = buttonWidth
+            layout.buttons[index] = { index = index, row = rowIndex, column = 1, width = buttonWidth }
+        else
+            used = used + Panel.FILTER_BUTTON_GAP + buttonWidth
+            layout.buttons[index] =
+                { index = index, row = rowIndex, column = layout.buttons[index - 1].column + 1, width = buttonWidth }
+        end
+    end
+    layout.rows = rowIndex
+    return layout
+end
+
 local function filterButton(frame, index)
     local button = frame.filterButtons[index]
     if not button then
         button = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-        button:SetSize(120, 20)
-        if index == 1 then
-            button:SetPoint("LEFT", frame.filterLabel, "RIGHT", 6, 0)
-        else
-            button:SetPoint("LEFT", frame.filterButtons[index - 1], "RIGHT", 4, 0)
-        end
         frame.filterButtons[index] = button
     end
     button:Show()
     return button
+end
+
+-- The client's own measurement of a label, when the button has a font string to
+-- ask; the character estimate otherwise, which is the headless path.
+local function labelWidth(button, label)
+    local text = button and type(button.GetFontString) == "function" and button:GetFontString() or nil
+    if text and type(text.GetStringWidth) == "function" then
+        local ok, measured = pcall(text.GetStringWidth, text)
+        if ok and type(measured) == "number" and measured > 0 then
+            return measured + Panel.FILTER_BUTTON_PADDING
+        end
+    end
+    return Panel.EstimateLabelWidth(label)
+end
+
+-- Anchors the filter buttons into the rows the layout packed them into, and
+-- moves the list down to clear however many rows that took. Both are redone on
+-- every refresh, because the labels (and so the widths) change with the map.
+local function placeFilterButtons(frame, labels)
+    local width = tonumber(frame.GetWidth and frame:GetWidth()) or 0
+    local layout = Panel.FilterLayout(labels, width > 0 and (width - 30) or nil, function(label, index)
+        return labelWidth(frame.filterButtons[index], label)
+    end)
+    local firstOfRow = {}
+    for index, placement in ipairs(layout.buttons) do
+        local button = frame.filterButtons[index]
+        button:SetSize(placement.width, Panel.FILTER_ROW_HEIGHT - 2)
+        button:ClearAllPoints()
+        if placement.column == 1 then
+            local above = firstOfRow[placement.row - 1]
+            if above then
+                button:SetPoint("TOPLEFT", above, "BOTTOMLEFT", 0, -2)
+            else
+                button:SetPoint("TOPLEFT", frame.filterLabel, "BOTTOMLEFT", 0, -4)
+            end
+            firstOfRow[placement.row] = button
+        else
+            button:SetPoint("LEFT", frame.filterButtons[index - 1], "RIGHT", Panel.FILTER_BUTTON_GAP, 0)
+        end
+    end
+    frame.filterRows = layout.rows
+    frame.filterLayout = layout
+    frame.scroll:ClearAllPoints()
+    frame.scroll:SetPoint("TOPLEFT", frame.filterLabel, "BOTTOMLEFT", 0, -(layout.rows * Panel.FILTER_ROW_HEIGHT + 6))
+    frame.scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -26, 4)
+    return layout
 end
 
 local function row(frame, index)
@@ -516,11 +709,14 @@ function Panel.Refresh(self, opts)
     self.model = model
     self.difficultyIDs = opts.difficultyIDs
 
+    -- Text first, then the layout, because a button's width is its label's.
+    local labels = {}
     local index = 0
     for _, difficulty in ipairs(model.difficulties) do
         index = index + 1
         local button = filterButton(self, index)
-        button:SetText(string.format("%s (%d)", difficulty.label, difficulty.count))
+        labels[index] = string.format("%s (%d)", difficulty.label, difficulty.count)
+        button:SetText(labels[index])
         button:SetScript("OnClick", function()
             self.difficultyIDs = { difficulty.difficultyID }
             Panel.Refresh(self)
@@ -528,7 +724,8 @@ function Panel.Refresh(self, opts)
     end
     index = index + 1
     local all = filterButton(self, index)
-    all:SetText("All")
+    labels[index] = "All"
+    all:SetText(labels[index])
     all:SetScript("OnClick", function()
         self.difficultyIDs = nil
         Panel.Refresh(self)
@@ -536,10 +733,13 @@ function Panel.Refresh(self, opts)
     for i = index + 1, #self.filterButtons do
         self.filterButtons[i]:Hide()
     end
+    placeFilterButtons(self, labels)
 
+    -- The pinned note is the header's, drawn once; it is not a line of the
+    -- list, in combat or out of it (WKE-530 finding 3).
     local lines = Panel.Lines(model)
     if gathered.inCombat then
-        lines = { Panel.NOTE, "Lootpath does not read the client in combat. Leave combat and reopen this panel." }
+        lines = { "Lootpath does not read the client in combat. Leave combat and reopen this panel." }
     end
     for i, line in ipairs(lines) do
         row(self, i):SetText(line)

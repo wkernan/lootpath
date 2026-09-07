@@ -167,7 +167,9 @@ describe("VaultPanel over the committed vault transcript", function()
         local model = ns.VaultPanel.Model({ vault = ns.Vault.Options(), verdict = realVerdict(ns) })
         assert.is_false(model.ok)
         assert.equal("combat", model.reason)
-        assert.same({ ns.VaultPanel.NOTE, "The vault could not be read: combat" }, ns.VaultPanel.Lines(model))
+        -- The note is the header's, not the list's (WKE-530 finding 3).
+        assert.equal(ns.VaultPanel.NOTE, model.note)
+        assert.same({ "The vault could not be read: combat" }, ns.VaultPanel.Lines(model))
     end)
 end)
 
@@ -299,11 +301,61 @@ describe("VaultPanel frames", function()
         local long = #ns.VaultPanel.Lines(frame:Refresh())
         world.inCombat = true
         frame:Refresh()
-        assert.equal(2, #frame.lines)
+        assert.equal(1, #frame.lines)
         assert.is_true(long > 2)
-        for i = 3, long do
+        for i = 2, long do
             assert.equal("", frame.rows[i]:GetText())
             assert.is_false(frame.rows[i]:IsShown())
         end
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- WKE-530 (M3-5) finding 3: the pinned note was drawn twice on this tab too -
+-- once by the panel header and once as the list's first row - in the owner's
+-- first in-game run, 2026-09-06.
+
+describe("VaultPanel draws the pinned note once (WKE-530 finding 3)", function()
+    local ns, world
+
+    before_each(function()
+        ns, world = H.load()
+        R.vault(world, R.snapshot("vault", WITH_PROGRESS, R.JOURNAL))
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function noteCount(frame)
+        local seen = 0
+        if frame.note:GetText():find(ns.VaultPanel.NOTE, 1, true) then
+            seen = seen + 1
+        end
+        for _, text in ipairs(frame.rows) do
+            if text:GetText():find(ns.VaultPanel.NOTE, 1, true) then
+                seen = seen + 1
+            end
+        end
+        return seen
+    end
+
+    it("puts it in the header and never in the list", function()
+        local frame = ns.VaultPanel.Create()
+        local model = frame:Refresh()
+        assert.is_true(model.ok)
+        assert.equal(1, noteCount(frame))
+        assert.equal(ns.VaultPanel.NOTE, frame.note:GetText())
+        -- The model still carries it, which is what pins the wording headlessly.
+        assert.equal(ns.VaultPanel.NOTE, model.note)
+    end)
+
+    it("still says it once when the vault refuses to be read", function()
+        local frame = ns.VaultPanel.Create()
+        frame:Refresh()
+        world.inCombat = true
+        frame:Refresh()
+        assert.is_false(frame.model.ok)
+        assert.equal(1, noteCount(frame))
     end)
 end)

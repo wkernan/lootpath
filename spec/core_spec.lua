@@ -457,3 +457,53 @@ describe("Core", function()
         end)
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- WKE-530 (M3-5) finding 5: the window's title bar read
+-- "Lootpath @project-version@" on the copy tools\sync.ps1 put in the client on
+-- 2026-09-06. The .toc carries `## Version: @project-version@` and the BigWigs
+-- packager substitutes it only when it builds a release, so a dev copy has the
+-- token itself in its metadata.
+
+describe("ns.VERSION", function()
+    after_each(function()
+        H.unload()
+    end)
+
+    it("falls back to dev when the packager has not substituted the .toc token", function()
+        local ns = H.load({
+            beforeLoad = function(world)
+                world.metadata.Version = "@project-version@"
+            end,
+        })
+        assert.equal("dev", ns.VERSION)
+    end)
+
+    it("uses the packaged version when there is one", function()
+        local ns = H.load()
+        assert.equal("0.0.0-test", ns.VERSION)
+    end)
+
+    it("falls back for any unsubstituted token, and for no metadata at all", function()
+        local ns = H.load({
+            beforeLoad = function(world)
+                world.metadata.Version = "@project-revision@"
+            end,
+        })
+        assert.equal("dev", ns.VERSION)
+        H.unload()
+        ns = H.load({
+            beforeLoad = function(world)
+                world.metadata.Version = nil
+            end,
+        })
+        assert.equal("dev", ns.VERSION)
+        H.unload()
+        ns = H.load({
+            beforeLoad = function(world)
+                world.metadata.Version = ""
+            end,
+        })
+        assert.equal("dev", ns.VERSION)
+    end)
+end)

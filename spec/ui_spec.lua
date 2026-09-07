@@ -701,6 +701,82 @@ describe("the Vault tab", function()
         frame.tabs[3]:Click()
         assert.is_false(panel.model.ok)
         assert.equal("combat", panel.model.reason)
-        assert.equal("The vault could not be read: combat", panel.rows[2]:GetText())
+        assert.equal("The vault could not be read: combat", panel.rows[1]:GetText())
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- WKE-530 (M3-5) through the real window: the pinned note appeared twice on
+-- both tabs, the filter row ran off the frame, and the title bar showed the
+-- packager's own token. All four were on screen in the owner's first in-game
+-- run of the whole window, 2026-09-06.
+
+describe("the window after WKE-530", function()
+    local ns, world, frame
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        withJournalWalk(ns)
+        R.vault(world, R.snapshot("vault", 3, R.JOURNAL))
+        frame = ns.UI.Frame()
+        frame.pasteBox:SetText(readFile(REAL_EXPORT))
+        frame.importButton:Click()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function noteCount(panel, note)
+        local seen = 0
+        if panel.note:GetText():find(note, 1, true) then
+            seen = seen + 1
+        end
+        for _, text in ipairs(panel.rows) do
+            if text:GetText():find(note, 1, true) then
+                seen = seen + 1
+            end
+        end
+        return seen
+    end
+
+    it("draws each tab's pinned note exactly once", function()
+        frame.tabs[2]:Click()
+        assert.equal(1, noteCount(frame.upgradeMapPanel, ns.UpgradeMapPanel.NOTE))
+        frame.tabs[3]:Click()
+        assert.equal(1, noteCount(frame.vaultPanel, ns.VaultPanel.NOTE))
+    end)
+
+    it("keeps every difficulty button inside the panel's width", function()
+        frame.tabs[2]:Click()
+        local panel = frame.upgradeMapPanel
+        assert.is_true(#panel.filterButtons > 1)
+        local used = {}
+        for _, placement in ipairs(panel.filterLayout.buttons) do
+            used[placement.row] = (used[placement.row] or 0) + placement.width + ns.UpgradeMapPanel.FILTER_BUTTON_GAP
+        end
+        for row, total in pairs(used) do
+            assert.is_true(total <= panel:GetWidth(), string.format("filter row %d is %d wide", row, total))
+        end
+        -- and no two buttons carry the same words
+        local seen = {}
+        for _, button in ipairs(panel.filterButtons) do
+            if button:IsShown() then
+                assert.is_nil(seen[button:GetText()], "two filter buttons read " .. button:GetText())
+                seen[button:GetText()] = true
+            end
+        end
+    end)
+
+    it("titles itself with a version, never with the packager's token", function()
+        assert.equal("Lootpath 0.0.0-test", frame.TitleText:GetText())
+        H.unload()
+        local dev = H.load({
+            beforeLoad = function(w)
+                w.metadata.Version = "@project-version@"
+            end,
+        })
+        assert.equal("Lootpath dev", dev.UI.Frame().TitleText:GetText())
     end)
 end)
