@@ -67,7 +67,10 @@ already edited the shared checkout, move the work to a worktree first
 
 - Every value read from the client passes `ns.Safe` / `ns.CopyRaw`
   (`issecretvalue` / `issecrettable`). Nothing runs in combat. No network. No
-  backend. Everything external arrives by paste. SavedVariables flush only on
+  backend. Everything external arrives by paste, or by the one file the local
+  companion writes into the addon folder (`Data/QEVerdict.lua`, decision
+  2026-09-07, ARCHITECTURE.md §7); the addon still reads nothing but its own
+  Lua at load. SavedVariables flush only on
   `/reload` or logout.
 - Captures (`/lootpath capture <name>`) only read, with one recorded exception:
   `capture journal` sets the Adventure Guide's view state because the API has
