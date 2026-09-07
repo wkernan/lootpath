@@ -147,6 +147,13 @@ local function attachTemplate(f, world, template)
         f.TitleText = f:CreateFontString()
         f.CloseButton = newFrame("Button", world, f)
     end
+    -- PanelTabButtonTemplate declares parentArray="Tabs"
+    -- (Blizzard_SharedXML/SharedUIPanelTemplates.xml line 905), so a tab built
+    -- from it appends itself to its parent's `Tabs` list.
+    if template:find("PanelTabButtonTemplate", 1, true) and f.parent then
+        f.parent.Tabs = f.parent.Tabs or {}
+        f.parent.Tabs[#f.parent.Tabs + 1] = f
+    end
     -- InputScrollFrameTemplate's scroll child is a multiLine EditBox at
     -- parentKey EditBox, with maxLetters 0 and a CharCount label
     -- (Blizzard_SharedXML/SecureUIPanelTemplates.xml).
@@ -230,6 +237,12 @@ function newFrame(kind, world, parent, template)
     end
     function f:SetHyperlinksEnabled(value)
         self.hyperlinksEnabled = value
+    end
+    function f:SetID(value)
+        self.id = value
+    end
+    function f:GetID()
+        return self.id
     end
     function f:SetScrollChild(child)
         self.scrollChild = child
@@ -365,6 +378,7 @@ function Stub.install()
         vaultOpen = false,
         vault = { hasAvailable = false, canClaim = false, activities = {}, links = {}, examples = {} },
         secondsUntilReset = 3600,
+        difficultyNames = {},
         printed = {},
         frames = {},
         equipCalls = {},
@@ -500,6 +514,17 @@ function Stub.install()
         end
         return nil
     end)
+    -- GetDifficultyInfo(difficultyID) -> name, instanceType, ... (Blizzard's
+    -- exported InstanceDocumentation via Ketho). Names here are placeholders;
+    -- world.difficultyNames is what a test drives, and an empty table is a
+    -- client that does not answer, which the M3-3 panel has to survive.
+    define("GetDifficultyInfo", function(difficultyID)
+        local name = world.difficultyNames[difficultyID]
+        if not name then
+            return nil
+        end
+        return name, "party", false, false, false, false
+    end)
     define("debugprofilestop", function()
         return os.clock() * 1000
     end)
@@ -523,6 +548,21 @@ function Stub.install()
     define("SlashCmdList", {})
     define("UIParent", newFrame("Frame", world))
     define("UISpecialFrames", {})
+
+    -- The tab helpers from Blizzard_SharedXML/SharedUIPanelTemplates.lua, as
+    -- far as a headless run can model them: which tab is selected is state, and
+    -- the selected/deselected ARTWORK those functions also swap is a pixel
+    -- question that only M3-4 can answer. PanelTabButtonTemplate carries
+    -- parentArray="Tabs", which is why a tab lands in frame.Tabs.
+    define("PanelTemplates_SetNumTabs", function(frame, numTabs)
+        frame.numTabs = numTabs
+    end)
+    define("PanelTemplates_SetTab", function(frame, id)
+        frame.selectedTab = id
+    end)
+    define("PanelTemplates_GetSelectedTab", function(frame)
+        return frame.selectedTab
+    end)
 
     -- GameTooltip: what it was told to show is recorded so a test can read the
     -- combat message back off it.
@@ -638,7 +678,19 @@ function Stub.install()
             AccountBankTab_5 = 16,
         },
         BankType = { Character = 0, Guild = 1, Account = 2 },
-        WeeklyRewardChestThresholdType = { None = 0, Activities = 1, RankedPvP = 2, Raid = 3, World = 6 },
+        -- Enum.WeeklyRewardChestThresholdType exactly as the 12.1.0 client
+        -- enumerated it (transcript 2026-09-05, capture env): AlsoReceive and
+        -- Concession were missing here until M3-3, and the vault's Concession
+        -- row (type 5) is a real row in both committed transcripts.
+        WeeklyRewardChestThresholdType = {
+            None = 0,
+            Activities = 1,
+            RankedPvP = 2,
+            Raid = 3,
+            AlsoReceive = 4,
+            Concession = 5,
+            World = 6,
+        },
         CachedRewardType = { None = 0, Item = 1, Currency = 2, Quest = 3 },
         ItemQuality = { Poor = 0, Common = 1, Uncommon = 2, Rare = 3, Epic = 4, Legendary = 5 },
     })

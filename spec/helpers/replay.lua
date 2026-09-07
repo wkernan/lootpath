@@ -79,6 +79,27 @@ function R.inventory(world, snapshot)
     return world
 end
 
+-- Replays a vault snapshot's raw data into the stub world, so C_WeeklyRewards
+-- answers exactly what the owner's client said (M3-3). The activities go back
+-- verbatim, empty `rewards` lists included: what the vault says before its
+-- rewards are generated is a fact the panel has to handle, not a gap to fill.
+function R.vault(world, snapshot)
+    local data = snapshot.data
+    world.vault.activities = (data.activities and data.activities[1]) or {}
+    world.vault.hasAvailable = (data.hasAvailableRewards and data.hasAvailableRewards[1]) == true
+    world.vault.canClaim = (data.canClaimRewards and data.canClaimRewards[1]) == true
+    world.vault.links = {}
+    for _, entry in ipairs(data.rewardLinks or {}) do
+        local link = entry.link and entry.link[1]
+        if entry.itemDBID ~= nil and type(link) == "string" then
+            world.vault.links[entry.itemDBID] = link
+            registerItem(world, link, entry.item)
+        end
+    end
+    world.secondsUntilReset = (data.secondsUntilWeeklyReset and data.secondsUntilWeeklyReset[1]) or 0
+    return world
+end
+
 -- Every item link the snapshot carries, deduplicated, with the raw probes.
 function R.links(snapshot)
     local seen, out = {}, {}

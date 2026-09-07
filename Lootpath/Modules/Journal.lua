@@ -42,7 +42,8 @@ ns.JournalAdapter = {}
 local Adapter = ns.JournalAdapter
 
 -- The aggregator: Build(opts) -> { [itemID] = { { instanceID, instanceName,
--- encounterID, encounterName, difficultyID, itemLevel, slot, isRaid } ... } },
+-- encounterID, encounterName, difficultyID, itemLevel, slot, isRaid,
+-- itemKey, name } ... } },
 -- cached in db.global.journalCache keyed (build, seasonID, specID, difficultyID).
 -- Implemented at the bottom of this file, after the adapter it reads.
 ns.Journal = {}
@@ -707,14 +708,15 @@ end
 -- Build(opts) turns one journal walk into the loot map:
 --
 --   { [itemID] = { { instanceID, instanceName, encounterID, encounterName,
---                    difficultyID, itemLevel, slot, isRaid, pending } ... } }
+--                    difficultyID, itemLevel, slot, isRaid, pending,
+--                    itemKey, name } ... } }
 --
 -- It is pure Lua over a table the adapter already produced - the same shape a
 -- `capture journal` snapshot stores - so like QEImport.Parse it carries no
 -- combat guard and reads nothing from the client. The walk in front of it does
 -- both (decision 2026-09-06).
 --
--- Three things the 2026-09-06 transcript decided, none of them guessed:
+-- Four things the 2026-09-06 transcript decided, none of them guessed:
 --   * `slot` comes from the row's C_Item.GetItemInfoInstant equipLoc through
 --     ns.Inventory.SlotForEquipLoc, NOT from EncounterJournalItemInfo.slot.
 --     Both were measured, and they agree one-for-one across all 244 rows that
@@ -728,6 +730,16 @@ end
 --     "no item level": 240 of the 376 itemIDs in that walk were link-less on
 --     EVERY row, so treating them as slotless would silently lose 64% of the
 --     map.
+--   * `itemKey` is ns.ItemKey over the row's OWN link, and it is nil on a
+--     pending row for the same reason `itemLevel` is: the link has not
+--     arrived, not "this item has no key". Measured over the same transcript:
+--     all 189 keyed entries carry exactly ONE bonus ID, and it is 3524 on
+--     every one of them, while the item level moves with the difficulty (item
+--     251153 is 276 Heroic / 292 Mythic / 305 at M+10 on the same key). So a
+--     journal key is not the key of any copy you own - the export's items
+--     carry two to seven bonus IDs - and M3-3's exact-key join stays honest by
+--     matching almost nothing. That is the values-free decision working, not a
+--     bug (see ARCHITECTURE.md 7, 2026-09-06).
 --   * Boss names are an instance-wide fact, not a per-difficulty one. The
 --     walk's own encounter list came back empty for every DungeonChallenge
 --     target, so names seen at one difficulty of an instance name the same
@@ -868,6 +880,12 @@ local function aggregate(targets, wanted)
                 local itemID = type(info) == "table" and tonumber(info.itemID) or nil
                 local pending = Adapter.RowIsPending(row)
                 local slot = ns.Inventory and ns.Inventory.SlotForEquipLoc(row.instant and row.instant[4]) or nil
+                -- The row's own link. Kept per source rather than per item
+                -- because nothing promises the journal previews one link for
+                -- an item at every difficulty; on the 2026-09-06 transcript it
+                -- did (one bonus ID, 3524, on all 189 keyed entries), and the
+                -- entry is where the next capture can show that it stopped.
+                local parsed = (not pending) and ns.ParseItemLink(info.link) or nil
                 if not itemID or itemID <= 0 or itemID % 1 ~= 0 then
                     summary.skippedRows = summary.skippedRows + 1
                 elseif not pending and not slot then
@@ -896,6 +914,8 @@ local function aggregate(targets, wanted)
                             existing.pending = nil
                             existing.slot = slot
                             existing.itemLevel = tonumber(probeValue(row.detailedLevel))
+                            existing.itemKey = parsed and parsed.key or nil
+                            existing.name = type(info.name) == "string" and info.name or nil
                         end
                     else
                         local entry = {
@@ -908,6 +928,12 @@ local function aggregate(targets, wanted)
                             slot = slot,
                             isRaid = target.isRaid == true,
                             pending = pending or nil,
+                            itemKey = parsed and parsed.key or nil,
+                            -- The name the client already handed the walk, so
+                            -- a panel built from the cache reads as item names
+                            -- rather than item IDs even when the client has
+                            -- since forgotten the item.
+                            name = (not pending) and type(info.name) == "string" and info.name or nil,
                         }
                         seen[key] = entry
                         local list = sources[itemID]
@@ -946,6 +972,7 @@ end
 -- opts.difficultyIDs  only these difficulties (default: every one the walk saw)
 -- opts.db         AceDB (default ns.db); no db means no caching, never an error
 -- opts.build / opts.seasonID / opts.specID   override what the walk recorded
+-- opts.previewMythicPlusLevel  override the M+ level the walk previewed
 -- opts.refresh    rebuild even when the cache already holds this key
 function Journal.Build(_, opts)
     opts = opts or {}
@@ -1000,6 +1027,12 @@ function Journal.Build(_, opts)
     summary.seasonID = seasonID
     summary.specID = specID
     summary.difficultyIDs = difficultyIDs
+    -- The M+ level the walk previewed. There is no getter for it on the client
+    -- (decision 2026-09-06), so the number the capture asked for is the only
+    -- record of what difficulty 8's item levels mean.
+    summary.previewMythicPlusLevel = opts.previewMythicPlusLevel
+        or (data.requested and tonumber(data.requested.previewMythicPlusLevel))
+        or nil
     if cache then
         cache[key] = { build = build, sources = sources, summary = summary }
     end

@@ -14,6 +14,7 @@
 local H = require("spec.helpers.addon")
 local R = require("spec.helpers.replay")
 local S = require("spec.helpers.serialize")
+local Stub = require("spec.stubs.wow")
 
 local EXPECTED_DIR = "spec/fixtures/expected/"
 
@@ -836,12 +837,62 @@ describe("ns.Journal over the 2026-09-06 transcript", function()
         -- The committed transcript predates the second read, so every target
         -- here falls back to its first read; the aggregator says so.
         assert.equal(0, summary.rereadTargets)
-        local target = snapshot.data.walk.targets[1]
+        -- On a COPY: spec.helpers.replay caches the transcript, so every test in
+        -- this file shares one table and a mutation here would follow the
+        -- snapshot into the tests that come after it. It did: the golden this
+        -- file regenerates was written from a transcript with this target's
+        -- second read spliced in (588 rows instead of 613), until M3-3.
+        local copy = Stub.deepcopy(snapshot)
+        local target = copy.data.walk.targets[1]
         target.reread = { rows = { target.loot.rows[1] } }
-        local reread, reSummary = ns.Journal:Build({ snapshot = snapshot, refresh = true })
+        local reread, reSummary = ns.Journal:Build({ snapshot = copy, refresh = true })
         assert.equal(1, reSummary.rereadTargets)
         assert.is_true(reSummary.rows < summary.rows)
         assert.is_table(reread)
+    end)
+
+    it("carries the row's own item key and name, and neither on a pending row", function()
+        -- The key M3-3 joins the map to the QE Live verdict on. Measured over
+        -- this transcript: 189 keyed entries, every one of them carrying
+        -- exactly ONE bonus ID, and it is 3524 on all of them - so a journal
+        -- key is not the key of any copy you own, whose links carry two to
+        -- seven. That is the values-free decision working, not a bug.
+        local keyed, bonusIDs, pending = 0, {}, 0
+        for _, list in pairs(sources) do
+            for _, source in ipairs(list) do
+                if source.pending then
+                    pending = pending + 1
+                    assert.is_nil(source.itemKey)
+                    assert.is_nil(source.name)
+                else
+                    keyed = keyed + 1
+                    assert.is_string(source.itemKey)
+                    assert.is_string(source.name)
+                    local id, bonus = source.itemKey:match("^(%d+):(.+)$")
+                    assert.is_string(id, "a journal key with no bonus ID: " .. source.itemKey)
+                    bonusIDs[bonus] = (bonusIDs[bonus] or 0) + 1
+                end
+            end
+        end
+        assert.equal(189, keyed)
+        assert.equal(369, pending)
+        assert.same({ ["3524"] = 189 }, bonusIDs)
+        -- Item 251153 is the one itemID the committed Top Gear export and this
+        -- map share: same item, three difficulties, one key, three item levels.
+        local feet = sources[251153]
+        assert.equal(3, #feet)
+        assert.equal("Arctic Explorer's Legwraps", feet[1].name)
+        for _, source in ipairs(feet) do
+            assert.equal("251153:3524", source.itemKey)
+        end
+        assert.same({ 276, 305, 292 }, { feet[1].itemLevel, feet[2].itemLevel, feet[3].itemLevel })
+        assert.is_not.equal("251153:3524", ns.ItemKey(251153, { 13440, 6652, 13662, 12699, 12835 }))
+    end)
+
+    it("records the M+ level the walk previewed, because the client has no getter for it", function()
+        assert.equal(10, summary.previewMythicPlusLevel)
+        local _, overridden = ns.Journal:Build({ snapshot = snapshot, refresh = true, previewMythicPlusLevel = 12 })
+        assert.equal(12, overridden.previewMythicPlusLevel)
     end)
 
     it("matches the committed expected fixture", function()
@@ -993,6 +1044,9 @@ describe("ns.Journal over a walk whose item data arrives late", function()
         assert.equal(1, summary.rereadTargets)
         assert.equal(639, sources[220001][1].itemLevel)
         assert.equal("Head", sources[220001][1].slot)
+        -- The key and the name arrive with the same second read.
+        assert.is_string(sources[220001][1].itemKey)
+        assert.is_string(sources[220001][1].name)
         assert.equal(626, sources[220002][1].itemLevel)
         assert.equal("Finger", sources[220002][1].slot)
     end)

@@ -488,3 +488,219 @@ describe("the content type setting", function()
         assert.same({ "Mythic+" }, ns.QEImport.StoredContentTypes())
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- M3-3 (WKE-524): the Upgrade Map and Vault tabs in the same window.
+
+local function withJournalWalk(ns)
+    ns.db.global.captures.journal = { R.snapshot("journal", 1, R.JOURNAL) }
+end
+
+describe("the window's three tabs", function()
+    local ns, world, frame
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        R.vault(world, R.snapshot("vault", 3, R.JOURNAL))
+        withJournalWalk(ns)
+        frame = ns.UI.Frame()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("has one tab per promise, in the order the product states them", function()
+        assert.equal(3, #frame.tabs)
+        assert.same(
+            { "Equip Now", "Upgrade Map", "Vault" },
+            { frame.tabs[1]:GetText(), frame.tabs[2]:GetText(), frame.tabs[3]:GetText() }
+        )
+        -- PanelTabButtonTemplate's parentArray puts each tab in frame.Tabs, and
+        -- PanelTemplates_SetNumTabs is what Blizzard's own artwork reads.
+        assert.equal(3, #frame.Tabs)
+        assert.equal(3, frame.numTabs)
+        assert.same({ 1, 2, 3 }, { frame.tabs[1]:GetID(), frame.tabs[2]:GetID(), frame.tabs[3]:GetID() })
+    end)
+
+    it("opens on Equip Now with the other two panels hidden", function()
+        assert.equal(1, frame.selectedTab)
+        assert.is_true(frame.equipPanel:IsShown())
+        assert.is_false(frame.upgradeMapPanel:IsShown())
+        assert.is_false(frame.vaultPanel:IsShown())
+    end)
+
+    it("shows exactly one panel per tab clicked", function()
+        for _, tab in ipairs(ns.UI.TABS) do
+            frame.tabs[tab.id]:Click()
+            assert.equal(tab.id, frame.selectedTab)
+            assert.equal(tab.id, _G.PanelTemplates_GetSelectedTab(frame))
+            local shown = {}
+            for _, other in ipairs(ns.UI.TABS) do
+                if frame[other.key]:IsShown() then
+                    shown[#shown + 1] = other.key
+                end
+            end
+            assert.same({ tab.key }, shown)
+        end
+    end)
+
+    it("draws only the tab that is on screen", function()
+        -- The Equip tab is up, so a refresh scans and matches and leaves the
+        -- other two panels untouched. Walking 613 journal rows to redraw a
+        -- panel nobody is looking at is the thing this avoids.
+        assert.is_nil(frame.upgradeMapPanel.model)
+        assert.is_nil(frame.vaultPanel.model)
+        frame.pasteBox:SetText(readFile(REAL_EXPORT))
+        frame.importButton:Click()
+        assert.is_table(frame.equipPanel.match)
+        assert.is_nil(frame.upgradeMapPanel.model)
+        assert.is_nil(frame.vaultPanel.model)
+
+        frame.tabs[2]:Click()
+        assert.is_table(frame.upgradeMapPanel.model)
+        assert.is_nil(frame.vaultPanel.model)
+    end)
+end)
+
+describe("the Upgrade Map tab", function()
+    local ns, world, frame, panel
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        withJournalWalk(ns)
+        frame = ns.UI.Frame()
+        frame.pasteBox:SetText(readFile(REAL_EXPORT))
+        frame.importButton:Click()
+        frame.tabs[2]:Click()
+        panel = frame.upgradeMapPanel
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("renders the map into the window and pins the values-free note", function()
+        assert.equal(ns.UpgradeMapPanel.NOTE, panel.note:GetText())
+        assert.equal("Upgrade Map", panel.header:GetText())
+        assert.is_true(panel.model.hasMap)
+        local lines = ns.UpgradeMapPanel.Lines(panel.model)
+        assert.is_true(#lines > 100)
+        for i, line in ipairs(lines) do
+            assert.equal(line, panel.rows[i]:GetText())
+        end
+    end)
+
+    it("puts no QE Live number on screen, because the real export covers nothing", function()
+        assert.equal(0, panel.model.counts.covered)
+        for i = 1, #panel.lines do
+            assert.is_nil(panel.rows[i]:GetText():find("QE Live: ", 1, true))
+        end
+    end)
+
+    it("narrows to one difficulty when its filter button is clicked", function()
+        local before = panel.model.counts.candidates
+        local mythicPlus
+        for _, button in ipairs(panel.filterButtons) do
+            if button:GetText():find("Mythic+ 10", 1, true) then
+                mythicPlus = button
+            end
+        end
+        assert.is_not_nil(mythicPlus)
+        mythicPlus:Click()
+        assert.same({ 8 }, panel.difficultyIDs)
+        assert.is_true(panel.model.counts.candidates < before)
+    end)
+
+    it("says nothing about anything once the import is gone", function()
+        assert.is_true(panel.model.hasVerdict)
+        ns.db.char.qeImport = nil
+        ns.db.char.qeImports = {}
+        frame.tabs[2]:Click()
+        assert.is_false(panel.model.hasVerdict)
+    end)
+
+    -- The distinguishing case: two imports on the character, the setting
+    -- pointing at one of them, and the most recent paste being the other. A
+    -- panel reading QEImport.Current() would show the Raid answer under a
+    -- Dungeon setting with nothing said, which is exactly what UI.ActiveVerdict
+    -- exists to prevent (M2-2).
+    it("shows the content type the setting asks for, not the last paste", function()
+        -- A Dungeon export built from the real one, with the Feet item's bonus
+        -- IDs replaced by the single one (3524) that the committed journal walk
+        -- really carries for that itemID, so the exact-key join lands.
+        local dungeon = readFile(REAL_EXPORT)
+            :gsub('"contentType": "Raid"', '"contentType": "Dungeon"', 1)
+            :gsub("13440,%s*6652,%s*13662,%s*12699,%s*12835", "3524", 1)
+        frame.pasteBox:SetText(dungeon)
+        frame.importButton:Click()
+        assert.equal("Dungeon", ns.QEImport.Current().contentType)
+        -- ...then the Raid export, so the LAST paste is the Raid one.
+        frame.pasteBox:SetText(readFile(REAL_EXPORT))
+        frame.importButton:Click()
+        assert.equal("Raid", ns.QEImport.Current().contentType)
+        assert.equal("Dungeon", ns.UI.Options.Get())
+
+        frame.tabs[2]:Click()
+        -- The Dungeon export covers the journal's three rows for 251153; the
+        -- Raid one covers nothing at all.
+        assert.equal(3, panel.model.counts.covered)
+        local covered = 0
+        for i = 1, #panel.lines do
+            if panel.rows[i]:GetText():find("QE Live: in your best set", 1, true) then
+                covered = covered + 1
+            end
+        end
+        assert.equal(3, covered)
+    end)
+end)
+
+describe("the Vault tab", function()
+    local ns, world, frame, panel
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        R.vault(world, R.snapshot("vault", 3, R.JOURNAL))
+        frame = ns.UI.Frame()
+        frame.pasteBox:SetText(readFile(REAL_EXPORT))
+        frame.importButton:Click()
+        frame.tabs[3]:Click()
+        panel = frame.vaultPanel
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("renders the week's options into the window", function()
+        assert.equal(ns.VaultPanel.NOTE, panel.note:GetText())
+        assert.equal("Vault", panel.header:GetText())
+        assert.equal(10, panel.model.counts.options)
+        local lines = ns.VaultPanel.Lines(panel.model)
+        for i, line in ipairs(lines) do
+            assert.equal(line, panel.rows[i]:GetText())
+        end
+    end)
+
+    it("says the vault has generated nothing yet rather than showing an empty list", function()
+        assert.equal(0, panel.model.counts.rewards)
+        local sawNote = false
+        for i = 1, #panel.lines do
+            if panel.rows[i]:GetText() == ns.VaultPanel.NO_REWARDS_NOTE then
+                sawNote = true
+            end
+        end
+        assert.is_true(sawNote)
+    end)
+
+    it("shows the vault's own refusal when the client cannot be read", function()
+        world.inCombat = true
+        frame.tabs[3]:Click()
+        assert.is_false(panel.model.ok)
+        assert.equal("combat", panel.model.reason)
+        assert.equal("The vault could not be read: combat", panel.rows[2]:GetText())
+    end)
+end)

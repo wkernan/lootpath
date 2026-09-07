@@ -66,6 +66,70 @@ function QEImport.AlternativeIsBetter(alternative)
     return percent * QEImport.ALT_WORSE_SCORE_PERCENT_SIGN < 0
 end
 
+-- How far from the top set an alternative sits, in QE Live's own direction:
+-- lower is better, because a positive scorePercent means the alternative is
+-- worse. Sorting on this is reading his sign convention through the constant
+-- rather than re-deciding it, which is the whole point of the constant.
+function QEImport.AlternativeRank(alternative)
+    local percent = type(alternative) == "table" and tonumber(alternative.scorePercent) or nil
+    if not percent then
+        return math.huge
+    end
+    return percent * QEImport.ALT_WORSE_SCORE_PERCENT_SIGN
+end
+
+-- Coverage(verdict, key) -> what QE Live has said about this exact item, or
+-- nil when it has said nothing. The one lookup both M3-3 panels use, so
+-- "covered" means the same thing on the Upgrade Map and in the Vault:
+--
+--   { key, item, where = "topSet"|"alternative", isVault,
+--     scorePercent, hpsDifference, isBetter }
+--
+-- `where = "topSet"` carries NO numbers, and that is not an omission: the
+-- export gives per-item deltas only on its differentials, and inventing one for
+-- a top-set item would be Lootpath computing a healer value. The panels say
+-- "QE Live put this in your best set" there and show a number nowhere else.
+--
+-- An item that appears in several alternatives is reported through the best of
+-- them, ordered by AlternativeRank.
+function QEImport.Coverage(verdict, key)
+    if type(verdict) ~= "table" or type(key) ~= "string" then
+        return nil
+    end
+    local topSet = type(verdict.topSet) == "table" and verdict.topSet or {}
+    local inTopSet = type(topSet.items) == "table" and topSet.items[key] or nil
+    if inTopSet then
+        return {
+            key = key,
+            item = inTopSet,
+            where = "topSet",
+            isVault = inTopSet.isVault == true,
+        }
+    end
+    local best, bestItem
+    for _, alternative in ipairs(verdict.alternatives or {}) do
+        for _, item in ipairs(alternative.items or {}) do
+            if item.key == key then
+                if not best or QEImport.AlternativeRank(alternative) < QEImport.AlternativeRank(best) then
+                    best, bestItem = alternative, item
+                end
+            end
+        end
+    end
+    if not best then
+        return nil
+    end
+    return {
+        key = key,
+        item = bestItem,
+        where = "alternative",
+        isVault = bestItem.isVault == true,
+        scorePercent = best.scorePercent,
+        hpsDifference = best.hpsDifference,
+        isBetter = QEImport.AlternativeIsBetter(best),
+    }
+end
+
 -- Renders a value seen in the export for a refusal message. Strings are quoted
 -- and clipped so a pasted blob cannot become a wall of chat text.
 local function shown(value)

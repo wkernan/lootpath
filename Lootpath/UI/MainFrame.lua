@@ -1,7 +1,8 @@
--- Lootpath/UI/MainFrame.lua (M2-2, WKE-520)
+-- Lootpath/UI/MainFrame.lua (M2-2, WKE-520; the three tabs added in M3-3, WKE-524)
 -- The one window: the paste editbox that QE Live's answer arrives through, the
--- import status line, and the Equip Now panel. Native frames and Blizzard's own
--- templates only (decision 2026-09-05: Ace3 is AceDB, nothing else).
+-- import status line, and one tab per promise - Equip Now, the Upgrade Map and
+-- the Vault. Native frames and Blizzard's own templates only (decision
+-- 2026-09-05: Ace3 is AceDB, nothing else).
 --
 -- Templates used, each read from Blizzard's shipped XML under .luals on
 -- 2026-09-06 rather than remembered:
@@ -13,6 +14,12 @@
 --     `EditBox`, with `maxLetters` defaulting to 0 and a `CharCount` label.
 --     Its OnTextChanged writes `GetMaxLetters() - GetNumLetters()` into that
 --     label, which is meaningless at maxLetters 0, so the label is hidden.
+--   PanelTabButtonTemplate (Blizzard_SharedXML/SharedUIPanelTemplates.xml:905)
+--     carries `parentArray="Tabs"`, so each tab appends itself to `frame.Tabs`.
+--     WHICH tab is selected is Lootpath's own state (`UI.SelectTab`), because
+--     that is what decides which panel is on screen; `PanelTemplates_SetTab`
+--     and `PanelTemplates_SetNumTabs` are called for the selected/deselected
+--     ARTWORK only, guarded, because a client without them must still tab.
 --
 -- Nothing here reads the client in combat: the scan behind the panel is
 -- ns.Inventory.Scan, which refuses in combat, and the refusal is what shows.
@@ -26,6 +33,17 @@ UI.FRAME_NAME = "LootpathMainFrame"
 UI.WIDTH = 620
 UI.HEIGHT = 640
 UI.PASTE_INSTRUCTIONS = "Paste your QE Live Top Gear JSON here"
+
+-- One tab per promise, in the order the product states them (ARCHITECTURE.md
+-- 1). `key` is the field on the frame that holds that tab's panel; `refresh` is
+-- how that panel is redrawn. Only the visible one is refreshed: rebuilding the
+-- journal map on every BAG_UPDATE_DELAYED would walk 613 rows to redraw a panel
+-- nobody is looking at.
+UI.TABS = {
+    { id = 1, key = "equipPanel", label = "Equip Now" },
+    { id = 2, key = "upgradeMapPanel", label = "Upgrade Map" },
+    { id = 3, key = "vaultPanel", label = "Vault" },
+}
 
 -- ISO 8601 in UTC, which is what QE Live's exportedAt is
 -- ("2026-09-06T21:14:24.465Z", read from the committed export). Returns the
@@ -149,13 +167,10 @@ function UI.Import(text)
     return result
 end
 
-function UI.Refresh()
-    local frame = UI.frame
-    if not frame then
-        return nil
-    end
+-- The Equip Now tab. Kept as its own function so UI.Refresh can redraw one tab
+-- without touching the other two.
+function UI.RefreshEquip(frame)
     local verdict = UI.ActiveVerdict()
-    frame.verdictNote:SetText(UI.VerdictNoteText())
     local match
     if verdict then
         match = ns.Match.Build(ns.Inventory.Scan(), verdict)
@@ -170,6 +185,62 @@ function UI.Refresh()
     end
     UI.EquipPanel.Refresh(frame.equipPanel, match)
     return match
+end
+
+-- Redraws the tab that is on screen and no other. Still returns the match when
+-- the Equip tab is showing, because that is what M2-2's callers read.
+function UI.Refresh()
+    local frame = UI.frame
+    if not frame then
+        return nil
+    end
+    frame.verdictNote:SetText(UI.VerdictNoteText())
+    local selected = frame.selectedTab or 1
+    if selected == 2 then
+        ns.UpgradeMapPanel.Refresh(frame.upgradeMapPanel)
+        return nil
+    end
+    if selected == 3 then
+        ns.VaultPanel.Refresh(frame.vaultPanel)
+        return nil
+    end
+    return UI.RefreshEquip(frame)
+end
+
+-- Shows one tab's panel and hides the other two. `frame.selectedTab` is
+-- Lootpath's own state; PanelTemplates_SetTab is called for the tab artwork
+-- when the client has it, and its absence changes nothing about which panel is
+-- visible. Split from UI.SelectTab so UI.Frame can pick the first tab without
+-- scanning the client before the window has ever been opened.
+function UI.ShowTab(frame, id)
+    local wanted = 1
+    for _, tab in ipairs(UI.TABS) do
+        if tab.id == id then
+            wanted = id
+        end
+    end
+    frame.selectedTab = wanted
+    for _, tab in ipairs(UI.TABS) do
+        local panel = frame[tab.key]
+        if panel then
+            panel:SetShown(tab.id == wanted)
+        end
+    end
+    if type(_G.PanelTemplates_SetTab) == "function" then
+        PanelTemplates_SetTab(frame, wanted)
+    end
+    return wanted
+end
+
+-- Switching tab: show it, then draw it. Only the tab now on screen is drawn.
+function UI.SelectTab(frame, id)
+    frame = frame or UI.frame
+    if not frame then
+        return nil
+    end
+    local wanted = UI.ShowTab(frame, id)
+    UI.Refresh()
+    return wanted
 end
 
 local function buildImportSection(frame)
@@ -241,6 +312,30 @@ local function buildImportSection(frame)
     frame.verdictNote = note
 end
 
+-- One tab per promise. The button art is Blizzard's; which panel it shows is
+-- UI.SelectTab's.
+local function buildTabs(frame)
+    frame.tabs = {}
+    for index, tab in ipairs(UI.TABS) do
+        local button = CreateFrame("Button", nil, frame, "PanelTabButtonTemplate")
+        button:SetID(tab.id)
+        button:SetText(tab.label)
+        button:SetSize(110, 24)
+        if index == 1 then
+            button:SetPoint("TOPLEFT", frame.verdictNote, "BOTTOMLEFT", 0, -10)
+        else
+            button:SetPoint("LEFT", frame.tabs[index - 1], "RIGHT", 3, 0)
+        end
+        button:SetScript("OnClick", function(self)
+            UI.SelectTab(frame, self:GetID())
+        end)
+        frame.tabs[index] = button
+    end
+    if type(_G.PanelTemplates_SetNumTabs) == "function" then
+        PanelTemplates_SetNumTabs(frame, #UI.TABS)
+    end
+end
+
 local function onEvent(frame)
     if frame:IsShown() then
         UI.Refresh()
@@ -281,12 +376,20 @@ function UI.Frame()
     end
 
     buildImportSection(frame)
+    buildTabs(frame)
 
     local panel = UI.EquipPanel.Create(frame)
     panel.rowWidth = UI.WIDTH - 32
-    panel:SetPoint("TOPLEFT", frame.verdictNote, "BOTTOMLEFT", 0, -14)
-    panel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 14)
     frame.equipPanel = panel
+    frame.upgradeMapPanel = ns.UpgradeMapPanel.Create(frame)
+    frame.vaultPanel = ns.VaultPanel.Create(frame)
+    -- Every tab's panel fills the same rectangle; only one is shown at a time.
+    for _, tab in ipairs(UI.TABS) do
+        local tabPanel = frame[tab.key]
+        tabPanel:SetPoint("TOPLEFT", frame.tabs[1], "BOTTOMLEFT", 4, -8)
+        tabPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 14)
+    end
+    UI.ShowTab(frame, 1)
 
     frame:RegisterEvent("PLAYER_REGEN_DISABLED")
     frame:RegisterEvent("PLAYER_REGEN_ENABLED")
