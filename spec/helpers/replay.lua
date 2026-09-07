@@ -13,6 +13,14 @@ R.DEFAULT = "spec/fixtures/captures/Lootpath-20260905-133449.lua"
 -- that is the one the inventory goldens were generated from.
 R.JOURNAL = "spec/fixtures/captures/Lootpath-20260906-161213.lua"
 
+-- The 2026-09-06 evening visit: three journal snapshots in one file - the
+-- 16:11 walk this file already carried, then the cold-cache walk at 19:59 and
+-- the warm one at 20:04 that proved the second read in client (ARCHITECTURE.md
+-- 9). Its rows are the ones WKE-530's item-level-1 finding was measured over.
+R.JOURNAL_TWO_READ = "spec/fixtures/captures/Lootpath-20260906-200908.lua"
+R.JOURNAL_TWO_READ_COLD = 2
+R.JOURNAL_TWO_READ_WARM = 3
+
 local cache = {}
 
 -- Returns the LootpathDB table from a transcript, loaded in a sandbox so the

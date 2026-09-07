@@ -21,10 +21,15 @@ function H.tocFiles()
 end
 
 -- Returns ns, world. opts.loaded = false skips ADDON_LOADED so a test can hook
--- ns.onReady first.
+-- ns.onReady first. opts.beforeLoad(world) runs after the stub world exists and
+-- before any addon file does, which is the only way to change what a file reads
+-- AT LOAD TIME - ns.VERSION reads the .toc metadata on Core.lua's first lines.
 function H.load(opts)
     opts = opts or {}
     local world = Stub.install()
+    if opts.beforeLoad then
+        opts.beforeLoad(world)
+    end
     local ns = {}
     for _, f in ipairs(H.tocFiles()) do
         local isLib = f:match("^Libs/") ~= nil

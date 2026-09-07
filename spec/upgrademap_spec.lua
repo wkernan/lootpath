@@ -139,7 +139,9 @@ describe("UpgradeMapPanel model over the committed walk", function()
         for _, section in ipairs(model.slots) do
             filed = filed + #section.candidates
         end
-        assert.equal(summary.sources, filed + model.pending.count)
+        -- Every source is filed, listed as unidentified, or hidden at item
+        -- level 1 and counted (WKE-530 finding 4). Nothing is dropped.
+        assert.equal(summary.sources, filed + model.pending.count + model.counts.hiddenLevelOne)
         -- The slots come out in the character-sheet order, never sorted by name.
         local order = {}
         for _, section in ipairs(model.slots) do
@@ -342,7 +344,7 @@ describe("UpgradeMapPanel and rows whose item data never arrived", function()
         for _, section in ipairs(model.slots) do
             filed = filed + #section.candidates
         end
-        assert.equal(summary.sources - model.pending.count, filed)
+        assert.equal(summary.sources - model.pending.count - model.counts.hiddenLevelOne, filed)
         for _, row in ipairs(model.pending.rows) do
             assert.is_true(row.pending)
             assert.is_nil(row.itemLevel)
@@ -368,7 +370,9 @@ describe("UpgradeMapPanel and rows whose item data never arrived", function()
     it("says so plainly when there is no map at all", function()
         local model = ns.UpgradeMapPanel.Model({})
         assert.is_false(model.hasMap)
-        assert.same({ ns.UpgradeMapPanel.NOTE, ns.UpgradeMapPanel.EMPTY_NOTE }, ns.UpgradeMapPanel.Lines(model))
+        -- The note is the header's, not the list's (WKE-530 finding 3).
+        assert.equal(ns.UpgradeMapPanel.NOTE, model.note)
+        assert.same({ ns.UpgradeMapPanel.EMPTY_NOTE }, ns.UpgradeMapPanel.Lines(model))
     end)
 end)
 
@@ -490,15 +494,335 @@ describe("UpgradeMapPanel frames", function()
         world.inCombat = true
         frame:Refresh()
         assert.same({
-            ns.UpgradeMapPanel.NOTE,
             "Lootpath does not read the client in combat. Leave combat and reopen this panel.",
         }, frame.lines)
+        -- and the header still says the one thing it always says
+        assert.equal(ns.UpgradeMapPanel.NOTE, frame.note:GetText())
     end)
 
     it("points at the capture when no walk has been stored", function()
         ns.db.global.captures.journal = nil
         local frame = ns.UpgradeMapPanel.Create()
         frame:Refresh()
-        assert.same({ ns.UpgradeMapPanel.NOTE, ns.UpgradeMapPanel.EMPTY_NOTE }, frame.lines)
+        assert.same({ ns.UpgradeMapPanel.EMPTY_NOTE }, frame.lines)
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- WKE-530 (M3-5): the four Upgrade Map findings from the owner's first in-game
+-- run of the whole window, 2026-09-06. Each one is a thing the panel did on
+-- screen, so each test below fails on the code as it stood before this issue.
+
+describe("UpgradeMapPanel difficulty labels (WKE-530 finding 1)", function()
+    local ns, world, sources, summary
+
+    -- What the client actually answered, read off the filter row in the
+    -- 2026-09-06 screenshots: GetDifficultyInfo hands back the bare localised
+    -- word, so dungeon Heroic (2) and raid Heroic (15) are both "Heroic", and
+    -- dungeon Mythic (23) and raid Mythic (16) are both "Mythic".
+    local AMBIGUOUS = { [2] = "Heroic", [15] = "Heroic", [23] = "Mythic", [16] = "Mythic", [8] = "Mythic Keystone" }
+
+    before_each(function()
+        ns, world = H.load()
+        sources, summary = loadMap(ns)
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("gives no two difficulties in one map the same label, even when the client does", function()
+        world.difficultyNames = AMBIGUOUS
+        local model = ns.UpgradeMapPanel.Model({ sources = sources, summary = summary })
+        local byLabel = {}
+        for _, difficulty in ipairs(model.difficulties) do
+            assert.is_nil(byLabel[difficulty.label], "two difficulties share the label " .. difficulty.label)
+            byLabel[difficulty.label] = difficulty.difficultyID
+        end
+        -- The colliding pairs fall back to the qualified names the module
+        -- already carried; the M+ row keeps the client's word and its level.
+        assert.equal(2, byLabel["Heroic dungeon"])
+        assert.equal(15, byLabel["Heroic raid"])
+        assert.equal(23, byLabel["Mythic dungeon"])
+        assert.equal(16, byLabel["Mythic raid"])
+        assert.equal(8, byLabel["Mythic Keystone 10"])
+    end)
+
+    it("labels a candidate row exactly as the button that filters to it", function()
+        world.difficultyNames = AMBIGUOUS
+        local model = ns.UpgradeMapPanel.Model({ sources = sources, summary = summary })
+        local byID = {}
+        for _, difficulty in ipairs(model.difficulties) do
+            byID[difficulty.difficultyID] = difficulty.label
+        end
+        local checked = 0
+        for _, row in ipairs(everyCandidate(model)) do
+            assert.equal(byID[row.difficultyID], row.difficultyLabel)
+            checked = checked + 1
+        end
+        assert.is_true(checked > 200)
+    end)
+
+    it("keeps the client's own localised name wherever nothing else shares it", function()
+        world.difficultyNames = { [2] = "Heroique", [15] = "Heroique de raid", [8] = "Cle mythique" }
+        local model = ns.UpgradeMapPanel.Model({ sources = sources, summary = summary })
+        local byID = {}
+        for _, difficulty in ipairs(model.difficulties) do
+            byID[difficulty.difficultyID] = difficulty.label
+        end
+        assert.equal("Heroique", byID[2])
+        assert.equal("Heroique de raid", byID[15])
+        assert.equal("Cle mythique 10", byID[8])
+        -- and the ones the client did not name still use the fallbacks
+        assert.equal("Mythic raid", byID[16])
+        assert.equal("Mythic dungeon", byID[23])
+    end)
+
+    it("falls back to the difficulty ID when even the qualified names collide", function()
+        -- No entry in DIFFICULTY_NAME for 900 or 901, so the qualified fallback
+        -- cannot separate them and the ID is the last word.
+        world.difficultyNames = { [900] = "Brutal", [901] = "Brutal" }
+        local labels = ns.UpgradeMapPanel.DifficultyLabels({ 900, 901 })
+        assert.equal("Brutal (difficulty 900)", labels[900])
+        assert.equal("Brutal (difficulty 901)", labels[901])
+    end)
+
+    it("does not rename the buttons when a filter is applied", function()
+        world.difficultyNames = AMBIGUOUS
+        local all = ns.UpgradeMapPanel.Model({ sources = sources, summary = summary })
+        local filtered = ns.UpgradeMapPanel.Model({ sources = sources, summary = summary, difficultyIDs = { 2 } })
+        assert.equal(#all.difficulties, #filtered.difficulties)
+        for i, difficulty in ipairs(all.difficulties) do
+            assert.equal(difficulty.label, filtered.difficulties[i].label)
+        end
+    end)
+end)
+
+describe("UpgradeMapPanel filter row layout (WKE-530 finding 2)", function()
+    local ns, world, snapshot
+
+    before_each(function()
+        ns, world = H.load()
+        snapshot = select(3, loadMap(ns))
+        loadInventory(ns, world)
+        ns.db.global.captures.journal = { snapshot }
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("packs a row only as far as the width allows, then starts another", function()
+        local Panel = ns.UpgradeMapPanel
+        local labels = { "Heroic dungeon (67)", "Mythic+ 10 (54)", "Heroic raid (38)", "Mythic raid (39)" }
+        assert.equal(1, Panel.FilterLayout(labels, 5000).rows)
+        assert.is_true(Panel.FilterLayout(labels, 260).rows > 1)
+        for _, width in ipairs({ 260, 400, 530 }) do
+            local layout = Panel.FilterLayout(labels, width)
+            local used = {}
+            for _, placement in ipairs(layout.buttons) do
+                used[placement.row] = (used[placement.row] or -Panel.FILTER_BUTTON_GAP)
+                    + Panel.FILTER_BUTTON_GAP
+                    + placement.width
+            end
+            for row, total in pairs(used) do
+                assert.is_true(total <= width, string.format("row %d ran to %d in %d points", row, total, width))
+            end
+        end
+    end)
+
+    it("wraps the real filter row instead of running off the frame", function()
+        local frame = ns.UpgradeMapPanel.Create()
+        local model = frame:Refresh()
+        -- Measured over the committed walk: five difficulties plus All, whose
+        -- labels come out 134, 110, 116, 116, 134 and 60 points wide - 690
+        -- points of buttons plus gaps, which cannot fit the frame's 560. In
+        -- game on 2026-09-06 the fifth was clipped at the window's edge.
+        assert.equal(6, #frame.filterButtons)
+        assert.equal(#model.difficulties + 1, #frame.filterButtons)
+        assert.is_true(frame.filterRows > 1)
+        local used = {}
+        for _, placement in ipairs(frame.filterLayout.buttons) do
+            used[placement.row] = (used[placement.row] or 0) + placement.width + ns.UpgradeMapPanel.FILTER_BUTTON_GAP
+        end
+        for row, total in pairs(used) do
+            assert.is_true(total <= frame:GetWidth(), string.format("filter row %d is %d wide", row, total))
+        end
+    end)
+
+    it("anchors the first button of a wrapped row below the row above it", function()
+        local frame = ns.UpgradeMapPanel.Create()
+        frame:Refresh()
+        local firstOfSecondRow
+        for index, placement in ipairs(frame.filterLayout.buttons) do
+            if placement.row == 2 and placement.column == 1 then
+                firstOfSecondRow = index
+            end
+        end
+        assert.is_not_nil(firstOfSecondRow)
+        -- Re-anchored on every refresh, so the only point on it is this one.
+        local button = frame.filterButtons[firstOfSecondRow]
+        assert.equal(1, #button.points)
+        assert.equal("TOPLEFT", button.points[1][1])
+        assert.equal(frame.filterButtons[1], button.points[1][2])
+        assert.equal("BOTTOMLEFT", button.points[1][3])
+        -- and the list starts below every filter row, not under the second one
+        local scrollPoint = frame.scroll.points[1]
+        assert.equal(frame.filterLabel, scrollPoint[2])
+        assert.is_true(scrollPoint[5] <= -(frame.filterRows * ns.UpgradeMapPanel.FILTER_ROW_HEIGHT))
+    end)
+end)
+
+describe("UpgradeMapPanel draws the pinned note once (WKE-530 finding 3)", function()
+    local ns, world, snapshot
+
+    before_each(function()
+        ns, world = H.load()
+        snapshot = select(3, loadMap(ns))
+        loadInventory(ns, world)
+        ns.db.global.captures.journal = { snapshot }
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function noteCount(frame)
+        local seen = 0
+        if frame.note:GetText():find(ns.UpgradeMapPanel.NOTE, 1, true) then
+            seen = seen + 1
+        end
+        for _, text in ipairs(frame.rows) do
+            if text:GetText():find(ns.UpgradeMapPanel.NOTE, 1, true) then
+                seen = seen + 1
+            end
+        end
+        return seen
+    end
+
+    it("puts it in the header and never in the list", function()
+        local frame = ns.UpgradeMapPanel.Create()
+        frame:Refresh()
+        assert.equal(1, noteCount(frame))
+        assert.equal(ns.UpgradeMapPanel.NOTE, frame.note:GetText())
+        -- The model still carries it, which is what pins the wording headlessly.
+        assert.equal(ns.UpgradeMapPanel.NOTE, frame.model.note)
+    end)
+
+    it("still says it once when the map is empty, and once in combat", function()
+        ns.db.global.captures.journal = nil
+        local frame = ns.UpgradeMapPanel.Create()
+        frame:Refresh()
+        assert.equal(1, noteCount(frame))
+        world.inCombat = true
+        frame:Refresh()
+        assert.equal(1, noteCount(frame))
+    end)
+end)
+
+describe("UpgradeMapPanel hides drops at item level 1 (WKE-530 finding 4)", function()
+    local ns, sources, summary
+
+    before_each(function()
+        ns = H.load()
+        -- The warm-cache walk of 2026-09-06 20:04, whose rows the finding was
+        -- measured over: no pending rows at all, so every item level in it is
+        -- one the client answered.
+        local snapshot = R.snapshot("journal", R.JOURNAL_TWO_READ_WARM, R.JOURNAL_TWO_READ)
+        sources, summary = ns.Journal:Build({ snapshot = snapshot })
+        assert(summary.ok, "journal build failed")
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("keeps no candidate at item level 1, and counts the ones it hid", function()
+        local model = ns.UpgradeMapPanel.Model({ sources = sources, summary = summary })
+        -- Measured over this transcript: 265 sources, none pending, of which 5
+        -- came back at item level 1 - all of them Head - and 12 at level 44.
+        assert.equal(265, summary.sources)
+        assert.equal(0, model.pending.count)
+        assert.equal(5, model.counts.hiddenLevelOne)
+        for _, section in ipairs(model.slots) do
+            for _, row in ipairs(section.candidates) do
+                assert.is_not.equal(ns.UpgradeMapPanel.HIDDEN_ITEM_LEVEL, row.itemLevel)
+            end
+        end
+        local head, hidden = nil, 0
+        for _, section in ipairs(model.slots) do
+            hidden = hidden + section.hiddenLevelOne
+            if section.slot == "Head" then
+                head = section
+            end
+        end
+        assert.equal(5, hidden)
+        assert.equal(5, head.hiddenLevelOne)
+        assert.equal("5 drops at item level 1 hidden: cosmetic and quest items", head.hiddenNote)
+    end)
+
+    it("says so at the end of the slot it hid them from", function()
+        local model = ns.UpgradeMapPanel.Model({ sources = sources, summary = summary })
+        local lines = ns.UpgradeMapPanel.Lines(model)
+        local headAt, noteAt, nextSlotAt
+        for i, line in ipairs(lines) do
+            if line == "Head" then
+                headAt = i
+            elseif line == "  5 drops at item level 1 hidden: cosmetic and quest items" then
+                noteAt = i
+            elseif headAt and not nextSlotAt and i > headAt and not line:find("^  ") then
+                nextSlotAt = i
+            end
+        end
+        assert.is_not_nil(headAt)
+        assert.is_not_nil(noteAt)
+        assert.is_true(noteAt > headAt)
+        assert.equal(noteAt + 1, nextSlotAt)
+    end)
+
+    it("hides on exactly 1 and on no other threshold", function()
+        local model = ns.UpgradeMapPanel.Model({ sources = sources, summary = summary })
+        assert.equal(1, ns.UpgradeMapPanel.HIDDEN_ITEM_LEVEL)
+        local at44, lowest = 0, math.huge
+        for _, section in ipairs(model.slots) do
+            for _, row in ipairs(section.candidates) do
+                if row.itemLevel == 44 then
+                    at44 = at44 + 1
+                end
+                lowest = math.min(lowest, row.itemLevel)
+            end
+        end
+        -- The 12 rows the client answered 44 for are real loot and are shown.
+        assert.equal(12, at44)
+        assert.equal(44, lowest)
+    end)
+end)
+
+-- Its own load, because ns.Journal:Build memoises per item across snapshots
+-- (the cache is keyed on the build number, ARCHITECTURE.md 7), so a walk built
+-- after the warm one in the same session would inherit its item levels.
+describe("UpgradeMapPanel and a walk whose rows never arrived (WKE-530 finding 4)", function()
+    local ns
+
+    before_each(function()
+        ns = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("never hides a pending row, because unknown is not item level 1", function()
+        -- The 16:11 walk carries 369 rows whose item data never arrived.
+        local sources, summary = ns.Journal:Build({ snapshot = R.snapshot("journal", 1, R.JOURNAL) })
+        local model = ns.UpgradeMapPanel.Model({ sources = sources, summary = summary })
+        assert.equal(369, model.pending.count)
+        for _, row in ipairs(model.pending.rows) do
+            assert.is_nil(row.itemLevel)
+        end
+        -- A hidden row is still a candidate: the map keeps the fact and only
+        -- the panel declines to list it.
+        assert.equal(summary.sources, model.counts.candidates)
+        assert.equal(2, model.counts.hiddenLevelOne)
     end)
 end)

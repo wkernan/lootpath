@@ -118,6 +118,8 @@ function Panel.Model(opts)
     local vault = opts.vault or {}
     local verdict = opts.verdict
     local model = {
+        -- Kept for the headless tests that pin the wording; the frame's header
+        -- is what prints it, and Lines does not repeat it.
         note = Panel.NOTE,
         ok = vault.ok == true,
         reason = vault.reason,
@@ -192,12 +194,15 @@ function Panel.Model(opts)
     return model
 end
 
+-- The pinned note is NOT one of these lines: the panel header draws it once,
+-- above the list, and until WKE-530 the list printed it again as its first row
+-- (seen in game 2026-09-06 on this tab and the Upgrade Map). The model still
+-- carries `note` for the headless tests that pin the wording.
 function Panel.Lines(model)
     local lines = {}
     local function add(text)
         lines[#lines + 1] = text
     end
-    add(model.note)
     if not model.ok then
         add(string.format("The vault could not be read: %s", tostring(model.reason)))
         return lines
