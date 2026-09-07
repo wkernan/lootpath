@@ -29,3 +29,13 @@
   `link`, the rest only `itemID`/`encounterID`), vault x2 (16:11:30 before and
   16:11:56 after opening the window; progress non-zero, `rewards` empty in
   both). No secrets seen.
+- Lootpath-20260906-200908.lua - WKE-523 second pull (this PR). Same client
+  build, Restoration spec (105); the earlier snapshots repeat, plus two new
+  `journal` snapshots from the two-read walk (M3-1 part 2): 19:59:34 with a
+  cold item cache (`pendingRowsFirstRead` 349, `pendingRowsFinalRead` 0,
+  `rowsFilledByReread` 349, 365 `EJ_LOOT_DATA_RECIEVED` events, walk 869 ms)
+  and 20:04:53 after `/reload` with the cache warm (0 pending on the first
+  read, 0 events, walk 549 ms). `C_Item.GetDetailedItemLevelInfo` answered
+  **1** for 108 rows in the cold walk and 86 in the warm one (e.g. Hex Lord's
+  Gaze, itemID 275938) - the client's own figure, not a parse artefact. No new
+  vault snapshot: rewards are not generated until Tuesday. No secrets seen.

@@ -258,6 +258,62 @@ describe("QEImport.Parse over the hand-built v1 sample", function()
     end)
 end)
 
+describe("QEImport.Parse over the genuine Dungeon export with comparison items", function()
+    -- qe-droptimizer-Hotornot-cjyztichdhze.json: the fork, 2026-09-07 01:01 UTC,
+    -- content toggle "Dungeon", bag and bank items clicked on the gear screen,
+    -- no vault rewards generated yet. Every number here was read from the file.
+    local DUNGEON_PATH = "spec/fixtures/qe/qe-droptimizer-Hotornot-cjyztichdhze.json"
+    local ns, result
+
+    before_each(function()
+        ns = H.load()
+        result = ns.QEImport.Parse(readFile(DUNGEON_PATH))
+        assert.is_true(result.ok, result.reason)
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("names the content type QE Live actually emits for Mythic+", function()
+        assert.equal("Dungeon", result.verdict.contentType)
+        assert.equal("cjyztichdhze", result.verdict.reportId)
+        assert.equal("2026-09-07T01:01:35.474Z", result.verdict.exportedAt)
+        assert.equal(5460.909, result.verdict.topSet.score)
+        assert.equal(15, #result.verdict.topSet.order)
+    end)
+
+    it("reads twelve real differentials, every one an alternative that is worse", function()
+        local alternatives = result.verdict.alternatives
+        assert.equal(12, #alternatives)
+        for _, alternative in ipairs(alternatives) do
+            assert.is_true(alternative.scorePercent * ALT_IS_WORSE_SCORE_PERCENT_SIGN >= 0)
+            assert.is_true(alternative.hpsDifference * ALT_IS_WORSE_HPS_DIFFERENCE_SIGN >= 0)
+            assert.is_false(ns.QEImport.AlternativeIsBetter(alternative))
+        end
+        -- The exporter really does emit a zero-delta alternative.
+        assert.equal(0, alternatives[1].scorePercent)
+        assert.equal(0, alternatives[1].hpsDifference)
+        assert.equal(1, #alternatives[1].items)
+        assert.equal("Waist", alternatives[1].items[1].slot)
+        assert.equal(277781, alternatives[1].items[1].itemID)
+        assert.equal(0.3296154541304388, alternatives[2].scorePercent)
+        assert.equal(-1194, alternatives[2].hpsDifference)
+    end)
+
+    it("carries a two-item alternative as a list in the export's order", function()
+        local third = result.verdict.alternatives[3].items
+        assert.equal(2, #third)
+        assert.equal("Back", third[1].slot)
+        assert.equal(275525, third[1].itemID)
+        assert.equal("Waist", third[2].slot)
+    end)
+
+    it("has no vault option before the weekly reset has generated rewards", function()
+        assert.equal(0, countKeys(result.verdict.vault))
+    end)
+end)
+
 describe("QEImport item identity and robustness", function()
     local ns
 
