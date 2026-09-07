@@ -36,6 +36,8 @@
   `rowsFilledByReread` 349, 365 `EJ_LOOT_DATA_RECIEVED` events, walk 869 ms)
   and 20:04:53 after `/reload` with the cache warm (0 pending on the first
   read, 0 events, walk 549 ms). `C_Item.GetDetailedItemLevelInfo` answered
-  **1** for 108 rows in the cold walk and 86 in the warm one (e.g. Hex Lord's
-  Gaze, itemID 275938) - the client's own figure, not a parse artefact. No new
+  **1** for 87 rows in the cold walk's final read (108 if its two reads are
+  added) and 86 in the warm one (e.g. Hex Lord's Gaze, itemID 275938) - the
+  client's own figure, not a parse artefact; almost all are non-gear the
+  aggregator drops, 6 and 5 reached a panel slot (WKE-530). No new
   vault snapshot: rewards are not generated until Tuesday. No secrets seen.
