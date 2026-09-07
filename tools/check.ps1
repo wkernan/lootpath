@@ -40,7 +40,19 @@ Invoke-Gate 'luacheck' {
     docker run --rm -v "${repo}:/work" lootpath-lua luacheck . --no-color
 }
 
+# A native tool that is not on PATH must fail the gate, not pass it: PowerShell's
+# command-not-found error leaves $LASTEXITCODE untouched (measured 2026-09-06,
+# when StyLua and LuaLS both reported PASS from a shell that had neither).
+function Require-Tool([string]$name) {
+    if (Get-Command $name -ErrorAction SilentlyContinue) { return $true }
+    Write-Host ("{0} is not on PATH. winget puts it under %LOCALAPPDATA%\Microsoft\WinGet\Links; in a shell that did not load the user profile run: " -f $name) -ForegroundColor Red
+    Write-Host '  $env:Path = [Environment]::GetEnvironmentVariable(''Path'', ''User'') + '';'' + $env:Path' -ForegroundColor Red
+    $global:LASTEXITCODE = 1
+    return $false
+}
+
 Invoke-Gate 'stylua' {
+    if (-not (Require-Tool 'stylua')) { return }
     stylua --check .
 }
 
@@ -50,6 +62,7 @@ Invoke-Gate 'luals' {
         $global:LASTEXITCODE = 1
         return
     }
+    if (-not (Require-Tool 'lua-language-server')) { return }
     $out = Join-Path ([System.IO.Path]::GetTempPath()) ("luals-" + [guid]::NewGuid())
     New-Item -ItemType Directory -Force -Path $out | Out-Null
     $report = Join-Path $out 'check.json'
