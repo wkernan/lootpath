@@ -327,10 +327,14 @@ end
 
 -- SavedVariables through AceDB. `char` holds the last QE import (M2-1),
 -- `global` the journal cache (M3-1) and every capture, `profile` the settings.
+-- `settings.contentType` is one of QE Live's OWN content type strings, read
+-- from its source (`src/globalTypes.d.ts`: `contentTypes = "Raid" | "Dungeon"`).
+-- It read "Mythic+" here until 2026-09-06 (M2-2), a string no export can carry;
+-- "Dungeon" is QE Live's name for the Mythic+ side.
 ns.DB_DEFAULTS = {
-    char = {},
+    char = { qeImports = {} },
     global = { journalCache = {}, captures = {} },
-    profile = { settings = { contentType = "Mythic+" } },
+    profile = { settings = { contentType = "Dungeon" } },
 }
 
 local function onAddonLoaded()
@@ -354,7 +358,8 @@ frame:SetScript("OnEvent", function(self, event, arg1)
 end)
 
 local HELP = {
-    "/lootpath - open the frame (arrives in M2-2)",
+    "/lootpath - open the frame: paste QE Live's Top Gear JSON, then Equip Now",
+    "/lootpath options - the settings page (which content type's verdict to show)",
     "/lootpath capture <name> - record raw client returns; then /reload and run tools\\sync.ps1 -Pull",
     "/lootpath capture - list the capture commands",
     "/lootpath capture wipe - clear every stored capture",
@@ -421,6 +426,8 @@ function ns.HandleSlash(msg)
     rest = rest or ""
     if cmd == "" then
         ns.UI.Toggle()
+    elseif cmd == "options" or cmd == "config" then
+        ns.UI.OpenOptions()
     elseif cmd == "capture" then
         captureCommand(rest)
     elseif cmd == "status" then

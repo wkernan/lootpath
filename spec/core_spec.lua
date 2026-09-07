@@ -174,7 +174,17 @@ describe("Core", function()
             assert.equal("LootpathDB", ns.db.sv)
             assert.same({}, ns.db.global.captures)
             assert.same({}, ns.db.global.journalCache)
-            assert.equal("Mythic+", ns.db.profile.settings.contentType)
+            assert.same({}, ns.db.char.qeImports)
+            -- QE Live's own content types are "Raid" and "Dungeon"
+            -- (src/globalTypes.d.ts line 130, read 2026-09-06). The default
+            -- read "Mythic+" until M2-2 - a string no export can carry, so the
+            -- setting could never have matched one.
+            assert.equal("Dungeon", ns.db.profile.settings.contentType)
+            local known = false
+            for _, value in ipairs(ns.QEImport.CONTENT_TYPES) do
+                known = known or value == ns.db.profile.settings.contentType
+            end
+            assert.is_true(known)
             assert.is_true(ns.ready)
         end)
 

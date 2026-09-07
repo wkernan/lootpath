@@ -32,6 +32,14 @@ QEImport.SCHEMA = "qe-live-droptimizer"
 QEImport.VERSION = 1
 QEImport.GAME_TYPE = "Retail"
 
+-- QE Live's own content types, read from its source on 2026-09-06:
+-- `src/globalTypes.d.ts` line 130 declares `contentTypes = "Raid" | "Dungeon"`,
+-- its content toggle (`SetupAndMenus/Header/ContentToggle.js`) offers exactly
+-- those two values, and the exporter writes `result.contentType || ""`. There
+-- is no "Mythic+" string anywhere in it: "Dungeon" IS the Mythic+ side.
+QEImport.CONTENT_TYPES = { "Dungeon", "Raid" }
+QEImport.UNKNOWN_CONTENT_TYPE = "Unknown"
+
 -- Sign conventions, the whole failure mode of this module. Pinned twice from
 -- QE Live's source (2026-09-06):
 --   TopGearJSONExport.ts:42-43 states them - "scoreDifference: number (% -
@@ -280,9 +288,22 @@ function QEImport.Parse(text)
     return { ok = true, verdict = verdict, warnings = warnings }
 end
 
+-- The content type an export is filed under. An export with no contentType
+-- string still has to be storable, so it lands under "Unknown" rather than
+-- being dropped or pretending to be one of QE Live's two.
+function QEImport.ContentTypeKey(verdict)
+    if type(verdict) ~= "table" then
+        return QEImport.UNKNOWN_CONTENT_TYPE
+    end
+    return stringOrNil(verdict.contentType) or QEImport.UNKNOWN_CONTENT_TYPE
+end
+
 -- The last successful import lives in db.char.qeImport, keeping its exportedAt
 -- so the UI can say how old the verdict is; importedAt records when it was
--- pasted. SavedVariables flush on /reload or logout, not here.
+-- pasted. It is ALSO filed by content type in db.char.qeImports, because a
+-- Dungeon export and a Raid export answer different questions and pasting one
+-- must not lose the other (M2-2's content-type setting is what chooses between
+-- them). SavedVariables flush on /reload or logout, not here.
 function QEImport.Store(verdict)
     if type(verdict) ~= "table" then
         return { ok = false, reason = "no verdict to store" }
@@ -292,11 +313,47 @@ function QEImport.Store(verdict)
     end
     verdict.importedAt = time()
     ns.db.char.qeImport = verdict
+    ns.db.char.qeImports = ns.db.char.qeImports or {}
+    ns.db.char.qeImports[QEImport.ContentTypeKey(verdict)] = verdict
     return { ok = true, verdict = verdict }
 end
 
 function QEImport.Current()
     return ns.db and ns.db.char and ns.db.char.qeImport or nil
+end
+
+-- The stored verdict for one content type, or nil when nothing of that kind has
+-- been pasted on this character.
+function QEImport.ForContentType(contentType)
+    if type(contentType) ~= "string" then
+        return nil
+    end
+    local byType = ns.db and ns.db.char and ns.db.char.qeImports
+    return byType and byType[contentType] or nil
+end
+
+-- Every content type this character has an import for, in QE Live's order with
+-- anything unexpected appended.
+function QEImport.StoredContentTypes()
+    local byType = ns.db and ns.db.char and ns.db.char.qeImports or {}
+    local out, seen = {}, {}
+    for _, known in ipairs(QEImport.CONTENT_TYPES) do
+        if byType[known] then
+            out[#out + 1] = known
+            seen[known] = true
+        end
+    end
+    local extra = {}
+    for name in pairs(byType) do
+        if not seen[name] then
+            extra[#extra + 1] = name
+        end
+    end
+    table.sort(extra)
+    for _, name in ipairs(extra) do
+        out[#out + 1] = name
+    end
+    return out
 end
 
 -- Parse then store. The refusal from either step is returned unchanged, so the
