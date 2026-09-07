@@ -1,0 +1,158 @@
+# Hotornot - Restoration - 2026-09-07 18:36 - US/Arthas
+# SimC Addon 12.1.0-03
+# WoW 12.1.0.69587, TOC 120100
+# Requires SimulationCraft 1000-01 or newer
+
+druid="Hotornot"
+level=90
+race=zandalari_troll
+zandalari_loa=paku
+region=us
+server=arthas
+role=
+professions=herbalism=100/mining=100
+spec=restoration
+# loot_spec=restoration
+
+talents=CkGADBD3hSPCL9Y9gz68WcKvMMMmZZMjZmxsNMMzsMsZbGAAAAAAAAAAsMoZzw0MjZwsYmZmZZGegZAAAAAAAwAAQAAAz2MbNbzsYjxMDMzCoZAAmZAYA
+
+# Saved Loadout: Raider.IO Build
+# talents=CkGADBD3hSPCL9Y9gz68WcKvMMMmZZMjZmxsNMMzsMsZbGAAAAAAAAAAsMwsZYMzYGMLmZmZWmhHYGAAAAAAAMAAAAAY2mZzsNziNGzMwMLAzAAMzAwA
+# Saved Loadout: Mythic+
+# talents=CkGADBD3hSPCL9Y9gz68WcKvMgxMLYAAAAMAAAAAAAAAAYZgZjxYGmxYWMzMzsMDMAAAAAAAAAAAAAmtZ2MLzsYjxMDwCGmBAYmBAA
+# Saved Loadout: Raid
+# talents=CkGADBD3hSPCL9Y9gz68WcKvMMjxMbzMjZmxsM8AjZsZswMAAAAAAAAAAYbgZjxYGGzYWmZmZGGmZAAAAAAAAw2yYDjZmlBAAAwCjZGMzAYGAMzAAGA
+
+# Enigmatic Dreamwatcher's Somnolent Stare (308)
+head=,id=271528,bonus_id=6652/13439/13696/12838/13692/13698/1561,redirected_base_stats=251140
+# Whispering Periapt (318)
+neck=,id=272228,bonus_id=6652/13668/12845,content_tuning=6014
+# Seedpods of the Luminous Bloom (289)
+shoulder=,id=250022,enchant_id=8031,bonus_id=12806/6652/13440/13340/13574/3174
+# Preyhunter's Refined Shawl (298)
+back=,id=275522,bonus_id=41/13662/12835,content_tuning=5236
+# Maledict Vest (276)
+chest=,id=251216,bonus_id=13440/6652/13577/12699/12802
+# Preyhunter's Sleek Armlets (321)
+wrist=,id=275512,bonus_id=6652/13696/13662/12846
+# Arbortenders of the Luminous Bloom (276)
+hands=,id=250025,bonus_id=6652/13337/13574/12798
+# Primal Dinomancer's Belt (302)
+waist=,id=159301,bonus_id=12836/13440/6652/13696/13662/12699,content_tuning=1279
+# Enigmatic Dreamwatcher's Leggings (295)
+legs=,id=271527,bonus_id=13693/13438/6652/13698/12830
+# Arctic Explorer's Legwraps (298)
+feet=,id=251153,bonus_id=13440/6652/13662/12699/12835,content_tuning=1279
+# Signet of Snarling Servitude (282)
+finger1=,id=251136,bonus_id=13438/6652/13668/12698/12822,content_tuning=3024
+# Preyseeker's Signet (263)
+finger2=,id=259912,enchant_id=7968,gem_id=240892,bonus_id=6652/13668/12790,content_tuning=5236
+# Heart of Wind (282)
+trinket1=,id=250256,bonus_id=13440/6652/12699/12804
+# Glorious Crusader's Keepsake (282)
+trinket2=,id=251792,bonus_id=6652/12822,content_tuning=6012
+# Lightgrasp Worldroot (308)
+main_hand=,id=251935,bonus_id=6652/12838,content_tuning=6014
+
+### Gear from Bags
+#
+# Miststalker's Cowl (308)
+# head=,id=272242,bonus_id=42/13696/13662/12838,content_tuning=6014
+#
+# Serpentine Talisman (308)
+# neck=,id=272229,gem_id=240892,bonus_id=6652/13668/12838,content_tuning=6014
+#
+# Miststalker's Spaulders (282)
+# shoulder=,id=272244,bonus_id=6652/13663/12822,content_tuning=6014
+#
+# Venom-Cursed Lynx's Spaulders (295)
+# shoulder=,id=277782,bonus_id=6652/13662/12830,content_tuning=6146
+#
+# Silvermoon Agent's Mantle (305)
+# shoulder=,id=244572,bonus_id=12214/13667/12497/13751/14001/8793,content_tuning=3615,crafted_stats=36/32,crafting_quality=5
+#
+# Venom-Cursed Lynx's Mane (295)
+# back=,id=279220,bonus_id=6652/13662/12830,content_tuning=6146
+#
+# Preyhunter's Polished Cloak (298)
+# back=,id=275525,bonus_id=6652/13662/12835,content_tuning=5236
+#
+# Hide of Pestilence (302)
+# chest=,id=251226,bonus_id=12836/13440/6652/13662/12699,content_tuning=1279
+#
+# Verdant Tracker's Cuffs (295)
+# wrist=,id=256967,bonus_id=6652/13696/13662/12830,content_tuning=4240
+#
+# Corroded Cursebreaker's Wristwraps (295)
+# wrist=,id=276643,bonus_id=13662/13696/12830,content_tuning=5381
+#
+# Venom-Cursed Lynx's Buckle (295)
+# waist=,id=277781,bonus_id=6652/13696/13662/12834
+#
+# Falconer's Cinch (263)
+# waist=,id=251166,gem_id=240982,bonus_id=13439/6652/13534/13577/12699/12790,content_tuning=3025
+#
+# Venom-Cursed Lynx's Buckle (295)
+# waist=,id=277781,bonus_id=6652/13696/13662/12830,content_tuning=6146
+#
+# Miststalker's Cinch (295)
+# waist=,id=272245,bonus_id=12834/6652/13696/13662,content_tuning=6014
+#
+# Preyhunter's Sleek Trousers (295)
+# legs=,id=275519,bonus_id=6652/13662/12834,content_tuning=5236
+#
+# Breakwater Boots (295)
+# feet=,id=268247,bonus_id=6652/13662/13332/12830
+#
+# Miststalker's Striders (298)
+# feet=,id=272240,bonus_id=6652/13662/12835,content_tuning=6015
+#
+# Miststalker's Striders (298)
+# feet=,id=272240,bonus_id=6652/13662/12835,content_tuning=6014
+#
+# Band of the Triumvirate (263)
+# finger1=,id=151311,enchant_id=7968,gem_id=240892,bonus_id=13440/6652/13668/12699/12790,content_tuning=1279
+#
+# Sharp Axe Holster (282)
+# trinket1=,id=280123,bonus_id=6652/11311/12822,content_tuning=5381
+#
+# Pulse Seeker's Oculus (298)
+# trinket1=,id=274495,bonus_id=6652/12835,content_tuning=6014
+#
+# Vile Vial of Volatile Venom (282)
+# trinket1=,id=273796,bonus_id=13438/6652/12698/12822,content_tuning=3024
+#
+# Effigy of Ula'tek's Faithful (282)
+# trinket1=,id=274493,bonus_id=6652/12822,content_tuning=6013
+#
+# Ultradon Cuirass (295)
+# trinket1=,id=264694,bonus_id=6652/11215/12830,content_tuning=6014
+#
+# Sealed Chaos Urn (276)
+# trinket1=,id=251787,bonus_id=6652/12798,content_tuning=6015
+#
+# Consecrated Chalice (298)
+# trinket1=,id=251789,bonus_id=6652/12835,content_tuning=6014
+#
+# Breath of Jan'alai (295)
+# trinket1=,id=280377,bonus_id=6652/12830,content_tuning=6145
+#
+# Sylvan Wakrapuku (295)
+# trinket1=,id=251784,bonus_id=6652/11215/12830,content_tuning=6014
+#
+# Forgotten Eidolon's Dagger (302)
+# main_hand=,id=272266,bonus_id=6652/12836,content_tuning=6015
+
+### Additional Character Info
+#
+# catalyst_currencies=2813:8/3269:8/3116:8/3378:8/3465:1
+#
+# upgrade_currencies=c:3442:275/c:3445:39/c:3444:2/c:3446:20/i:274476:3/i:232875:10
+#
+# slot_high_watermarks=0:308:308/1:318:318/2:305:305/3:302:302/4:302:302/5:295:295/6:298:298/7:321:321/8:276:276/9:266:266/10:298:298/11:298:298/12:308:308/13:302:302/14:0:79/15:0:74/16:259:259
+#
+# upgrade_achievements=19577/19578/19579/40107/40115/40118/40942/40943/42767/61809
+#
+# bonus_roll_currencies=3418:0/3511:0
+
+# Checksum: 14cbd9e1

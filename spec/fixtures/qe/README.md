@@ -41,5 +41,23 @@ branch `lootpath/upgrade-finder-export`, Export > Download JSON).
 
 `spec/qeimport_spec.lua` reads both files in its "genuine QE Live export" blocks.
 
+## Upgrade Finder exports (`qe-live-upgradefinder` v1, the fork's schema)
+
+Produced headless by `tools/companion-spike/run-fork.js` (WKE-531) from the
+owner's `/simc` string of 2026-09-07 18:36 (`spec/fixtures/simc/`), through
+the fork's Upgrade Finder with its default settings (`raid: [3]`, `dungeon: 7`).
+Committed unedited for WKE-535 (M3-6).
+
+- `qe-upgradefinder-Hotornot-abxrrnezfilt.json` - contentType `Dungeon`,
+  exported 2026-09-07T23:40:54Z, 357 items, every one with `source`.
+- `qe-upgradefinder-Hotornot-kqyktjywppzw.json` - contentType `Raid`,
+  exported 2026-09-07T23:41:09Z, 357 items.
+
+`upgradePercent` is > 0 on 263 items and 0 on 94, never negative, and `hpsGain`
+agrees in sign on every item (positive means better - the opposite of the Top
+Gear differentials). Dungeon items sit at levels 311 / 321 / 334 for key level
+7; the journal walk previewed key level 10, so an itemID + level join needs the
+two levels reconciled first (WKE-535).
+
 Files here are excluded from luacheck and StyLua (raw third-party payloads,
 never linted or formatted).

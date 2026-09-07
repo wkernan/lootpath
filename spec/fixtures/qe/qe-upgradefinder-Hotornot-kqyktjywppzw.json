@@ -1,0 +1,5664 @@
+{
+  "schema": "qe-live-upgradefinder",
+  "version": 1,
+  "exportedAt": "2026-09-07T23:41:09.744Z",
+  "player": {
+    "name": "Hotornot",
+    "realm": "Arthas",
+    "region": "US",
+    "spec": "Restoration Druid",
+    "gameType": "Retail"
+  },
+  "contentType": "Raid",
+  "reportId": "kqyktjywppzw",
+  "settings": {
+    "raid": [
+      3
+    ],
+    "dungeon": 7,
+    "pvp": 0,
+    "craftedLevel": 2,
+    "craftedStats": "Crit / Haste",
+    "itemTypes": [
+      "Drop",
+      "Upgraded",
+      "Bonus Roll"
+    ]
+  },
+  "equipped": [
+    {
+      "slot": "Head",
+      "id": 271528,
+      "level": 308,
+      "bonusIDs": [
+        6652,
+        13439,
+        13696,
+        12838,
+        13692,
+        13698,
+        1561
+      ],
+      "gems": [],
+      "enchant": "",
+      "tertiary": "",
+      "setId": 2057,
+      "isVault": false,
+      "isExclusive": false,
+      "source": {}
+    },
+    {
+      "slot": "Neck",
+      "id": 272228,
+      "level": 318,
+      "bonusIDs": [
+        6652,
+        13668,
+        12845
+      ],
+      "gems": [],
+      "enchant": "",
+      "tertiary": "",
+      "setId": 0,
+      "isVault": false,
+      "isExclusive": false,
+      "source": {}
+    },
+    {
+      "slot": "Shoulder",
+      "id": 250022,
+      "level": 289,
+      "bonusIDs": [
+        12806,
+        6652,
+        13440,
+        13340,
+        13574,
+        3174
+      ],
+      "gems": [],
+      "enchant": "",
+      "tertiary": "",
+      "setId": 1980,
+      "isVault": false,
+      "isExclusive": false,
+      "source": {}
+    },
+    {
+      "slot": "Back",
+      "id": 275522,
+      "level": 298,
+      "bonusIDs": [
+        41,
+        13662,
+        12835
+      ],
+      "gems": [],
+      "enchant": "",
+      "tertiary": "Leech",
+      "setId": 0,
+      "isVault": false,
+      "isExclusive": false,
+      "source": {}
+    },
+    {
+      "slot": "Chest",
+      "id": 251216,
+      "level": 276,
+      "bonusIDs": [
+        13440,
+        6652,
+        13577,
+        12699,
+        12802
+      ],
+      "gems": [],
+      "enchant": "",
+      "tertiary": "",
+      "setId": 0,
+      "isVault": false,
+      "isExclusive": false,
+      "source": {}
+    },
+    {
+      "slot": "Wrist",
+      "id": 275512,
+      "level": 321,
+      "bonusIDs": [
+        6652,
+        13696,
+        13662,
+        12846
+      ],
+      "gems": [],
+      "enchant": "",
+      "tertiary": "",
+      "setId": 0,
+      "isVault": false,
+      "isExclusive": false,
+      "source": {}
+    },
+    {
+      "slot": "Hands",
+      "id": 250025,
+      "level": 276,
+      "bonusIDs": [
+        6652,
+        13337,
+        13574,
+        12798
+      ],
+      "gems": [],
+      "enchant": "",
+      "tertiary": "",
+      "setId": 1980,
+      "isVault": false,
+      "isExclusive": false,
+      "source": {}
+    },
+    {
+      "slot": "Waist",
+      "id": 159301,
+      "level": 302,
+      "bonusIDs": [
+        12836,
+        13440,
+        6652,
+        13696,
+        13662,
+        12699
+      ],
+      "gems": [],
+      "enchant": "",
+      "tertiary": "",
+      "setId": 0,
+      "isVault": false,
+      "isExclusive": false,
+      "source": {}
+    },
+    {
+      "slot": "Legs",
+      "id": 271527,
+      "level": 295,
+      "bonusIDs": [
+        13693,
+        13438,
+        6652,
+        13698,
+        12830
+      ],
+      "gems": [],
+      "enchant": "",
+      "tertiary": "",
+      "setId": 2057,
+      "isVault": false,
+      "isExclusive": false,
+      "source": {}
+    },
+    {
+      "slot": "Feet",
+      "id": 251153,
+      "level": 298,
+      "bonusIDs": [
+        13440,
+        6652,
+        13662,
+        12699,
+        12835
+      ],
+      "gems": [],
+      "enchant": "",
+      "tertiary": "",
+      "setId": 0,
+      "isVault": false,
+      "isExclusive": false,
+      "source": {}
+    },
+    {
+      "slot": "Finger",
+      "id": 251136,
+      "level": 282,
+      "bonusIDs": [
+        13438,
+        6652,
+        13668,
+        12698,
+        12822
+      ],
+      "gems": [],
+      "enchant": "",
+      "tertiary": "",
+      "setId": 0,
+      "isVault": false,
+      "isExclusive": false,
+      "source": {}
+    },
+    {
+      "slot": "Finger",
+      "id": 259912,
+      "level": 263,
+      "bonusIDs": [
+        6652,
+        13668,
+        12790
+      ],
+      "gems": [],
+      "enchant": "",
+      "tertiary": "",
+      "setId": 0,
+      "isVault": false,
+      "isExclusive": false,
+      "source": {}
+    },
+    {
+      "slot": "Trinket",
+      "id": 250256,
+      "level": 282,
+      "bonusIDs": [
+        13440,
+        6652,
+        12699,
+        12804
+      ],
+      "gems": [],
+      "enchant": "",
+      "tertiary": "",
+      "setId": 0,
+      "isVault": false,
+      "isExclusive": false,
+      "source": {}
+    },
+    {
+      "slot": "Trinket",
+      "id": 251792,
+      "level": 282,
+      "bonusIDs": [
+        6652,
+        12822
+      ],
+      "gems": [],
+      "enchant": "",
+      "tertiary": "",
+      "setId": 0,
+      "isVault": false,
+      "isExclusive": false,
+      "source": {}
+    },
+    {
+      "slot": "2H Weapon",
+      "id": 251935,
+      "level": 308,
+      "bonusIDs": [
+        6652,
+        12838
+      ],
+      "gems": [],
+      "enchant": "",
+      "tertiary": "",
+      "setId": 0,
+      "isVault": false,
+      "isExclusive": false,
+      "source": {}
+    }
+  ],
+  "items": [
+    {
+      "id": 159636,
+      "level": 334,
+      "slot": "2H Weapon",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1030
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 4.896,
+      "hpsGain": 17138,
+      "score": 0.04896465854792733
+    },
+    {
+      "id": 268205,
+      "level": 334,
+      "slot": "2H Weapon",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2882
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 4.771,
+      "hpsGain": 16700,
+      "score": 0.04771483545736997
+    },
+    {
+      "id": 268205,
+      "level": 334,
+      "slot": "2H Weapon",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2882
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 4.771,
+      "hpsGain": 16700,
+      "score": 0.04771483545736997
+    },
+    {
+      "id": 251156,
+      "level": 334,
+      "slot": "2H Weapon",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1311
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 4.524,
+      "hpsGain": 15835,
+      "score": 0.04524231539078459
+    },
+    {
+      "id": 251123,
+      "level": 334,
+      "slot": "2H Weapon",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 4.028,
+      "hpsGain": 14099,
+      "score": 0.04028329098739063
+    },
+    {
+      "id": 193761,
+      "level": 334,
+      "slot": "2H Weapon",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1202
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 3.849,
+      "hpsGain": 13473,
+      "score": 0.038493809854361453
+    },
+    {
+      "id": 237849,
+      "level": 331,
+      "slot": "2H Weapon",
+      "source": {
+        "instanceId": -4,
+        "encounterId": 3
+      },
+      "dropLoc": "Crafted",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 3.724,
+      "hpsGain": 13033,
+      "score": 0.03723623644536705
+    },
+    {
+      "id": 245770,
+      "level": 331,
+      "slot": "2H Weapon",
+      "source": {
+        "instanceId": -4,
+        "encounterId": 5
+      },
+      "dropLoc": "Crafted",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 3.724,
+      "hpsGain": 13033,
+      "score": 0.03723623644536705
+    },
+    {
+      "id": 271875,
+      "level": 344,
+      "slot": "Head",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2895
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 3.42,
+      "hpsGain": 11970,
+      "score": 0.03420013344026524
+    },
+    {
+      "id": 271875,
+      "level": 344,
+      "slot": "Head",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2895
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 3.42,
+      "hpsGain": 11970,
+      "score": 0.03420013344026524
+    },
+    {
+      "id": 271875,
+      "level": 344,
+      "slot": "Head",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2895
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 3.42,
+      "hpsGain": 11970,
+      "score": 0.03420013344026524
+    },
+    {
+      "id": 252258,
+      "level": 334,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1313
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 3.409,
+      "hpsGain": 11931,
+      "score": 0.03408859624884596
+    },
+    {
+      "id": 268205,
+      "level": 324,
+      "slot": "2H Weapon",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2882
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 3.191,
+      "hpsGain": 11170,
+      "score": 0.03191395798653473
+    },
+    {
+      "id": 268266,
+      "level": 334,
+      "slot": "Finger",
+      "source": {
+        "instanceId": 1317,
+        "encounterId": 2849
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 3.027,
+      "hpsGain": 10596,
+      "score": 0.03027341775564262
+    },
+    {
+      "id": 268266,
+      "level": 334,
+      "slot": "Finger",
+      "source": {
+        "instanceId": 1317,
+        "encounterId": 2849
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 3.027,
+      "hpsGain": 10596,
+      "score": 0.03027341775564262
+    },
+    {
+      "id": 252258,
+      "level": 321,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1313
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 2.956,
+      "hpsGain": 10347,
+      "score": 0.029564263618657452
+    },
+    {
+      "id": 272147,
+      "level": 321,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 2.956,
+      "hpsGain": 10347,
+      "score": 0.029564263618657452
+    },
+    {
+      "id": 159636,
+      "level": 321,
+      "slot": "2H Weapon",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1030
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 2.864,
+      "hpsGain": 10024,
+      "score": 0.028639279961720127
+    },
+    {
+      "id": 272150,
+      "level": 321,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 2.692,
+      "hpsGain": 9422,
+      "score": 0.026920394120541116
+    },
+    {
+      "id": 159459,
+      "level": 334,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 2.658,
+      "hpsGain": 9302,
+      "score": 0.026577021316745403
+    },
+    {
+      "id": 252258,
+      "level": 311,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1313
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 2.597,
+      "hpsGain": 9090,
+      "score": 0.025971822537926074
+    },
+    {
+      "id": 251156,
+      "level": 321,
+      "slot": "2H Weapon",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1311
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 2.512,
+      "hpsGain": 8794,
+      "score": 0.02512484752090906
+    },
+    {
+      "id": 268266,
+      "level": 318,
+      "slot": "Finger",
+      "source": {
+        "instanceId": 1317,
+        "encounterId": 2849
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 2.501,
+      "hpsGain": 8752,
+      "score": 0.025006402436969673
+    },
+    {
+      "id": 273792,
+      "level": 334,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1322
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 2.424,
+      "hpsGain": 8485,
+      "score": 0.02424265910055877
+    },
+    {
+      "id": 268235,
+      "level": 334,
+      "slot": "Chest",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2888
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 2.343,
+      "hpsGain": 8200,
+      "score": 0.023429044149857428
+    },
+    {
+      "id": 268235,
+      "level": 334,
+      "slot": "Chest",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2888
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 2.343,
+      "hpsGain": 8200,
+      "score": 0.023429044149857428
+    },
+    {
+      "id": 159459,
+      "level": 321,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 2.259,
+      "hpsGain": 7908,
+      "score": 0.022594368551229618
+    },
+    {
+      "id": 272273,
+      "level": 321,
+      "slot": "2H Weapon",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 2.206,
+      "hpsGain": 7721,
+      "score": 0.02205875415315977
+    },
+    {
+      "id": 251159,
+      "level": 334,
+      "slot": "Chest",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1311
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 2.196,
+      "hpsGain": 7687,
+      "score": 0.02196187517269734
+    },
+    {
+      "id": 251194,
+      "level": 334,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1309
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 2.091,
+      "hpsGain": 7317,
+      "score": 0.02090665246898192
+    },
+    {
+      "id": 251123,
+      "level": 321,
+      "slot": "2H Weapon",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 2.039,
+      "hpsGain": 7135,
+      "score": 0.020386033252235813
+    },
+    {
+      "id": 268225,
+      "level": 344,
+      "slot": "Legs",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2883
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 2.035,
+      "hpsGain": 7123,
+      "score": 0.020351493789636167
+    },
+    {
+      "id": 268225,
+      "level": 344,
+      "slot": "Legs",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2883
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 2.035,
+      "hpsGain": 7123,
+      "score": 0.020351493789636167
+    },
+    {
+      "id": 268225,
+      "level": 344,
+      "slot": "Legs",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2883
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 2.035,
+      "hpsGain": 7123,
+      "score": 0.020351493789636167
+    },
+    {
+      "id": 268249,
+      "level": 334,
+      "slot": "Finger",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2882
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 2.034,
+      "hpsGain": 7119,
+      "score": 0.020340879223081133
+    },
+    {
+      "id": 268249,
+      "level": 334,
+      "slot": "Finger",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2882
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 2.034,
+      "hpsGain": 7119,
+      "score": 0.020340879223081133
+    },
+    {
+      "id": 273792,
+      "level": 321,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1322
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 2.03,
+      "hpsGain": 7105,
+      "score": 0.02030128520497914
+    },
+    {
+      "id": 162544,
+      "level": 334,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1030
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 2.012,
+      "hpsGain": 7042,
+      "score": 0.020118647266159508
+    },
+    {
+      "id": 270167,
+      "level": 334,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": 1317,
+        "encounterId": 2849
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.964,
+      "hpsGain": 6874,
+      "score": 0.019640654800816837
+    },
+    {
+      "id": 270167,
+      "level": 334,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": 1317,
+        "encounterId": 2849
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.964,
+      "hpsGain": 6874,
+      "score": 0.019640654800816837
+    },
+    {
+      "id": 159459,
+      "level": 311,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.944,
+      "hpsGain": 6804,
+      "score": 0.019439988947372023
+    },
+    {
+      "id": 268265,
+      "level": 344,
+      "slot": "Neck",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2895
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.905,
+      "hpsGain": 6669,
+      "score": 0.019052978481072347
+    },
+    {
+      "id": 268265,
+      "level": 344,
+      "slot": "Neck",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2895
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.905,
+      "hpsGain": 6669,
+      "score": 0.019052978481072347
+    },
+    {
+      "id": 268265,
+      "level": 344,
+      "slot": "Neck",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2895
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.905,
+      "hpsGain": 6669,
+      "score": 0.019052978481072347
+    },
+    {
+      "id": 270169,
+      "level": 344,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2883
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.88,
+      "hpsGain": 6579,
+      "score": 0.018797723428201796
+    },
+    {
+      "id": 270169,
+      "level": 344,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2883
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.88,
+      "hpsGain": 6579,
+      "score": 0.018797723428201796
+    },
+    {
+      "id": 270169,
+      "level": 344,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2883
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.88,
+      "hpsGain": 6579,
+      "score": 0.018797723428201796
+    },
+    {
+      "id": 193761,
+      "level": 321,
+      "slot": "2H Weapon",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1202
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.869,
+      "hpsGain": 6541,
+      "score": 0.018687197147882896
+    },
+    {
+      "id": 240949,
+      "level": 331,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -4,
+        "encounterId": 7
+      },
+      "dropLoc": "Crafted",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 1.863,
+      "hpsGain": 6519,
+      "score": 0.01862603702630394
+    },
+    {
+      "id": 268256,
+      "level": 344,
+      "slot": "Waist",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2883
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.808,
+      "hpsGain": 6327,
+      "score": 0.01807728078392796
+    },
+    {
+      "id": 268256,
+      "level": 344,
+      "slot": "Waist",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2883
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.808,
+      "hpsGain": 6327,
+      "score": 0.01807728078392796
+    },
+    {
+      "id": 268256,
+      "level": 344,
+      "slot": "Waist",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2883
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.808,
+      "hpsGain": 6327,
+      "score": 0.01807728078392796
+    },
+    {
+      "id": 251935,
+      "level": 321,
+      "slot": "2H Weapon",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 1.791,
+      "hpsGain": 6267,
+      "score": 0.017906605293130633
+    },
+    {
+      "id": 268249,
+      "level": 324,
+      "slot": "Finger",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2882
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.751,
+      "hpsGain": 6130,
+      "score": 0.017513360875044636
+    },
+    {
+      "id": 273792,
+      "level": 311,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1322
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.74,
+      "hpsGain": 6092,
+      "score": 0.017404350961376453
+    },
+    {
+      "id": 270162,
+      "level": 334,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2888
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.724,
+      "hpsGain": 6035,
+      "score": 0.017243110640850337
+    },
+    {
+      "id": 270162,
+      "level": 334,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2888
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.724,
+      "hpsGain": 6035,
+      "score": 0.017243110640850337
+    },
+    {
+      "id": 251194,
+      "level": 321,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1309
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.721,
+      "hpsGain": 6024,
+      "score": 0.017211266941185233
+    },
+    {
+      "id": 272149,
+      "level": 321,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 1.653,
+      "hpsGain": 5785,
+      "score": 0.016528396492812483
+    },
+    {
+      "id": 162544,
+      "level": 321,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1030
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.647,
+      "hpsGain": 5766,
+      "score": 0.01647397577857004
+    },
+    {
+      "id": 193764,
+      "level": 334,
+      "slot": "Chest",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1202
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.613,
+      "hpsGain": 5645,
+      "score": 0.016129760548857397
+    },
+    {
+      "id": 251159,
+      "level": 321,
+      "slot": "Chest",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1311
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.611,
+      "hpsGain": 5640,
+      "score": 0.01611308051569949
+    },
+    {
+      "id": 268235,
+      "level": 318,
+      "slot": "Chest",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2888
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.605,
+      "hpsGain": 5619,
+      "score": 0.01605495312742197
+    },
+    {
+      "id": 270164,
+      "level": 334,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2894
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.596,
+      "hpsGain": 5586,
+      "score": 0.01595975899879371
+    },
+    {
+      "id": 270164,
+      "level": 334,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2894
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.596,
+      "hpsGain": 5586,
+      "score": 0.01595975899879371
+    },
+    {
+      "id": 251142,
+      "level": 334,
+      "slot": "Neck",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.587,
+      "hpsGain": 5553,
+      "score": 0.015865407296082375
+    },
+    {
+      "id": 271527,
+      "level": 334,
+      "slot": "Legs",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2871
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.575,
+      "hpsGain": 5513,
+      "score": 0.015750500400994766
+    },
+    {
+      "id": 271527,
+      "level": 334,
+      "slot": "Legs",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2871
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.575,
+      "hpsGain": 5513,
+      "score": 0.015750500400994766
+    },
+    {
+      "id": 244570,
+      "level": 331,
+      "slot": "Chest",
+      "source": {
+        "instanceId": -4,
+        "encounterId": 2
+      },
+      "dropLoc": "Crafted",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 1.456,
+      "hpsGain": 5096,
+      "score": 0.014560489550548937
+    },
+    {
+      "id": 159317,
+      "level": 334,
+      "slot": "Waist",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1030
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.456,
+      "hpsGain": 5095,
+      "score": 0.014557625302430946
+    },
+    {
+      "id": 251194,
+      "level": 311,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1309
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.448,
+      "hpsGain": 5069,
+      "score": 0.014482986366178965
+    },
+    {
+      "id": 268251,
+      "level": 334,
+      "slot": "Neck",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2887
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.436,
+      "hpsGain": 5025,
+      "score": 0.01435645399343579
+    },
+    {
+      "id": 268251,
+      "level": 334,
+      "slot": "Neck",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2887
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.436,
+      "hpsGain": 5025,
+      "score": 0.01435645399343579
+    },
+    {
+      "id": 159636,
+      "level": 311,
+      "slot": "2H Weapon",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1030
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.435,
+      "hpsGain": 5023,
+      "score": 0.014351399437933444
+    },
+    {
+      "id": 250214,
+      "level": 334,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1309
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.383,
+      "hpsGain": 4842,
+      "score": 0.013833981439672224
+    },
+    {
+      "id": 268250,
+      "level": 334,
+      "slot": "Neck",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2874
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.375,
+      "hpsGain": 4813,
+      "score": 0.013752603096083732
+    },
+    {
+      "id": 268250,
+      "level": 334,
+      "slot": "Neck",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2874
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.375,
+      "hpsGain": 4813,
+      "score": 0.013752603096083732
+    },
+    {
+      "id": 162544,
+      "level": 311,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1030
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.371,
+      "hpsGain": 4798,
+      "score": 0.013708123007662686
+    },
+    {
+      "id": 268253,
+      "level": 344,
+      "slot": "Back",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2883
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.35,
+      "hpsGain": 4726,
+      "score": 0.013502908054265713
+    },
+    {
+      "id": 268253,
+      "level": 344,
+      "slot": "Back",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2883
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.35,
+      "hpsGain": 4726,
+      "score": 0.013502908054265713
+    },
+    {
+      "id": 268253,
+      "level": 344,
+      "slot": "Back",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2883
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.35,
+      "hpsGain": 4726,
+      "score": 0.013502908054265713
+    },
+    {
+      "id": 271531,
+      "level": 334,
+      "slot": "Chest",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2882
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.345,
+      "hpsGain": 4708,
+      "score": 0.013452699469608686
+    },
+    {
+      "id": 271531,
+      "level": 334,
+      "slot": "Chest",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2882
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.345,
+      "hpsGain": 4708,
+      "score": 0.013452699469608686
+    },
+    {
+      "id": 248583,
+      "level": 321,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 1.344,
+      "hpsGain": 4702,
+      "score": 0.013435682466084033
+    },
+    {
+      "id": 251792,
+      "level": 321,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 1.339,
+      "hpsGain": 4686,
+      "score": 0.01338816964436155
+    },
+    {
+      "id": 158366,
+      "level": 334,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1030
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.317,
+      "hpsGain": 4610,
+      "score": 0.013172508609592837
+    },
+    {
+      "id": 239048,
+      "level": 334,
+      "slot": "Chest",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.3,
+      "hpsGain": 4550,
+      "score": 0.012998800385494074
+    },
+    {
+      "id": 270167,
+      "level": 318,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": 1317,
+        "encounterId": 2849
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.299,
+      "hpsGain": 4545,
+      "score": 0.012986837937471766
+    },
+    {
+      "id": 159337,
+      "level": 334,
+      "slot": "Hands",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1030
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.296,
+      "hpsGain": 4535,
+      "score": 0.012956173634090642
+    },
+    {
+      "id": 272243,
+      "level": 321,
+      "slot": "Legs",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 1.293,
+      "hpsGain": 4525,
+      "score": 0.01292786812327732
+    },
+    {
+      "id": 159313,
+      "level": 334,
+      "slot": "Legs",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.274,
+      "hpsGain": 4457,
+      "score": 0.01273562652900303
+    },
+    {
+      "id": 244575,
+      "level": 331,
+      "slot": "Hands",
+      "source": {
+        "instanceId": -4,
+        "encounterId": 2
+      },
+      "dropLoc": "Crafted",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 1.25,
+      "hpsGain": 4373,
+      "score": 0.012495703627822964
+    },
+    {
+      "id": 244572,
+      "level": 331,
+      "slot": "Shoulder",
+      "source": {
+        "instanceId": -4,
+        "encounterId": 2
+      },
+      "dropLoc": "Crafted",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 1.198,
+      "hpsGain": 4192,
+      "score": 0.011976769262911026
+    },
+    {
+      "id": 251159,
+      "level": 311,
+      "slot": "Chest",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1311
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.195,
+      "hpsGain": 4183,
+      "score": 0.011952507396499518
+    },
+    {
+      "id": 251136,
+      "level": 334,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.195,
+      "hpsGain": 4181,
+      "score": 0.011945599503979712
+    },
+    {
+      "id": 268247,
+      "level": 334,
+      "slot": "Feet",
+      "source": {
+        "instanceId": 1317,
+        "encounterId": 2849
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.179,
+      "hpsGain": 4126,
+      "score": 0.011788065857488518
+    },
+    {
+      "id": 268247,
+      "level": 334,
+      "slot": "Feet",
+      "source": {
+        "instanceId": 1317,
+        "encounterId": 2849
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.179,
+      "hpsGain": 4126,
+      "score": 0.011788065857488518
+    },
+    {
+      "id": 251190,
+      "level": 334,
+      "slot": "Back",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1309
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.168,
+      "hpsGain": 4089,
+      "score": 0.011683605043772494
+    },
+    {
+      "id": 272241,
+      "level": 321,
+      "slot": "Hands",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 1.165,
+      "hpsGain": 4078,
+      "score": 0.011651087403373755
+    },
+    {
+      "id": 251142,
+      "level": 321,
+      "slot": "Neck",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.158,
+      "hpsGain": 4053,
+      "score": 0.011581166052257378
+    },
+    {
+      "id": 251124,
+      "level": 334,
+      "slot": "Hands",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.149,
+      "hpsGain": 4022,
+      "score": 0.011491531934681653
+    },
+    {
+      "id": 251140,
+      "level": 334,
+      "slot": "Head",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.136,
+      "hpsGain": 3976,
+      "score": 0.011361292887903402
+    },
+    {
+      "id": 271527,
+      "level": 324,
+      "slot": "Legs",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2871
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.134,
+      "hpsGain": 3969,
+      "score": 0.01134040072516023
+    },
+    {
+      "id": 244574,
+      "level": 331,
+      "slot": "Legs",
+      "source": {
+        "instanceId": -4,
+        "encounterId": 2
+      },
+      "dropLoc": "Crafted",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 1.129,
+      "hpsGain": 3953,
+      "score": 0.011292887903437744
+    },
+    {
+      "id": 251223,
+      "level": 334,
+      "slot": "Shoulder",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1313
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.124,
+      "hpsGain": 3934,
+      "score": 0.011239815070662728
+    },
+    {
+      "id": 268251,
+      "level": 324,
+      "slot": "Neck",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2887
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.12,
+      "hpsGain": 3919,
+      "score": 0.011196682863708953
+    },
+    {
+      "id": 251156,
+      "level": 311,
+      "slot": "2H Weapon",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1311
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.099,
+      "hpsGain": 3848,
+      "score": 0.0109929842769627
+    },
+    {
+      "id": 271529,
+      "level": 334,
+      "slot": "Hands",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2874
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.09,
+      "hpsGain": 3815,
+      "score": 0.010900317426085536
+    },
+    {
+      "id": 271529,
+      "level": 334,
+      "slot": "Hands",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2874
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.09,
+      "hpsGain": 3815,
+      "score": 0.010900317426085536
+    },
+    {
+      "id": 270164,
+      "level": 321,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2894
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.086,
+      "hpsGain": 3801,
+      "score": 0.010859207041332824
+    },
+    {
+      "id": 251153,
+      "level": 334,
+      "slot": "Feet",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1311
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.082,
+      "hpsGain": 3785,
+      "score": 0.010815400893645414
+    },
+    {
+      "id": 193764,
+      "level": 321,
+      "slot": "Chest",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1202
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.058,
+      "hpsGain": 3703,
+      "score": 0.010580701033151141
+    },
+    {
+      "id": 159312,
+      "level": 334,
+      "slot": "Hands",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.057,
+      "hpsGain": 3700,
+      "score": 0.010572276773980462
+    },
+    {
+      "id": 268234,
+      "level": 334,
+      "slot": "Hands",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2871
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.054,
+      "hpsGain": 3689,
+      "score": 0.010539759133581876
+    },
+    {
+      "id": 268234,
+      "level": 334,
+      "slot": "Hands",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2871
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.054,
+      "hpsGain": 3689,
+      "score": 0.010539759133581876
+    },
+    {
+      "id": 159317,
+      "level": 321,
+      "slot": "Waist",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1030
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.034,
+      "hpsGain": 3619,
+      "score": 0.010340946617154522
+    },
+    {
+      "id": 268234,
+      "level": 324,
+      "slot": "Hands",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2871
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 1.023,
+      "hpsGain": 3580,
+      "score": 0.010228398514634715
+    },
+    {
+      "id": 272244,
+      "level": 321,
+      "slot": "Shoulder",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 1.016,
+      "hpsGain": 3555,
+      "score": 0.010157971707967995
+    },
+    {
+      "id": 158366,
+      "level": 321,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1030
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 1.004,
+      "hpsGain": 3513,
+      "score": 0.010037673287011144
+    },
+    {
+      "id": 251173,
+      "level": 334,
+      "slot": "Neck",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1311
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.997,
+      "hpsGain": 3488,
+      "score": 0.009966909509977685
+    },
+    {
+      "id": 268246,
+      "level": 334,
+      "slot": "Shoulder",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2882
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.972,
+      "hpsGain": 3402,
+      "score": 0.009718899319993833
+    },
+    {
+      "id": 268246,
+      "level": 334,
+      "slot": "Shoulder",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2882
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.972,
+      "hpsGain": 3402,
+      "score": 0.009718899319993833
+    },
+    {
+      "id": 268250,
+      "level": 321,
+      "slot": "Neck",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2874
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.964,
+      "hpsGain": 3372,
+      "score": 0.009635330669020984
+    },
+    {
+      "id": 159301,
+      "level": 334,
+      "slot": "Waist",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.944,
+      "hpsGain": 3303,
+      "score": 0.009436686637777077
+    },
+    {
+      "id": 272239,
+      "level": 321,
+      "slot": "Chest",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0.942,
+      "hpsGain": 3296,
+      "score": 0.009417647812051516
+    },
+    {
+      "id": 271526,
+      "level": 334,
+      "slot": "Shoulder",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2894
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.94,
+      "hpsGain": 3289,
+      "score": 0.009397935045592167
+    },
+    {
+      "id": 271526,
+      "level": 334,
+      "slot": "Shoulder",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2894
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.94,
+      "hpsGain": 3289,
+      "score": 0.009397935045592167
+    },
+    {
+      "id": 159329,
+      "level": 334,
+      "slot": "Legs",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1030
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.937,
+      "hpsGain": 3278,
+      "score": 0.009366933771844147
+    },
+    {
+      "id": 244573,
+      "level": 331,
+      "slot": "Waist",
+      "source": {
+        "instanceId": -4,
+        "encounterId": 2
+      },
+      "dropLoc": "Crafted",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0.931,
+      "hpsGain": 3258,
+      "score": 0.009307458502099358
+    },
+    {
+      "id": 271531,
+      "level": 324,
+      "slot": "Chest",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2882
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.922,
+      "hpsGain": 3226,
+      "score": 0.009216644988239807
+    },
+    {
+      "id": 251136,
+      "level": 321,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.901,
+      "hpsGain": 3155,
+      "score": 0.009014968223694462
+    },
+    {
+      "id": 193763,
+      "level": 334,
+      "slot": "Back",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1202
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.895,
+      "hpsGain": 3131,
+      "score": 0.008946563239228805
+    },
+    {
+      "id": 250214,
+      "level": 321,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1309
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.888,
+      "hpsGain": 3109,
+      "score": 0.008883886750999128
+    },
+    {
+      "id": 159337,
+      "level": 321,
+      "slot": "Hands",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1030
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.887,
+      "hpsGain": 3106,
+      "score": 0.008874620065911366
+    },
+    {
+      "id": 271528,
+      "level": 334,
+      "slot": "Head",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2887
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.883,
+      "hpsGain": 3092,
+      "score": 0.008833678166342101
+    },
+    {
+      "id": 271528,
+      "level": 334,
+      "slot": "Head",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2887
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.883,
+      "hpsGain": 3092,
+      "score": 0.008833678166342101
+    },
+    {
+      "id": 251190,
+      "level": 321,
+      "slot": "Back",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1309
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.84,
+      "hpsGain": 2939,
+      "score": 0.00839780699685267
+    },
+    {
+      "id": 251226,
+      "level": 334,
+      "slot": "Chest",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1313
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.836,
+      "hpsGain": 2926,
+      "score": 0.00836057177131848
+    },
+    {
+      "id": 251235,
+      "level": 334,
+      "slot": "Waist",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1313
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.826,
+      "hpsGain": 2891,
+      "score": 0.008260828542738062
+    },
+    {
+      "id": 251142,
+      "level": 311,
+      "slot": "Neck",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.819,
+      "hpsGain": 2865,
+      "score": 0.008185515665752445
+    },
+    {
+      "id": 244569,
+      "level": 331,
+      "slot": "Feet",
+      "source": {
+        "instanceId": -4,
+        "encounterId": 2
+      },
+      "dropLoc": "Crafted",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0.817,
+      "hpsGain": 2859,
+      "score": 0.008167487751127262
+    },
+    {
+      "id": 274493,
+      "level": 321,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0.814,
+      "hpsGain": 2850,
+      "score": 0.008143562855082496
+    },
+    {
+      "id": 159304,
+      "level": 334,
+      "slot": "Feet",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.779,
+      "hpsGain": 2727,
+      "score": 0.007791260336566069
+    },
+    {
+      "id": 270162,
+      "level": 318,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2888
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.775,
+      "hpsGain": 2713,
+      "score": 0.007750318436996651
+    },
+    {
+      "id": 268252,
+      "level": 334,
+      "slot": "Finger",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2871
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.774,
+      "hpsGain": 2709,
+      "score": 0.007741051751909042
+    },
+    {
+      "id": 268252,
+      "level": 334,
+      "slot": "Finger",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2871
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.774,
+      "hpsGain": 2709,
+      "score": 0.007741051751909042
+    },
+    {
+      "id": 158366,
+      "level": 311,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1030
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.763,
+      "hpsGain": 2671,
+      "score": 0.007631367897507071
+    },
+    {
+      "id": 251198,
+      "level": 334,
+      "slot": "Legs",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1309
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.761,
+      "hpsGain": 2665,
+      "score": 0.007614519379165866
+    },
+    {
+      "id": 193758,
+      "level": 334,
+      "slot": "Hands",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1202
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.755,
+      "hpsGain": 2644,
+      "score": 0.007553190772403463
+    },
+    {
+      "id": 239048,
+      "level": 321,
+      "slot": "Chest",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.748,
+      "hpsGain": 2620,
+      "score": 0.0074849542731212524
+    },
+    {
+      "id": 251124,
+      "level": 321,
+      "slot": "Hands",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.745,
+      "hpsGain": 2609,
+      "score": 0.007452942088272856
+    },
+    {
+      "id": 251146,
+      "level": 334,
+      "slot": "Shoulder",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1311
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.737,
+      "hpsGain": 2578,
+      "score": 0.0073653297928980375
+    },
+    {
+      "id": 159317,
+      "level": 311,
+      "slot": "Waist",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1030
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.728,
+      "hpsGain": 2547,
+      "score": 0.007276201130872653
+    },
+    {
+      "id": 251223,
+      "level": 321,
+      "slot": "Shoulder",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1313
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.72,
+      "hpsGain": 2521,
+      "score": 0.007201730679804119
+    },
+    {
+      "id": 159313,
+      "level": 321,
+      "slot": "Legs",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.72,
+      "hpsGain": 2519,
+      "score": 0.00719768703540215
+    },
+    {
+      "id": 273774,
+      "level": 334,
+      "slot": "Shoulder",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1322
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.705,
+      "hpsGain": 2468,
+      "score": 0.007052284322116708
+    },
+    {
+      "id": 271529,
+      "level": 321,
+      "slot": "Hands",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2874
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.701,
+      "hpsGain": 2454,
+      "score": 0.007011173937363996
+    },
+    {
+      "id": 239656,
+      "level": 331,
+      "slot": "Back",
+      "source": {
+        "instanceId": -4,
+        "encounterId": 1
+      },
+      "dropLoc": "Crafted",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0.698,
+      "hpsGain": 2442,
+      "score": 0.006976802959947796
+    },
+    {
+      "id": 159288,
+      "level": 334,
+      "slot": "Back",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.686,
+      "hpsGain": 2400,
+      "score": 0.006855999083440604
+    },
+    {
+      "id": 268247,
+      "level": 318,
+      "slot": "Feet",
+      "source": {
+        "instanceId": 1317,
+        "encounterId": 2849
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.669,
+      "hpsGain": 2343,
+      "score": 0.006693916336997404
+    },
+    {
+      "id": 159312,
+      "level": 321,
+      "slot": "Hands",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.668,
+      "hpsGain": 2338,
+      "score": 0.006679932066774037
+    },
+    {
+      "id": 251136,
+      "level": 311,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.667,
+      "hpsGain": 2335,
+      "score": 0.006672350233520441
+    },
+    {
+      "id": 193764,
+      "level": 311,
+      "slot": "Chest",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1202
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.664,
+      "hpsGain": 2326,
+      "score": 0.006644887148624202
+    },
+    {
+      "id": 268246,
+      "level": 324,
+      "slot": "Shoulder",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2882
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.662,
+      "hpsGain": 2316,
+      "score": 0.006616244667443984
+    },
+    {
+      "id": 251130,
+      "level": 334,
+      "slot": "Legs",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.661,
+      "hpsGain": 2313,
+      "score": 0.006609168289740577
+    },
+    {
+      "id": 251153,
+      "level": 321,
+      "slot": "Feet",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1311
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.66,
+      "hpsGain": 2311,
+      "score": 0.006602934337954406
+    },
+    {
+      "id": 268261,
+      "level": 334,
+      "slot": "Feet",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2887
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.656,
+      "hpsGain": 2294,
+      "score": 0.006555421516231923
+    },
+    {
+      "id": 268261,
+      "level": 334,
+      "slot": "Feet",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2887
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.656,
+      "hpsGain": 2294,
+      "score": 0.006555421516231923
+    },
+    {
+      "id": 251123,
+      "level": 311,
+      "slot": "2H Weapon",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.646,
+      "hpsGain": 2262,
+      "score": 0.006462586180171311
+    },
+    {
+      "id": 159327,
+      "level": 334,
+      "slot": "Feet",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1030
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.644,
+      "hpsGain": 2253,
+      "score": 0.006436639461925791
+    },
+    {
+      "id": 273796,
+      "level": 334,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1322
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.639,
+      "hpsGain": 2236,
+      "score": 0.006388621184653119
+    },
+    {
+      "id": 268227,
+      "level": 334,
+      "slot": "Waist",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2894
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.637,
+      "hpsGain": 2230,
+      "score": 0.006370087814477594
+    },
+    {
+      "id": 268227,
+      "level": 334,
+      "slot": "Waist",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2894
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.637,
+      "hpsGain": 2230,
+      "score": 0.006370087814477594
+    },
+    {
+      "id": 251190,
+      "level": 311,
+      "slot": "Back",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1309
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.618,
+      "hpsGain": 2165,
+      "score": 0.006184754112723418
+    },
+    {
+      "id": 251173,
+      "level": 321,
+      "slot": "Neck",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1311
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.611,
+      "hpsGain": 2137,
+      "score": 0.006105229106152384
+    },
+    {
+      "id": 159337,
+      "level": 311,
+      "slot": "Hands",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1030
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.596,
+      "hpsGain": 2086,
+      "score": 0.005959489422500202
+    },
+    {
+      "id": 251132,
+      "level": 334,
+      "slot": "Back",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.58,
+      "hpsGain": 2030,
+      "score": 0.005801281835275371
+    },
+    {
+      "id": 273791,
+      "level": 334,
+      "slot": "Head",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1322
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.577,
+      "hpsGain": 2021,
+      "score": 0.0057743242059293196
+    },
+    {
+      "id": 193763,
+      "level": 321,
+      "slot": "Back",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1202
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.577,
+      "hpsGain": 2018,
+      "score": 0.005766236917125535
+    },
+    {
+      "id": 272225,
+      "level": 321,
+      "slot": "Back",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0.577,
+      "hpsGain": 2018,
+      "score": 0.005766236917125535
+    },
+    {
+      "id": 272230,
+      "level": 321,
+      "slot": "Back",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0.577,
+      "hpsGain": 2018,
+      "score": 0.005766236917125535
+    },
+    {
+      "id": 268252,
+      "level": 324,
+      "slot": "Finger",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2871
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.563,
+      "hpsGain": 1971,
+      "score": 0.005630100888927856
+    },
+    {
+      "id": 251140,
+      "level": 321,
+      "slot": "Head",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.547,
+      "hpsGain": 1913,
+      "score": 0.0054659963202835955
+    },
+    {
+      "id": 250214,
+      "level": 311,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1309
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.543,
+      "hpsGain": 1902,
+      "score": 0.005432973224334668
+    },
+    {
+      "id": 271526,
+      "level": 321,
+      "slot": "Shoulder",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2894
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.543,
+      "hpsGain": 1900,
+      "score": 0.005427581698465428
+    },
+    {
+      "id": 159301,
+      "level": 321,
+      "slot": "Waist",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.531,
+      "hpsGain": 1859,
+      "score": 0.005310989951543651
+    },
+    {
+      "id": 268219,
+      "level": 334,
+      "slot": "Head",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2874
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.511,
+      "hpsGain": 1788,
+      "score": 0.005107628335164292
+    },
+    {
+      "id": 268219,
+      "level": 334,
+      "slot": "Head",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2874
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.511,
+      "hpsGain": 1788,
+      "score": 0.005107628335164292
+    },
+    {
+      "id": 251148,
+      "level": 334,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1311
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.485,
+      "hpsGain": 1696,
+      "score": 0.0048461393305072615
+    },
+    {
+      "id": 251189,
+      "level": 334,
+      "slot": "Waist",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1309
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.484,
+      "hpsGain": 1695,
+      "score": 0.004841590230555104
+    },
+    {
+      "id": 193761,
+      "level": 311,
+      "slot": "2H Weapon",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1202
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.483,
+      "hpsGain": 1691,
+      "score": 0.004831649604733859
+    },
+    {
+      "id": 251124,
+      "level": 311,
+      "slot": "Hands",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.464,
+      "hpsGain": 1625,
+      "score": 0.004643451654861539
+    },
+    {
+      "id": 274495,
+      "level": 321,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0.462,
+      "hpsGain": 1616,
+      "score": 0.004615820084781852
+    },
+    {
+      "id": 273649,
+      "level": 334,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.446,
+      "hpsGain": 1560,
+      "score": 0.004455759160539407
+    },
+    {
+      "id": 251223,
+      "level": 311,
+      "slot": "Shoulder",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1313
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.439,
+      "hpsGain": 1537,
+      "score": 0.004392577216759543
+    },
+    {
+      "id": 271528,
+      "level": 324,
+      "slot": "Head",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2887
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.431,
+      "hpsGain": 1510,
+      "score": 0.004313052210188663
+    },
+    {
+      "id": 251235,
+      "level": 321,
+      "slot": "Waist",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1313
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.423,
+      "hpsGain": 1481,
+      "score": 0.00423116841104998
+    },
+    {
+      "id": 159312,
+      "level": 311,
+      "slot": "Hands",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.392,
+      "hpsGain": 1371,
+      "score": 0.0039167750588013795
+    },
+    {
+      "id": 250248,
+      "level": 334,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1311
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.387,
+      "hpsGain": 1354,
+      "score": 0.003867914355611624
+    },
+    {
+      "id": 193758,
+      "level": 321,
+      "slot": "Hands",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1202
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.382,
+      "hpsGain": 1336,
+      "score": 0.003815852433936983
+    },
+    {
+      "id": 159288,
+      "level": 321,
+      "slot": "Back",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.379,
+      "hpsGain": 1328,
+      "score": 0.003794117845276726
+    },
+    {
+      "id": 159329,
+      "level": 321,
+      "slot": "Legs",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1030
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.373,
+      "hpsGain": 1306,
+      "score": 0.003731104386680309
+    },
+    {
+      "id": 159304,
+      "level": 321,
+      "slot": "Feet",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.371,
+      "hpsGain": 1298,
+      "score": 0.0037098752535702404
+    },
+    {
+      "id": 239048,
+      "level": 311,
+      "slot": "Chest",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.365,
+      "hpsGain": 1277,
+      "score": 0.0036490521023581786
+    },
+    {
+      "id": 240950,
+      "level": 331,
+      "slot": "Neck",
+      "source": {
+        "instanceId": -4,
+        "encounterId": 7
+      },
+      "dropLoc": "Crafted",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0.365,
+      "hpsGain": 1277,
+      "score": 0.0036480411912576485
+    },
+    {
+      "id": 250215,
+      "level": 334,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.364,
+      "hpsGain": 1275,
+      "score": 0.003643660576488938
+    },
+    {
+      "id": 251153,
+      "level": 311,
+      "slot": "Feet",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1311
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.362,
+      "hpsGain": 1267,
+      "score": 0.0036195671952608784
+    },
+    {
+      "id": 251146,
+      "level": 321,
+      "slot": "Shoulder",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1311
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.362,
+      "hpsGain": 1266,
+      "score": 0.003615860521225804
+    },
+    {
+      "id": 193763,
+      "level": 311,
+      "slot": "Back",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1202
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.354,
+      "hpsGain": 1239,
+      "score": 0.003540210673873445
+    },
+    {
+      "id": 268261,
+      "level": 324,
+      "slot": "Feet",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2887
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.347,
+      "hpsGain": 1215,
+      "score": 0.0034713002338574456
+    },
+    {
+      "id": 273774,
+      "level": 321,
+      "slot": "Shoulder",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1322
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.331,
+      "hpsGain": 1160,
+      "score": 0.0033149459836502287
+    },
+    {
+      "id": 159313,
+      "level": 311,
+      "slot": "Legs",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.33,
+      "hpsGain": 1154,
+      "score": 0.003296412613474857
+    },
+    {
+      "id": 268248,
+      "level": 334,
+      "slot": "Back",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2888
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.321,
+      "hpsGain": 1123,
+      "score": 0.0032099797143840163
+    },
+    {
+      "id": 268248,
+      "level": 334,
+      "slot": "Back",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2888
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.321,
+      "hpsGain": 1123,
+      "score": 0.0032099797143840163
+    },
+    {
+      "id": 251226,
+      "level": 321,
+      "slot": "Chest",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1313
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.32,
+      "hpsGain": 1118,
+      "score": 0.003195153018243566
+    },
+    {
+      "id": 251173,
+      "level": 311,
+      "slot": "Neck",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1311
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.305,
+      "hpsGain": 1067,
+      "score": 0.0030477284827572166
+    },
+    {
+      "id": 251135,
+      "level": 334,
+      "slot": "Wrist",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.299,
+      "hpsGain": 1048,
+      "score": 0.002993644738881668
+    },
+    {
+      "id": 239033,
+      "level": 334,
+      "slot": "Head",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1030
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.299,
+      "hpsGain": 1046,
+      "score": 0.002989601094479852
+    },
+    {
+      "id": 244571,
+      "level": 331,
+      "slot": "Head",
+      "source": {
+        "instanceId": -4,
+        "encounterId": 2
+      },
+      "dropLoc": "Crafted",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0.297,
+      "hpsGain": 1038,
+      "score": 0.0029661816539854283
+    },
+    {
+      "id": 251132,
+      "level": 321,
+      "slot": "Back",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.278,
+      "hpsGain": 971,
+      "score": 0.0027754564263618585
+    },
+    {
+      "id": 159327,
+      "level": 321,
+      "slot": "Feet",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1030
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.254,
+      "hpsGain": 890,
+      "score": 0.002543957784352471
+    },
+    {
+      "id": 268227,
+      "level": 321,
+      "slot": "Waist",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2894
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.254,
+      "hpsGain": 889,
+      "score": 0.00254109353623448
+    },
+    {
+      "id": 159301,
+      "level": 311,
+      "slot": "Waist",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.25,
+      "hpsGain": 875,
+      "score": 0.0025011625477655923
+    },
+    {
+      "id": 251148,
+      "level": 321,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1311
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.233,
+      "hpsGain": 815,
+      "score": 0.002327285838483381
+    },
+    {
+      "id": 251198,
+      "level": 321,
+      "slot": "Legs",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1309
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.217,
+      "hpsGain": 760,
+      "score": 0.002170257647542528
+    },
+    {
+      "id": 273781,
+      "level": 334,
+      "slot": "Neck",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1322
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.211,
+      "hpsGain": 738,
+      "score": 0.0021075811593128527
+    },
+    {
+      "id": 193757,
+      "level": 334,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1202
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.204,
+      "hpsGain": 716,
+      "score": 0.0020449046710833306
+    },
+    {
+      "id": 273796,
+      "level": 321,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1322
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.187,
+      "hpsGain": 654,
+      "score": 0.0018671528025825973
+    },
+    {
+      "id": 159288,
+      "level": 311,
+      "slot": "Back",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.175,
+      "hpsGain": 614,
+      "score": 0.001752919848228623
+    },
+    {
+      "id": 251235,
+      "level": 311,
+      "slot": "Waist",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1313
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.142,
+      "hpsGain": 497,
+      "score": 0.0014196561554377558
+    },
+    {
+      "id": 272148,
+      "level": 321,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0.132,
+      "hpsGain": 463,
+      "score": 0.0013236196008922583
+    },
+    {
+      "id": 251140,
+      "level": 311,
+      "slot": "Head",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.126,
+      "hpsGain": 441,
+      "score": 0.0012592582608285698
+    },
+    {
+      "id": 251130,
+      "level": 321,
+      "slot": "Legs",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.124,
+      "hpsGain": 433,
+      "score": 0.001237186701801418
+    },
+    {
+      "id": 193758,
+      "level": 311,
+      "slot": "Hands",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1202
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.116,
+      "hpsGain": 405,
+      "score": 0.0011561453285798182
+    },
+    {
+      "id": 244576,
+      "level": 331,
+      "slot": "Wrist",
+      "source": {
+        "instanceId": -4,
+        "encounterId": 2
+      },
+      "dropLoc": "Crafted",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0.102,
+      "hpsGain": 357,
+      "score": 0.0010200093003821392
+    },
+    {
+      "id": 251189,
+      "level": 321,
+      "slot": "Waist",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1309
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.1,
+      "hpsGain": 351,
+      "score": 0.001003329267224228
+    },
+    {
+      "id": 251146,
+      "level": 311,
+      "slot": "Shoulder",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1311
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.093,
+      "hpsGain": 326,
+      "score": 0.0009318915494571321
+    },
+    {
+      "id": 159304,
+      "level": 311,
+      "slot": "Feet",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.09,
+      "hpsGain": 314,
+      "score": 0.000898362997958016
+    },
+    {
+      "id": 272228,
+      "level": 321,
+      "slot": "Neck",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0.083,
+      "hpsGain": 291,
+      "score": 0.0008304634690425471
+    },
+    {
+      "id": 251132,
+      "level": 311,
+      "slot": "Back",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.068,
+      "hpsGain": 238,
+      "score": 0.0006813540817220313
+    },
+    {
+      "id": 273774,
+      "level": 311,
+      "slot": "Shoulder",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1322
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.066,
+      "hpsGain": 229,
+      "score": 0.0006550703931096165
+    },
+    {
+      "id": 272245,
+      "level": 321,
+      "slot": "Waist",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0.063,
+      "hpsGain": 221,
+      "score": 0.00063181943779864
+    },
+    {
+      "id": 251148,
+      "level": 311,
+      "slot": "Finger",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1311
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.048,
+      "hpsGain": 169,
+      "score": 0.00048203610974448827
+    },
+    {
+      "id": 272226,
+      "level": 321,
+      "slot": "Back",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0.044,
+      "hpsGain": 153,
+      "score": 0.0004368820805898072
+    },
+    {
+      "id": 272227,
+      "level": 321,
+      "slot": "Back",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0.044,
+      "hpsGain": 153,
+      "score": 0.0004368820805898072
+    },
+    {
+      "id": 250255,
+      "level": 334,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.039,
+      "hpsGain": 135,
+      "score": 0.00038532561446550804
+    },
+    {
+      "id": 251788,
+      "level": 321,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0.031,
+      "hpsGain": 108,
+      "score": 0.00030984425229644327
+    },
+    {
+      "id": 268240,
+      "level": 334,
+      "slot": "Wrist",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2888
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.021,
+      "hpsGain": 74,
+      "score": 0.00021094344963310793
+    },
+    {
+      "id": 268240,
+      "level": 334,
+      "slot": "Wrist",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2888
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 0.021,
+      "hpsGain": 74,
+      "score": 0.00021094344963310793
+    },
+    {
+      "id": 273791,
+      "level": 321,
+      "slot": "Head",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1322
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0.014,
+      "hpsGain": 47,
+      "score": 0.00013529360228059585
+    },
+    {
+      "id": 158369,
+      "level": 311,
+      "slot": "1H Weapon",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1030
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 158369,
+      "level": 321,
+      "slot": "1H Weapon",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1030
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 158369,
+      "level": 334,
+      "slot": "1H Weapon",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1030
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 159137,
+      "level": 311,
+      "slot": "1H Weapon",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 159137,
+      "level": 321,
+      "slot": "1H Weapon",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 159137,
+      "level": 334,
+      "slot": "1H Weapon",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 159300,
+      "level": 311,
+      "slot": "Wrist",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 159300,
+      "level": 321,
+      "slot": "Wrist",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 159300,
+      "level": 334,
+      "slot": "Wrist",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 159327,
+      "level": 311,
+      "slot": "Feet",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1030
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 159329,
+      "level": 311,
+      "slot": "Legs",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1030
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 159667,
+      "level": 311,
+      "slot": "Offhand",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 159667,
+      "level": 321,
+      "slot": "Offhand",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 159667,
+      "level": 334,
+      "slot": "Offhand",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 193748,
+      "level": 311,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1202
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 193748,
+      "level": 321,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1202
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 193748,
+      "level": 334,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1202
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 193751,
+      "level": 311,
+      "slot": "Head",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1202
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 193751,
+      "level": 321,
+      "slot": "Head",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1202
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 193751,
+      "level": 334,
+      "slot": "Head",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1202
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 193757,
+      "level": 311,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1202
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 193757,
+      "level": 321,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1202
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 193766,
+      "level": 311,
+      "slot": "Offhand",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1202
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 193766,
+      "level": 321,
+      "slot": "Offhand",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1202
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 193766,
+      "level": 334,
+      "slot": "Offhand",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1202
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 237838,
+      "level": 331,
+      "slot": "1H Weapon",
+      "source": {
+        "instanceId": -4,
+        "encounterId": 3
+      },
+      "dropLoc": "Crafted",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 239033,
+      "level": 311,
+      "slot": "Head",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1030
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 239033,
+      "level": 321,
+      "slot": "Head",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1030
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 244744,
+      "level": 331,
+      "slot": "Head",
+      "source": {
+        "instanceId": -4,
+        "encounterId": 4
+      },
+      "dropLoc": "Crafted",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 244748,
+      "level": 331,
+      "slot": "Wrist",
+      "source": {
+        "instanceId": -4,
+        "encounterId": 4
+      },
+      "dropLoc": "Crafted",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 244772,
+      "level": 331,
+      "slot": "Feet",
+      "source": {
+        "instanceId": -4,
+        "encounterId": 4
+      },
+      "dropLoc": "Crafted",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 245769,
+      "level": 331,
+      "slot": "Offhand",
+      "source": {
+        "instanceId": -4,
+        "encounterId": 5
+      },
+      "dropLoc": "Crafted",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 250215,
+      "level": 311,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 250215,
+      "level": 321,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 250248,
+      "level": 311,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1311
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 250248,
+      "level": 321,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1311
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 250254,
+      "level": 311,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1309
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 250254,
+      "level": 321,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1309
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 250254,
+      "level": 334,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1309
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 250255,
+      "level": 311,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 250255,
+      "level": 321,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 251130,
+      "level": 311,
+      "slot": "Legs",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 251135,
+      "level": 311,
+      "slot": "Wrist",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 251135,
+      "level": 321,
+      "slot": "Wrist",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1304
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 251183,
+      "level": 311,
+      "slot": "Wrist",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1309
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 251183,
+      "level": 321,
+      "slot": "Wrist",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1309
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 251183,
+      "level": 334,
+      "slot": "Wrist",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1309
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 251189,
+      "level": 311,
+      "slot": "Waist",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1309
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 251191,
+      "level": 311,
+      "slot": "Offhand",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1309
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 251191,
+      "level": 321,
+      "slot": "Offhand",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1309
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 251191,
+      "level": 334,
+      "slot": "Offhand",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1309
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 251198,
+      "level": 311,
+      "slot": "Legs",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1309
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 251225,
+      "level": 311,
+      "slot": "1H Weapon",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1313
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 251225,
+      "level": 321,
+      "slot": "1H Weapon",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1313
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 251225,
+      "level": 334,
+      "slot": "1H Weapon",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1313
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 251226,
+      "level": 311,
+      "slot": "Chest",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1313
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 251234,
+      "level": 311,
+      "slot": "Neck",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1313
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 251234,
+      "level": 321,
+      "slot": "Neck",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1313
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 251234,
+      "level": 334,
+      "slot": "Neck",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1313
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 251789,
+      "level": 321,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 252957,
+      "level": 321,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 264701,
+      "level": 321,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 268197,
+      "level": 321,
+      "slot": "Offhand",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2874
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 268197,
+      "level": 334,
+      "slot": "Offhand",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2874
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 268197,
+      "level": 334,
+      "slot": "Offhand",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2874
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 268203,
+      "level": 318,
+      "slot": "1H Weapon",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2888
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 268203,
+      "level": 334,
+      "slot": "1H Weapon",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2888
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 268203,
+      "level": 334,
+      "slot": "1H Weapon",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2888
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 268210,
+      "level": 321,
+      "slot": "1H Weapon",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2894
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 268210,
+      "level": 334,
+      "slot": "1H Weapon",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2894
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 268210,
+      "level": 334,
+      "slot": "1H Weapon",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2894
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 268219,
+      "level": 321,
+      "slot": "Head",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2874
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 268240,
+      "level": 318,
+      "slot": "Wrist",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2888
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 268248,
+      "level": 318,
+      "slot": "Back",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2888
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 268263,
+      "level": 318,
+      "slot": "Offhand",
+      "source": {
+        "instanceId": 1317,
+        "encounterId": 2849
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 268263,
+      "level": 334,
+      "slot": "Offhand",
+      "source": {
+        "instanceId": 1317,
+        "encounterId": 2849
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 268263,
+      "level": 334,
+      "slot": "Offhand",
+      "source": {
+        "instanceId": 1317,
+        "encounterId": 2849
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 270171,
+      "level": 324,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2887
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 270171,
+      "level": 334,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2887
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 270171,
+      "level": 334,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2887
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 271092,
+      "level": 344,
+      "slot": "1H Weapon",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2895,
+        "veryRare": true
+      },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 271092,
+      "level": 344,
+      "slot": "1H Weapon",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2895,
+        "veryRare": true
+      },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 271092,
+      "level": 344,
+      "slot": "1H Weapon",
+      "source": {
+        "instanceId": 1320,
+        "encounterId": 2895,
+        "veryRare": true
+      },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 271681,
+      "level": 311,
+      "slot": "Offhand",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1311
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 271681,
+      "level": 321,
+      "slot": "Offhand",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1311
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 271681,
+      "level": 334,
+      "slot": "Offhand",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1311
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 272229,
+      "level": 321,
+      "slot": "Neck",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 272240,
+      "level": 321,
+      "slot": "Feet",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 272242,
+      "level": 321,
+      "slot": "Head",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 272246,
+      "level": 321,
+      "slot": "Wrist",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 272266,
+      "level": 321,
+      "slot": "1H Weapon",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 272270,
+      "level": 321,
+      "slot": "1H Weapon",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 272275,
+      "level": 321,
+      "slot": "Offhand",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 273649,
+      "level": 311,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 273649,
+      "level": 321,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1041
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 273778,
+      "level": 311,
+      "slot": "1H Weapon",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1322
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 273778,
+      "level": 321,
+      "slot": "1H Weapon",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1322
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 273778,
+      "level": 334,
+      "slot": "1H Weapon",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1322
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 273779,
+      "level": 311,
+      "slot": "Offhand",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1322
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 273779,
+      "level": 321,
+      "slot": "Offhand",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1322
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 273779,
+      "level": 334,
+      "slot": "Offhand",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1322
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "bonus",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 273781,
+      "level": 311,
+      "slot": "Neck",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1322
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 273781,
+      "level": 321,
+      "slot": "Neck",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1322
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "max",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 273791,
+      "level": 311,
+      "slot": "Head",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1322
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 273796,
+      "level": 311,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -1,
+        "encounterId": 1322
+      },
+      "dropLoc": "Dungeon",
+      "dropType": "drop",
+      "dropDifficulty": 7,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 274494,
+      "level": 321,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 280091,
+      "level": 321,
+      "slot": "Trinket",
+      "source": {
+        "instanceId": -98,
+        "encounterId": -98
+      },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    }
+  ]
+}
