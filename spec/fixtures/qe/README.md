@@ -30,10 +30,16 @@ branch `lootpath/upgrade-finder-export`, Export > Download JSON).
   the 15 equipped items, `differentials` is `[]`, and no item is `isVault`. It
   proves the header, the item shape, the real `stats` block (12 keys: the six
   the hand-built sample has plus `hps`, `dps`, `mana`, `manaPerc`, `allyStats`,
-  `bonusHPS`) and the `version: 1` number. A second export with Mythic+ content,
-  bag items selected and vault options present is the next fixture to add.
+  `bonusHPS`) and the `version: 1` number.
+- `qe-droptimizer-Hotornot-cjyztichdhze.json` - exported 2026-09-07T01:01:35Z,
+  **Restoration Druid**, **contentType `Dungeon`** (QE Live's name for the
+  Mythic+ side; there is no "Mythic+" content type), with bag and bank items
+  clicked on the gear screen, so it carries **12 `differentials`** (one with a
+  zero delta, the rest worse in both signs) and a top set that differs from the
+  worn set in five slots. Still no `isVault` item: the weekly reset had not
+  generated rewards. The export with vault options is Tuesday 2026-09-08's.
 
-`spec/qeimport_spec.lua` reads this file in its "genuine QE Live export" block.
+`spec/qeimport_spec.lua` reads both files in its "genuine QE Live export" blocks.
 
 Files here are excluded from luacheck and StyLua (raw third-party payloads,
 never linted or formatted).
