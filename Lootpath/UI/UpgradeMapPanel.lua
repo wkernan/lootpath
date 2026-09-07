@@ -377,6 +377,9 @@ end
 -- Frames. Native only, no AceGUI (decision 2026-09-05).
 
 local ROW_HEIGHT = 14
+-- Only a default: the window anchors this panel by two corners (M3-3 wiring in
+-- UI/MainFrame.lua), which is what actually sizes it. The size matters for a
+-- panel built on its own, which is what the render tests do.
 local PANEL_WIDTH = 560
 local PANEL_HEIGHT = 420
 
@@ -384,6 +387,18 @@ local function fontString(parent, template)
     local text = parent:CreateFontString(nil, "ARTWORK", template or "GameFontHighlightSmall")
     text:SetJustifyH("LEFT")
     return text
+end
+
+-- The verdict the window is showing. `ns.UI.ActiveVerdict` honours the content
+-- type setting and falls back to the most recent import, saying so in the
+-- window's own note (M2-2); reaching past it to QEImport.Current would show a
+-- Raid answer under a Dungeon setting with nothing said. The direct call is the
+-- fallback for a panel built without the window around it.
+local function activeVerdict()
+    if ns.UI and ns.UI.ActiveVerdict then
+        return (ns.UI.ActiveVerdict())
+    end
+    return ns.QEImport.Current()
 end
 
 -- The newest journal walk the addon has stored. `capture journal` is the only
@@ -400,7 +415,10 @@ end
 
 -- Everything Model needs, read from the client and the database. Out of combat
 -- only, because Inventory.Scan refuses in combat and a half-scanned panel is
--- worse than a panel that says why it is empty.
+-- worse than a panel that says why it is empty. There is no "walk now" button:
+-- `/lootpath capture journal` is still the only thing that produces a walk, and
+-- putting one behind a button is its own decision (it moves the Adventure
+-- Guide's view state and takes seconds), which M3-4 is what settles.
 function Panel.Gather(opts)
     opts = opts or {}
     local snapshot = opts.snapshot or Panel.LatestWalk(opts.db)
@@ -413,7 +431,7 @@ function Panel.Gather(opts)
         sources = sources,
         summary = type(summary) == "table" and summary.ok and summary or nil,
         inventory = inventory.ok and inventory or nil,
-        verdict = ns.QEImport.Current(),
+        verdict = activeVerdict(),
         difficultyIDs = opts.difficultyIDs,
         inCombat = inventory.ok ~= true and inventory.reason == "combat" or nil,
     }
@@ -424,9 +442,13 @@ function Panel.Create(parent)
     frame:SetSize(PANEL_WIDTH, PANEL_HEIGHT)
     frame:Hide()
 
+    frame.header = fontString(frame, "GameFontNormal")
+    frame.header:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+    frame.header:SetText("Upgrade Map")
+
     frame.note = fontString(frame, "GameFontNormalSmall")
-    frame.note:SetPoint("TOPLEFT", frame, "TOPLEFT", 8, -8)
-    frame.note:SetWidth(PANEL_WIDTH - 16)
+    frame.note:SetPoint("TOPLEFT", frame.header, "BOTTOMLEFT", 0, -4)
+    frame.note:SetPoint("RIGHT", frame, "RIGHT", -8, 0)
     frame.note:SetText(Panel.NOTE)
 
     frame.filterLabel = fontString(frame)
@@ -438,7 +460,7 @@ function Panel.Create(parent)
 
     frame.scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
     frame.scroll:SetPoint("TOPLEFT", frame.filterLabel, "BOTTOMLEFT", 0, -24)
-    frame.scroll:SetSize(PANEL_WIDTH - 40, PANEL_HEIGHT - 90)
+    frame.scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -26, 4)
     frame.content = CreateFrame("Frame", nil, frame.scroll)
     frame.content:SetSize(PANEL_WIDTH - 40, PANEL_HEIGHT - 90)
     frame.scroll:SetScrollChild(frame.content)

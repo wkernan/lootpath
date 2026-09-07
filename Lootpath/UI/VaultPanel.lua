@@ -243,14 +243,28 @@ end
 -- Frames. Native only, no AceGUI (decision 2026-09-05).
 
 local ROW_HEIGHT = 14
+-- Only a default; the window anchors this panel by two corners. See the same
+-- note in UI/UpgradeMapPanel.lua.
 local PANEL_WIDTH = 560
 local PANEL_HEIGHT = 420
+
+-- The verdict the window is showing. `ns.UI.ActiveVerdict` honours the content
+-- type setting and falls back to the most recent import, saying so in the
+-- window's own note (M2-2); reaching past it to QEImport.Current would show a
+-- Raid answer under a Dungeon setting with nothing said. The direct call is the
+-- fallback for a panel built without the window around it.
+local function activeVerdict()
+    if ns.UI and ns.UI.ActiveVerdict then
+        return (ns.UI.ActiveVerdict())
+    end
+    return ns.QEImport.Current()
+end
 
 function Panel.Gather(opts)
     opts = opts or {}
     return {
         vault = ns.Vault.Options(),
-        verdict = ns.QEImport.Current(),
+        verdict = activeVerdict(),
         now = opts.now,
     }
 end
@@ -260,15 +274,20 @@ function Panel.Create(parent)
     frame:SetSize(PANEL_WIDTH, PANEL_HEIGHT)
     frame:Hide()
 
+    frame.header = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    frame.header:SetJustifyH("LEFT")
+    frame.header:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+    frame.header:SetText("Vault")
+
     frame.note = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
     frame.note:SetJustifyH("LEFT")
-    frame.note:SetPoint("TOPLEFT", frame, "TOPLEFT", 8, -8)
-    frame.note:SetWidth(PANEL_WIDTH - 16)
+    frame.note:SetPoint("TOPLEFT", frame.header, "BOTTOMLEFT", 0, -4)
+    frame.note:SetPoint("RIGHT", frame, "RIGHT", -8, 0)
     frame.note:SetText(Panel.NOTE)
 
     frame.scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
     frame.scroll:SetPoint("TOPLEFT", frame.note, "BOTTOMLEFT", 0, -12)
-    frame.scroll:SetSize(PANEL_WIDTH - 40, PANEL_HEIGHT - 60)
+    frame.scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -26, 4)
     frame.content = CreateFrame("Frame", nil, frame.scroll)
     frame.content:SetSize(PANEL_WIDTH - 40, PANEL_HEIGHT - 60)
     frame.scroll:SetScrollChild(frame.content)

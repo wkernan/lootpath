@@ -147,6 +147,13 @@ local function attachTemplate(f, world, template)
         f.TitleText = f:CreateFontString()
         f.CloseButton = newFrame("Button", world, f)
     end
+    -- PanelTabButtonTemplate declares parentArray="Tabs"
+    -- (Blizzard_SharedXML/SharedUIPanelTemplates.xml line 905), so a tab built
+    -- from it appends itself to its parent's `Tabs` list.
+    if template:find("PanelTabButtonTemplate", 1, true) and f.parent then
+        f.parent.Tabs = f.parent.Tabs or {}
+        f.parent.Tabs[#f.parent.Tabs + 1] = f
+    end
     -- InputScrollFrameTemplate's scroll child is a multiLine EditBox at
     -- parentKey EditBox, with maxLetters 0 and a CharCount label
     -- (Blizzard_SharedXML/SecureUIPanelTemplates.xml).
@@ -230,6 +237,12 @@ function newFrame(kind, world, parent, template)
     end
     function f:SetHyperlinksEnabled(value)
         self.hyperlinksEnabled = value
+    end
+    function f:SetID(value)
+        self.id = value
+    end
+    function f:GetID()
+        return self.id
     end
     function f:SetScrollChild(child)
         self.scrollChild = child
@@ -535,6 +548,21 @@ function Stub.install()
     define("SlashCmdList", {})
     define("UIParent", newFrame("Frame", world))
     define("UISpecialFrames", {})
+
+    -- The tab helpers from Blizzard_SharedXML/SharedUIPanelTemplates.lua, as
+    -- far as a headless run can model them: which tab is selected is state, and
+    -- the selected/deselected ARTWORK those functions also swap is a pixel
+    -- question that only M3-4 can answer. PanelTabButtonTemplate carries
+    -- parentArray="Tabs", which is why a tab lands in frame.Tabs.
+    define("PanelTemplates_SetNumTabs", function(frame, numTabs)
+        frame.numTabs = numTabs
+    end)
+    define("PanelTemplates_SetTab", function(frame, id)
+        frame.selectedTab = id
+    end)
+    define("PanelTemplates_GetSelectedTab", function(frame)
+        return frame.selectedTab
+    end)
 
     -- GameTooltip: what it was told to show is recorded so a test can read the
     -- combat message back off it.

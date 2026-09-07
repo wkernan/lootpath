@@ -263,6 +263,36 @@ describe("VaultPanel frames", function()
         assert.equal("QE Live: in your best set", model.best.value)
     end)
 
+    -- The window, not the last paste, decides which verdict a panel reads
+    -- (M2-2's UI.ActiveVerdict). With two imports on the character and the
+    -- setting pointing at one of them, a panel reaching for QEImport.Current
+    -- would answer with the other.
+    it("reads the verdict the content-type setting names, not the last paste", function()
+        generateReward(world, 1, COVERED_ITEM.id, COVERED_ITEM.bonusIDs, COVERED_ITEM.name, 298)
+        local dungeon = realVerdict(ns)
+        dungeon.contentType = "Dungeon"
+        dungeon.topSet.items = {}
+        dungeon.topSet.order = {}
+        ns.QEImport.Store(dungeon)
+        -- The Raid export is pasted second, so it is what Current() answers,
+        -- and it is the one that covers this week's option.
+        ns.QEImport.Store(realVerdict(ns))
+        assert.equal("Raid", ns.QEImport.Current().contentType)
+        assert.equal("Dungeon", ns.UI.Options.Get())
+
+        local frame = ns.VaultPanel.Create()
+        local model = frame:Refresh()
+        assert.equal(0, model.counts.covered)
+        assert.is_nil(model.best)
+        assert.is_nil(model.options[1].rewards[1].value)
+
+        -- Point the setting at the Raid export and the same option is covered.
+        ns.db.profile.settings.contentType = "Raid"
+        local covered = frame:Refresh()
+        assert.equal(1, covered.counts.covered)
+        assert.equal("QE Live: in your best set", covered.best.value)
+    end)
+
     it("hides the rows a shorter render does not use", function()
         ns.QEImport.Store(realVerdict(ns))
         local frame = ns.VaultPanel.Create()

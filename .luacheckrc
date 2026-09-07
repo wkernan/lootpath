@@ -86,7 +86,11 @@ read_globals = {
     "UIParent",
     "DifficultyUtil",
     "GetDifficultyInfo",
-    "UIParent",
+    -- Blizzard_SharedXML/SharedUIPanelTemplates.lua, which PanelTabButtonTemplate
+    -- comes with; MainFrame calls both through a type check so a client without
+    -- them still tabs.
+    "PanelTemplates_SetNumTabs",
+    "PanelTemplates_SetTab",
     "WeeklyRewardsFrame",
     "INVSLOT_FIRST_EQUIPPED",
     "INVSLOT_LAST_EQUIPPED",
