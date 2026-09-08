@@ -3,17 +3,9 @@
 
 ## Still to capture
 
-- `vault` on a week with rewards available - WKE-523, Tuesday 2026-09-08 after
-  the reset: `/lootpath capture vault` before and after opening the window, to
-  settle the shape of `rewards[]` and `itemDBID`. Progress was already non-zero
-  on 2026-09-06 (see below), so the reset will generate rewards.
-  **M3-3 depends on this one.** `Lootpath/Modules/Vault.lua` reads a generated
-  reward through Blizzard's exported `WeeklyRewardActivityRewardInfo`
-  (`{ type, id, quantity, itemDBID? }`) because no committed snapshot has ever
-  carried one; `spec/vault_spec.lua` and `spec/vaultpanel_spec.lua` drive that
-  shape through the stub and say so in their headers. When this capture lands,
-  re-run those two against the real shape and turn the file header's
-  "documented, not measured" note into a measured one.
+Nothing scheduled. Every capture the MVP needed is committed; `/lootpath refresh`
+now takes `env`, `inventory` and `vault` itself (C-3), so new snapshots arrive
+with every loop rather than by request.
 
 ## Committed
 
@@ -41,3 +33,16 @@
   client's own figure, not a parse artefact; almost all are non-gear the
   aggregator drops, 6 and 5 reached a panel slot (WKE-530). No new
   vault snapshot: rewards are not generated until Tuesday. No secrets seen.
+- Lootpath-20260908-124527.lua - WKE-523 second visit (this PR). Restoration
+  spec (105). Pulled after the 2026-09-08 weekly reset with the Great Vault
+  window open and nothing claimed. Nine `vault` snapshots accumulate in it; the
+  ninth (12:45:26, taken by `/lootpath refresh`) is the first with generated
+  rewards: 11 activities, `hasAvailableRewards` and `canClaimRewards` true,
+  `secondsUntilWeeklyReset` 594873, every `progress` 0 (the new week), and
+  `rewards[]` populated on 207, 208, 213, 214, 217 and 229 - each gear reward
+  paired with a Mythic Keystone (180653), `itemDBID` a hex **string** such as
+  `"0x4000000E5E0736EE"`, every link resolved by `GetItemHyperlink` and probed
+  (`rewardLinks`: link, `GetDetailedItemLevelInfo`, `GetItemInfo`,
+  `GetItemInfoInstant`). Gear offered: Preyhunter's Lantern 275547 (Offhand
+  305), Lightgrasp Worldroot 251935 (2H Weapon 305), Scavenger's Spaulders
+  251146 (Shoulder 308), Graft of the Domanaar 251234 (Neck 308). No secrets.

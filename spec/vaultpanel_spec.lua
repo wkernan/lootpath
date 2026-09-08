@@ -173,6 +173,69 @@ describe("VaultPanel over the committed vault transcript", function()
     end)
 end)
 
+-- The join over the real thing at last: the after-reset vault (2026-09-08
+-- 12:45:26, snapshot 9 of that transcript) and the companion's Top Gear export
+-- written from those same captures (uliwcyoomcub). QE Live put the vault's
+-- Lightgrasp Worldroot in the top set; the option's client link carries the
+-- same bonus IDs, so the exact key matches with no fallback (WKE-523 / 519).
+describe("VaultPanel over the after-reset vault and the export that ranked it", function()
+    local ns, world
+    local AFTER_RESET = "spec/fixtures/captures/Lootpath-20260908-124527.lua"
+    local VAULT_EXPORT = "spec/fixtures/qe/qe-droptimizer-Hotornot-uliwcyoomcub.json"
+    local WEAPON_KEY = "251935:6652:12841"
+
+    before_each(function()
+        ns, world = H.load()
+        R.vault(world, R.snapshot("vault", 9, AFTER_RESET))
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function verdict()
+        local parsed = ns.QEImport.Parse(readFile(VAULT_EXPORT))
+        assert(parsed.ok, parsed.reason)
+        return parsed.verdict
+    end
+
+    it("joins the vault weapon to QE Live's top set by the exact key and highlights it", function()
+        local model = ns.VaultPanel.Model({ vault = ns.Vault.Options(), verdict = verdict(), now = 1788900000 })
+        assert.equal(1, model.counts.covered)
+        local weapon
+        for _, option in ipairs(model.options) do
+            for _, reward in ipairs(option.rewards) do
+                if reward.key == WEAPON_KEY then
+                    weapon = reward
+                end
+            end
+        end
+        assert.is_not_nil(weapon)
+        assert.equal("topSet", weapon.qe.where)
+        assert.equal("QE Live: in your best set", weapon.value)
+        assert.is_true(weapon.best)
+        assert.equal(weapon, model.best)
+        local highlighted = 0
+        for _, line in ipairs(ns.VaultPanel.Lines(model)) do
+            if line:find("<- QE Live's pick", 1, true) then
+                highlighted = highlighted + 1
+            end
+        end
+        assert.equal(1, highlighted)
+    end)
+
+    it("gives the other gear options and the keystones no number", function()
+        local model = ns.VaultPanel.Model({ vault = ns.Vault.Options(), verdict = verdict(), now = 1788900000 })
+        for _, option in ipairs(model.options) do
+            for _, reward in ipairs(option.rewards) do
+                if reward.key ~= WEAPON_KEY then
+                    assert.is_nil(reward.value, "unranked reward carried a value: " .. tostring(reward.key))
+                end
+            end
+        end
+    end)
+end)
+
 describe("VaultPanel staleness against the weekly reset", function()
     local ns, world
 

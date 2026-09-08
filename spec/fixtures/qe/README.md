@@ -40,7 +40,18 @@ branch `lootpath/upgrade-finder-export`, Export > Download JSON).
   worn set in five slots. Still no `isVault` item: the weekly reset had not
   generated rewards. The export with vault options is Tuesday 2026-09-08's.
 
-`spec/qeimport_spec.lua` reads both files in its "genuine QE Live export" blocks.
+- `qe-droptimizer-Hotornot-uliwcyoomcub.json` (Dungeon) and
+  `qe-droptimizer-Hotornot-ebeaqmvbnpqa.json` (Raid) - **written by the
+  companion**, 2026-09-08 17:45 UTC, from the after-reset captures (WKE-533,
+  the two-refresh loop; extracted unedited from the `Data/QEVerdict.lua` it
+  wrote). The first exports with a vault option: `isVault: true` on Lightgrasp
+  Worldroot 251935 (bonus IDs 6652/12841) **in the top set** of both, at QE
+  Live's `level` 321 - the client reports the same link at item level 305; QE
+  Live's importer values a vault option at its assumed upgrade (its
+  auto-upgrade-vault setting). 15 items, 12 differentials each; scores
+  5647.977 (Dungeon) and 5860.499 (Raid).
+
+`spec/qeimport_spec.lua` reads these files in its "genuine QE Live export" blocks.
 
 ## Upgrade Finder exports (`qe-live-upgradefinder` v1, the fork's schema)
 

@@ -234,3 +234,115 @@ describe("ns.Vault guards", function()
         }, ns.Vault.FUNCTION_NAMES)
     end)
 end)
+
+-- The reward half, measured at last: the 2026-09-08 12:45:26 snapshot, taken
+-- after the weekly reset with the vault window open and nothing claimed. Every
+-- value asserted here was read from that transcript (WKE-523, second visit).
+describe("ns.Vault over the after-reset transcript (generated rewards)", function()
+    local ns, world
+    local AFTER_RESET = "spec/fixtures/captures/Lootpath-20260908-124527.lua"
+    local SNAPSHOT = 9 -- the ninth vault snapshot in that file is 2026-09-08T12:45:26
+
+    before_each(function()
+        ns, world = H.load()
+        R.vault(world, R.snapshot("vault", SNAPSHOT, AFTER_RESET))
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function byID(result)
+        local map = {}
+        for _, option in ipairs(result.options) do
+            map[option.id] = option
+        end
+        return map
+    end
+
+    it("reads a week whose rewards are generated but unclaimed", function()
+        local result = ns.Vault.Options()
+        assert.is_true(result.ok)
+        assert.is_true(result.hasAvailableRewards)
+        assert.is_true(result.canClaimRewards)
+        assert.equal(594873, result.secondsUntilWeeklyReset)
+        assert.equal(0, result.secretsSeen)
+        assert.equal(11, #result.options)
+        -- Progress reset to 0 on every row while the rewards stayed claimable.
+        local options = byID(result)
+        assert.equal(0, options[207].progress)
+        assert.equal(2, options[207].threshold)
+        assert.equal(2, #options[207].rewards)
+        assert.equal(0, options[208].progress)
+        assert.equal(2, #options[208].rewards)
+        assert.equal(0, #options[209].rewards)
+        assert.equal(0, #options[210].rewards)
+        assert.equal(2, #options[213].rewards)
+        assert.equal(2, #options[214].rewards)
+        assert.equal(0, #options[215].rewards)
+    end)
+
+    it("carries itemDBID as the hex string the client gave, and resolves its link", function()
+        local options = byID(ns.Vault.Options())
+        local rewards = options[208].rewards
+        local weapon
+        for _, reward in ipairs(rewards) do
+            if reward.itemID == 251935 then
+                weapon = reward
+            end
+        end
+        assert.is_not_nil(weapon)
+        assert.equal("0x4000000E5E0736EE", weapon.itemDBID)
+        assert.equal("251935:6652:12841", weapon.key)
+        assert.same({ 6652, 12841 }, weapon.bonusIDs)
+        assert.equal("2H Weapon", weapon.slot)
+        assert.equal("INVTYPE_2HWEAPON", weapon.equipLoc)
+        assert.equal(305, weapon.itemLevel)
+        assert.equal("Lightgrasp Worldroot", weapon.name)
+        assert.equal(4, weapon.quality)
+        assert.equal(1, weapon.quantity)
+    end)
+
+    it("keys the other gear rewards the same way", function()
+        local options = byID(ns.Vault.Options())
+        local found = {}
+        for _, id in ipairs({ 207, 213, 214 }) do
+            for _, reward in ipairs(options[id].rewards) do
+                if reward.slot then
+                    found[reward.itemID] = reward
+                end
+            end
+        end
+        assert.equal("Offhand", found[275547].slot)
+        assert.equal(305, found[275547].itemLevel)
+        assert.equal("275547:6652:12841", found[275547].key)
+        assert.equal("Shoulder", found[251146].slot)
+        assert.equal(308, found[251146].itemLevel)
+        assert.equal("251146:6652:12699:12842:13440:13662", found[251146].key)
+        assert.equal("Neck", found[251234].slot)
+        assert.equal(308, found[251234].itemLevel)
+        assert.equal("251234:6652:12699:12842:13440:13668", found[251234].key)
+    end)
+
+    it("carries the Mythic Keystone that rides along with every gear reward as an item with no slot", function()
+        -- Measured: every rewarded row carries { id = 180653, type = 1 } beside
+        -- its gear, and the client answers INVTYPE_NON_EQUIP_IGNORE and level 1
+        -- for it. ns.Vault keeps the record and says what it is; deciding not to
+        -- show it as gear is the panel's job (see the 2026-09-08 findings).
+        local options = byID(ns.Vault.Options())
+        local keystones = 0
+        for _, id in ipairs({ 207, 208, 213, 214, 229 }) do
+            for _, reward in ipairs(options[id].rewards) do
+                if reward.itemID == 180653 then
+                    keystones = keystones + 1
+                    assert.is_nil(reward.slot)
+                    assert.equal("INVTYPE_NON_EQUIP_IGNORE", reward.equipLoc)
+                    assert.equal(1, reward.itemLevel)
+                    assert.equal("Mythic Keystone", reward.name)
+                    assert.equal("180653", reward.key)
+                end
+            end
+        end
+        assert.equal(5, keystones)
+    end)
+end)
