@@ -25,7 +25,6 @@ const path = require('path');
 
 const configLib = require('./lib/config');
 const logLib = require('./lib/log');
-const savedVariables = require('./lib/savedvariables');
 const profileLib = require('./lib/profile');
 const forkLib = require('./lib/fork');
 const luaWriter = require('./lib/luawriter');
@@ -69,17 +68,17 @@ async function once(config, log, args) {
     log.info(`SavedVariables: ${configLib.maskAccount(found.file)}`);
 
     let done = log.stage('read');
-    let db;
+    let text;
     try {
-        db = savedVariables.parse(fs.readFileSync(found.file, 'utf8'));
+        text = fs.readFileSync(found.file, 'utf8');
     } catch (e) {
         log.error(`could not read the SavedVariables: ${e.message}`);
         return EXIT.savedVariables;
     }
-    done(`${(fs.statSync(found.file).size / 1024).toFixed(0)} KB`);
+    done(`${(Buffer.byteLength(text) / 1024).toFixed(0)} KB`);
 
     done = log.stage('profile');
-    const profile = profileLib.build(db, { companionVersion: VERSION, includeBank: config.includeBank });
+    const profile = profileLib.build(text, { includeBank: config.includeBank });
     if (!profile.ok) {
         log.error(profile.reason);
         if (profile.wanted) {
@@ -91,7 +90,7 @@ async function once(config, log, args) {
     }
     for (const warning of profile.warnings) log.warn(warning);
     done(
-        `${profile.counts.equipped} equipped, ${profile.counts.bagged} in bags and bank, ${profile.counts.vault} vault, ${profile.counts.lines} lines`
+        `${profile.counts.equipped} equipped, ${profile.counts.bag} in bags, ${profile.counts.bank} in the bank, ${profile.counts.vault} vault, ${profile.counts.lines} lines`
     );
 
     if (args.profileOnly) {

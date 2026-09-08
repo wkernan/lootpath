@@ -110,18 +110,23 @@ remove (Playwright `launchPersistentContext`) - worth doing in C-1, not here.
 # Companion spike S-2 (WKE-532): the SimC profile, built from SavedVariables
 
 `simc-profile.js` builds a SimulationCraft text profile out of one Lootpath
-capture transcript, so the companion (WKE-533) can feed QE Live without the
-owner running `/simc`. `lua-savedvariables.js` is the strict Lua-table reader it
-uses; `simc-profile.test.js` is its guards.
+capture transcript, so the companion can feed QE Live without the owner running
+`/simc`. `lua-savedvariables.js` is the strict Lua-table reader it uses;
+`simc-profile.test.js` is its guards.
+
+**Moved 2026-09-08 (C-1, WKE-533).** The three files are no longer here: C-1
+lifted them into `tools/companion/` rather than keep a second copy of a builder
+it depends on, and threw away its own. Everything measured below still holds -
+the code did not change, only where it lives. The paths are now:
 
 ```
-node tools/companion-spike/simc-profile.js build <Lootpath.lua> [out.simc] [--no-bank] [--snapshot=N]
-node tools/companion-spike/simc-profile.js diff  <Lootpath.lua> <real.simc>  [--no-bank] [--snapshot=N]
-node --test tools/companion-spike/simc-profile.test.js
+node tools/companion/lib/simc-profile.js build <Lootpath.lua> [out.simc] [--no-bank] [--snapshot=N]
+node tools/companion/lib/simc-profile.js diff  <Lootpath.lua> <real.simc>  [--no-bank] [--snapshot=N]
+cd tools/companion && node --test          # these guards, and the rest of the companion's
 ```
 
-The tests are Node 22's built-in runner - no dependency to install, and nothing
-added to CI's five Lua gates. 32 tests, all green.
+The tests are Node 22's built-in runner - no dependency to install. They were 32
+green here; they are part of the `companion` CI job now.
 
 ## The answer
 

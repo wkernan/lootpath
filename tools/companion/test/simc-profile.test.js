@@ -15,10 +15,10 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const { parseSavedVariables, luaArray, LuaParseError } = require("./lua-savedvariables");
-const { adler32, buildProfile, collectItems, diffProfiles, itemKey, itemNameFromLink, itemStringFromLink, parseItemLine, raceToken, readTranscript, splitItemLink, tokenize, QE_LIVE_FIRST_ITEM_LINE, QE_LIVE_HEADER_LINES, INV_SLOT_TO_SIMC_SLOT_NUM } = require("./simc-profile");
+const { parseSavedVariables, luaArray, LuaParseError } = require("../lib/lua-savedvariables");
+const { adler32, buildProfile, collectItems, diffProfiles, itemKey, itemNameFromLink, itemStringFromLink, parseItemLine, raceToken, readTranscript, splitItemLink, tokenize, QE_LIVE_FIRST_ITEM_LINE, QE_LIVE_HEADER_LINES, INV_SLOT_TO_SIMC_SLOT_NUM } = require("../lib/simc-profile");
 
-const REPO = path.resolve(__dirname, "..", "..");
+const REPO = path.resolve(__dirname, "..", "..", "..");
 const TRANSCRIPT = path.join(REPO, "spec", "fixtures", "captures", "Lootpath-20260906-200908.lua");
 const REAL_SIMC = path.join(REPO, "spec", "fixtures", "simc", "hotornot-20260907.txt");
 

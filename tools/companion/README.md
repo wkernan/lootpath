@@ -101,9 +101,9 @@ the defaults, which are the owner's machine. Every key is optional.
 |---|---|
 | `companion.js` | the CLI: one run, or a watch |
 | `lib/config.js` | config, SavedVariables discovery, the verdict path |
-| `lib/savedvariables.js` | reads the Lua subset the client writes, without a Lua runtime |
-| `lib/itemlink.js` | the item link fields, the same layout `Core.lua` walks |
-| `lib/profile.js` | SavedVariables -> SimC text |
+| `lib/lua-savedvariables.js` | reads the Lua subset the client writes, without a Lua runtime (S-2's) |
+| `lib/simc-profile.js` | SavedVariables -> SimC text, mirroring the SimulationCraft addon (S-2's) |
+| `lib/profile.js` | the thin shape the CLI reads, plus the spec check |
 | `lib/fork.js` | drives QE Live, lifted from the S-1 spike |
 | `lib/luawriter.js` | renders `Data/QEVerdict.lua`; its escaper is the whole safety story |
 | `lib/output.js` | temp file, then rename, so the client never reads half a file |
@@ -156,8 +156,19 @@ until WKE-535's reader exists (Upgrade Finder).
 - **`talents=` is never read by QE Live either.** grep over the whole fork finds
   no reader for it, so a profile without talents is complete for Top Gear and
   the Upgrade Finder. That is why the companion does not ask the addon for one.
+- **The profile builder is S-2's (WKE-532), lifted here from
+  `tools/companion-spike/` so there is one copy rather than two.** It mirrors the
+  SimulationCraft addon's own offsets and slot tables, reproduces the client's
+  `# Checksum:` line, and enforces QE Live's two line-index rules itself. C-1
+  wraps it in `lib/profile.js` only to turn a throw into a named exit code and to
+  add the spec check.
 - **The bank only reaches the profile if it was open** when
   `/lootpath capture inventory` ran; the companion says so in its log.
+- **A field the SavedVariables do not carry is left out, never written empty.**
+  `region`, `level` and `race` come from `capture env`, which only learned to
+  read them in S-2 - so until the owner runs a fresh `capture env`, those three
+  lines are missing and the log names each one. QE Live reads only `region` of
+  the three, and reads it from any line.
 - **Top Gear's item cap is 30** for a non-patron, so a large bag plus bank is
   trimmed to the first 30 candidates by the fork itself.
 
@@ -167,9 +178,9 @@ until WKE-535's reader exists (Upgrade Finder).
 npm test        # node --test, no install needed for the pure parts
 ```
 
-51 tests over the reader, the item link fields, the profile builder, the config,
-the writer and the watcher. The profile builder is measured against the owner's
-own `/simc` string (`spec/fixtures/simc/hotornot-20260907.txt`); the writer's
-golden is loaded by a real Lua interpreter in `spec/companionfile_spec.lua`. The
-fork driver is not mocked: it is proven by a recorded run, whose figures are in
-the pull request.
+60 tests over the reader, the profile builder, the config, the writer and the
+watcher. The profile builder is measured against the owner's own `/simc` string
+(`spec/fixtures/simc/hotornot-20260907.txt`) and against a committed generated
+profile; the writer's golden is loaded by a real Lua interpreter in
+`spec/companionfile_spec.lua`. The fork driver is not mocked: it is proven by a
+recorded run, whose figures are in the pull request.
