@@ -145,6 +145,45 @@ function ns.Probe(fn, ...)
     return results
 end
 
+-- ISO 8601 in UTC -> epoch second, or nil for anything this cannot read. QE
+-- Live stamps its exports that way ("2026-09-06T21:14:24.465Z", read from the
+-- committed export) and the companion stamps `writtenAt` the same way, so both
+-- the window's age line and the companion's freshness check read one function.
+--
+-- `time(t)` reads its fields as LOCAL time and `date("!*t", t)` writes UTC
+-- ones, so the difference between the two at `now` is this machine's offset
+-- from UTC, and adding it back turns UTC fields into an epoch. Nothing here
+-- assumes a timezone. A stamp that cannot be read produces nil rather than a
+-- wrong second.
+function ns.EpochFromISO(iso, now)
+    if type(iso) ~= "string" then
+        return nil
+    end
+    local year, month, day, hour, minute, second = iso:match("^(%d%d%d%d)-(%d%d)-(%d%d)T(%d%d):(%d%d):(%d%d)")
+    if not year then
+        return nil
+    end
+    now = now or time()
+    local utcNow = date("!*t", now)
+    if type(utcNow) ~= "table" then
+        return nil
+    end
+    local offset = now - time(utcNow)
+    -- Every field is coerced to a number here rather than inside the table
+    -- constructor: `time`'s declared field types are not optional, and a
+    -- `tonumber` that LuaLS reads as `number?` fails the type gate. The pattern
+    -- above matched six groups of digits, so none of these can be nil.
+    local fields = {
+        year = tonumber(year) or 0,
+        month = tonumber(month) or 0,
+        day = tonumber(day) or 0,
+        hour = tonumber(hour) or 0,
+        min = tonumber(minute) or 0,
+        sec = tonumber(second) or 0,
+    }
+    return time(fields) + offset
+end
+
 -- Item identity, shared by QEImport and Match (decision 2026-09-05): the
 -- itemID plus its bonus IDs, sorted, joined with ":". Two copies of an item at
 -- different upgrade levels carry different bonus IDs and are different items
@@ -374,6 +413,7 @@ end)
 local HELP = {
     "/lootpath - open the frame: paste QE Live's Top Gear JSON, then Equip Now",
     "/lootpath options - the settings page (which content type's verdict to show)",
+    "/lootpath refresh - reload so the companion can read your gear, and read what it wrote",
     "/lootpath capture <name> - record raw client returns; then /reload and run tools\\sync.ps1 -Pull",
     "/lootpath capture - list the capture commands",
     "/lootpath capture wipe - clear every stored capture",
@@ -428,8 +468,9 @@ local function statusCommand()
     ns.Log("captures stored: %s", #parts > 0 and table.concat(parts, " ") or "none")
     local import = ns.db.char.qeImport
     ns.Log(
-        "QE Live import: %s",
-        (import and import.exportedAt) and ("exported " .. tostring(import.exportedAt)) or "none"
+        "QE Live import: %s%s",
+        (import and import.exportedAt) and ("exported " .. tostring(import.exportedAt)) or "none",
+        import and (" (" .. ns.Companion.SourceText(import) .. ")") or ""
     )
 end
 
@@ -442,6 +483,8 @@ function ns.HandleSlash(msg)
         ns.UI.Toggle()
     elseif cmd == "options" or cmd == "config" then
         ns.UI.OpenOptions()
+    elseif cmd == "refresh" then
+        ns.Companion.Refresh()
     elseif cmd == "capture" then
         captureCommand(rest)
     elseif cmd == "status" then

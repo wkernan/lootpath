@@ -477,7 +477,10 @@ describe("the content type setting", function()
         assert.is_table(verdict)
         assert.equal("Raid", contentType)
         assert.is_true(fellBack)
-        assert.is_truthy(ns.UI.VerdictNoteText():find("nothing has been pasted for Dungeon", 1, true))
+        -- "pasted" became "imported" in C-2, because the companion is now the
+        -- other way an export gets here.
+        assert.is_truthy(ns.UI.VerdictNoteText():find("nothing has been imported for Dungeon", 1, true))
+        assert.is_truthy(ns.UI.VerdictNoteText():find("(pasted)", 1, true))
     end)
 
     it("files an export with no content type under Unknown rather than dropping it", function()

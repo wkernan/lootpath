@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### C-2 (WKE-534) - the addon side of the local companion
+
+- `Lootpath/Data/QEVerdict.lua`, listed in the `.toc` after `Core.lua`: the one
+  file besides a paste that QE Live's answers reach the addon through. The
+  committed copy is a placeholder that sets nothing and ships with the addon,
+  because the `.toc` names it; the companion overwrites it on the owner's own
+  machine. Its contract is one assignment - `ns.companionVerdict = { writtenAt,
+  companionVersion, exports = { { schema, contentType, json } } }`, Lua strings,
+  numbers and tables only.
+- `ns.Companion` imports it at load: every field type-checked and passed through
+  `ns.Safe`, nothing in the chunk called, no `loadstring`, and each export run
+  through **the same `ns.QEImport.Parse` a paste goes through**, so every
+  schema, version and `gameType` refusal applies word for word and is reported
+  in chat with the file's age. A `qe-live-upgradefinder` document is refused by
+  name until M3-6 can read one.
+- The later of the file and what is stored wins: a paste made after the
+  companion wrote its file is kept and says so, and reading the same file again
+  on the next `/reload` imports nothing and says nothing.
+- The window's verdict line and `/lootpath status` say where the verdict came
+  from - "pasted", or "companion, written 4 minute(s) ago".
+- `/lootpath refresh`: one word for the reload the loop needs, refused in combat
+  because `ReloadUI` is protected there.
+- `tools\sync.ps1` no longer overwrites the game's `Data\QEVerdict.lua` with
+  the repo placeholder; `-IncludeData` does it deliberately.
+
 ### M2-2 (WKE-520) - Match, the paste editbox and the Equip Now panel
 
 - `ns.Match.Build(inventory, verdict)`: QE Live's top set joined to the
