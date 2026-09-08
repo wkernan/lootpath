@@ -1,6 +1,7 @@
 # Quality gates. Every job is a real failure: branch protection (WKE-515)
-# requires all five before a PR to main can merge. Never bypass a check and
-# never disable a test to get green.
+# requires the original five before a PR to main can merge, and `companion`
+# (WKE-533) joined them as a sixth. Never bypass a check and never disable a
+# test to get green.
 name: CI
 
 on:
@@ -63,6 +64,20 @@ jobs:
       - uses: leafo/gh-actions-luarocks@v6.1.0
       - run: luarocks install busted
       - run: busted
+
+  companion:
+    name: companion
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v6.0.0
+        with:
+          node-version: "22"
+      # No install step: the pure parts run on Node alone, and the one
+      # dependency (playwright, required lazily inside lib/fork.js) is never
+      # loaded by a test. The fork driver is proven by a recorded run instead.
+      - run: node --test
+        working-directory: tools/companion
 
   package:
     name: packager

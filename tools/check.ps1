@@ -6,10 +6,11 @@
 # StyLua and lua-language-server run natively (winget installs). luacheck and
 # busted run in Docker (tools/docker/Dockerfile) because Lua 5.1 + LuaRocks on
 # Windows needs an elevated install this machine does not have; the image is
-# Alpine Lua 5.1, the same major/minor CI uses.
+# Alpine Lua 5.1, the same major/minor CI uses. The companion's tests are
+# Node's own runner (tools/companion), which needs nothing installed.
 [CmdletBinding()]
 param(
-    [ValidateSet('all', 'luacheck', 'stylua', 'luals', 'busted')]
+    [ValidateSet('all', 'luacheck', 'stylua', 'luals', 'busted', 'companion')]
     [string]$Only = 'all'
 )
 $ErrorActionPreference = 'Continue'
@@ -90,6 +91,12 @@ Invoke-Gate 'luals' {
 Invoke-Gate 'busted' {
     Ensure-Image
     docker run --rm -v "${repo}:/work" lootpath-lua busted
+}
+
+Invoke-Gate 'companion' {
+    if (-not (Require-Tool 'node')) { return }
+    Push-Location (Join-Path $repo 'tools\companion')
+    try { node --test } finally { Pop-Location }
 }
 
 Write-Host "`n=== summary ===" -ForegroundColor Cyan

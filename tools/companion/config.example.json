@@ -1,0 +1,17 @@
+{
+  "wowPath": "C:\\World of Warcraft\\_retail_",
+  "forkPath": "c:\\Code\\qe-live-fork",
+  "forkUrl": "http://localhost:3000",
+  "documents": [
+    { "kind": "topgear", "contentType": "Dungeon" },
+    { "kind": "upgradefinder", "contentType": "Dungeon" },
+    { "kind": "topgear", "contentType": "Raid" },
+    { "kind": "upgradefinder", "contentType": "Raid" }
+  ],
+  "includeBank": true,
+  "startFork": true,
+  "headed": false,
+  "stateDir": ".state",
+  "forkStartTimeoutSeconds": 180,
+  "debounceMs": 1500
+}

@@ -1,0 +1,16 @@
+{
+  "name": "lootpath-companion",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reads Lootpath's SavedVariables, runs QE Live's engine in the owner's local fork, and writes Data/QEVerdict.lua back into the addon folder.",
+  "license": "MIT",
+  "main": "companion.js",
+  "scripts": {
+    "start": "node companion.js --watch",
+    "once": "node companion.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "playwright": "1.63.0"
+  }
+}
