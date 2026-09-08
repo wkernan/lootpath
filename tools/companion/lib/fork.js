@@ -1,0 +1,272 @@
+// The QE Live driver: a profile in, QE Live's own export documents out.
+//
+// Lifted from tools/companion-spike/run-fork.js (WKE-531, S-1), which proved
+// the round trip in 27.7 s with no engine surgery. Every selector still names
+// the fork file it was read from, because they are HIS files and they move.
+// Nothing of QE Live's source is copied into this repo: the companion drives
+// the owner's clone at the configured path, on his own machine (§4, §7 - the
+// wider question is WKE-528's).
+//
+// Two changes S-1 asked for:
+//  - a persistent browser profile, so the "Welcome to QE Live" dialog is
+//    answered once instead of on every run;
+//  - the fork is started when nothing answers, rather than assumed up.
+'use strict';
+
+const { spawn } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+
+class ForkError extends Error {
+    constructor(message, code) {
+        super(message);
+        this.code = code;
+    }
+}
+// QE Live refusing the import is a different failure from the fork being down:
+// the first means the profile is wrong, the second means nothing ran.
+const UNREACHABLE = 'fork-unreachable';
+const REFUSED = 'qe-refused';
+const DRIVE = 'fork-drive';
+
+async function isUp(url, timeoutMs) {
+    try {
+        const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs || 3000) });
+        return response.ok || response.status === 304;
+    } catch {
+        return false;
+    }
+}
+
+// `npm start` in the fork clone. Detached and inheriting nothing, so the CRA
+// dev server outlives one companion run and the next one finds it already up.
+async function ensureUp(config, log) {
+    if (await isUp(config.forkUrl)) {
+        log.info(`fork already serving ${config.forkUrl}`);
+        return { started: false };
+    }
+    if (!config.startFork) {
+        throw new ForkError(`nothing answers ${config.forkUrl} and startFork is false`, UNREACHABLE);
+    }
+    if (!fs.existsSync(path.join(config.forkPath, 'package.json'))) {
+        throw new ForkError(`no QE Live clone at ${config.forkPath} (set forkPath in the config)`, UNREACHABLE);
+    }
+    log.info(`nothing answers ${config.forkUrl}; starting "npm start" in ${config.forkPath}`);
+    const child = spawn('npm.cmd', ['start'], {
+        cwd: config.forkPath,
+        detached: true,
+        stdio: 'ignore',
+        env: { ...process.env, BROWSER: 'none' },
+        shell: process.platform !== 'win32',
+    });
+    child.unref();
+    const deadline = Date.now() + config.forkStartTimeoutSeconds * 1000;
+    while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 2000));
+        if (await isUp(config.forkUrl)) {
+            log.info('fork answered');
+            return { started: true };
+        }
+    }
+    throw new ForkError(
+        `the fork did not answer ${config.forkUrl} within ${config.forkStartTimeoutSeconds}s; run "npm start" in ${config.forkPath} yourself and look at its output`,
+        UNREACHABLE
+    );
+}
+
+// A browser with no saved character gets a welcome dialog over the header
+// ("Welcome to QE Live! Select an era" / class tiles / BEGIN!). With a
+// persistent profile it appears once.
+async function dismissWelcome(page, className) {
+    const welcome = page.getByText('Welcome to QE Live');
+    if (!(await welcome.count())) return false;
+    await page
+        .getByText(new RegExp('^' + className + '$', 'i'))
+        .first()
+        .click();
+    await page.getByRole('button', { name: /begin/i }).click();
+    await welcome.waitFor({ state: 'hidden', timeout: 10000 });
+    return true;
+}
+
+// SetupAndMenus/SimCraftDialog.js: the header control is a styled MUI button
+// whose accessible name does not resolve as "Import Gear"; its visible text
+// does. #SimCError carries the reason when he refuses.
+async function importProfile(page, text) {
+    await page.getByText(/import gear/i).first().click();
+    const box = page.locator('#simcentry');
+    await box.waitFor({ state: 'visible', timeout: 10000 });
+    await box.fill(text);
+    await page.getByRole('button', { name: 'Submit' }).click();
+    await Promise.race([
+        box.waitFor({ state: 'hidden', timeout: 20000 }),
+        page
+            .locator('#SimCError')
+            .filter({ hasText: /\S/ })
+            .waitFor({ timeout: 20000 })
+            .then(async () => {
+                throw new ForkError('QE Live refused the profile: ' + (await page.locator('#SimCError').innerText()), REFUSED);
+            }),
+    ]);
+}
+
+// In-app navigation, so React state survives; the app is served under /live/
+// (the fork's homepage), so paths are matched by inclusion.
+async function goTo(page, route) {
+    const link = page.locator(`a[href="${route}"]`).first();
+    if (await link.count()) {
+        await link.click();
+    } else {
+        await page.evaluate((r) => window.history.pushState({}, '', r), route);
+        await page.evaluate(() => window.dispatchEvent(new PopStateEvent('popstate')));
+    }
+    await page.waitForURL((u) => u.pathname.includes(route), { timeout: 10000 });
+}
+
+// Dungeon/Raid is the "Content" select on CharacterPanel.tsx (~line 432), and
+// that panel renders only inside the analysis pages. /embellishments crashed in
+// his code with this character on 2026-09-07, so the routes are tried in turn
+// and a CRA runtime-error overlay is a page to leave, never one to click
+// through.
+async function setContent(page, contentType, log) {
+    let select = page.getByLabel('Content', { exact: true }).first();
+    if (!(await select.isVisible().catch(() => false))) {
+        for (const route of ['/circlet', '/omniumfolio', '/embellishments']) {
+            await goTo(page, route);
+            await page.waitForTimeout(400);
+            const overlay = page.frameLocator('iframe').getByText('Uncaught runtime errors');
+            if (await overlay.count().catch(() => 0)) {
+                log.warn(`${route} raised a runtime error in QE Live's own code; trying the next page`);
+                await page.keyboard.press('Escape');
+                continue;
+            }
+            select = page.getByLabel('Content', { exact: true }).first();
+            if (await select.isVisible().catch(() => false)) break;
+        }
+    }
+    await select.waitFor({ timeout: 10000 });
+    await select.click();
+    await page.getByRole('option', { name: contentType, exact: true }).click();
+    await page.waitForTimeout(250);
+}
+
+// TopGear/MiniItemCard.tsx: cards are .MuiCardActionArea-root and an active
+// card's parent class contains "selected". topGearCap is 30 for a non-patron
+// (TopGear.tsx), so "everything in the bags" means the first 30.
+async function selectItems(page) {
+    const counter = page.getByText(/Selected Items:\s*\d+\/\d+/).first();
+    await counter.waitFor({ timeout: 10000 });
+    const readCount = async () => {
+        const m = (await counter.innerText()).match(/(\d+)\/(\d+)/);
+        return { n: +m[1], cap: +m[2] };
+    };
+    let { n, cap } = await readCount();
+    const cards = page.locator('.MuiCardActionArea-root');
+    const total = await cards.count();
+    let clicked = 0;
+    for (let i = 0; i < total && n < cap; i++) {
+        const card = cards.nth(i);
+        const cls = (await card.locator('..').getAttribute('class')) || '';
+        if (/selected/i.test(cls)) continue;
+        await card.click();
+        clicked++;
+        ({ n, cap } = await readCount());
+    }
+    return { selected: n, cap, cards: total, clicked };
+}
+
+// TopGear/Report/MenuDropdown.tsx opens Download JSON / Copy JSON; Copy JSON
+// puts the text in a GenericDialog TextField, which needs neither clipboard
+// permissions nor download interception.
+async function readJson(page) {
+    await page.getByRole('button', { name: 'Export' }).first().click();
+    await page.getByRole('menuitem', { name: 'Copy JSON' }).click();
+    const field = page.locator('.MuiDialog-root textarea').first();
+    await field.waitFor({ timeout: 10000 });
+    const text = await field.inputValue();
+    await page.keyboard.press('Escape');
+    return text;
+}
+
+async function runTopGear(page, log) {
+    await goTo(page, '/topgear');
+    const selection = await selectItems(page);
+    log.info(`  top gear: ${selection.selected}/${selection.cap} items selected (${selection.cards} cards, ${selection.clicked} clicked)`);
+    await page.getByRole('button', { name: 'Go!' }).click();
+    await page.waitForURL((u) => /\/report\/[a-z0-9]+/.test(u.pathname), { timeout: 120000 });
+    return readJson(page);
+}
+
+async function runUpgradeFinder(page) {
+    await goTo(page, '/upgradefinder');
+    await page.getByRole('button', { name: 'Go!' }).click();
+    await page.waitForURL((u) => u.pathname.includes('/upgradereport'), { timeout: 120000 });
+    return readJson(page);
+}
+
+// profileText in, [{ kind, contentType, json }] out. The caller owns the
+// failure: nothing here writes a file.
+async function run(config, profileText, log, options) {
+    const opts = options || {};
+    let chromium;
+    try {
+        ({ chromium } = require('playwright'));
+    } catch {
+        throw new ForkError('playwright is not installed; run "npm install" in tools/companion', DRIVE);
+    }
+    await ensureUp(config, log);
+
+    const userDataDir = path.resolve(opts.stateDir || path.join(__dirname, '..', config.stateDir), 'browser');
+    fs.mkdirSync(userDataDir, { recursive: true });
+    const context = await chromium.launchPersistentContext(userDataDir, {
+        headless: !config.headed,
+        viewport: { width: 1400, height: 1000 },
+    });
+    const page = context.pages()[0] || (await context.newPage());
+    page.setDefaultTimeout(20000);
+    const documents = [];
+    const timings = [];
+    try {
+        let done = log.stage('  page load');
+        // The CRA dev server holds a hot-reload socket open, so "networkidle"
+        // never arrives; wait for the header instead.
+        await page.goto(config.forkUrl, { waitUntil: 'domcontentloaded', timeout: 120000 });
+        await page.getByText(/import gear/i).first().waitFor({ timeout: 120000 });
+        timings.push(['page load', done()]);
+
+        done = log.stage('  welcome dialog');
+        const hadWelcome = await dismissWelcome(page, opts.className || 'DRUID');
+        const welcomeNote = hadWelcome ? 'answered' : 'none, the browser profile remembered the character';
+        timings.push([`welcome dialog: ${welcomeNote}`, done(welcomeNote)]);
+
+        done = log.stage('  profile import');
+        await importProfile(page, profileText);
+        timings.push(['profile import', done()]);
+
+        let content = null;
+        for (const wanted of config.documents) {
+            if (wanted.contentType !== content) {
+                done = log.stage(`  content ${wanted.contentType}`);
+                await setContent(page, wanted.contentType, log);
+                content = wanted.contentType;
+                timings.push([`content ${wanted.contentType}`, done()]);
+            }
+            done = log.stage(`  ${wanted.kind} ${wanted.contentType}`);
+            const json = wanted.kind === 'topgear' ? await runTopGear(page, log) : await runUpgradeFinder(page);
+            timings.push([`${wanted.kind} ${wanted.contentType} (${json.length} chars)`, done(`${json.length} chars`)]);
+            documents.push({ kind: wanted.kind, contentType: wanted.contentType, json });
+        }
+    } catch (e) {
+        if (opts.screenshotDir) {
+            fs.mkdirSync(opts.screenshotDir, { recursive: true });
+            await page.screenshot({ path: path.join(opts.screenshotDir, 'failure.png') }).catch(() => {});
+        }
+        if (e instanceof ForkError) throw e;
+        throw new ForkError(`driving QE Live failed: ${e.message}`, DRIVE);
+    } finally {
+        await context.close().catch(() => {});
+    }
+    return { documents, timings };
+}
+
+module.exports = { run, ensureUp, isUp, ForkError, UNREACHABLE, REFUSED, DRIVE };

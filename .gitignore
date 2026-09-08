@@ -51,3 +51,11 @@ Lootpath/Libs/AceDB-3.0/
 
 # Editor state (the Ketho WoW API VS Code extension writes .vscode/settings.json)
 .vscode/
+
+# Lootpath companion (tools/companion): installed deps, the browser profile it
+# keeps so QE Live's welcome dialog is answered once, and the owner's own config
+# (config.example.json is the committed one).
+tools/companion/node_modules/
+tools/companion/.state/
+tools/companion/config.json
+tools/companion/package-lock.json
