@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### M3-7 (WKE-538) - the Vault panel against the real reward shape
+
+- **The Mythic Keystone is no longer listed as gear.** The client hands one over
+  in the same rewards list as every gear reward (and row 217 a Thalassian Token
+  of Merit as well), and the panel showed it as "Mythic Keystone (1)" beside a
+  305 weapon, where the 1 reads as an item level. Anything with no equippable
+  slot is now named in words on the gear's own line - "+ Mythic Keystone" - with
+  no level and never a value, and it is neither counted as an option nor
+  eligible for QE Live's pick.
+- **A row with rewards says "rewards ready".** After the weekly reset the client
+  puts every activity's progress back to 0 while the rewards sit there
+  claimable, so "unlocked" (progress >= threshold) read false on exactly the
+  rows you can collect from. A row with no reward still shows its progress.
+- **Both item levels, when they differ.** QE Live can be asked to value a vault
+  option at its assumed upgrade, so the same link is 305 in the client and 321
+  in the export that ranked it. The line now reads
+  `Lightgrasp Worldroot (305; QE Live valued it at 321)`, and names which
+  upgrade assumption produced his number when the companion recorded it
+  (`qeSettings`, C-5). Neither number is adjusted and neither is chosen over the
+  other; nothing is inferred from the difference.
+- The rows carry the Great Vault window's own names - **Dungeons**, **Raids**,
+  World - so one vocabulary covers both screens. `ns.Vault` keeps the measured
+  enum's, and is untouched by all of the above.
+
 ### C-5 (WKE-539) - the companion asks QE Live for both upgrade settings
 
 - **The companion no longer inherits QE Live's asymmetric import defaults.** His
@@ -16,8 +40,8 @@
   `qeAutoUpgradeAll` in `config.json` set the other consistent pair (both on)
   for a "what if I upgraded everything" run. "Auto Catalyze" is not touched.
 - `Data/QEVerdict.lua` records the pair as `qeSettings`, so a verdict is
-  readable next to the question that produced it. The addon reads it nowhere
-  today; `Companion.Entry` has always ignored fields it does not know.
+  readable next to the question that produced it. M3-7 is what reads it: the
+  Vault panel names the assumption behind QE Live's item level.
 - Changing either setting changes the fingerprint, so the next run goes to QE
   Live even though no gear moved.
 

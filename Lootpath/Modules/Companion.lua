@@ -111,6 +111,30 @@ local function shown(value)
     return "a " .. kind
 end
 
+-- Which of QE Live's own import settings produced the exports in the file
+-- (C-5, WKE-539: the companion sets both checkboxes explicitly and records what
+-- it asked for). Optional: a file written before C-5, and the committed
+-- placeholder, carry none, and a missing pair is silence rather than a refusal.
+-- Only the two booleans are read, and only when they really are booleans; the
+-- addon never infers a setting from a number it sees elsewhere.
+Companion.QE_SETTING_KEYS = { "autoUpgradeVault", "autoUpgradeAll" }
+
+function Companion.Settings(raw)
+    local safe, sawSecret = ns.Safe(raw)
+    if sawSecret or type(safe) ~= "table" then
+        return nil
+    end
+    local settings = {}
+    for _, key in ipairs(Companion.QE_SETTING_KEYS) do
+        local value, secret = ns.Safe(safe[key])
+        if secret or type(value) ~= "boolean" then
+            return nil
+        end
+        settings[key] = value
+    end
+    return settings
+end
+
 -- Validate(raw) -> { ok = true, writtenAt, writtenAtEpoch, companionVersion,
 -- exports } or { ok = false, reason }. `raw` is whatever the chunk assigned to
 -- ns.companionVerdict; nil means the committed placeholder is still in place,
@@ -147,6 +171,7 @@ function Companion.Validate(raw, now)
         writtenAt = writtenAt,
         writtenAtEpoch = writtenAtEpoch,
         companionVersion = safeString(safe.companionVersion),
+        qeSettings = Companion.Settings(safe.qeSettings),
         exports = exports,
     }
 end
@@ -197,7 +222,7 @@ local function storedAt(verdict)
 end
 
 -- Import every export the file carries. Returns
---   { ok, writtenAt, writtenAtEpoch, companionVersion,
+--   { ok, writtenAt, writtenAtEpoch, companionVersion, qeSettings,
 --     imported = { { contentType, spec, items, warnings } },
 --     skipped  = { { index, reason, contentType, stale } },
 --     unchanged = { contentType } }
@@ -214,6 +239,7 @@ function Companion.ImportAll(raw, now)
         writtenAt = file.writtenAt,
         writtenAtEpoch = file.writtenAtEpoch,
         companionVersion = file.companionVersion,
+        qeSettings = file.qeSettings,
         imported = {},
         skipped = {},
         unchanged = {},
@@ -267,6 +293,11 @@ function Companion.ImportAll(raw, now)
                     verdict.source = Companion.SOURCE_COMPANION
                     verdict.companionWrittenAt = file.writtenAt
                     verdict.companionVersion = file.companionVersion
+                    -- Carried onto the verdict, not left in the file's result:
+                    -- the Vault panel reads it off whichever verdict is on
+                    -- screen, which may have come back from SavedVariables
+                    -- reloads after the file that wrote it was replaced.
+                    verdict.qeSettings = file.qeSettings
                     local stored = importer.Store(verdict)
                     if not stored.ok then
                         result.skipped[#result.skipped + 1] = { index = index, reason = stored.reason }

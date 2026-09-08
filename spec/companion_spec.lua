@@ -616,3 +616,116 @@ describe("/lootpath refresh", function()
         assert.is_truthy(world.output():find("(companion, written ", 1, true))
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- WKE-538 finding 3: the verdict has to be readable next to the assumption that
+-- produced it. C-5 (WKE-539) made the companion set QE Live's two upgrade
+-- checkboxes itself and record the pair in the file it writes; until now the
+-- addon read `qeSettings` nowhere, so a vault option QE Live valued at 321
+-- where the client reads 305 arrived with no way to say why. The pair is
+-- carried onto each verdict, because the Vault panel reads it off whichever
+-- verdict is on screen - which may have come back from SavedVariables long
+-- after the file that wrote it was replaced.
+
+describe("Companion qeSettings", function()
+    local ns
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function fileWith(qeSettings)
+        return {
+            writtenAt = "2026-09-08T02:00:00Z",
+            companionVersion = "0.1.0",
+            qeSettings = qeSettings,
+            exports = {
+                { schema = "qe-live-droptimizer", contentType = "Raid", json = readFile(RAID_EXPORT) },
+                { schema = "qe-live-upgradefinder", contentType = "Raid", json = readFile(UPGRADE_FINDER_EXPORT) },
+            },
+        }
+    end
+
+    it("carries the pair the companion recorded onto every verdict it stores", function()
+        ns = H.load()
+        local result = ns.Companion.ImportAll(fileWith({ autoUpgradeVault = false, autoUpgradeAll = false }))
+        assert.is_true(result.ok)
+        assert.equal(2, #result.imported)
+        assert.same({ autoUpgradeVault = false, autoUpgradeAll = false }, result.qeSettings)
+        -- Both kinds of document: the pair is a fact about the run, not about
+        -- one of its two reports.
+        assert.same({ autoUpgradeVault = false, autoUpgradeAll = false }, ns.QEImport.ForContentType("Raid").qeSettings)
+        assert.same({ autoUpgradeVault = false, autoUpgradeAll = false }, ns.UFImport.ForContentType("Raid").qeSettings)
+    end)
+
+    it("keeps true as true and false as false", function()
+        ns = H.load()
+        ns.Companion.ImportAll(fileWith({ autoUpgradeVault = true, autoUpgradeAll = false }))
+        local stored = ns.QEImport.ForContentType("Raid").qeSettings
+        assert.is_true(stored.autoUpgradeVault)
+        assert.is_false(stored.autoUpgradeAll)
+    end)
+
+    it("reads the pair out of a real companion chunk", function()
+        local source = string.format(
+            [[
+local _, ns = ...
+ns.companionVerdict = {
+    writtenAt = "2026-09-08T02:00:00Z",
+    companionVersion = "0.1.0",
+    qeSettings = { autoUpgradeVault = false, autoUpgradeAll = true },
+    exports = {
+        { schema = "qe-live-droptimizer", contentType = "Raid", json = %q },
+    },
+}
+]],
+            readFile(RAID_EXPORT)
+        )
+        ns = loadWithChunk(source)
+        local stored = ns.QEImport.ForContentType("Raid").qeSettings
+        assert.is_false(stored.autoUpgradeVault)
+        assert.is_true(stored.autoUpgradeAll)
+    end)
+
+    -- A file written before C-5, and the committed placeholder, carry no
+    -- settings at all. That is silence, not a refusal: the import still happens
+    -- and the panel simply reports the level difference without a reason.
+    it("imports a file that does not say, and stores no settings for it", function()
+        ns = H.load()
+        local result = ns.Companion.ImportAll(fileWith(nil))
+        assert.is_true(result.ok)
+        assert.equal(2, #result.imported)
+        assert.equal(0, #result.skipped)
+        assert.is_nil(result.qeSettings)
+        assert.is_nil(ns.QEImport.ForContentType("Raid").qeSettings)
+    end)
+
+    it("stores nothing for a pair that is not two booleans", function()
+        -- Half a pair is not a pair, and a number is not a boolean: the addon
+        -- says nothing about a setting the file did not state properly.
+        for _, bad in ipairs({
+            { autoUpgradeVault = true },
+            { autoUpgradeVault = "true", autoUpgradeAll = false },
+            { autoUpgradeVault = 1, autoUpgradeAll = 0 },
+        }) do
+            H.unload()
+            ns = H.load()
+            local result = ns.Companion.ImportAll(fileWith(bad))
+            assert.is_true(result.ok)
+            assert.is_nil(result.qeSettings)
+            assert.is_nil(ns.QEImport.ForContentType("Raid").qeSettings)
+        end
+    end)
+
+    it("drops a secret settings table rather than storing it", function()
+        local world
+        ns, world = H.load()
+        local result = ns.Companion.ImportAll(fileWith(world.markSecret({
+            autoUpgradeVault = true,
+            autoUpgradeAll = true,
+        })))
+        assert.is_true(result.ok)
+        assert.is_nil(result.qeSettings)
+        assert.is_nil(ns.QEImport.ForContentType("Raid").qeSettings)
+    end)
+end)

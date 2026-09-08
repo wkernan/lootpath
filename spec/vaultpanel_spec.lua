@@ -236,6 +236,254 @@ describe("VaultPanel over the after-reset vault and the export that ranked it", 
     end)
 end)
 
+-- ---------------------------------------------------------------------------
+-- M3-7 (WKE-538): the three things this panel said wrongly about that same real
+-- vault. Every figure below is read from the transcript and the export the
+-- block above already replays (docs/ARCHITECTURE.md §9, "Measured 2026-09-08"):
+-- activities 207/208/213/214/217/229 each carry a Mythic Keystone (180653,
+-- INVTYPE_NON_EQUIP_IGNORE, item level 1) beside their gear, 217 a Thalassian
+-- Token of Merit (269862) as well; every `progress` is 0 while
+-- HasAvailableRewards and CanClaimRewards are true; and the vault weapon reads
+-- 305 in the client's link and 321 in QE Live's export.
+
+describe("VaultPanel against the real reward shape (WKE-538)", function()
+    local ns, world
+    local AFTER_RESET = "spec/fixtures/captures/Lootpath-20260908-124527.lua"
+    local VAULT_EXPORT = "spec/fixtures/qe/qe-droptimizer-Hotornot-uliwcyoomcub.json"
+    local WEAPON_KEY = "251935:6652:12841"
+    local KEYSTONE_ID = 180653
+
+    before_each(function()
+        ns, world = H.load()
+        R.vault(world, R.snapshot("vault", 9, AFTER_RESET))
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function verdict()
+        local parsed = ns.QEImport.Parse(readFile(VAULT_EXPORT))
+        assert(parsed.ok, parsed.reason)
+        return parsed.verdict
+    end
+
+    -- An hour after the export was written, so the panel is reading a verdict
+    -- that knows this week's vault and no staleness note is in the way.
+    local function model(qeSettings)
+        local v = verdict()
+        v.qeSettings = qeSettings
+        local now = ns.VaultPanel.EpochFromISO(v.exportedAt) + 3600
+        return ns.VaultPanel.Model({ vault = ns.Vault.Options(), verdict = v, now = now })
+    end
+
+    local function optionByID(m, id)
+        for _, option in ipairs(m.options) do
+            if option.id == id then
+                return option
+            end
+        end
+        return nil
+    end
+
+    -- Finding 1 --------------------------------------------------------------
+
+    it("keeps the Mythic Keystone out of the gear options and names it in words", function()
+        local m = model()
+        -- Four gear options this week, seven non-gear rewards beside them.
+        assert.equal(4, m.counts.rewards)
+        assert.equal(7, m.counts.extras)
+
+        local world2 = optionByID(m, 208)
+        assert.equal(1, #world2.rewards)
+        assert.equal("Lightgrasp Worldroot", world2.rewards[1].name)
+        assert.equal(305, world2.rewards[1].itemLevel)
+        assert.equal(1, #world2.extras)
+        assert.equal(KEYSTONE_ID, world2.extras[1].itemID)
+        assert.equal("+ Mythic Keystone", world2.extras[1].text)
+        assert.equal("+ Mythic Keystone", world2.extrasText)
+        -- Name, level and the keystone are one unit, so C-6's scenario lines can
+        -- grow underneath it (WKE-540) without moving any of the three.
+        assert.equal(
+            "Lightgrasp Worldroot (305; QE Live valued it at 321) + Mythic Keystone  <- QE Live's pick",
+            world2.rewards[1].text
+        )
+        assert.same({ "QE Live: in your best set" }, world2.rewards[1].verdictLines)
+
+        -- Nothing without a slot is ever a gear option, anywhere on the panel.
+        for _, option in ipairs(m.options) do
+            for _, reward in ipairs(option.rewards) do
+                assert.is_not_nil(reward.slot, "a non-gear reward was listed as gear: " .. tostring(reward.itemID))
+                assert.are_not.equal(KEYSTONE_ID, reward.itemID)
+            end
+        end
+    end)
+
+    it("never renders an item level 1 row, and never a value on one", function()
+        local m = model()
+        local sawKeystone = 0
+        for _, line in ipairs(ns.VaultPanel.Lines(m)) do
+            assert.is_nil(line:find("(1)", 1, true), "a line rendered item level 1: " .. line)
+            if line:find("+ Mythic Keystone", 1, true) then
+                sawKeystone = sawKeystone + 1
+            end
+        end
+        -- Six activities carry one, and every one of them is still on screen.
+        assert.equal(6, sawKeystone)
+        -- The keystone rides the gear's line where there is gear, and keeps a
+        -- line of its own where there is none: 229 carries a keystone alone.
+        local concession = optionByID(m, 229)
+        assert.equal(0, #concession.rewards)
+        assert.equal("+ Mythic Keystone", concession.extrasText)
+        -- 217 carries both non-gear rewards, in the order the client listed them.
+        assert.equal("+ Thalassian Token of Merit + Mythic Keystone", optionByID(m, 217).extrasText)
+    end)
+
+    it("keeps the keystone out of the highlight", function()
+        local none = ns.VaultPanel.Model({ vault = ns.Vault.Options(), verdict = nil })
+        assert.equal(0, none.counts.covered)
+        assert.is_nil(none.best)
+        -- With a verdict, the pick is the gear QE Live ranked - never the
+        -- keystone that shares its row.
+        local ranked = model()
+        assert.equal(WEAPON_KEY, ranked.best.key)
+        assert.equal(1, ranked.counts.covered)
+    end)
+
+    -- Finding 2 --------------------------------------------------------------
+
+    it("calls a row with rewards claimable even though the reset put its progress back to 0", function()
+        local m = model()
+        assert.is_true(m.hasAvailableRewards)
+        assert.is_true(m.canClaimRewards)
+
+        local world2 = optionByID(m, 208)
+        assert.equal(0, world2.progress)
+        assert.equal(4, world2.threshold)
+        assert.equal("0/4", world2.progressText)
+        assert.is_true(world2.claimable)
+        -- The module's field is what the client said, and is not touched here.
+        assert.is_false(world2.unlocked)
+        assert.equal("World 2: 0/4 - rewards ready", world2.headerText)
+
+        local world3 = optionByID(m, 209)
+        assert.equal(0, #world3.rewards)
+        assert.is_false(world3.claimable)
+        assert.equal("World 3: 0/8", world3.headerText)
+    end)
+
+    it("says the rewards are ready rather than that nothing has generated them", function()
+        local m = model()
+        assert.is_nil(m.rewardsNote)
+        local claimable = 0
+        for _, option in ipairs(m.options) do
+            if option.claimable then
+                claimable = claimable + 1
+            end
+        end
+        -- 207, 208, 213, 214, 217 and 229.
+        assert.equal(6, claimable)
+    end)
+
+    -- Hand-built, and said so: no committed transcript has a week whose only
+    -- rewards are non-gear. The note is about whether the vault has GENERATED
+    -- anything, so a keystone standing alone must not be reported as nothing.
+    it("does not claim the vault is empty when its only reward is not gear", function()
+        ns = H.load()
+        local m = ns.VaultPanel.Model({
+            vault = {
+                ok = true,
+                options = {
+                    {
+                        type = 5,
+                        typeLabel = "Concession",
+                        index = 2,
+                        id = 229,
+                        threshold = 3,
+                        progress = 4,
+                        rewards = { { itemID = 180653, name = "Mythic Keystone", itemLevel = 1 } },
+                    },
+                },
+            },
+        })
+        assert.equal(0, m.counts.rewards)
+        assert.equal(1, m.counts.extras)
+        assert.is_nil(m.rewardsNote)
+        assert.is_true(m.options[1].claimable)
+    end)
+
+    -- The game's own words for the rows (the owner's Great Vault screenshot,
+    -- 2026-09-08). The module keeps the measured enum's vocabulary.
+    it("names the rows the way the Great Vault window does", function()
+        local m = model()
+        assert.equal("World", optionByID(m, 207).rowLabel)
+        assert.equal("Dungeons", optionByID(m, 213).rowLabel)
+        assert.equal("Raids", optionByID(m, 210).rowLabel)
+        -- A row the vault screen does not rename keeps the module's label.
+        assert.equal("Concession", optionByID(m, 229).rowLabel)
+        assert.equal("Mythic+", ns.Vault.TypeLabel(1))
+        assert.equal("Mythic+", optionByID(m, 213).typeLabel)
+    end)
+
+    -- Finding 3 --------------------------------------------------------------
+
+    it("shows the client's item level and QE Live's when they differ", function()
+        local m = model()
+        local weapon = optionByID(m, 208).rewards[1]
+        assert.equal(305, weapon.itemLevel)
+        assert.equal(321, weapon.qeLevel)
+        assert.equal("305; QE Live valued it at 321", weapon.levelText)
+        -- Both figures reach the line, and neither replaces the other.
+        local line
+        for _, text in ipairs(ns.VaultPanel.Lines(m)) do
+            if text:find("Lightgrasp Worldroot", 1, true) then
+                line = text
+            end
+        end
+        assert.is_truthy(line:find("305", 1, true))
+        assert.is_truthy(line:find("321", 1, true))
+    end)
+
+    it("names the QE Live setting that produced its level when the companion recorded it", function()
+        local withVault = model({ autoUpgradeVault = true, autoUpgradeAll = false })
+        assert.equal(
+            "305; QE Live valued it at 321 with vault upgrades assumed",
+            optionByID(withVault, 208).rewards[1].levelText
+        )
+        local both = model({ autoUpgradeVault = true, autoUpgradeAll = true })
+        assert.equal(
+            "305; QE Live valued it at 321 with vault and all upgrades assumed",
+            optionByID(both, 208).rewards[1].levelText
+        )
+        -- Both off and the levels still differ: that is worth saying too, and it
+        -- is read from the file rather than inferred from the difference.
+        local neither = model({ autoUpgradeVault = false, autoUpgradeAll = false })
+        assert.equal(
+            "305; QE Live valued it at 321 with no upgrades assumed",
+            optionByID(neither, 208).rewards[1].levelText
+        )
+        -- Half a pair, or a pair that is not booleans, says nothing at all.
+        assert.is_nil(ns.VaultPanel.SettingsPhrase({ autoUpgradeVault = true }))
+        assert.is_nil(ns.VaultPanel.SettingsPhrase({ autoUpgradeVault = "true", autoUpgradeAll = false }))
+        assert.is_nil(ns.VaultPanel.SettingsPhrase(nil))
+    end)
+
+    it("shows one figure when there is nothing to disagree with", function()
+        local m = model()
+        -- Scavenger's Spaulders: 308 in the client's link, and QE Live's export
+        -- does not carry the item at all.
+        local shoulder = optionByID(m, 213).rewards[1]
+        assert.equal("Scavenger's Spaulders", shoulder.name)
+        assert.equal(308, shoulder.itemLevel)
+        assert.is_nil(shoulder.qeLevel)
+        assert.equal("308", shoulder.levelText)
+        -- And a pair that agrees says it once: LevelText is the one place the
+        -- two numbers are ever compared.
+        assert.equal("308", ns.VaultPanel.LevelText(308, 308, nil))
+        assert.equal("305; QE Live valued it at 321", ns.VaultPanel.LevelText(305, 321, nil))
+    end)
+end)
+
 describe("VaultPanel staleness against the weekly reset", function()
     local ns, world
 
