@@ -47,6 +47,8 @@ read_globals = {
     -- Blizzard API, globals
     "CreateFrame",
     "GetBuildInfo",
+    "GetCurrentRegion",
+    "GetCurrentRegionName",
     "GetInventoryItemID",
     "GetInventoryItemLink",
     "GetLocale",
@@ -56,7 +58,9 @@ read_globals = {
     "InCombatLockdown",
     "ItemLocation",
     "UnitClass",
+    "UnitLevel",
     "UnitName",
+    "UnitRace",
     -- Encounter Journal globals (Modules/Journal.lua names every one it calls;
     -- they are not in Blizzard's generated docs, but the 12.1.0 client lists
     -- all of them - transcript 2026-09-05, capture env, globals.EJ)

@@ -68,7 +68,7 @@ end
 
 -- env: build, addons, restrictions, the namespaces later modules touch.
 -- M0-2 (WKE-515) reads build[4] against the .toc Interface number.
-ns.RegisterCapture("env", "build, addon list, secret/combat state, API namespaces", function()
+ns.RegisterCapture("env", "build, player facts, addon list, secret/combat state, API namespaces", function()
     local addons = { count = ns.Probe(C_AddOns and C_AddOns.GetNumAddOns), list = {} }
     local count = addons.count[1]
     if type(count) == "number" then
@@ -90,6 +90,16 @@ ns.RegisterCapture("env", "build, addon list, secret/combat state, API namespace
         realm = ns.Probe(GetRealmName),
         player = ns.Probe(UnitName, "player"),
         class = ns.Probe(UnitClass, "player"),
+        -- The SimC profile header the companion builds (WKE-532) needs these
+        -- four beside the three above; QE Live's importer reads only `region`
+        -- of them, but a profile that omits what the SimulationCraft addon
+        -- writes is a profile whose differences we cannot classify. All four
+        -- are documented reads with no side effect (Ketho's annotations:
+        -- UnitLevel, UnitRace, GetCurrentRegionName, GetCurrentRegion).
+        level = ns.Probe(UnitLevel, "player"),
+        race = ns.Probe(UnitRace, "player"),
+        region = ns.Probe(GetCurrentRegionName),
+        regionID = ns.Probe(GetCurrentRegion),
         specIndex = spec,
         specInfo = spec[1] and ns.Probe(GetSpecializationInfo, spec[1]) or { absent = true },
         inCombatLockdown = ns.Probe(InCombatLockdown),

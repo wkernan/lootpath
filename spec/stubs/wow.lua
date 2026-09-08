@@ -366,6 +366,11 @@ function Stub.install()
         locale = "enUS",
         realm = "TestRealm",
         playerName = "Tester",
+        playerLevel = 90,
+        -- localizedRaceName, englishRaceName, raceID
+        playerRace = { "Zandalari Troll", "ZandalariTroll", 31 },
+        region = "US",
+        regionID = 1,
         addons = {
             { name = "Lootpath", title = "Lootpath", loaded = true },
             { name = "Simulationcraft", title = "SimulationCraft", loaded = false },
@@ -504,6 +509,23 @@ function Stub.install()
     end)
     define("UnitClass", function()
         return "Druid", "DRUID", 11
+    end)
+    define("UnitLevel", function(unit)
+        return unit == "player" and world.playerLevel or 0
+    end)
+    -- UnitRace -> localizedRaceName, englishRaceName, raceID (Blizzard's exported
+    -- UnitDocumentation). The English name is the one the SimC profile tokenizes.
+    define("UnitRace", function(unit)
+        if unit ~= "player" then
+            return nil
+        end
+        return world.playerRace[1], world.playerRace[2], world.playerRace[3]
+    end)
+    define("GetCurrentRegionName", function()
+        return world.region
+    end)
+    define("GetCurrentRegion", function()
+        return world.regionID
     end)
     define("GetSpecialization", function()
         return 4

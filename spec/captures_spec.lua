@@ -44,6 +44,28 @@ describe("captures", function()
             assert.is_false(data.addons.list[2].loaded)
         end)
 
+        -- WKE-532: the companion builds the SimC profile header out of these.
+        -- The `n` assertions matter as much as the values: ns.Probe packs a
+        -- pcall, so a missing function would come back as a pack with no
+        -- positional result rather than as a wrong string.
+        it("records the four player facts the SimC profile header needs", function()
+            local data = ns.RunCapture("env").snapshot.data
+            assert.equal(90, data.level[1])
+            assert.equal("Zandalari Troll", data.race[1])
+            assert.equal("ZandalariTroll", data.race[2])
+            assert.equal(31, data.race[3])
+            assert.equal(3, data.race.n)
+            assert.equal("US", data.region[1])
+            assert.equal(1, data.regionID[1])
+        end)
+
+        it("records an absent region API as absent, not as a guess", function()
+            _G.GetCurrentRegionName = nil
+            local data = ns.RunCapture("env").snapshot.data
+            assert.same({ absent = true }, data.region)
+            assert.equal(1, data.regionID[1])
+        end)
+
         it("records secret and combat state", function()
             local data = ns.RunCapture("env").snapshot.data
             assert.equal("function", data.secrets.issecretvalue)
