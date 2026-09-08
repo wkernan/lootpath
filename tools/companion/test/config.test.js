@@ -41,6 +41,29 @@ test('the committed example config loads and matches the defaults', () => {
     }
 });
 
+// C-5 (WKE-539). QE Live's own dialog defaults are `autoUpgradeVault = true`
+// and `autoUpgradeAll = false` (SimCraftDialog.js lines 36-37), which values a
+// vault option at the top of its upgrade track and owned gear where the client
+// reports it. The companion's default is both OFF, so the two sides of a
+// comparison are asked the same question.
+test('the QE Live import settings default to both off, the opposite of his dialog', () => {
+    const config = configLib.load(path.join(os.tmpdir(), 'no-such-config.json'));
+    assert.strictEqual(config.qeAutoUpgradeVault, false);
+    assert.strictEqual(config.qeAutoUpgradeAll, false);
+    assert.deepStrictEqual(configLib.qeSettings(config), { autoUpgradeVault: false, autoUpgradeAll: false });
+});
+
+test('the settings can be set to the other consistent pair, and are typed', () => {
+    const dir = fakeWow();
+    const both = path.join(dir, 'both.json');
+    fs.writeFileSync(both, JSON.stringify({ qeAutoUpgradeVault: true, qeAutoUpgradeAll: true }));
+    assert.deepStrictEqual(configLib.qeSettings(configLib.load(both)), { autoUpgradeVault: true, autoUpgradeAll: true });
+
+    const wrong = path.join(dir, 'wrong.json');
+    fs.writeFileSync(wrong, JSON.stringify({ qeAutoUpgradeVault: 'true' }));
+    assert.throws(() => configLib.load(wrong), /"qeAutoUpgradeVault" should be a boolean/);
+});
+
 test('refuses a content type QE Live does not have, naming it', () => {
     const file = path.join(fakeWow(), 'config.json');
     fs.writeFileSync(file, JSON.stringify({ documents: [{ kind: 'topgear', contentType: 'Mythic+' }] }));

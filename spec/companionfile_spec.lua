@@ -49,6 +49,19 @@ describe("the companion's Data/QEVerdict.lua", function()
         assert.are.equal(2, #file.exports)
     end)
 
+    -- C-5 (WKE-539): the file says which of QE Live's own import settings
+    -- produced it, so a vault option he values at 321 while the client reads
+    -- the same link at 305 is readable rather than a contradiction. They must
+    -- come back as Lua booleans: the string "false" would be truthy.
+    it("says which QE Live import settings produced it", function()
+        local file = load().companionVerdict
+        assert.is_table(file.qeSettings)
+        assert.is_boolean(file.qeSettings.autoUpgradeVault)
+        assert.is_boolean(file.qeSettings.autoUpgradeAll)
+        assert.is_false(file.qeSettings.autoUpgradeVault)
+        assert.is_false(file.qeSettings.autoUpgradeAll)
+    end)
+
     it("hands the addon QE Live's export text, unchanged", function()
         local documents = load().companionVerdict.exports
         assert.are.equal("qe-live-droptimizer", documents[1].schema)

@@ -37,7 +37,10 @@ Lootpath imports that file at load through the same parser a paste goes through
 bags and vault, then reloads so the companion can read them, and running it
 again once the companion says it is done brings the answer back. That second
 refresh is free: the companion fingerprints the profile and skips QE Live when
-nothing about your gear has changed. The window's verdict line then says where
+nothing about your gear has changed. It also asks QE Live to value the vault and
+the gear you own the same way - his own import dialog upgrades vault options and
+leaves owned gear alone, which can rank a vault item above the better copy you
+are already wearing - and the file it writes says which setting it asked for. The window's verdict line then says where
 what is on screen came from - "pasted", or "companion, written 4 minute(s)
 ago".
 

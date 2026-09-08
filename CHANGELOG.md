@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### C-5 (WKE-539) - the companion asks QE Live for both upgrade settings
+
+- **The companion no longer inherits QE Live's asymmetric import defaults.** His
+  dialog opens with "Upgrade Vault to Max Level" on and "Upgrade ALL to Max
+  Level" off, which values a vault option at the top of its upgrade track and
+  the gear on your back where the client reports it - so a 305 vault weapon was
+  ranked above the 308 copy already equipped. The driver now sets both boxes on
+  every run, by the label each is rendered with, reads them back, and fails the
+  run rather than reporting a setting it did not get.
+- **Both default off**, which asks one answerable question: what is best out of
+  what you have, at the levels the client reports. `qeAutoUpgradeVault` /
+  `qeAutoUpgradeAll` in `config.json` set the other consistent pair (both on)
+  for a "what if I upgraded everything" run. "Auto Catalyze" is not touched.
+- `Data/QEVerdict.lua` records the pair as `qeSettings`, so a verdict is
+  readable next to the question that produced it. The addon reads it nowhere
+  today; `Companion.Entry` has always ignored fields it does not know.
+- Changing either setting changes the fingerprint, so the next run goes to QE
+  Live even though no gear moved.
+
 ### M3-6 (WKE-535) - the Upgrade Finder import
 
 - `ns.UFImport`: QE Live's `qe-live-upgradefinder` v1 export - the one that

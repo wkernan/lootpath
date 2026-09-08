@@ -53,11 +53,19 @@ function harness(savedVariables) {
     const log = logLib.make((line) => lines.push(line));
     const fork = {
         calls: [],
-        async run(_config, profileText) {
+        async run(runConfig, profileText) {
             fork.calls.push(profileText);
             return {
                 documents: [{ kind: 'topgear', contentType: 'Dungeon', json: '{"player":{"spec":"Guardian"}}' }],
                 timings: [],
+                // The real driver reads the boxes back off the page after
+                // clicking them (C-5); this double reports what it was asked
+                // for, so a verdict file that ignores the driver and writes a
+                // constant is a failing test rather than a lucky match.
+                qeSettings: {
+                    autoUpgradeVault: !!runConfig.qeAutoUpgradeVault,
+                    autoUpgradeAll: !!runConfig.qeAutoUpgradeAll,
+                },
             };
         },
     };
@@ -196,7 +204,7 @@ test('the state file names the hash, the stamp it wrote and the file it wrote', 
     assert.match(state.hash, /^[0-9a-f]{64}$/);
     assert.match(state.writtenAt, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
     assert.strictEqual(path.resolve(state.verdict), path.resolve(h.verdict));
-    assert.strictEqual(state.hash, fingerprintLib.fingerprint(h.fork.calls[0]).hash);
+    assert.strictEqual(state.hash, fingerprintLib.fingerprint(h.fork.calls[0], configLib.qeSettings(h.config)).hash);
     // The stamp the state file remembers is the one the addon reads out of the
     // chunk, so the skip line quotes a time the owner can check against it.
     assert.ok(fs.readFileSync(h.verdict, 'utf8').includes('writtenAt = "' + state.writtenAt + '"'));
@@ -225,7 +233,80 @@ test('exactly the four listed lines are stripped, and nothing else', () => {
 test('the build line stays inside the fingerprint - a patched client is a new question', () => {
     const base = ['# WoW 12.1.0.69587, TOC 120100', 'druid="Hotornot"'].join('\n');
     const patched = ['# WoW 12.1.5.70000, TOC 120105', 'druid="Hotornot"'].join('\n');
-    assert.notStrictEqual(fingerprintLib.fingerprint(base).hash, fingerprintLib.fingerprint(patched).hash);
+    const settings = { autoUpgradeVault: false, autoUpgradeAll: false };
+    assert.notStrictEqual(fingerprintLib.fingerprint(base, settings).hash, fingerprintLib.fingerprint(patched, settings).hash);
+});
+
+// C-5 (WKE-539). The settings are half the question QE Live is asked, so they
+// are half the fingerprint - otherwise flipping a box would be answered out of
+// a state file that remembers the other box's answer.
+test('flipping a QE Live setting is a new question and costs a run', async () => {
+    const h = harness();
+    assert.strictEqual(await h.run(), companion.EXIT.ok);
+    assert.strictEqual(h.fork.calls.length, 1);
+
+    // Not a byte of gear moved; only what is asked about it.
+    h.config.qeAutoUpgradeVault = true;
+    h.config.qeAutoUpgradeAll = true;
+    h.lines.length = 0;
+    assert.strictEqual(await h.run(), companion.EXIT.ok);
+    assert.strictEqual(h.fork.calls.length, 2, 'the new settings must reach QE Live');
+    assert.strictEqual(h.fork.calls[1], h.fork.calls[0], 'and the profile itself is unchanged');
+    assert.ok(!h.said('profile unchanged since '), h.lines.join(' | '));
+
+    // And back again: the same pair as the first run is the first run's
+    // question, but the state file now remembers the second's.
+    h.config.qeAutoUpgradeVault = false;
+    h.config.qeAutoUpgradeAll = false;
+    assert.strictEqual(await h.run(), companion.EXIT.ok);
+    assert.strictEqual(h.fork.calls.length, 3);
+});
+
+test('the same settings twice is still a skip', async () => {
+    const h = harness();
+    h.config.qeAutoUpgradeVault = true;
+    h.config.qeAutoUpgradeAll = true;
+    await h.run();
+    h.lines.length = 0;
+    assert.strictEqual(await h.run(), companion.EXIT.ok);
+    assert.strictEqual(h.fork.calls.length, 1, 'nothing changed, so nothing is asked');
+    assert.ok(h.said('profile unchanged since '), h.lines.join(' | '));
+});
+
+test('the run says which settings it asked QE Live for, and the file records them', async () => {
+    const h = harness();
+    await h.run();
+    assert.ok(h.said('QE Live import settings: autoUpgradeVault=false, autoUpgradeAll=false'), h.lines.join(' | '));
+    const written = fs.readFileSync(h.verdict, 'utf8');
+    assert.ok(written.includes('autoUpgradeVault = false,'), written.slice(0, 600));
+    assert.ok(written.includes('autoUpgradeAll = false,'), written.slice(0, 600));
+});
+
+test('the file records the settings the driver actually got, not the pair asked for', async () => {
+    const h = harness();
+    h.config.qeAutoUpgradeVault = true;
+    h.config.qeAutoUpgradeAll = true;
+    await h.run();
+    const written = fs.readFileSync(h.verdict, 'utf8');
+    assert.ok(written.includes('autoUpgradeVault = true,'), written.slice(0, 600));
+    assert.ok(written.includes('autoUpgradeAll = true,'), written.slice(0, 600));
+});
+
+test('a mixed pair is named in the log as the thing it is', async () => {
+    const h = harness();
+    h.config.qeAutoUpgradeVault = true;
+    await h.run();
+    assert.ok(h.said('autoUpgradeVault=true, autoUpgradeAll=false'), h.lines.join(' | '));
+    assert.ok(h.said('different points on their upgrade tracks'), h.lines.join(' | '));
+});
+
+test('the settings line is canonical: key order cannot move the hash', () => {
+    const profile = 'druid="Hotornot"';
+    const a = fingerprintLib.fingerprint(profile, { autoUpgradeVault: false, autoUpgradeAll: true });
+    const b = fingerprintLib.fingerprint(profile, { autoUpgradeAll: true, autoUpgradeVault: false });
+    assert.strictEqual(a.hash, b.hash);
+    assert.strictEqual(a.settingsLine, '# qeSettings autoUpgradeAll=true autoUpgradeVault=false');
+    assert.notStrictEqual(a.hash, fingerprintLib.fingerprint(profile, { autoUpgradeVault: true, autoUpgradeAll: true }).hash);
 });
 
 test('isCurrent refuses when the remembered verdict points somewhere else', () => {

@@ -9,6 +9,8 @@
     { "kind": "upgradefinder", "contentType": "Raid" }
   ],
   "includeBank": true,
+  "qeAutoUpgradeVault": false,
+  "qeAutoUpgradeAll": false,
   "startFork": true,
   "headed": false,
   "stateDir": ".state",

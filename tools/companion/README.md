@@ -29,6 +29,15 @@ logs one line instead of spending another 17 s in the browser. The stamps in the
 profile's header are stripped before hashing, so capturing the same gear again
 is not a new question. `--force` runs anyway.
 
+**It asks QE Live the same question about both sides of a comparison.** His
+import dialog defaults to `autoUpgradeVault = true` and `autoUpgradeAll = false`
+(`SimCraftDialog.js` lines 36-37), which values a vault option at the top of its
+upgrade track and the gear you are wearing at the level the client reports. On
+2026-09-08 that told the owner to take a 305 copy of a weapon they already wear
+at 308, because QE Live had been asked about the vault copy at 321. Since C-5
+(WKE-539) the companion **sets both boxes explicitly on every run**, defaulting
+to both OFF, and records which pair it asked for in the file it writes.
+
 This is the Raider.IO pattern - their desktop client writes score databases into
 the addon folder the same way - and it is the one exception to Lootpath's
 "everything external arrives by paste" rule (decision 2026-09-07,
@@ -85,6 +94,9 @@ configured clone and waits for it.
 | `--out <file>` | write the chunk somewhere else (a dry run) |
 | `--force` | run QE Live even when the profile is unchanged |
 
+Changing either upgrade setting changes the question, so it also changes the
+fingerprint: the next run goes to QE Live even though not a byte of gear moved.
+
 ### Exit codes
 
 | code | meaning |
@@ -109,11 +121,51 @@ the defaults, which are the owner's machine. Every key is optional.
 | `forkUrl` | `http://localhost:3000` | |
 | `documents` | Top Gear and Upgrade Finder, Dungeon then Raid | `contentType` is QE Live's own string; it has no "Mythic+" |
 | `includeBank` | `true` | bank items only reach the profile if the bank was open when the capture ran |
+| `qeAutoUpgradeVault` | `false` | QE Live's "Upgrade Vault to Max Level" box, set explicitly every run |
+| `qeAutoUpgradeAll` | `false` | his "Upgrade ALL to Max Level" box, likewise |
 | `startFork` | `true` | |
 | `headed` | `false` | show the browser when a selector stops matching |
 | `stateDir` | `.state` | the browser profile (so the welcome dialog is answered once) and `last-profile.json`, the fingerprint of the last verdict written |
 | `forkStartTimeoutSeconds` | `180` | |
 | `debounceMs` | `1500` | quiet time after a SavedVariables write before reading it |
+
+### The two upgrade settings
+
+QE Live's importer can raise an item to the top of its upgrade track before
+valuing it. Two boxes decide which items that happens to, and **there are two
+consistent ways to set them**:
+
+| `qeAutoUpgradeVault` | `qeAutoUpgradeAll` | the question it asks |
+|---|---|---|
+| `false` | `false` | **the companion's default.** "What is best out of what I have, at the levels the client reports?" Everything is valued where it actually is - the vault option at the item level the Great Vault window shows, the gear on your back at the item level on its tooltip. |
+| `true` | `true` | "What is best if I upgraded everything to the top of its track?" Also answerable, and the right question when you have the crests to spend on anything. |
+
+**`true` / `false` - QE Live's own default - is neither**, and it is the pair the
+companion refuses to inherit by saying nothing. It values a vault option at its
+maximum and owned gear where it stands, so the two sides of the comparison are
+not the same world: measured 2026-09-08, it put the vault's Lightgrasp Worldroot
+in the top set at **level 321** while the client read the same link at **305**
+and the owner was already wearing the item at **308**
+(`docs/ARCHITECTURE.md` §9). Both numbers are facts; asked together they are not
+a recommendation. Setting them the other way round (`false` / `true`) is not a
+third choice: his `processItem` reads `if (autoUpgradeAll) ... else if (type ===
+"Vault" && autoUpgradeVault)` (`SimCImportEngine.ts` lines 672-679), so
+`autoUpgradeAll` already covers vault options and the vault box only decides
+anything while it is off. Both are still clicked explicitly, because what is
+being asked should not depend on reading that precedence right.
+
+The Catalyst - his third box, "Auto Catalyze" - is **not touched**. It is
+WKE-540's question (named scenarios, run several times), and a box nobody asked
+about is left exactly where his dialog put it.
+
+The file the addon reads carries the pair:
+
+```lua
+    qeSettings = {
+        autoUpgradeVault = false,
+        autoUpgradeAll = false,
+    },
+```
 
 ## What it is made of
 
@@ -124,7 +176,7 @@ the defaults, which are the owner's machine. Every key is optional.
 | `lib/lua-savedvariables.js` | reads the Lua subset the client writes, without a Lua runtime (S-2's) |
 | `lib/simc-profile.js` | SavedVariables -> SimC text, mirroring the SimulationCraft addon (S-2's) |
 | `lib/profile.js` | the thin shape the CLI reads, plus the spec check |
-| `lib/fork.js` | drives QE Live, lifted from the S-1 spike |
+| `lib/fork.js` | drives QE Live, lifted from the S-1 spike; sets the two upgrade boxes by their label and reads them back (C-5) |
 | `lib/luawriter.js` | renders `Data/QEVerdict.lua`; its escaper is the whole safety story |
 | `lib/output.js` | temp file, then rename, so the client never reads half a file |
 | `lib/watch.js` | one run per `/reload`, never one per byte written |
@@ -141,6 +193,10 @@ ns.companionVerdict = {
     writtenAt = "2026-09-08T00:15:02Z",
     companionVersion = "0.1.0",
     profileCapturedAt = "2026-09-05T13:33:25",
+    qeSettings = {
+        autoUpgradeVault = false,
+        autoUpgradeAll = false,
+    },
     exports = {
         { schema = "qe-live-droptimizer", contentType = "Dungeon", bytes = 16315, json = "..." },
         { schema = "qe-live-upgradefinder", contentType = "Dungeon", bytes = 120577, json = "..." },
@@ -153,7 +209,9 @@ ns.companionVerdict = {
 The shape is **the addon's**, settled by C-2 (WKE-534, `Lootpath/Modules/Companion.lua`):
 `Companion.Entry` dispatches on `schema`, treats `contentType` as advisory (the
 content type inside the JSON is the one an import is filed under) and ignores
-any field it does not know, which is where `bytes` and `profileCapturedAt` sit.
+any field it does not know, which is where `bytes`, `profileCapturedAt` and
+`qeSettings` sit - the addon reads none of the three today, and WKE-538 may show
+the last of them on the Vault tab.
 It feeds each `json` to `ns.QEImport.Parse` (Top Gear) or refuses it by name
 until WKE-535's reader exists (Upgrade Finder).
 `spec/fixtures/expected/qeverdict-sample.lua` is a committed sample, and
@@ -210,11 +268,14 @@ until WKE-535's reader exists (Upgrade Finder).
 npm test        # node --test, no install needed for the pure parts
 ```
 
-74 tests over the reader, the profile builder, the config, the writer, the
-watcher and the fingerprint. The profile builder is measured against the owner's
+91 tests over the reader, the profile builder, the config, the writer, the
+watcher, the fingerprint and the driver's checkbox step. The profile builder is measured against the owner's
 own `/simc` string (`spec/fixtures/simc/hotornot-20260907.txt`) and against a
 committed generated profile; the writer's golden is loaded by a real Lua interpreter in
 `spec/companionfile_spec.lua`. The fork driver is not mocked: it is proven by a
 recorded run, whose figures are in the pull request. C-4's guards drive the real
 `once()` over a fake game folder in the OS temp directory with an injected fork
 driver, so no browser opens and nothing is written near the real game folder.
+C-5's checkbox step is proved against a fake page that records every click and
+answers `isChecked` the way his controlled MUI checkboxes do; that Playwright
+finds those boxes by label in a real page is a recorded run, not a test.

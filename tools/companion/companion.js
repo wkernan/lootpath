@@ -114,7 +114,11 @@ async function once(config, log, args, deps) {
     // to be read in case the owner captured between them - it is the PROFILE,
     // not the write, that decides.
     const target = args.out || configLib.verdictPath(config);
-    const print = fingerprintLib.fingerprint(profile.text);
+    // C-5 (WKE-539). The settings are half the question, so they are half the
+    // fingerprint: the same gear with `autoUpgradeVault` flipped is a different
+    // answer out of QE Live and has to cost a run.
+    const wanted = configLib.qeSettings(config);
+    const print = fingerprintLib.fingerprint(profile.text, wanted);
     if (!args.force) {
         const stored = fingerprintLib.readState(stateDir);
         if (!stored.ok && !stored.absent) {
@@ -128,6 +132,13 @@ async function once(config, log, args, deps) {
             return EXIT.ok;
         }
     }
+
+    log.info(
+        `QE Live import settings: autoUpgradeVault=${wanted.autoUpgradeVault}, autoUpgradeAll=${wanted.autoUpgradeAll}` +
+            (wanted.autoUpgradeVault === wanted.autoUpgradeAll
+                ? ''
+                : " - a mixed pair, which values vault options and owned gear at different points on their upgrade tracks")
+    );
 
     done = log.stage('qe live');
     let run;
@@ -166,6 +177,11 @@ async function once(config, log, args, deps) {
             writtenAt,
             companionVersion: VERSION,
             profileCapturedAt: profile.capturedAtLocal,
+            // What the driver read back off the page, not what was asked for,
+            // so the file records the run rather than the intention. A driver
+            // that reports nothing (the injected one in the tests) falls back
+            // to the configured pair.
+            qeSettings: run.qeSettings || wanted,
             documents: run.documents,
         });
         const written = output.writeVerdict(target, text);

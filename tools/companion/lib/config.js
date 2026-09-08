@@ -20,6 +20,30 @@ const DEFAULTS = {
         { kind: 'upgradefinder', contentType: 'Raid' },
     ],
     includeBank: true,
+    // QE Live's own import checkboxes (SimCraftDialog.js lines 122-133), asked
+    // for explicitly on every run rather than inherited (WKE-539, C-5).
+    //
+    // His dialog defaults are `autoUpgradeVault = true`, `autoUpgradeAll =
+    // false` (lines 36-37), which values a VAULT option at the top of its
+    // upgrade track and OWNED gear at the level the client reports. That
+    // asymmetry is what told the owner on 2026-09-08 to take a 305 copy of a
+    // weapon they already wear at 308: QE Live had valued the vault copy at
+    // 321 (docs/ARCHITECTURE.md §9).
+    //
+    // Both off is one consistent question - "what is best from what I have, at
+    // the levels the client reports". Both ON is the other consistent question,
+    // "what is best if I upgraded everything to the top of its track". Mixing
+    // them asks a question with no answer in the world, and that is the pair
+    // the companion refuses to inherit silently.
+    //
+    // The two are not independent in his engine: `processItem` reads
+    // `if (autoUpgradeAll) ... else if (type === "Vault" && autoUpgradeVault)`
+    // (SimCImportEngine.ts lines 672-679), so `autoUpgradeAll` already covers
+    // vault options and the vault box only decides anything while it is off.
+    // Both are still set explicitly, because what is asked for should not
+    // depend on reading the precedence right.
+    qeAutoUpgradeVault: false,
+    qeAutoUpgradeAll: false,
     // Start `npm start` in forkPath when nothing answers forkUrl.
     startFork: true,
     // Show the browser. Useful once, when a selector stops matching.
@@ -80,6 +104,12 @@ function merge(config, raw) {
 
 // The addon's own file inside the game folder. Nothing else is ever written
 // there, and the directory is created only if the addon is installed.
+// The pair the fork driver sets and the verdict file records, in one place so
+// no caller has to remember which QE Live name goes with which config key.
+function qeSettings(config) {
+    return { autoUpgradeVault: !!config.qeAutoUpgradeVault, autoUpgradeAll: !!config.qeAutoUpgradeAll };
+}
+
 function verdictPath(config) {
     return path.join(config.wowPath, 'Interface', 'AddOns', 'Lootpath', 'Data', 'QEVerdict.lua');
 }
@@ -111,4 +141,4 @@ function maskAccount(file) {
     return String(file).replace(/([\\/]Account[\\/])[^\\/]+/i, '$1<account>');
 }
 
-module.exports = { DEFAULTS, load, verdictPath, findSavedVariables, maskAccount, ConfigError };
+module.exports = { DEFAULTS, load, qeSettings, verdictPath, findSavedVariables, maskAccount, ConfigError };

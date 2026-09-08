@@ -37,6 +37,11 @@ function luaString(value) {
     return out + '"';
 }
 
+function luaBoolean(value) {
+    if (typeof value !== 'boolean') throw new Error(`refusing to write a non-boolean: ${JSON.stringify(value)}`);
+    return value ? 'true' : 'false';
+}
+
 function luaNumber(value) {
     if (!Number.isFinite(value)) throw new Error(`refusing to write a non-finite number: ${value}`);
     return String(value);
@@ -55,10 +60,25 @@ const KINDS = new Set(Object.keys(SCHEMA_BY_KIND));
 
 // documents: [{ kind, contentType, json }] - `json` is QE Live's export text,
 // carried verbatim so the addon parses exactly what the browser produced.
+// Which of QE Live's own import settings this run asked for (WKE-539, C-5).
+// The addon reads nothing here today - `Companion.Entry` ignores a field it
+// does not know - but a verdict that says a vault option is worth 321 when the
+// client reads it at 305 is only readable next to the setting that produced it,
+// so the file carries it.
+const QE_SETTING_KEYS = ['autoUpgradeVault', 'autoUpgradeAll'];
+
 function render(payload) {
-    const { writtenAt, companionVersion, profileCapturedAt, documents } = payload;
+    const { writtenAt, companionVersion, profileCapturedAt, documents, qeSettings } = payload;
     if (!Array.isArray(documents) || !documents.length) {
         throw new Error('refusing to write a verdict file with no documents');
+    }
+    if (!qeSettings || typeof qeSettings !== 'object') {
+        throw new Error('refusing to write a verdict file that does not say which QE Live import settings produced it');
+    }
+    for (const key of QE_SETTING_KEYS) {
+        if (typeof qeSettings[key] !== 'boolean') {
+            throw new Error(`qeSettings.${key} must be a boolean, saw ${JSON.stringify(qeSettings[key])}`);
+        }
     }
     const lines = [
         '-- Lootpath/Data/QEVerdict.lua - written by the Lootpath companion (tools/companion).',
@@ -74,6 +94,9 @@ function render(payload) {
         `    writtenAt = ${luaString(writtenAt)},`,
         `    companionVersion = ${luaString(companionVersion)},`,
         `    profileCapturedAt = ${luaString(profileCapturedAt || '')},`,
+        '    qeSettings = {',
+        ...QE_SETTING_KEYS.map((key) => `        ${key} = ${luaBoolean(qeSettings[key])},`),
+        '    },',
         '    exports = {',
     ];
     for (const doc of documents) {
@@ -94,4 +117,4 @@ function render(payload) {
     return lines.join('\n');
 }
 
-module.exports = { render, luaString, luaNumber, KINDS, SCHEMA_BY_KIND };
+module.exports = { render, luaString, luaNumber, luaBoolean, KINDS, SCHEMA_BY_KIND, QE_SETTING_KEYS };
