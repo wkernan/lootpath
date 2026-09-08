@@ -35,9 +35,11 @@ Lootpath imports that file at load through the same parser a paste goes through
 - same schema pin, same version pin, same refusals, reported the same way.
 `/lootpath refresh` runs the loop from inside the game: it captures your gear,
 bags and vault, then reloads so the companion can read them, and running it
-again once the companion says it is done brings the answer back. The window's
-verdict line then says where what is on screen came from - "pasted", or
-"companion, written 4 minute(s) ago".
+again once the companion says it is done brings the answer back. That second
+refresh is free: the companion fingerprints the profile and skips QE Live when
+nothing about your gear has changed. The window's verdict line then says where
+what is on screen came from - "pasted", or "companion, written 4 minute(s)
+ago".
 
 Both halves are here; the companion itself lives in `tools/companion/` and runs
 on the owner's own machine (it drives QE Live's engine from a local fork, so

@@ -7,6 +7,7 @@
 //   node companion.js --profile-only  build the SimC profile and print it
 //   node companion.js --config <file> use a different config file
 //   node companion.js --out <file>    write the chunk somewhere else (a dry run)
+//   node companion.js --force         run QE Live even if the profile is unchanged
 //
 // The loop it makes possible: /reload, wait, /reload. No /simc, no browser, no
 // paste. It reads Lootpath's own SavedVariables, builds the SimulationCraft
@@ -29,6 +30,7 @@ const profileLib = require('./lib/profile');
 const forkLib = require('./lib/fork');
 const luaWriter = require('./lib/luawriter');
 const output = require('./lib/output');
+const fingerprintLib = require('./lib/fingerprint');
 const { watch } = require('./lib/watch');
 
 const VERSION = require('./package.json').version;
@@ -46,11 +48,12 @@ const EXIT = {
 };
 
 function parseArgs(argv) {
-    const args = { watch: false, profileOnly: false, config: null, out: null };
+    const args = { watch: false, profileOnly: false, force: false, config: null, out: null };
     for (let i = 0; i < argv.length; i++) {
         const arg = argv[i];
         if (arg === '--watch') args.watch = true;
         else if (arg === '--profile-only') args.profileOnly = true;
+        else if (arg === '--force') args.force = true;
         else if (arg === '--config') args.config = argv[++i];
         else if (arg === '--out') args.out = argv[++i];
         else if (arg === '--help' || arg === '-h') args.help = true;
@@ -59,7 +62,13 @@ function parseArgs(argv) {
     return args;
 }
 
-async function once(config, log, args) {
+// `deps` exists for the tests: the fork driver is the one part that opens a
+// browser, so a test that has to prove QE Live was NOT asked hands in its own.
+async function once(config, log, args, deps) {
+    const fork = (deps && deps.fork) || forkLib;
+    // path.resolve, not path.join, so an absolute stateDir (which is what a
+    // test passes) is honoured instead of being glued onto __dirname.
+    const stateDir = path.resolve(__dirname, config.stateDir);
     const found = configLib.findSavedVariables(config);
     if (!found.ok) {
         log.error(found.reason);
@@ -98,12 +107,34 @@ async function once(config, log, args) {
         return EXIT.ok;
     }
 
+    // C-4 (WKE-537). Two reloads is the floor of the loop, so the second one
+    // arrives with the same gear as the first and must not cost another 17 s of
+    // QE Live. The debounce is not the answer and is untouched at its 1500 ms:
+    // two reloads twenty seconds apart really are two writes, and the second has
+    // to be read in case the owner captured between them - it is the PROFILE,
+    // not the write, that decides.
+    const target = args.out || configLib.verdictPath(config);
+    const print = fingerprintLib.fingerprint(profile.text);
+    if (!args.force) {
+        const stored = fingerprintLib.readState(stateDir);
+        if (!stored.ok && !stored.absent) {
+            log.warn(`${stored.reason}; running QE Live rather than assuming the verdict is current`);
+        }
+        const current = stored.ok ? fingerprintLib.isCurrent(stored.state, print.hash, target) : { current: false };
+        if (current.current) {
+            log.info(
+                `profile unchanged since ${current.writtenAt}; the verdict file is current - /reload in game to read it`
+            );
+            return EXIT.ok;
+        }
+    }
+
     done = log.stage('qe live');
     let run;
     try {
-        run = await forkLib.run(config, profile.text, log, {
-            stateDir: path.join(__dirname, config.stateDir),
-            screenshotDir: path.join(__dirname, config.stateDir),
+        run = await fork.run(config, profile.text, log, {
+            stateDir,
+            screenshotDir: stateDir,
         });
     } catch (e) {
         log.error(e.message);
@@ -127,12 +158,12 @@ async function once(config, log, args) {
     }
 
     done = log.stage('write');
-    const target = args.out || configLib.verdictPath(config);
+    // Second precision: `ns.EpochFromISO` (Core.lua) reads
+    // YYYY-MM-DDTHH:MM:SS and the addon's contract spells it that way.
+    const writtenAt = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
     try {
         const text = luaWriter.render({
-            // Second precision: `ns.EpochFromISO` (Core.lua) reads
-            // YYYY-MM-DDTHH:MM:SS and the addon's contract spells it that way.
-            writtenAt: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
+            writtenAt,
             companionVersion: VERSION,
             profileCapturedAt: profile.capturedAtLocal,
             documents: run.documents,
@@ -142,6 +173,14 @@ async function once(config, log, args) {
     } catch (e) {
         log.error(`writing ${target} failed, so the previous verdict is untouched: ${e.message}`);
         return EXIT.write;
+    }
+    // After the write, never before: the fingerprint records what the addon can
+    // actually read. A state file that will not write costs one extra run next
+    // time and nothing else, so it is a warning and not a failed run.
+    try {
+        fingerprintLib.writeState(stateDir, { hash: print.hash, writtenAt, verdict: path.resolve(target) });
+    } catch (e) {
+        log.warn(`could not remember this profile's fingerprint (${e.message}); the next run will repeat the work`);
     }
     log.info('/reload in game to read it');
     return EXIT.ok;
