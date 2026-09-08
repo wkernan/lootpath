@@ -474,6 +474,11 @@ describe("Companion freshness", function()
     end)
 end)
 
+-- C-3 (WKE-536). Before it, `/lootpath refresh` called ReloadUI and nothing
+-- else, so the companion's profile was built from whatever the owner had last
+-- CAPTURED rather than from what they were wearing. These tests are about the
+-- three snapshots and their order; what the companion then does with them is
+-- `tools/companion`'s own suite.
 describe("/lootpath refresh", function()
     local ns, world
 
@@ -485,23 +490,119 @@ describe("/lootpath refresh", function()
         H.unload()
     end)
 
-    it("says what will happen, then reloads", function()
+    -- Records the capture names Refresh asks for, in order, while still
+    -- running the real captures: the module reaches for `ns.RunCapture` at
+    -- call time, which is the only reason this wrapper is reachable.
+    local function recordCaptures()
+        local calls = {}
+        local original = ns.RunCapture
+        ns.RunCapture = function(name, ...)
+            calls[#calls + 1] = name
+            return original(name, ...)
+        end
+        return calls
+    end
+
+    it("captures env, inventory and vault in that order, then reloads once", function()
+        assert.same({ "env", "inventory", "vault" }, ns.Companion.REFRESH_CAPTURES)
+        local calls = recordCaptures()
         assert.equal(0, world.reloads)
         local result = ns.HandleSlash("refresh")
-        assert.equal(1, world.reloads)
         assert.is_nil(result)
+        assert.same({ "env", "inventory", "vault" }, calls)
+        assert.equal(1, #ns.db.global.captures.env)
+        assert.equal(1, #ns.db.global.captures.inventory)
+        assert.equal(1, #ns.db.global.captures.vault)
+        assert.equal(1, world.reloads)
+    end)
+
+    it("hands back the three snapshots it stored", function()
+        local result = ns.Companion.Refresh()
+        assert.is_true(result.ok)
+        assert.is_true(result.reloaded)
+        for _, name in ipairs({ "env", "inventory", "vault" }) do
+            assert.equal(ns.db.global.captures[name][1], result.captured[name])
+            assert.equal(name, result.captured[name].name)
+        end
+    end)
+
+    it("says what it captured, and what is left to do", function()
+        ns.HandleSlash("refresh")
         local output = world.output()
-        assert.is_truthy(output:find("reloading so the companion can read your gear", 1, true))
+        assert.is_truthy(output:find("captured gear, bags, bank (closed), vault", 1, true))
+        assert.is_truthy(output:find("reloading so the companion can read them", 1, true))
         assert.is_truthy(output:find("reload again when it says done", 1, true))
     end)
 
-    it("refuses in combat, because ReloadUI is protected there", function()
+    -- The bank half comes out of the snapshot that was just taken, not from a
+    -- second question to the client: C_Bank.CanViewBank answers true only
+    -- while the bank frame is open (transcript 2026-09-05).
+    it("names the bank open when the bank frame is", function()
+        world.bankOpen = true
+        ns.Companion.Refresh()
+        assert.is_truthy(world.output():find("bank (open)", 1, true))
+        assert.is_true(ns.db.global.captures.inventory[1].data.bank.predicates.CanViewBank.Character[1])
+    end)
+
+    it("names the bank closed when it is not, so a half-scanned run is visible", function()
+        world.bankOpen = false
+        ns.Companion.Refresh()
+        assert.is_truthy(world.output():find("bank (closed)", 1, true))
+        assert.is_false(ns.db.global.captures.inventory[1].data.bank.predicates.CanViewBank.Character[1])
+    end)
+
+    it("refuses in combat, because ReloadUI is protected there and the captures refuse too", function()
         world.inCombat = true
         local result = ns.Companion.Refresh()
         assert.is_false(result.ok)
         assert.equal("combat", result.reason)
         assert.equal(0, world.reloads)
+        assert.is_nil(ns.db.global.captures.env)
+        assert.is_nil(ns.db.global.captures.inventory)
+        assert.is_nil(ns.db.global.captures.vault)
         assert.is_truthy(world.output():find("does nothing in combat", 1, true))
+    end)
+
+    -- An asynchronous capture that never calls back leaves ns.runningCapture
+    -- set, which is exactly what `capture journal` looks like mid-walk. A
+    -- stalled capture is registered here rather than seeding the whole
+    -- Encounter Journal, because what is under test is RunCapture's refusal
+    -- reaching the chat frame and stopping the reload, not the walk.
+    it("does not reload when another capture is running, and repeats the refusal", function()
+        ns.RegisterCapture("stalled", "test-only: never calls back", function() end, { async = true })
+        assert.is_true(ns.RunCapture("stalled").pending)
+        local result = ns.Companion.Refresh()
+        assert.is_false(result.ok)
+        assert.equal("env", result.capture)
+        assert.equal("capture 'stalled' is still running", result.reason)
+        assert.equal(0, world.reloads)
+        assert.is_nil(ns.db.global.captures.env)
+        local output = world.output()
+        assert.is_truthy(output:find("/lootpath refresh stopped: capture 'env' refused:", 1, true))
+        assert.is_truthy(output:find("capture 'stalled' is still running", 1, true))
+    end)
+
+    -- The client always has ReloadUI; a client that did not would otherwise
+    -- get three snapshots it can never flush.
+    it("captures nothing when the client cannot reload", function()
+        _G.ReloadUI = nil
+        local result = ns.Companion.Refresh()
+        assert.is_false(result.ok)
+        assert.equal("this client has no ReloadUI", result.reason)
+        assert.is_nil(ns.db.global.captures.env)
+    end)
+
+    -- `journal` is asynchronous, the SimC profile reads none of it, and a
+    -- reload mid-walk would abandon it.
+    it("never walks the journal and never touches the loot map's cache", function()
+        ns.db.global.journalCache.sentinel = { built = true }
+        local calls = recordCaptures()
+        ns.Companion.Refresh()
+        for _, name in ipairs(calls) do
+            assert.not_equal("journal", name)
+        end
+        assert.is_nil(ns.db.global.captures.journal)
+        assert.same({ built = true }, ns.db.global.journalCache.sentinel)
     end)
 
     it("is listed in /lootpath help", function()

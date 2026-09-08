@@ -356,35 +356,87 @@ function Companion.Startup(now)
     return result
 end
 
--- `/lootpath refresh` - the loop from inside the game, in one word. It flushes
--- SavedVariables so the companion can read this character's gear, and the
--- second /lootpath refresh, once the companion says it is done, loads the file
--- it wrote. There is no third step: the startup import above is the rest. Two
+-- `/lootpath refresh` - the loop from inside the game, in one word. It takes
+-- the three snapshots the companion's profile is built from, then flushes
+-- SavedVariables by reloading so the companion can read them; the second
+-- `/lootpath refresh`, once the companion says it is done, loads the file it
+-- wrote. There is no third step: the startup import above is the rest. Two
 -- reloads is the floor and is said out loud rather than hidden (decision
 -- 2026-09-07).
 --
--- Out of combat only. ReloadUI is protected in combat, and the standing rule
--- is that nothing Lootpath does runs in combat anyway.
-Companion.REFRESH_LINES = {
-    "reloading so the companion can read your gear; reload again when it says done.",
-    "(that second /lootpath refresh is all that is left - the file it writes is imported as the game comes back.)",
-}
-Companion.REFRESH_COMBAT_REASON =
-    "/lootpath refresh does nothing in combat: reloading is blocked there. Try again once the fight is over."
+-- The captures are C-3's (WKE-536). Before them, refresh reloaded and nothing
+-- else, so `tools/companion/lib/simc-profile.js` built its profile from
+-- whatever the owner had last CAPTURED - on 2026-09-07 that was the 09-05
+-- Guardian-spec snapshot, and the companion valued a set the character had not
+-- worn in two days. Nothing else in the addon writes gear to SavedVariables,
+-- and the companion cannot make the client read anything, so the capture has
+-- to happen here (decision 2026-09-08).
+--
+-- Out of combat only. ReloadUI is protected in combat, the captures refuse
+-- there too, and the standing rule is that nothing Lootpath does runs in
+-- combat anyway.
+--
+-- `journal` is deliberately not in this list: it is the one asynchronous
+-- capture (it waits on EJ_LOOT_DATA_RECIEVED, 434-869 ms in the committed
+-- walks), the SimC profile reads none of it, and a reload while it is running
+-- would abandon it. The loot map's own cache (`db.global.journalCache`) is
+-- untouched by a refresh.
+Companion.REFRESH_CAPTURES = { "env", "inventory", "vault" }
+
+Companion.REFRESH_CAPTURED_LINE = "captured %s - reloading so the companion can read them."
+Companion.REFRESH_SECOND_LINE = "reload again when it says done; that second /lootpath refresh is all that is "
+    .. "left - the file it writes is imported as the game comes back."
+Companion.REFRESH_REFUSED_LINE = "/lootpath refresh stopped: capture '%s' refused: %s. Not reloading."
+Companion.REFRESH_COMBAT_REASON = "/lootpath refresh does nothing in combat: reloading is blocked there, and so "
+    .. "are the captures. Try again once the fight is over."
+Companion.REFRESH_NO_RELOAD_REASON = "this client has no ReloadUI"
+
+-- What the three snapshots hold, in the owner's words rather than the capture
+-- names. The bank half is read back out of the snapshot that was just taken -
+-- `C_Bank.CanViewBank` for the character's own bank, which the 2026-09-05
+-- transcript showed answers true only while the bank frame is open - rather
+-- than asking the client a second time: the capture is the one reader, and a
+-- second read could disagree with the snapshot the companion will get.
+function Companion.RefreshSummary(snapshots)
+    local bank = "closed"
+    local inventory = type(snapshots) == "table" and snapshots.inventory or nil
+    local data = type(inventory) == "table" and type(inventory.data) == "table" and inventory.data or nil
+    local bankData = data and type(data.bank) == "table" and data.bank or nil
+    local predicates = bankData and type(bankData.predicates) == "table" and bankData.predicates or nil
+    local canView = predicates and type(predicates.CanViewBank) == "table" and predicates.CanViewBank or nil
+    local character = canView and type(canView.Character) == "table" and canView.Character or nil
+    if character and ns.Safe(character[1]) == true then
+        bank = "open"
+    end
+    return string.format("gear, bags, bank (%s), vault", bank)
+end
 
 function Companion.Refresh()
     if InCombatLockdown() then
         ns.Log("%s", Companion.REFRESH_COMBAT_REASON)
         return { ok = false, reason = "combat" }
     end
-    for _, line in ipairs(Companion.REFRESH_LINES) do
-        ns.Log("%s", line)
-    end
+    -- Checked before anything is captured: three snapshots the owner cannot
+    -- flush are three snapshots written for nothing.
     if type(ReloadUI) ~= "function" then
-        return { ok = false, reason = "this client has no ReloadUI" }
+        ns.Log("%s", Companion.REFRESH_NO_RELOAD_REASON)
+        return { ok = false, reason = Companion.REFRESH_NO_RELOAD_REASON }
     end
+    local snapshots = {}
+    for _, name in ipairs(Companion.REFRESH_CAPTURES) do
+        local result = ns.RunCapture(name)
+        local ok = type(result) == "table" and result.ok == true
+        if not ok then
+            local reason = (type(result) == "table" and result.reason) or "no result"
+            ns.Log(Companion.REFRESH_REFUSED_LINE, name, tostring(reason))
+            return { ok = false, reason = reason, capture = name, captured = snapshots }
+        end
+        snapshots[name] = result.snapshot
+    end
+    ns.Log(Companion.REFRESH_CAPTURED_LINE, Companion.RefreshSummary(snapshots))
+    ns.Log("%s", Companion.REFRESH_SECOND_LINE)
     ReloadUI()
-    return { ok = true, reloaded = true }
+    return { ok = true, reloaded = true, captured = snapshots }
 end
 
 ns.onReady[#ns.onReady + 1] = function()

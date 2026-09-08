@@ -27,21 +27,24 @@ panels read. Nothing equips in combat.
 Values shown are QE Live's, for items it has ranked. Other drops are listed by
 item level only.
 
-### The companion path (half built)
+### The companion path
 
 There is a second way in, for the owner's own machine: a local companion
 program writes QE Live's exports into `Lootpath/Data/QEVerdict.lua`, and
 Lootpath imports that file at load through the same parser a paste goes through
 - same schema pin, same version pin, same refusals, reported the same way.
-`/lootpath refresh` runs the loop from inside the game: it reloads so the
-companion can read your gear, and reloading again once the companion says it is
-done brings the answer back. The window's verdict line then says where what is
-on screen came from - "pasted", or "companion, written 4 minute(s) ago".
+`/lootpath refresh` runs the loop from inside the game: it captures your gear,
+bags and vault, then reloads so the companion can read them, and running it
+again once the companion says it is done brings the answer back. The window's
+verdict line then says where what is on screen came from - "pasted", or
+"companion, written 4 minute(s) ago".
 
-The addon half is here; the companion itself is not written yet, so the
-committed `Data/QEVerdict.lua` is a placeholder that sets nothing and the paste
-box is the path that works today. `.\tools\sync.ps1` leaves an existing
-`Data\QEVerdict.lua` in the game alone unless you pass `-IncludeData`.
+Both halves are here; the companion itself lives in `tools/companion/` and runs
+on the owner's own machine (it drives QE Live's engine from a local fork, so
+read its README before running it anywhere else). The committed
+`Data/QEVerdict.lua` is a placeholder that sets nothing until a companion run
+overwrites it, and `.\tools\sync.ps1` leaves an existing `Data\QEVerdict.lua`
+in the game alone unless you pass `-IncludeData`.
 
 ## Requirements
 
@@ -62,8 +65,8 @@ Everything is documented in `docs/ARCHITECTURE.md`; the working rules are in
 ```
 
 In game: `/lootpath` opens the frame, `/lootpath options` the settings page,
-`/lootpath help` lists every command, and `/lootpath refresh` reloads for the
-companion (see above). Captures:
+`/lootpath help` lists every command, and `/lootpath refresh` captures gear,
+bags and vault and reloads for the companion (see above). Captures:
 `/lootpath capture env|inventory|vault|journal`, then `/reload` and
 `.\tools\sync.ps1 -Pull`. `journal` runs asynchronously (it waits on the
 Encounter Journal's loot events) and reports when it finishes; it takes an
