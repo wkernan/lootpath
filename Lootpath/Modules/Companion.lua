@@ -220,13 +220,20 @@ function Companion.ImportAll(raw, now)
     }
     for index = 1, #file.exports do
         local entry = Companion.Entry(file.exports[index], index)
+        -- The same parser the editbox calls - whichever of the two that is -
+        -- so every schema, version and gameType refusal applies here word for
+        -- word. Entry has already refused a schema neither importer owns, so
+        -- the nil branch below is reachable only if the two ever drift apart:
+        -- it says so rather than indexing nil.
+        local importer = entry.ok and Companion.ImporterFor(entry.schema) or nil
         if not entry.ok then
             result.skipped[#result.skipped + 1] = { index = index, reason = entry.reason }
+        elseif not importer then
+            result.skipped[#result.skipped + 1] = {
+                index = index,
+                reason = string.format("export %d has no importer for schema %s", index, shown(entry.schema)),
+            }
         else
-            -- The same parser the editbox calls - whichever of the two that
-            -- is - so every schema, version and gameType refusal applies here
-            -- word for word.
-            local importer = Companion.ImporterFor(entry.schema)
             local parsed = importer.Parse(entry.json)
             if not parsed.ok then
                 result.skipped[#result.skipped + 1] = { index = index, reason = parsed.reason }

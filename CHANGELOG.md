@@ -29,6 +29,12 @@
   show nothing, and are counted with a line saying so. A zero reads "no change"
   rather than a direction QE Live did not give, `hpsGain` never reaches a row,
   and a pending row is never joined because its level is unknown, not wrong.
+- **The companion's Upgrade Finder documents are read, not refused.** C-2 left
+  `ns.Companion` refusing a `qe-live-upgradefinder` entry by name; it now picks
+  the importer by schema and calls only `Parse`, `ContentTypeKey`,
+  `ForContentType` and `Store` on it, so the staleness check compares like with
+  like - a Top Gear import is never made stale by an Upgrade Finder one for the
+  same content type - and the chat line names the kind, as the window does.
 
 ### C-2 (WKE-534) - the addon side of the local companion
 
