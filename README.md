@@ -6,8 +6,9 @@ to equip now, where each slot's upgrade drops, and which Great Vault option to
 take. **Lootpath never computes a healer value**: every healing number on
 screen is QE Live's, transported unchanged from its Top Gear JSON export.
 
-Status: the Equip Now panel works (M2-2). The Upgrade Map and Vault panels are
-still to come. See `CHANGELOG.md`.
+Status: all three panels work - Equip Now (M2-2), the Upgrade Map and the Vault
+(M3-3, and the Vault against a real week's rewards in M3-7). See
+`CHANGELOG.md`.
 
 ## The round trip
 

@@ -19,6 +19,10 @@
 --   ns.companionVerdict = {
 --       writtenAt = "2026-09-08T14:05:11Z",   -- ISO 8601 UTC, when the companion wrote this file
 --       companionVersion = "0.1.0",           -- whatever wrote it, for a refusal message
+--       qeSettings = {                        -- which of QE Live's import settings this run asked for (C-5)
+--           autoUpgradeVault = false,
+--           autoUpgradeAll = false,
+--       },
 --       exports = {
 --           {
 --               schema = "qe-live-droptimizer",  -- QE Live's own schema string
