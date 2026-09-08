@@ -52,6 +52,16 @@ async function importSimc(page, simc) {
   const box = page.locator('#simcentry');
   await box.waitFor({ state: 'visible', timeout: 10000 });
   await box.fill(simc);
+  // SimCraftDialog.js checkboxes, in JSX order: autoUpgradeAll (default off),
+  // autoUpgradeVault (default ON), autoCatalyze (off). --no-vault-upgrade
+  // unchecks the second so vault options are valued at the level the client
+  // reports, like owned gear, instead of at their assumed upgrade.
+  if (flags.includes('--no-vault-upgrade')) {
+    const vaultBox = page.getByRole('checkbox').nth(1);
+    if (await vaultBox.isChecked()) await vaultBox.click();
+    if (await vaultBox.isChecked()) throw new Error('could not uncheck autoUpgradeVault');
+    console.log('  autoUpgradeVault: unchecked');
+  }
   await page.getByRole('button', { name: 'Submit' }).click();
   // The dialog closes on success; #SimCError carries the reason otherwise.
   await Promise.race([

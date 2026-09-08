@@ -291,3 +291,15 @@ three as missing and omits their lines rather than writing them empty.
 * The vault section is written from the `vault` capture's `rewardLinks` and is
   **untested** - no committed snapshot has ever carried a generated reward. The
   first one arrives with WKE-523's after-reset capture.
+
+## `--no-vault-upgrade` (added 2026-09-08, WKE-539)
+
+QE Live's import dialog defaults to `autoUpgradeVault = true` and
+`autoUpgradeAll = false` (`SimCraftDialog.js` lines 36-37), so a vault option is
+valued at its assumed max upgrade while owned gear is valued as-is. The flag
+unchecks the vault box before Submit. Measured on the companion's profile of
+2026-09-08 12:45: with the default, the vault's Lightgrasp Worldroot (client
+305) sat in the top set at 321; with the flag, no vault option entered the top
+set and that weapon was an alternative 0.5681% / -1983 HPS behind the worn 308
+copy (Dungeon; Raid 0.5471% / -1905). The companion adopts explicit settings in
+WKE-539.
