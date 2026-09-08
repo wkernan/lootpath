@@ -21,6 +21,14 @@ its job is to load the file this program wrote. `journal` is never part of a
 refresh: it is asynchronous, the profile reads none of it, and the loot map's
 own cache is untouched.
 
+**A refresh with unchanged gear costs nothing.** Since C-4 (WKE-537) the
+companion fingerprints the profile it is about to ask QE Live about, remembers
+the fingerprint of the last verdict it actually wrote, and skips the run when
+the two agree and that file is still there - so the second refresh of the loop
+logs one line instead of spending another 17 s in the browser. The stamps in the
+profile's header are stripped before hashing, so capturing the same gear again
+is not a new question. `--force` runs anyway.
+
 This is the Raider.IO pattern - their desktop client writes score databases into
 the addon folder the same way - and it is the one exception to Lootpath's
 "everything external arrives by paste" rule (decision 2026-09-07,
@@ -75,6 +83,7 @@ configured clone and waits for it.
 | `--profile-only` | build the SimC profile and print it; touches no browser |
 | `--config <file>` | use a different config file |
 | `--out <file>` | write the chunk somewhere else (a dry run) |
+| `--force` | run QE Live even when the profile is unchanged |
 
 ### Exit codes
 
@@ -102,7 +111,7 @@ the defaults, which are the owner's machine. Every key is optional.
 | `includeBank` | `true` | bank items only reach the profile if the bank was open when the capture ran |
 | `startFork` | `true` | |
 | `headed` | `false` | show the browser when a selector stops matching |
-| `stateDir` | `.state` | the browser profile, so the welcome dialog is answered once |
+| `stateDir` | `.state` | the browser profile (so the welcome dialog is answered once) and `last-profile.json`, the fingerprint of the last verdict written |
 | `forkStartTimeoutSeconds` | `180` | |
 | `debounceMs` | `1500` | quiet time after a SavedVariables write before reading it |
 
@@ -119,6 +128,7 @@ the defaults, which are the owner's machine. Every key is optional.
 | `lib/luawriter.js` | renders `Data/QEVerdict.lua`; its escaper is the whole safety story |
 | `lib/output.js` | temp file, then rename, so the client never reads half a file |
 | `lib/watch.js` | one run per `/reload`, never one per byte written |
+| `lib/fingerprint.js` | is this the profile QE Live was already asked about? (C-4) |
 
 ## What the addon gets
 
@@ -182,6 +192,17 @@ until WKE-535's reader exists (Upgrade Finder).
   the three, and reads it from any line.
 - **Top Gear's item cap is 30** for a non-patron, so a large bag plus bank is
   trimmed to the first 30 candidates by the fork itself.
+- **The debounce is not what stops the second run, and never was.** It is still
+  1500 ms and only keeps the companion from reading a file the client is halfway
+  through writing. Two reloads twenty seconds apart really are two writes, and
+  the second must be READ - the owner may have opened the bank and captured
+  between them - so it is the profile that decides whether QE Live is asked, not
+  the write. Skipping is decided on the profile the fork would be handed, not on
+  the SavedVariables: anything the profile does not carry cannot change QE Live's
+  answer, and anything it does carry does.
+- **Forgetting costs a run; it never skips one.** A missing, unreadable or
+  half-written `.state/last-profile.json` runs QE Live and says why, and the
+  fingerprint is stored only after the verdict file is safely written.
 
 ## Tests
 
@@ -189,9 +210,11 @@ until WKE-535's reader exists (Upgrade Finder).
 npm test        # node --test, no install needed for the pure parts
 ```
 
-60 tests over the reader, the profile builder, the config, the writer and the
-watcher. The profile builder is measured against the owner's own `/simc` string
-(`spec/fixtures/simc/hotornot-20260907.txt`) and against a committed generated
-profile; the writer's golden is loaded by a real Lua interpreter in
+74 tests over the reader, the profile builder, the config, the writer, the
+watcher and the fingerprint. The profile builder is measured against the owner's
+own `/simc` string (`spec/fixtures/simc/hotornot-20260907.txt`) and against a
+committed generated profile; the writer's golden is loaded by a real Lua interpreter in
 `spec/companionfile_spec.lua`. The fork driver is not mocked: it is proven by a
-recorded run, whose figures are in the pull request.
+recorded run, whose figures are in the pull request. C-4's guards drive the real
+`once()` over a fake game folder in the OS temp directory with an injected fork
+driver, so no browser opens and nothing is written near the real game folder.
