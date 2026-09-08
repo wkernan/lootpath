@@ -314,6 +314,54 @@ describe("QEImport.Parse over the genuine Dungeon export with comparison items",
     end)
 end)
 
+describe("QEImport.Parse over the companion's export with a vault option in the top set", function()
+    -- qe-droptimizer-Hotornot-uliwcyoomcub.json: written by the companion on
+    -- 2026-09-08 from the after-reset captures, contentType Dungeon. The vault
+    -- offered Lightgrasp Worldroot (251935, bonus IDs 6652/12841); QE Live put
+    -- it in the top set. Every value here was read from the file.
+    local VAULT_PATH = "spec/fixtures/qe/qe-droptimizer-Hotornot-uliwcyoomcub.json"
+    local ns, result
+
+    before_each(function()
+        ns = H.load()
+        result = ns.QEImport.Parse(readFile(VAULT_PATH))
+        assert.is_true(result.ok, result.reason)
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("surfaces the vault option QE Live chose, keyed the way the client's own link keys it", function()
+        local v = result.verdict
+        assert.equal("Dungeon", v.contentType)
+        assert.equal("2026-09-08T17:45:38.291Z", v.exportedAt)
+        assert.equal(5647.977, v.topSet.score)
+        assert.equal(15, #v.topSet.order)
+        assert.equal(12, #v.alternatives)
+        local key = ns.ItemKey(251935, { 6652, 12841 })
+        assert.equal("251935:6652:12841", key)
+        assert.equal(1, countKeys(v.vault))
+        local option = v.vault[key]
+        assert.is_not_nil(option)
+        assert.is_true(option.isVault)
+        assert.equal("2H Weapon", option.slot)
+        -- QE Live's level for the option, not the client's 305 (ARCHITECTURE.md 9, 2026-09-08).
+        assert.equal(321, option.level)
+        assert.equal(option, v.topSet.items[key])
+    end)
+
+    it("marks nothing else in the top set as a vault option", function()
+        local count = 0
+        for _, key in ipairs(result.verdict.topSet.order) do
+            if result.verdict.topSet.items[key].isVault then
+                count = count + 1
+            end
+        end
+        assert.equal(1, count)
+    end)
+end)
+
 describe("QEImport item identity and robustness", function()
     local ns
 
