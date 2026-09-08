@@ -413,7 +413,7 @@ end)
 local HELP = {
     "/lootpath - open the frame: paste QE Live's Top Gear JSON, then Equip Now",
     "/lootpath options - the settings page (which content type's verdict to show)",
-    "/lootpath refresh - reload so the companion can read your gear, and read what it wrote",
+    "/lootpath refresh - capture gear, bags and vault, then reload for the companion (and read what it wrote)",
     "/lootpath capture <name> - record raw client returns; then /reload and run tools\\sync.ps1 -Pull",
     "/lootpath capture - list the capture commands",
     "/lootpath capture wipe - clear every stored capture",

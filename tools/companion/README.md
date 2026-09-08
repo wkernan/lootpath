@@ -5,10 +5,21 @@ in it. It reads Lootpath's SavedVariables, builds the SimulationCraft profile
 from them, runs QE Live's engine in the owner's local fork, and writes one file
 back into the addon folder.
 
-**The loop it makes possible is `/reload`, wait, `/reload`.** No `/simc`, no
-alt-tab, no paste. That is the floor and this README says so rather than hiding
-it: SavedVariables reach disk only on `/reload` or logout, and the client reads
-addon files only at load, so two reloads is the fewest a companion can need.
+**The loop it makes possible is `/lootpath refresh`, wait, `/lootpath refresh`.**
+No `/simc`, no alt-tab, no paste. That is the floor and this README says so
+rather than hiding it: SavedVariables reach disk only on `/reload` or logout,
+and the client reads addon files only at load, so two reloads is the fewest a
+companion can need.
+
+**The first refresh is the one that feeds this program.** Since C-3 (WKE-536)
+`/lootpath refresh` takes the three snapshots the profile is built from - `env`,
+`inventory` and `vault`, in that order - and only then reloads, so what reaches
+disk is the gear the character is wearing right now rather than whatever was
+last captured by hand. Open the bank first if you want the bank half; the chat
+line says which you got. The second refresh takes them again, harmlessly, and
+its job is to load the file this program wrote. `journal` is never part of a
+refresh: it is asynchronous, the profile reads none of it, and the loot map's
+own cache is untouched.
 
 This is the Raider.IO pattern - their desktop client writes score databases into
 the addon folder the same way - and it is the one exception to Lootpath's
