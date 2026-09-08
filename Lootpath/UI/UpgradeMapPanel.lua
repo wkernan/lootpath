@@ -397,6 +397,10 @@ function Panel.Model(opts)
         -- (WKE-530 finding 3).
         note = Panel.NOTE,
         previewMythicPlusLevel = previewLevel,
+        upgradeKeyLevel = opts.upgradeKeyLevel,
+        upgradeKeyPick = opts.upgradeKeyPick,
+        upgradeKeyNote = upgrades and ns.UFImport.KeyLevelNote(opts.upgradeKeyLevel, opts.upgradeKeyPick, previewLevel)
+            or nil,
         hasMap = false,
         hasVerdict = verdict ~= nil,
         hasUpgrades = upgrades ~= nil,
@@ -552,6 +556,11 @@ function Panel.Lines(model)
     end
     if not model.hasVerdict then
         add("No QE Live import yet, so no drop carries a value. Paste a Top Gear export to change that.")
+    end
+    -- Which Mythic+ key the Upgrade Finder numbers on these rows were run at
+    -- (C-7). Above the rows, never on them: it is true of every one of them.
+    if model.upgradeKeyNote then
+        add(model.upgradeKeyNote)
     end
     for _, section in ipairs(model.slots) do
         add(section.slot)
@@ -788,6 +797,10 @@ function Panel.RunModel(opts)
         sort = sort,
         sortLabel = Panel.SORT_LABEL[sort],
         previewMythicPlusLevel = previewLevel,
+        upgradeKeyLevel = opts.upgradeKeyLevel,
+        upgradeKeyPick = opts.upgradeKeyPick,
+        upgradeKeyNote = upgrades and ns.UFImport.KeyLevelNote(opts.upgradeKeyLevel, opts.upgradeKeyPick, previewLevel)
+            or nil,
         hasMap = false,
         hasVerdict = opts.verdict ~= nil,
         hasUpgrades = upgrades ~= nil,
@@ -941,6 +954,13 @@ function Panel.RunLines(model)
     if model.keyLevelNote then
         add(model.keyLevelNote)
     end
+    -- The walk's key level is one thing; the key QE LIVE was run at is another,
+    -- and since C-7 they can differ (the addon files an Upgrade Finder verdict
+    -- per key level and picks the closest it has). Both are said, in that
+    -- order, rather than one standing for the other.
+    if model.upgradeKeyNote then
+        add(model.upgradeKeyNote)
+    end
     for _, run in ipairs(model.runs) do
         add(run.text)
         for _, row in ipairs(run.upgrades) do
@@ -994,11 +1014,19 @@ end
 -- Raid Upgrade Finder export can never end up on one row without the window
 -- saying so. The direct call is the fallback for a panel built without the
 -- window around it, exactly as activeVerdict above.
-local function activeUpgrades()
+--
+-- `keyLevel` is the Mythic+ level the loot map previews. Since C-7 (WKE-543)
+-- the companion asks QE Live about several key levels and the addon files one
+-- verdict per level, so the panel asks for the level its own rows are about;
+-- ns.UI.ActiveUpgradeFinder answers with the level it actually found and why,
+-- and Model turns that into the line under the header.
+local function activeUpgrades(keyLevel)
     if ns.UI and ns.UI.ActiveUpgradeFinder then
-        return (ns.UI.ActiveUpgradeFinder())
+        local verdict, _, _, level, how = ns.UI.ActiveUpgradeFinder(keyLevel)
+        return verdict, level, how
     end
-    return ns.UFImport.Current()
+    local contentType = ns.UFImport.ContentTypeKey(ns.UFImport.Current())
+    return ns.UFImport.PickForLevel(contentType, keyLevel)
 end
 
 -- The newest journal walk the addon has stored. `capture journal` is the only
@@ -1027,12 +1055,21 @@ function Panel.Gather(opts)
         sources, summary = ns.Journal:Build({ snapshot = snapshot, db = opts.db })
     end
     local inventory = ns.Inventory.Scan()
+    -- The walk's own preview level decides WHICH Upgrade Finder verdict is
+    -- read (C-7): a map whose Mythic+ rows are previewed at +10 asks QE Live's
+    -- +10 run about them. The level is the walk's, never one invented here, so
+    -- a walk that recorded none asks for none and takes the fallback.
+    local previewLevel = opts.previewMythicPlusLevel
+        or (type(summary) == "table" and summary.ok and summary.previewMythicPlusLevel or nil)
+    local upgrades, upgradeKeyLevel, upgradeKeyPick = activeUpgrades(previewLevel)
     return {
         sources = sources,
         summary = type(summary) == "table" and summary.ok and summary or nil,
         inventory = inventory.ok and inventory or nil,
         verdict = activeVerdict(),
-        upgrades = activeUpgrades(),
+        upgrades = upgrades,
+        upgradeKeyLevel = upgradeKeyLevel,
+        upgradeKeyPick = upgradeKeyPick,
         difficultyIDs = opts.difficultyIDs,
         inCombat = inventory.ok ~= true and inventory.reason == "combat" or nil,
     }

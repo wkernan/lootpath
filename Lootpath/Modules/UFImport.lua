@@ -344,6 +344,62 @@ function UFImport.ContentTypeKey(verdict)
     return stringOrNil(verdict.contentType) or ns.QEImport.UNKNOWN_CONTENT_TYPE
 end
 
+-- ---------------------------------------------------------------------------
+-- Mythic+ key levels (C-7, WKE-543).
+--
+-- QE Live's Upgrade Finder values every dungeon drop at ONE key level: the one
+-- his `ufSettings.dungeon` names. So "which dungeon at the lowest key level
+-- still gives me an upgrade" is not a question one export can answer, and the
+-- companion asks him once per level instead (tools/companion, decision
+-- 2026-09-08). Each document it writes says which key level it was run at, and
+-- this module files it under that level.
+--
+-- THE ADDON NEVER CONVERTS ONE OF HIS NUMBERS INTO ANOTHER. In particular it
+-- never turns `settings.dungeon` into a key level: that field is an INDEX into
+-- his MPLUS_KEY_REWARDS table (index 7 is the "+10" button, whose rows come
+-- back at 311 / 321 / 334), and the index -> level mapping is his data, read
+-- off his own selector labels by the companion and carried here as a number.
+-- WKE-543 asked for the addon to derive the level from `settings.dungeon`; it
+-- cannot without restating his table, so an export that does not say its key
+-- level is filed as not saying, and the panel says so out loud.
+UFImport.UNKNOWN_KEY_LEVEL = "unknown"
+
+-- The key level a stored verdict was run at, or nil when it does not say. Only
+-- a whole, non-negative NUMBER counts, and the string "10" is not one: this is
+-- what decides the shelf a verdict is filed on, and a value that had to be
+-- converted first is a value nobody wrote deliberately. The one door a key
+-- level comes through is ns.Companion.Entry, which already insists on a number
+-- through ns.Safe; this is the same rule read back.
+--
+-- KeyLevelKey below is the lenient one on purpose: it normalises what a CALLER
+-- asks for, and a caller asking about key "10" means key 10.
+function UFImport.KeyLevelOf(verdict)
+    if type(verdict) ~= "table" or type(verdict.keyLevel) ~= "number" then
+        return nil
+    end
+    local level = verdict.keyLevel
+    if level < 0 or level % 1 ~= 0 then
+        return nil
+    end
+    return level
+end
+
+-- The table key a level is filed under: the number itself, or the sentinel for
+-- a verdict that does not say. Numbers and the sentinel never collide, which is
+-- why the sentinel is a string.
+function UFImport.KeyLevelKey(keyLevel)
+    local level = tonumber(keyLevel)
+    if not level or level < 0 or level % 1 ~= 0 then
+        return UFImport.UNKNOWN_KEY_LEVEL
+    end
+    return level
+end
+
+-- Why the verdict on screen is the one on screen, for the line the panel draws.
+UFImport.PICK_WANTED = "wanted"
+UFImport.PICK_HIGHEST = "highest"
+UFImport.PICK_UNRECORDED = "unrecorded"
+
 function UFImport.Store(verdict)
     if type(verdict) ~= "table" then
         return { ok = false, reason = "no verdict to store" }
@@ -352,9 +408,17 @@ function UFImport.Store(verdict)
         return { ok = false, reason = "database not loaded yet" }
     end
     verdict.importedAt = time()
+    local contentType = UFImport.ContentTypeKey(verdict)
     ns.db.char.ufImport = verdict
     ns.db.char.ufImports = ns.db.char.ufImports or {}
-    ns.db.char.ufImports[UFImport.ContentTypeKey(verdict)] = verdict
+    ns.db.char.ufImports[contentType] = verdict
+    -- The by-level shelf, added by C-7. `ufImports` above is untouched and
+    -- still holds the most recent verdict for the content type, so everything
+    -- written before this existed keeps reading what it always read.
+    ns.db.char.ufImportsByLevel = ns.db.char.ufImportsByLevel or {}
+    local byLevel = ns.db.char.ufImportsByLevel[contentType] or {}
+    ns.db.char.ufImportsByLevel[contentType] = byLevel
+    byLevel[UFImport.KeyLevelKey(UFImport.KeyLevelOf(verdict))] = verdict
     return { ok = true, verdict = verdict }
 end
 
@@ -368,6 +432,118 @@ function UFImport.ForContentType(contentType)
     end
     local byType = ns.db and ns.db.char and ns.db.char.ufImports
     return byType and byType[contentType] or nil
+end
+
+-- The verdict for one content type at one key level, or nil. `keyLevel` nil
+-- asks for the shelf a verdict that does not say its level was filed on, which
+-- is a real question and not the same as "any level".
+function UFImport.ForContentTypeAndLevel(contentType, keyLevel)
+    if type(contentType) ~= "string" then
+        return nil
+    end
+    local byType = ns.db and ns.db.char and ns.db.char.ufImportsByLevel
+    local byLevel = byType and byType[contentType]
+    return byLevel and byLevel[UFImport.KeyLevelKey(keyLevel)] or nil
+end
+
+-- The key levels this character has stored for a content type, ascending, and
+-- whether one of them says nothing about its level. Sorted here rather than at
+-- every call site, because "the highest key asked about" is the fallback and it
+-- has to mean the same thing everywhere.
+function UFImport.StoredKeyLevels(contentType)
+    local levels, unrecorded = {}, false
+    if type(contentType) ~= "string" then
+        return levels, unrecorded
+    end
+    local byType = ns.db and ns.db.char and ns.db.char.ufImportsByLevel
+    local byLevel = byType and byType[contentType]
+    if type(byLevel) ~= "table" then
+        return levels, unrecorded
+    end
+    for key, verdict in pairs(byLevel) do
+        if verdict ~= nil then
+            if type(key) == "number" then
+                levels[#levels + 1] = key
+            else
+                unrecorded = true
+            end
+        end
+    end
+    table.sort(levels)
+    return levels, unrecorded
+end
+
+-- Which stored Upgrade Finder verdict answers for `wantedLevel`.
+--   the one at that exact key level, when it is stored;
+--   else the highest key level stored, because a higher key is the answer the
+--   owner is most likely to have asked for and never a level made up here;
+--   else a verdict that does not say its level at all - a paste, or a file
+--   written before C-7.
+-- Returns verdict, keyLevel (nil when it does not say), how.
+function UFImport.PickForLevel(contentType, wantedLevel)
+    local want = tonumber(wantedLevel)
+    if want then
+        local exact = UFImport.ForContentTypeAndLevel(contentType, want)
+        if exact then
+            return exact, UFImport.KeyLevelOf(exact) or want, UFImport.PICK_WANTED
+        end
+    end
+    local levels, unrecorded = UFImport.StoredKeyLevels(contentType)
+    if #levels > 0 then
+        local highest = levels[#levels]
+        local verdict = UFImport.ForContentTypeAndLevel(contentType, highest)
+        if verdict then
+            return verdict, highest, UFImport.PICK_HIGHEST
+        end
+    end
+    if unrecorded then
+        local verdict = UFImport.ForContentTypeAndLevel(contentType, nil)
+        if verdict then
+            return verdict, nil, UFImport.PICK_UNRECORDED
+        end
+    end
+    -- SavedVariables written before the by-level shelf existed: the verdict is
+    -- there, it simply never said which key it was run at.
+    local legacy = UFImport.ForContentType(contentType)
+    if legacy then
+        return legacy, UFImport.KeyLevelOf(legacy), UFImport.PICK_UNRECORDED
+    end
+    return nil
+end
+
+-- The sentence the panel puts under its header, so a reader is never shown a
+-- +2 answer while thinking about their +10 key. One place, because the Upgrade
+-- Map and the window's own note have to say the same thing.
+function UFImport.KeyLevelNote(keyLevel, how, wantedLevel)
+    if how == UFImport.PICK_WANTED then
+        return string.format("QE Live ran these numbers on a +%d key, the level the loot map previews.", keyLevel)
+    end
+    if how == UFImport.PICK_HIGHEST then
+        if tonumber(wantedLevel) then
+            return string.format(
+                "QE Live has no +%d run stored, so these numbers are its +%d run - the highest key it was asked about.",
+                wantedLevel,
+                keyLevel
+            )
+        end
+        return string.format("QE Live ran these numbers on a +%d key, the highest it was asked about.", keyLevel)
+    end
+    if how == UFImport.PICK_UNRECORDED then
+        return "This Upgrade Finder export does not say which Mythic+ key level QE Live ran it on."
+    end
+    return nil
+end
+
+-- The stored verdict this one would replace: the same content type AND the same
+-- key level, never merely the same content type. A companion file now carries
+-- one Upgrade Finder document per key level, and treating the +4 document as a
+-- repeat of the +2 one would throw four answers away and keep one.
+--
+-- ns.Companion calls this on whichever importer owns the schema, so the two
+-- importers answer "what does this replace" in their own terms without
+-- Companion.lua reaching into either shape.
+function UFImport.Existing(verdict)
+    return UFImport.ForContentTypeAndLevel(UFImport.ContentTypeKey(verdict), UFImport.KeyLevelOf(verdict))
 end
 
 function UFImport.StoredContentTypes()

@@ -8,6 +8,7 @@
     { "kind": "topgear", "contentType": "Raid" },
     { "kind": "upgradefinder", "contentType": "Raid" }
   ],
+  "upgradeFinderKeyLevels": [2, 4, 6, 8, 10],
   "includeBank": true,
   "qeAutoUpgradeVault": false,
   "qeAutoUpgradeAll": false,

@@ -24,6 +24,13 @@ ns.companionVerdict = {
         },
         {
             schema = "qe-live-upgradefinder",
+            contentType = "Dungeon",
+            keyLevel = 10,
+            bytes = 46,
+            json = "{\"schema\":\"qe-live-upgradefinder\",\"version\":1}",
+        },
+        {
+            schema = "qe-live-upgradefinder",
             contentType = "Raid",
             bytes = 128,
             json = "quote \" backslash \\ close ]] and ]==] newline \n return \r tab \t nul \000 del \127 accented é lua os.execute(\"calc\") end return {} --[[",

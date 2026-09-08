@@ -204,7 +204,10 @@ test('the state file names the hash, the stamp it wrote and the file it wrote', 
     assert.match(state.hash, /^[0-9a-f]{64}$/);
     assert.match(state.writtenAt, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
     assert.strictEqual(path.resolve(state.verdict), path.resolve(h.verdict));
-    assert.strictEqual(state.hash, fingerprintLib.fingerprint(h.fork.calls[0], configLib.qeSettings(h.config)).hash);
+    assert.strictEqual(
+        state.hash,
+        fingerprintLib.fingerprint(h.fork.calls[0], configLib.qeSettings(h.config), h.config.upgradeFinderKeyLevels).hash
+    );
     // The stamp the state file remembers is the one the addon reads out of the
     // chunk, so the skip line quotes a time the owner can check against it.
     assert.ok(fs.readFileSync(h.verdict, 'utf8').includes('writtenAt = "' + state.writtenAt + '"'));
@@ -330,4 +333,36 @@ test('a state file with no hash in it is not trusted', () => {
     assert.strictEqual(read.ok, false);
     assert.strictEqual(read.absent, undefined);
     assert.match(read.reason, /carries no hash and verdict path/);
+});
+
+// --- C-7 (WKE-543): the key levels are half the question too ----------------
+
+test('adding or dropping a Mythic+ key level costs a run, because it is a new question', async () => {
+    const h = harness();
+    assert.strictEqual(await h.run(), companion.EXIT.ok);
+    assert.strictEqual(h.fork.calls.length, 1);
+
+    // Not a byte of gear moved; the companion is simply being asked about one
+    // more key. QE Live has never answered for it, so it has to be asked.
+    h.config.upgradeFinderKeyLevels = [2, 4, 6, 8, 10, 0];
+    h.lines.length = 0;
+    assert.strictEqual(await h.run(), companion.EXIT.ok);
+    assert.strictEqual(h.fork.calls.length, 2, 'a new key level must reach QE Live');
+
+    // And back again: the same list is the same question, whatever order it
+    // was typed in, so this one is skipped.
+    h.config.upgradeFinderKeyLevels = [0, 2, 4, 6, 8, 10];
+    h.lines.length = 0;
+    assert.strictEqual(await h.run(), companion.EXIT.ok);
+    assert.strictEqual(h.fork.calls.length, 2, 'the same levels in another order are not a new question');
+    assert.ok(h.said('profile unchanged since '), h.lines.join(' | '));
+});
+
+test('the key levels are hashed as one canonical line, next to the import settings', () => {
+    const settings = { autoUpgradeVault: false, autoUpgradeAll: false };
+    const print = fingerprintLib.fingerprint('druid="Hotornot"', settings, [2, 10]);
+    assert.strictEqual(print.keyLevelsLine, '# upgradeFinderKeyLevels 2,10');
+    assert.strictEqual(fingerprintLib.keyLevelsLine([]), '# upgradeFinderKeyLevels none');
+    assert.notStrictEqual(print.hash, fingerprintLib.fingerprint('druid="Hotornot"', settings, [2, 4]).hash);
+    assert.strictEqual(print.hash, fingerprintLib.fingerprint('druid="Hotornot"', settings, [2, 10]).hash);
 });

@@ -67,6 +67,26 @@ const KINDS = new Set(Object.keys(SCHEMA_BY_KIND));
 // so the file carries it.
 const QE_SETTING_KEYS = ['autoUpgradeVault', 'autoUpgradeAll'];
 
+// The Mythic+ key level an Upgrade Finder document was run at (WKE-543, C-7),
+// written as the number a player says out loud rather than QE Live's
+// `settings.dungeon`, which is an index into his own table. The addon files
+// each Upgrade Finder verdict under (contentType, keyLevel) and never converts
+// one to the other: the level is his page's answer, carried like every other
+// number in this file.
+//
+// A Top Gear document never carries one, and neither does an Upgrade Finder
+// document the driver ran without touching the selector.
+function keyLevelOf(doc) {
+    if (doc.keyLevel === undefined || doc.keyLevel === null) return null;
+    if (!Number.isInteger(doc.keyLevel) || doc.keyLevel < 0) {
+        throw new Error(`document ${doc.kind}/${doc.contentType} carries keyLevel ${JSON.stringify(doc.keyLevel)}, which is not a whole key level`);
+    }
+    if (doc.kind !== 'upgradefinder') {
+        throw new Error(`document ${doc.kind}/${doc.contentType} carries a keyLevel, and only an Upgrade Finder document is run at a key level`);
+    }
+    return doc.keyLevel;
+}
+
 function render(payload) {
     const { writtenAt, companionVersion, profileCapturedAt, documents, qeSettings } = payload;
     if (!Array.isArray(documents) || !documents.length) {
@@ -104,10 +124,10 @@ function render(payload) {
         if (typeof doc.json !== 'string' || !doc.json.length) {
             throw new Error(`document ${doc.kind}/${doc.contentType} carries no JSON text`);
         }
+        const keyLevel = keyLevelOf(doc);
+        lines.push('        {', `            schema = ${luaString(SCHEMA_BY_KIND[doc.kind])},`, `            contentType = ${luaString(doc.contentType)},`);
+        if (keyLevel !== null) lines.push(`            keyLevel = ${luaNumber(keyLevel)},`);
         lines.push(
-            '        {',
-            `            schema = ${luaString(SCHEMA_BY_KIND[doc.kind])},`,
-            `            contentType = ${luaString(doc.contentType)},`,
             `            bytes = ${luaNumber(Buffer.byteLength(doc.json, 'utf8'))},`,
             `            json = ${luaString(doc.json)},`,
             '        },'
@@ -117,4 +137,4 @@ function render(payload) {
     return lines.join('\n');
 }
 
-module.exports = { render, luaString, luaNumber, luaBoolean, KINDS, SCHEMA_BY_KIND, QE_SETTING_KEYS };
+module.exports = { render, luaString, luaNumber, luaBoolean, keyLevelOf, KINDS, SCHEMA_BY_KIND, QE_SETTING_KEYS };

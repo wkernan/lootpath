@@ -111,6 +111,19 @@ local function shown(value)
     return "a " .. kind
 end
 
+-- The Mythic+ key level an Upgrade Finder document was run at (C-7, WKE-543).
+-- Optional: a Top Gear document never has one, and neither does a file written
+-- before C-7 or the committed placeholder. Whole and non-negative or nothing -
+-- half a key level is not a key level, and the addon would rather file a
+-- document as "does not say" than under a number it made up.
+local function safeKeyLevel(value)
+    local safe, sawSecret = ns.Safe(value)
+    if sawSecret or type(safe) ~= "number" or safe < 0 or safe % 1 ~= 0 then
+        return nil
+    end
+    return safe
+end
+
 -- Which of QE Live's own import settings produced the exports in the file
 -- (C-5, WKE-539: the companion sets both checkboxes explicitly and records what
 -- it asked for). Optional: a file written before C-5, and the committed
@@ -206,7 +219,13 @@ function Companion.Entry(raw, index)
             Companion.UPGRADE_FINDER_SCHEMA
         )
     end
-    return { ok = true, schema = schema, contentType = safeString(safe.contentType), json = json }
+    return {
+        ok = true,
+        schema = schema,
+        contentType = safeString(safe.contentType),
+        keyLevel = safeKeyLevel(safe.keyLevel),
+        json = json,
+    }
 end
 
 -- When the stored verdict for a content type was written or pasted, in epoch
@@ -265,12 +284,27 @@ function Companion.ImportAll(raw, now)
                 result.skipped[#result.skipped + 1] = { index = index, reason = parsed.reason }
             else
                 local verdict = parsed.verdict
+                -- Set BEFORE anything asks what this verdict replaces: since
+                -- C-7 an Upgrade Finder verdict is identified by content type
+                -- AND key level, so a verdict that does not yet carry its level
+                -- would be compared against the wrong shelf and every document
+                -- after the first would be imported again on every /reload.
+                -- The number is the companion's report of which button it
+                -- clicked on QE Live's own key selector; nothing here derives
+                -- it from the export.
+                verdict.keyLevel = entry.keyLevel
                 local contentType = importer.ContentTypeKey(verdict)
                 -- The counterpart of the SAME kind, never the other kind's:
                 -- a Top Gear import and an Upgrade Finder import for one
                 -- content type are two different answers and neither is stale
                 -- because of the other.
-                local existing = importer.ForContentType(contentType)
+                -- Since C-7 a companion file carries one Upgrade Finder
+                -- document per key level, so "what does this replace" is the
+                -- importer's question and not this file's: asking by content
+                -- type alone would let the +4 document look like a repeat of
+                -- the +2 one, and four of five answers would be dropped as
+                -- unchanged.
+                local existing = importer.Existing(verdict)
                 local existingAt = storedAt(existing)
                 if existing and existing.companionWrittenAt == file.writtenAt then
                     -- The same file, read again on the next /reload. Nothing
@@ -306,6 +340,7 @@ function Companion.ImportAll(raw, now)
                         result.imported[#result.imported + 1] = {
                             schema = entry.schema,
                             contentType = contentType,
+                            keyLevel = entry.keyLevel,
                             spec = verdict.spec,
                             items = count,
                             noun = noun,
@@ -366,10 +401,11 @@ function Companion.Startup(now)
     end
     for _, entry in ipairs(result.imported) do
         ns.Log(
-            "companion import: %s, %s, %s, %d %s, written %s.",
+            "companion import: %s, %s, %s%s, %d %s, written %s.",
             ns.UI.KIND_LABEL[Companion.KIND_OF[entry.schema]] or entry.schema,
             entry.spec or "unknown spec",
             entry.contentType,
+            entry.keyLevel and string.format(" +%d", entry.keyLevel) or "",
             entry.items,
             entry.noun or "items",
             ns.UI.AgeText(result.writtenAt, now)

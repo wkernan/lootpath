@@ -118,7 +118,9 @@ async function once(config, log, args, deps) {
     // fingerprint: the same gear with `autoUpgradeVault` flipped is a different
     // answer out of QE Live and has to cost a run.
     const wanted = configLib.qeSettings(config);
-    const print = fingerprintLib.fingerprint(profile.text, wanted);
+    // C-7 (WKE-543). The key levels the Upgrade Finder is asked about are the
+    // other half of the question, so they are the other half of the print.
+    const print = fingerprintLib.fingerprint(profile.text, wanted, config.upgradeFinderKeyLevels);
     if (!args.force) {
         const stored = fingerprintLib.readState(stateDir);
         if (!stored.ok && !stored.absent) {
@@ -133,6 +135,11 @@ async function once(config, log, args, deps) {
         }
     }
 
+    const plan = configLib.plannedDocuments(config);
+    log.info(
+        `Mythic+ key levels: ${config.upgradeFinderKeyLevels.map((level) => '+' + level).join(', ')}` +
+            ` - ${plan.length} documents, one Upgrade Finder run per key level (QE Live values dungeon drops at one key at a time)`
+    );
     log.info(
         `QE Live import settings: autoUpgradeVault=${wanted.autoUpgradeVault}, autoUpgradeAll=${wanted.autoUpgradeAll}` +
             (wanted.autoUpgradeVault === wanted.autoUpgradeAll

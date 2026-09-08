@@ -1114,8 +1114,14 @@ describe("the Upgrade Map tab with an Upgrade Finder export", function()
     end)
 
     it("goes back to a values-free map the moment the import is gone", function()
+        -- Three shelves since C-7 (WKE-543): the most recent import, the one
+        -- per content type, and the one per content type AND Mythic+ key
+        -- level. The panel reads the last of them, so clearing the first two
+        -- and stopping would leave the map valued from a shelf nobody looked
+        -- at - which is exactly what this guard is here to catch.
         ns.db.char.ufImport = nil
         ns.db.char.ufImports = {}
+        ns.db.char.ufImportsByLevel = {}
         frame.tabs[2]:Click()
         assert.is_false(panel.model.hasUpgrades)
         assert.equal(0, panel.model.counts.ranked)

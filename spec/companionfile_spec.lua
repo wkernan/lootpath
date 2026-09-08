@@ -46,7 +46,7 @@ describe("the companion's Data/QEVerdict.lua", function()
         assert.are.equal("2026-09-08T00:00:00Z", file.writtenAt)
         assert.are.equal("0.1.0", file.companionVersion)
         assert.are.equal("2026-09-05T13:33:25", file.profileCapturedAt)
-        assert.are.equal(2, #file.exports)
+        assert.are.equal(3, #file.exports)
     end)
 
     -- C-5 (WKE-539): the file says which of QE Live's own import settings
@@ -68,16 +68,31 @@ describe("the companion's Data/QEVerdict.lua", function()
         assert.are.equal("Dungeon", documents[1].contentType)
         assert.are.equal('{"schema":"qe-live-droptimizer","version":1}', documents[1].json)
         assert.are.equal("qe-live-upgradefinder", documents[2].schema)
-        assert.are.equal("Raid", documents[2].contentType)
+        assert.are.equal("Dungeon", documents[2].contentType)
+        assert.are.equal("qe-live-upgradefinder", documents[3].schema)
+        assert.are.equal("Raid", documents[3].contentType)
+    end)
+
+    -- C-7 (WKE-543): an Upgrade Finder document says which Mythic+ key level QE
+    -- Live ran it at, because his engine values dungeon drops at exactly one
+    -- key and the addon files each answer under the level it was asked at. It
+    -- has to arrive as a Lua NUMBER: the string "10" would key a different
+    -- shelf from the number 10 and quietly split one content type in two.
+    it("says which Mythic+ key level an Upgrade Finder document was run at", function()
+        local documents = load().companionVerdict.exports
+        assert.is_nil(documents[1].keyLevel, "a Top Gear document is not run at a key level")
+        assert.are.equal(10, documents[2].keyLevel)
+        assert.are.equal("number", type(documents[2].keyLevel))
+        assert.is_nil(documents[3].keyLevel, "a document that was not run at a key level must not claim one")
     end)
 
     it("round-trips every byte that could have ended the literal early", function()
         local documents = load().companionVerdict.exports
-        assert.are.equal(HOSTILE, documents[2].json)
+        assert.are.equal(HOSTILE, documents[3].json)
         -- Length is asserted separately, because an escape that silently ate a
         -- byte would still compare equal to a matching mistake above.
-        assert.are.equal(#HOSTILE, #documents[2].json)
-        assert.are.equal(#HOSTILE, documents[2].bytes)
+        assert.are.equal(#HOSTILE, #documents[3].json)
+        assert.are.equal(#HOSTILE, documents[3].bytes)
     end)
 
     it("is inert: loading it twice touches nothing but the namespace it is given", function()
