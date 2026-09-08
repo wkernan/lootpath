@@ -74,11 +74,34 @@ function stripVolatile(profileText) {
     return { kept, dropped };
 }
 
-function fingerprint(profileText) {
+// The profile is not the whole question any more (WKE-539, C-5): the same gear
+// asked about with `autoUpgradeVault` on and with it off gets two different
+// answers out of QE Live, so the settings are hashed with it. Flipping one is a
+// new question and has to cost a run, which is the point.
+//
+// They go in as one canonical line, keys sorted, so the hash cannot move
+// because an object was built in a different order.
+function settingsLine(qeSettings) {
+    const settings = qeSettings || {};
+    return (
+        '# qeSettings ' +
+        Object.keys(settings)
+            .sort()
+            .map((key) => `${key}=${settings[key] ? 'true' : 'false'}`)
+            .join(' ')
+    );
+}
+
+function fingerprint(profileText, qeSettings) {
     const { kept, dropped } = stripVolatile(profileText);
+    const line = settingsLine(qeSettings);
     return {
-        hash: crypto.createHash('sha256').update(kept.join('\n'), 'utf8').digest('hex'),
+        hash: crypto
+            .createHash('sha256')
+            .update(kept.concat([line]).join('\n'), 'utf8')
+            .digest('hex'),
         dropped,
+        settingsLine: line,
     };
 }
 
@@ -131,7 +154,7 @@ function writeState(stateDir, state) {
 // the remembered verdict is the file this run would write, and that file is
 // still there. The second is what keeps `--out <somewhere else>` honest.
 function isCurrent(state, hash, target) {
-    if (!state || state.hash !== hash) return { current: false, reason: 'the profile changed' };
+    if (!state || state.hash !== hash) return { current: false, reason: 'the profile or the QE Live settings changed' };
     if (path.resolve(String(state.verdict)) !== path.resolve(target)) {
         return { current: false, reason: `the last verdict went to ${state.verdict}, not ${target}` };
     }
@@ -139,4 +162,4 @@ function isCurrent(state, hash, target) {
     return { current: true, writtenAt: state.writtenAt };
 }
 
-module.exports = { fingerprint, stripVolatile, readState, writeState, statePath, isCurrent, VOLATILE_LINES, STATE_FILE };
+module.exports = { fingerprint, settingsLine, stripVolatile, readState, writeState, statePath, isCurrent, VOLATILE_LINES, STATE_FILE };

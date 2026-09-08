@@ -89,14 +89,90 @@ async function dismissWelcome(page, className) {
     return true;
 }
 
+// The three import checkboxes, by the label each one is rendered with.
+//
+// SimCraftDialog.js lines 122-133, read 2026-09-08. The issue that asked for
+// this expected the labels to come from `locale/en/translate.json`'s
+// `SimCInput.*` keys; they do not - that block holds five keys, none of them a
+// checkbox, and all three labels are plain JSX string literals
+// (`label="Upgrade ALL to Max Level"`). So these ARE the strings in his source,
+// and they are matched exactly rather than looked up.
+//
+// They are still better than the index the S-1 spike used: the vault and
+// catalyze boxes render only for `gameType === "Retail"`, so on any other game
+// type index 1 is a different box, while a label that is not on the page is a
+// named failure.
+const CHECKBOX_LABELS = {
+    autoUpgradeAll: 'Upgrade ALL to Max Level',
+    autoUpgradeVault: 'Upgrade Vault to Max Level',
+    autoCatalyze: 'Auto Catalyze',
+};
+
+// Ask for both upgrade settings explicitly, every run (WKE-539, C-5).
+//
+// His dialog defaults are `autoUpgradeVault = true` / `autoUpgradeAll = false`
+// (SimCraftDialog.js lines 36-37), which values a vault option at the top of
+// its upgrade track and owned gear at the level the client reports. Submitting
+// without touching them inherits that asymmetry, and on 2026-09-08 it told the
+// owner to take a 305 vault weapon they already wear at 308 (§9). Whatever the
+// configured pair is, it is set here rather than assumed.
+//
+// `autoCatalyze` is deliberately absent from `wanted`: the Catalyst is
+// WKE-540's scenarios, and a box nobody asked about is left exactly as QE Live
+// rendered it.
+async function setUpgradeCheckboxes(page, wanted, log) {
+    const applied = {};
+    for (const key of Object.keys(CHECKBOX_LABELS)) {
+        if (!(key in wanted)) continue;
+        const label = CHECKBOX_LABELS[key];
+        const want = !!wanted[key];
+        const box = page.getByRole('checkbox', { name: label, exact: true });
+        if (!(await box.count())) {
+            throw new ForkError(
+                `QE Live's import dialog has no checkbox labelled "${label}" (SimCraftDialog.js); the companion will not guess at which box is ${key}`,
+                DRIVE
+            );
+        }
+        const before = await box.isChecked();
+        if (before !== want) await box.click();
+        const after = await box.isChecked();
+        if (after !== want) {
+            throw new ForkError(`clicking "${label}" did not take: it is ${after}, and the run asked for ${want}`, DRIVE);
+        }
+        applied[key] = { want: want, was: before, clicked: before !== want };
+    }
+    if (log) {
+        log.info(
+            '  import settings: ' +
+                Object.keys(applied)
+                    .map((k) => `${k}=${applied[k].want}${applied[k].clicked ? ' (clicked)' : ''}`)
+                    .join(', ')
+        );
+    }
+    return applied;
+}
+
+// The two booleans the verdict file records, out of the detail the step above
+// keeps for the log. `want` and not `wanted` on purpose: it is only ever set
+// after `isChecked` agreed with it, so this is what the page reported, not what
+// the run asked for.
+function settingsFrom(applied) {
+    const settings = {};
+    for (const key of Object.keys(applied || {})) settings[key] = !!applied[key].want;
+    return settings;
+}
+
 // SetupAndMenus/SimCraftDialog.js: the header control is a styled MUI button
 // whose accessible name does not resolve as "Import Gear"; its visible text
 // does. #SimCError carries the reason when he refuses.
-async function importProfile(page, text) {
+async function importProfile(page, text, wanted, log) {
     await page.getByText(/import gear/i).first().click();
     const box = page.locator('#simcentry');
     await box.waitFor({ state: 'visible', timeout: 10000 });
     await box.fill(text);
+    // Before Submit: `runSimC` is handed the checkbox STATE, so a box set after
+    // the click would change nothing (SimCraftDialog.js handleSubmit).
+    const settings = await setUpgradeCheckboxes(page, wanted, log);
     await page.getByRole('button', { name: 'Submit' }).click();
     await Promise.race([
         box.waitFor({ state: 'hidden', timeout: 20000 }),
@@ -108,6 +184,7 @@ async function importProfile(page, text) {
                 throw new ForkError('QE Live refused the profile: ' + (await page.locator('#SimCError').innerText()), REFUSED);
             }),
     ]);
+    return settings;
 }
 
 // In-app navigation, so React state survives; the app is served under /live/
@@ -208,6 +285,9 @@ async function runUpgradeFinder(page) {
 // failure: nothing here writes a file.
 async function run(config, profileText, log, options) {
     const opts = options || {};
+    // The pair this run asks QE Live for. `autoCatalyze` is not in it, so it is
+    // left where his dialog put it.
+    const wanted = { autoUpgradeAll: !!config.qeAutoUpgradeAll, autoUpgradeVault: !!config.qeAutoUpgradeVault };
     let chromium;
     try {
         ({ chromium } = require('playwright'));
@@ -226,6 +306,9 @@ async function run(config, profileText, log, options) {
     page.setDefaultTimeout(20000);
     const documents = [];
     const timings = [];
+    // What was actually asked for, read back off the page, so the verdict file
+    // records the run rather than the intention.
+    let qeSettings = null;
     try {
         let done = log.stage('  page load');
         // The CRA dev server holds a hot-reload socket open, so "networkidle"
@@ -240,7 +323,7 @@ async function run(config, profileText, log, options) {
         timings.push([`welcome dialog: ${welcomeNote}`, done(welcomeNote)]);
 
         done = log.stage('  profile import');
-        await importProfile(page, profileText);
+        qeSettings = settingsFrom(await importProfile(page, profileText, wanted, log));
         timings.push(['profile import', done()]);
 
         let content = null;
@@ -266,7 +349,7 @@ async function run(config, profileText, log, options) {
     } finally {
         await context.close().catch(() => {});
     }
-    return { documents, timings };
+    return { documents, timings, qeSettings };
 }
 
-module.exports = { run, ensureUp, isUp, ForkError, UNREACHABLE, REFUSED, DRIVE };
+module.exports = { run, ensureUp, isUp, setUpgradeCheckboxes, settingsFrom, importProfile, CHECKBOX_LABELS, ForkError, UNREACHABLE, REFUSED, DRIVE };

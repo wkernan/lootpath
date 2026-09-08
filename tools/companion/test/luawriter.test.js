@@ -9,7 +9,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 
-const { render, luaString, luaNumber } = require('../lib/luawriter');
+const { render, luaString, luaNumber, luaBoolean } = require('../lib/luawriter');
 
 const GOLDEN = path.join(__dirname, '..', '..', '..', 'spec', 'fixtures', 'expected', 'qeverdict-sample.lua');
 
@@ -46,9 +46,59 @@ test('refuses a number the client could not read back', () => {
 });
 
 test('refuses to render nothing, so a failed run never blanks a good verdict', () => {
-    assert.throws(() => render({ documents: [] }), /no documents/);
-    assert.throws(() => render({ documents: [{ kind: 'topgear', contentType: 'Dungeon', json: '' }] }), /no JSON text/);
-    assert.throws(() => render({ documents: [{ kind: 'sideways', contentType: 'Dungeon', json: '{}' }] }), /unknown document kind/);
+    const settings = { autoUpgradeVault: false, autoUpgradeAll: false };
+    assert.throws(() => render({ documents: [], qeSettings: settings }), /no documents/);
+    assert.throws(
+        () => render({ documents: [{ kind: 'topgear', contentType: 'Dungeon', json: '' }], qeSettings: settings }),
+        /no JSON text/
+    );
+    assert.throws(
+        () => render({ documents: [{ kind: 'sideways', contentType: 'Dungeon', json: '{}' }], qeSettings: settings }),
+        /unknown document kind/
+    );
+});
+
+// C-5 (WKE-539). The verdict is only readable next to the settings that
+// produced it - a vault option QE Live values at 321 while the client reads the
+// same link at 305 is not a contradiction once the file says which question was
+// asked - so a file that does not say is not written at all.
+test('writes the QE Live import settings the run asked for, as Lua booleans', () => {
+    const text = render({
+        writtenAt: '2026-09-08T00:00:00Z',
+        companionVersion: '0.1.0',
+        profileCapturedAt: '2026-09-05T13:33:25',
+        qeSettings: { autoUpgradeVault: true, autoUpgradeAll: false },
+        documents: [{ kind: 'topgear', contentType: 'Dungeon', json: '{}' }],
+    });
+    assert.ok(
+        text.includes(
+            ['    qeSettings = {', '        autoUpgradeVault = true,', '        autoUpgradeAll = false,', '    },', ''].join('\n')
+        ),
+        text
+    );
+    // Next to writtenAt, ahead of the exports, so the setting is readable
+    // before the 120 KB of JSON rather than after it.
+    assert.ok(text.indexOf('qeSettings = {') > text.indexOf('writtenAt = '));
+    assert.ok(text.indexOf('qeSettings = {') < text.indexOf('exports = {'));
+});
+
+test('refuses to write a verdict that does not say which settings produced it', () => {
+    const payload = {
+        writtenAt: '2026-09-08T00:00:00Z',
+        companionVersion: '0.1.0',
+        documents: [{ kind: 'topgear', contentType: 'Dungeon', json: '{}' }],
+    };
+    assert.throws(() => render(payload), /which QE Live import settings/);
+    assert.throws(() => render({ ...payload, qeSettings: { autoUpgradeVault: false } }), /autoUpgradeAll must be a boolean/);
+    assert.throws(
+        () => render({ ...payload, qeSettings: { autoUpgradeVault: 'false', autoUpgradeAll: false } }),
+        /autoUpgradeVault must be a boolean/
+    );
+    // "false" the string would be truthy in Lua, which is exactly the mistake
+    // a boolean check has to catch.
+    assert.strictEqual(luaBoolean(false), 'false');
+    assert.throws(() => luaBoolean('false'), /non-boolean/);
+    assert.throws(() => luaBoolean(0), /non-boolean/);
 });
 
 test('the chunk declares one table and calls nothing', () => {
@@ -56,6 +106,7 @@ test('the chunk declares one table and calls nothing', () => {
         writtenAt: '2026-09-08T00:00:00Z',
         companionVersion: '0.1.0',
         profileCapturedAt: '2026-09-05T13:33:25',
+        qeSettings: { autoUpgradeVault: false, autoUpgradeAll: false },
         documents: [{ kind: 'topgear', contentType: 'Dungeon', json: '{"schema":"qe-live-droptimizer"}' }],
     });
     const code = text
@@ -74,6 +125,7 @@ test('renders the committed golden byte for byte', () => {
         writtenAt: '2026-09-08T00:00:00Z',
         companionVersion: '0.1.0',
         profileCapturedAt: '2026-09-05T13:33:25',
+        qeSettings: { autoUpgradeVault: false, autoUpgradeAll: false },
         documents: [
             { kind: 'topgear', contentType: 'Dungeon', json: '{"schema":"qe-live-droptimizer","version":1}' },
             { kind: 'upgradefinder', contentType: 'Raid', json: HOSTILE },
