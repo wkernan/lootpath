@@ -385,7 +385,7 @@ end
 -- It read "Mythic+" here until 2026-09-06 (M2-2), a string no export can carry;
 -- "Dungeon" is QE Live's name for the Mythic+ side.
 ns.DB_DEFAULTS = {
-    char = { qeImports = {} },
+    char = { qeImports = {}, ufImports = {} },
     global = { journalCache = {}, captures = {} },
     profile = { settings = { contentType = "Dungeon" } },
 }

@@ -3,13 +3,18 @@
 -- drops a candidate, at what item level, from the Encounter Journal walk.
 --
 -- THE RULE THIS FILE EXISTS TO KEEP (decision 2026-09-05, option A):
--- QE Live's Upgrade Finder - the module that values drops you do not own - has
--- no export. Only Top Gear exports, and Top Gear ranks what you own plus your
--- vault. So this panel is VALUES-FREE: a candidate shows a number only where
--- the Top Gear verdict covers that exact item key, and every other candidate
--- shows where it drops and at what item level and nothing about how good it is.
--- `row.value` is nil unless `row.qe` is, and there is no other path to a number
--- in this file. If a gap tempts you to estimate, stop.
+-- a candidate shows a number only where QE Live has ranked THAT EXACT ITEM, and
+-- every other candidate shows where it drops and at what item level and nothing
+-- about how good it is. There are now exactly two paths to a number here, and
+-- both are QE Live's own, transported unchanged:
+--   `row.value`   - the Top Gear verdict covers this item KEY (itemID + bonus
+--                   IDs). That is the vault and the gear you own.
+--   `row.upgradeValue` - an Upgrade Finder export (M3-6, WKE-535) ranks this
+--                   itemID AT THIS ITEM LEVEL. That is the drop you do not own.
+-- `row.value` is nil unless `row.qe` is, `row.upgradeValue` is nil unless
+-- `row.upgrade` is, and there is no third path. A row QE Live ranked at ANOTHER
+-- item level gets no number at all - it is counted, not estimated. If a gap
+-- tempts you to estimate, stop.
 --
 -- Measured 2026-09-06, and it is why the values-free half is the normal case:
 -- every keyed row of the committed journal walk carries exactly ONE bonus ID
@@ -37,6 +42,14 @@ Panel.NOTE = "Values shown are QE Live's, for items it has ranked. Other drops a
 Panel.PENDING_NOTE = "%d drops are not identified yet: their item data had not arrived. Unknown, not item level 0."
 
 Panel.EMPTY_NOTE = "No loot map yet. Run /lootpath capture journal out of combat to walk the Adventure Guide."
+
+-- An Upgrade Finder export values a drop at the item level ITS OWN settings
+-- assume - key level 7 in the 2026-09-07 export, 311/321/334 - while the walk
+-- lists whatever level the Adventure Guide previews. When those disagree the
+-- row keeps its level and shows no number, and this line says how often that
+-- happened, so the owner can see the disagreement rather than wonder why an
+-- import changed nothing (ARCHITECTURE.md 11).
+Panel.LEVEL_MISMATCH_NOTE = "%d drops are ranked by QE Live at another item level, so they show no value."
 
 -- The Adventure Guide lists cosmetic and quest drops beside real loot, and
 -- C_Item.GetDetailedItemLevelInfo answers 1 for them: measured over the
@@ -195,6 +208,35 @@ function Panel.ValueText(coverage)
     return string.format("QE Live: %s by %.2f%%", direction, math.abs(percent))
 end
 
+-- The line an Upgrade-Finder-ranked row shows. QE Live's percentage, his sign,
+-- his magnitude; the direction word is read from ns.UFImport.IsUpgrade rather
+-- than from arithmetic here, because his two exports disagree about what a
+-- positive number means and this is the file that could get it backwards.
+--
+-- `hpsGain` is NOT shown. It is carried in the model because it is his number,
+-- but the Upgrade Finder's own report offers percent or HPS as alternative
+-- metrics and the panel picks the one that needs no explanation. See
+-- ARCHITECTURE.md 9 for what hpsGain actually is - unlike Top Gear's
+-- TopGearEngineShared arithmetic, UpgradeFinderEngine DOES scale it by the
+-- player's modelled HPS - and it is the owner's call whether it reaches a row.
+function Panel.UpgradeText(entry)
+    if type(entry) ~= "table" then
+        return nil
+    end
+    local percent = tonumber(entry.upgradePercent)
+    if not percent then
+        return "QE Live: ranked, no value given"
+    end
+    if percent == 0 then
+        -- 94 of the 357 drops in the 2026-09-07 Dungeon export sit here. "No
+        -- change" is what his zero says; "worse by 0.00%" would be this panel
+        -- inventing a direction he did not give.
+        return "QE Live: no change"
+    end
+    local direction = ns.UFImport.IsUpgrade(entry) and "better" or "worse"
+    return string.format("QE Live: %s by %.2f%%", direction, math.abs(percent))
+end
+
 local function sourceLabel(entry)
     local instance = entry.instanceName or ("Instance " .. tostring(entry.instanceID))
     if entry.encounterName then
@@ -266,13 +308,15 @@ end
 -- opts.sources     ns.Journal:Build's map (required for candidates)
 -- opts.summary     its summary (previewMythicPlusLevel is read from here)
 -- opts.inventory   ns.Inventory.Scan's result
--- opts.verdict     ns.QEImport.Current()
+-- opts.verdict     ns.QEImport.Current()      (Top Gear)
+-- opts.upgrades    ns.UFImport.Current()       (Upgrade Finder, M3-6)
 -- opts.difficultyIDs  show only these difficulties (nil or empty = all)
 function Panel.Model(opts)
     opts = opts or {}
     local sources = opts.sources or {}
     local summary = opts.summary or {}
     local verdict = opts.verdict
+    local upgrades = opts.upgrades
     local previewLevel = opts.previewMythicPlusLevel or summary.previewMythicPlusLevel
 
     local wanted
@@ -283,6 +327,10 @@ function Panel.Model(opts)
 
     local owned = ownedByItemID(opts.inventory)
     local bySlot, pendingRows, hiddenBySlot = {}, {}, {}
+    -- itemID -> { itemID, itemLevel, rankedLevels, rows }, for drops the
+    -- Upgrade Finder ranked at some OTHER item level. Deduplicated, so the list
+    -- is one entry per drop and counts.rankedAtAnotherLevel is one per row.
+    local mismatches, mismatchOrder = {}, {}
     local difficultyCounts = {}
     local model = {
         -- The model keeps the pinned note so a headless test can read it; the
@@ -292,10 +340,20 @@ function Panel.Model(opts)
         previewMythicPlusLevel = previewLevel,
         hasMap = false,
         hasVerdict = verdict ~= nil,
+        hasUpgrades = upgrades ~= nil,
         slots = {},
         difficulties = {},
         pending = { count = 0, rows = pendingRows },
-        counts = { candidates = 0, covered = 0, owned = 0, slots = 0, hiddenLevelOne = 0 },
+        upgradeLevelMismatches = {},
+        counts = {
+            candidates = 0,
+            covered = 0,
+            owned = 0,
+            slots = 0,
+            hiddenLevelOne = 0,
+            ranked = 0,
+            rankedAtAnotherLevel = 0,
+        },
     }
 
     local itemIDs = {}
@@ -349,6 +407,37 @@ function Panel.Model(opts)
                 -- `value` is nil whenever `qe` is.
                 row.qe = entry.itemKey and ns.QEImport.Coverage(verdict, entry.itemKey) or nil
                 row.value = row.qe and Panel.ValueText(row.qe) or nil
+                -- The second path, and the only one that reaches a drop the
+                -- character does not own: the Upgrade Finder export ranks this
+                -- itemID AT THIS ITEM LEVEL. A row with no item level (pending)
+                -- is never joined, because there is nothing to join on - the
+                -- level is unknown, not wrong.
+                if upgrades and row.itemLevel then
+                    local ranked = ns.UFImport.Lookup(upgrades, row.itemID, row.itemLevel)
+                    if ranked then
+                        row.upgrade = ranked
+                        row.upgradeValue = Panel.UpgradeText(ranked)
+                        model.counts.ranked = model.counts.ranked + 1
+                    else
+                        local levels = ns.UFImport.LevelsFor(upgrades, row.itemID)
+                        if levels and #levels > 0 then
+                            row.rankedAtAnotherLevel = levels
+                            model.counts.rankedAtAnotherLevel = model.counts.rankedAtAnotherLevel + 1
+                            local seen = mismatches[itemID]
+                            if seen then
+                                seen.rows = seen.rows + 1
+                            else
+                                mismatches[itemID] = {
+                                    itemID = itemID,
+                                    itemLevel = row.itemLevel,
+                                    rankedLevels = levels,
+                                    rows = 1,
+                                }
+                                mismatchOrder[#mismatchOrder + 1] = itemID
+                            end
+                        end
+                    end
+                end
                 if row.owned then
                     model.counts.owned = model.counts.owned + 1
                 end
@@ -380,6 +469,14 @@ function Panel.Model(opts)
     model.pending.count = #pendingRows
     model.pending.note = string.format(Panel.PENDING_NOTE, model.pending.count)
     sortCandidates(pendingRows)
+
+    -- itemIDs are walked in sorted order above, so this list is already stable.
+    for _, itemID in ipairs(mismatchOrder) do
+        model.upgradeLevelMismatches[#model.upgradeLevelMismatches + 1] = mismatches[itemID]
+    end
+    if model.counts.rankedAtAnotherLevel > 0 then
+        model.levelMismatchNote = string.format(Panel.LEVEL_MISMATCH_NOTE, model.counts.rankedAtAnotherLevel)
+    end
 
     local equipped = equippedBySlot(opts.inventory)
     for _, slot in ipairs(Panel.SLOT_ORDER) do
@@ -454,11 +551,20 @@ function Panel.Lines(model)
             if row.value then
                 text = text .. " - " .. row.value
             end
+            -- Both numbers can be true of one row at once (you own a copy of a
+            -- drop AND QE Live ranked the drop), and neither is derived from
+            -- the other, so both are shown rather than one being picked.
+            if row.upgradeValue then
+                text = text .. " - " .. row.upgradeValue
+            end
             add(text)
         end
         if section.hiddenNote then
             add("  " .. section.hiddenNote)
         end
+    end
+    if model.levelMismatchNote then
+        add(model.levelMismatchNote)
     end
     if model.pending.count > 0 then
         add("Unidentified drops")
@@ -505,6 +611,18 @@ local function activeVerdict()
     return ns.QEImport.Current()
 end
 
+-- The Upgrade Finder export the window is showing, chosen by the same content
+-- type setting and with the same fallback, so a Dungeon Top Gear verdict and a
+-- Raid Upgrade Finder export can never end up on one row without the window
+-- saying so. The direct call is the fallback for a panel built without the
+-- window around it, exactly as activeVerdict above.
+local function activeUpgrades()
+    if ns.UI and ns.UI.ActiveUpgradeFinder then
+        return (ns.UI.ActiveUpgradeFinder())
+    end
+    return ns.UFImport.Current()
+end
+
 -- The newest journal walk the addon has stored. `capture journal` is the only
 -- thing that produces one today (M3-1), so the panel says so when there is none
 -- rather than rendering an empty map as if the season had no loot.
@@ -536,6 +654,7 @@ function Panel.Gather(opts)
         summary = type(summary) == "table" and summary.ok and summary or nil,
         inventory = inventory.ok and inventory or nil,
         verdict = activeVerdict(),
+        upgrades = activeUpgrades(),
         difficultyIDs = opts.difficultyIDs,
         inCombat = inventory.ok ~= true and inventory.reason == "combat" or nil,
     }

@@ -166,10 +166,13 @@ describe("Companion.Startup over a well-formed chunk", function()
         assert.equal("0.1.0", dungeon.companionVersion)
     end)
 
-    it("says in chat what it imported and how old the file is", function()
+    it("says in chat which kind it imported, for what, and how old the file is", function()
         local output = world.output()
-        assert.is_truthy(output:find("companion import: Restoration Druid, Dungeon, 15 items", 1, true))
-        assert.is_truthy(output:find("companion import: Restoration Druid, Raid, 15 items", 1, true))
+        -- The kind leads the line, in the same words the window's status line
+        -- uses (ns.UI.KIND_LABEL), because two documents that both say
+        -- "QE Live" answer different questions (M3-6).
+        assert.is_truthy(output:find("companion import: Top Gear, Restoration Druid, Dungeon, 15 items", 1, true))
+        assert.is_truthy(output:find("companion import: Top Gear, Restoration Druid, Raid, 15 items", 1, true))
         assert.is_truthy(output:find("written ", 1, true))
     end)
 
@@ -285,19 +288,64 @@ describe("Companion refusals", function()
         assert.equal(before, ns.QEImport.ForContentType("Raid"))
     end)
 
-    it("refuses an Upgrade Finder document by name rather than calling it a bad Top Gear one", function()
+    -- Until M3-6 this document was refused by name, because handing it to the
+    -- Top Gear parser would have called it a bad Top Gear export. It now goes
+    -- to the parser that owns it, and to that parser's own store.
+    it("hands an Upgrade Finder document to ns.UFImport, not to the Top Gear parser", function()
         ns = H.load()
         local result = ns.Companion.ImportAll({
             writtenAt = "2026-09-08T02:00:00Z",
             exports = {
-                { schema = "qe-live-upgradefinder", contentType = "Dungeon", json = readFile(UPGRADE_FINDER_EXPORT) },
+                { schema = "qe-live-upgradefinder", contentType = "Raid", json = readFile(UPGRADE_FINDER_EXPORT) },
             },
         })
         assert.is_true(result.ok)
-        assert.equal(1, #result.skipped)
-        assert.is_truthy(result.skipped[1].reason:find("qe-live-upgradefinder document", 1, true))
-        assert.is_truthy(result.skipped[1].reason:find("M3-6", 1, true))
+        assert.equal(0, #result.skipped)
+        assert.equal(1, #result.imported)
+        assert.equal("qe-live-upgradefinder", result.imported[1].schema)
+        assert.equal("Raid", result.imported[1].contentType)
+        assert.equal(315, result.imported[1].items)
+        assert.equal("ranked drops", result.imported[1].noun)
+        -- Each store holds its own kind and nothing of the other's.
         assert.is_nil(ns.QEImport.Current())
+        assert.equal("qe-live-upgradefinder", ns.UFImport.ForContentType("Raid").schema)
+        assert.equal("companion", ns.UFImport.Current().source)
+        assert.equal("2026-09-08T02:00:00Z", ns.UFImport.Current().companionWrittenAt)
+    end)
+
+    it("carries both kinds for one content type out of one file, neither displacing the other", function()
+        ns = H.load()
+        local result = ns.Companion.ImportAll({
+            writtenAt = "2026-09-08T02:00:00Z",
+            exports = {
+                { schema = "qe-live-droptimizer", contentType = "Raid", json = readFile(RAID_EXPORT) },
+                { schema = "qe-live-upgradefinder", contentType = "Raid", json = readFile(UPGRADE_FINDER_EXPORT) },
+            },
+        })
+        assert.is_true(result.ok)
+        assert.equal(2, #result.imported)
+        assert.equal(0, #result.skipped)
+        assert.equal("qe-live-droptimizer", ns.QEImport.ForContentType("Raid").schema)
+        assert.equal("qe-live-upgradefinder", ns.UFImport.ForContentType("Raid").schema)
+        -- The staleness check compares like with like: a Top Gear import is
+        -- never made stale by an Upgrade Finder one for the same content type.
+        assert.equal(15, result.imported[1].items)
+        assert.equal(315, result.imported[2].items)
+    end)
+
+    it("still refuses an Upgrade Finder document the Upgrade Finder parser refuses", function()
+        ns = H.load()
+        local body = readFile(UPGRADE_FINDER_EXPORT):gsub('"version": 1', '"version": 2', 1)
+        local result = ns.Companion.ImportAll({
+            writtenAt = "2026-09-08T02:00:00Z",
+            exports = { { schema = "qe-live-upgradefinder", contentType = "Raid", json = body } },
+        })
+        assert.is_true(result.ok)
+        assert.equal(0, #result.imported)
+        assert.equal(1, #result.skipped)
+        -- Word for word what the paste box would have shown.
+        assert.equal(ns.UFImport.Parse(body).reason, result.skipped[1].reason)
+        assert.is_nil(ns.UFImport.Current())
     end)
 
     it("refuses an entry with an unknown schema, naming what it read", function()
@@ -308,6 +356,10 @@ describe("Companion refusals", function()
         })
         assert.equal(1, #result.skipped)
         assert.is_truthy(result.skipped[1].reason:find('declares schema "raidbots-droptimizer"', 1, true))
+        -- Both readable schemas are named, because "Lootpath reads Top Gear"
+        -- became a half-truth the moment there were two (M3-6).
+        assert.is_truthy(result.skipped[1].reason:find("qe-live-droptimizer", 1, true))
+        assert.is_truthy(result.skipped[1].reason:find("qe-live-upgradefinder", 1, true))
     end)
 
     it("refuses an entry that is not a table", function()

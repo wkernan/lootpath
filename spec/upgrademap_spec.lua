@@ -826,3 +826,206 @@ describe("UpgradeMapPanel and a walk whose rows never arrived (WKE-530 finding 4
         assert.equal(2, model.counts.hiddenLevelOne)
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- M3-6 (WKE-535): the Upgrade Finder join. Its own loads, because
+-- ns.Journal:Build memoises a walk per build number and a second snapshot built
+-- in the same session would inherit the first one's rows.
+
+local UF_DUNGEON = "spec/fixtures/qe/qe-upgradefinder-Hotornot-abxrrnezfilt.json"
+local UF_SAMPLE = "spec/fixtures/qe/sample-upgradefinder-v1.json"
+
+local function upgrades(ns, path)
+    local result = ns.UFImport.Parse(readFile(path or UF_DUNGEON))
+    assert(result.ok, result.reason)
+    return result.verdict
+end
+
+-- The 2026-09-06 20:09 cold-cache walk, which is the one whose rows all
+-- arrived (0 pending): the join is measured over a complete map.
+local function coldWalk(ns)
+    local snapshot = R.snapshot("journal", R.JOURNAL_TWO_READ_COLD, R.JOURNAL_TWO_READ)
+    local sources, summary = ns.Journal:Build({ snapshot = snapshot })
+    assert(summary.ok, "journal build failed")
+    return sources, summary
+end
+
+describe("UpgradeMapPanel without an Upgrade Finder export", function()
+    local ns
+
+    before_each(function()
+        ns = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("changes nothing at all: no row gains a number and nothing is counted", function()
+        local sources, summary = coldWalk(ns)
+        local model = ns.UpgradeMapPanel.Model({ sources = sources, summary = summary })
+        assert.is_false(model.hasUpgrades)
+        assert.equal(0, model.counts.ranked)
+        assert.equal(0, model.counts.rankedAtAnotherLevel)
+        assert.is_nil(model.levelMismatchNote)
+        assert.same({}, model.upgradeLevelMismatches)
+        for _, row in ipairs(everyCandidate(model)) do
+            assert.is_nil(row.upgrade)
+            assert.is_nil(row.upgradeValue)
+        end
+    end)
+end)
+
+describe("UpgradeMapPanel joined to the genuine Upgrade Finder export", function()
+    local ns, sources, summary, model
+
+    before_each(function()
+        ns = H.load()
+        sources, summary = coldWalk(ns)
+        model = ns.UpgradeMapPanel.Model({ sources = sources, summary = summary, upgrades = upgrades(ns) })
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("puts QE Live's number on the 30 rows he ranked at the level the journal shows", function()
+        -- Measured over the committed pair: the 2026-09-06 20:09 cold walk (478
+        -- sources) against the 2026-09-07 Dungeon export (315 entries).
+        assert.is_true(model.hasUpgrades)
+        assert.equal(478, model.counts.candidates)
+        assert.equal(30, model.counts.ranked)
+        local rows = 0
+        for _, row in ipairs(everyCandidate(model)) do
+            if row.upgradeValue then
+                rows = rows + 1
+                assert.is_not_nil(row.upgrade)
+                assert.equal(row.itemLevel, row.upgrade.level)
+                assert.equal(row.itemID, row.upgrade.itemID)
+            else
+                assert.is_nil(row.upgrade)
+            end
+        end
+        assert.equal(30, rows)
+    end)
+
+    it("transports his percentage unchanged onto the row", function()
+        -- Measured: 268205 (Venomancer's Winged Channeler, 2H Weapon) is in the
+        -- walk at 324 from Vashnik the Malignant, and the export ranks it at
+        -- 324 at 3.076%.
+        local row = findRow(model, 268205)
+        assert.equal(324, row.itemLevel)
+        assert.equal(3.076, row.upgrade.upgradePercent)
+        assert.equal("QE Live: better by 3.08%", row.upgradeValue)
+    end)
+
+    it("says no change where QE Live's number is zero, rather than a direction he did not give", function()
+        -- Measured: 268248 (Amani Summoning Shawl, Back) at 318 is ranked 0.
+        local row = findRow(model, 268248)
+        assert.equal(0, row.upgrade.upgradePercent)
+        assert.equal("QE Live: no change", row.upgradeValue)
+    end)
+
+    it("shows nothing for a drop he ranked at another item level, and counts it", function()
+        -- Measured: 218 rows over 97 distinct drops sit at an item level the
+        -- export does not carry - the Upgrade Finder assumed key level 7 while
+        -- the walk previewed key level 10 (ARCHITECTURE.md 11).
+        assert.equal(218, model.counts.rankedAtAnotherLevel)
+        assert.equal(97, #model.upgradeLevelMismatches)
+        for _, row in ipairs(everyCandidate(model)) do
+            if row.rankedAtAnotherLevel then
+                assert.is_nil(row.upgrade)
+                assert.is_nil(row.upgradeValue)
+                for _, level in ipairs(row.rankedAtAnotherLevel) do
+                    assert.is_not.equal(row.itemLevel, level)
+                end
+            end
+        end
+        local first = model.upgradeLevelMismatches[1]
+        assert.is_number(first.itemID)
+        assert.is_true(first.rows >= 1)
+        assert.is_true(#first.rankedLevels > 0)
+    end)
+
+    it("renders his value on the row's line and never the word HPS", function()
+        local lines = ns.UpgradeMapPanel.Lines(model)
+        local valued = 0
+        for _, line in ipairs(lines) do
+            if line:find("QE Live: better by", 1, true) or line:find("QE Live: no change", 1, true) then
+                valued = valued + 1
+            end
+            assert.is_nil(line:find("HPS"), "a line named HPS: " .. line)
+            assert.is_nil(line:find("hpsGain"), "a line leaked hpsGain: " .. line)
+        end
+        assert.equal(30, valued)
+    end)
+
+    it("says how many drops he ranked at another level, in the pinned wording", function()
+        local note = string.format("%d drops are ranked by QE Live at another item level, so they show no value.", 218)
+        assert.equal(note, model.levelMismatchNote)
+        local found = false
+        for _, line in ipairs(ns.UpgradeMapPanel.Lines(model)) do
+            if line == note then
+                found = true
+            end
+        end
+        assert.is_true(found)
+    end)
+end)
+
+describe("UpgradeMapPanel and the hand-built Upgrade Finder sample", function()
+    local ns, sources, summary, model
+
+    before_each(function()
+        ns = H.load()
+        sources, summary = coldWalk(ns)
+        model = ns.UpgradeMapPanel.Model({ sources = sources, summary = summary, upgrades = upgrades(ns, UF_SAMPLE) })
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- The real export ranks nothing below the current set, so the worse
+    -- direction can only be proven over a hand-built file. This is the red
+    -- proof for "better": flip the sign and the word changes.
+    it("reads a negative percentage as worse, from the pinned sign and not from arithmetic", function()
+        local row = findRow(model, 270162)
+        assert.equal(318, row.itemLevel)
+        assert.equal(-1.25, row.upgrade.upgradePercent)
+        assert.equal("QE Live: worse by 1.25%", row.upgradeValue)
+        assert.is_false(ns.UFImport.IsUpgrade(row.upgrade))
+    end)
+
+    it("reads a positive percentage on the same map as better", function()
+        local row = findRow(model, 268205)
+        assert.equal("QE Live: better by 4.50%", row.upgradeValue)
+        assert.is_true(ns.UFImport.IsUpgrade(row.upgrade))
+    end)
+
+    it("gives no number to a drop the sample ranks only at a level the journal never lists", function()
+        -- 268219 is in the walk at 321; the sample ranks it at 9999 alone.
+        local row = findRow(model, 268219)
+        assert.equal(321, row.itemLevel)
+        assert.is_nil(row.upgrade)
+        assert.is_nil(row.upgradeValue)
+        assert.same({ 9999 }, row.rankedAtAnotherLevel)
+    end)
+
+    it("carries both ways of getting a two-source drop onto the row", function()
+        local row = findRow(model, 268205)
+        assert.equal(2, row.upgrade.count)
+        assert.equal(2, #row.upgrade.sources)
+    end)
+
+    it("never joins a row whose item data never arrived, because its level is unknown", function()
+        local pendingWalk = ns.Journal:Build({ snapshot = R.snapshot("journal", 1, R.JOURNAL), refresh = true })
+        local pendingModel = ns.UpgradeMapPanel.Model({ sources = pendingWalk, upgrades = upgrades(ns, UF_SAMPLE) })
+        assert.is_true(pendingModel.pending.count > 0)
+        for _, row in ipairs(pendingModel.pending.rows) do
+            assert.is_nil(row.upgrade)
+            assert.is_nil(row.upgradeValue)
+            assert.is_nil(row.rankedAtAnotherLevel)
+        end
+    end)
+end)

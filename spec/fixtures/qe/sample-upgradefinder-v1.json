@@ -1,0 +1,123 @@
+{
+  "schema": "qe-live-upgradefinder",
+  "version": 1,
+  "exportedAt": "2026-09-07T12:00:00.000Z",
+  "player": {
+    "name": "Hotornot",
+    "realm": "Arthas",
+    "region": "US",
+    "spec": "Restoration Druid",
+    "gameType": "Retail"
+  },
+  "contentType": "Dungeon",
+  "reportId": "handbuilt535",
+  "settings": {
+    "raid": [3],
+    "dungeon": 7,
+    "pvp": 0,
+    "craftedLevel": 2,
+    "craftedStats": "Crit / Haste",
+    "itemTypes": ["Drop", "Upgraded", "Bonus Roll"]
+  },
+  "equipped": [
+    {
+      "slot": "Feet",
+      "id": 268247,
+      "level": 295,
+      "bonusIDs": [6652, 13440],
+      "gems": [],
+      "enchant": "",
+      "tertiary": "",
+      "setId": 0,
+      "isVault": false,
+      "isExclusive": false,
+      "source": {}
+    }
+  ],
+  "items": [
+    {
+      "id": 268205,
+      "level": 324,
+      "slot": "2H Weapon",
+      "source": { "instanceId": 1320, "encounterId": 2882 },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 4.5,
+      "hpsGain": 1500,
+      "score": 0.045
+    },
+    {
+      "id": 268205,
+      "level": 324,
+      "slot": "2H Weapon",
+      "source": { "instanceId": 1320, "encounterId": 2882 },
+      "dropLoc": "Raid",
+      "dropType": "bonus",
+      "dropDifficulty": 3,
+      "upgradePercent": 4.5,
+      "hpsGain": 1500,
+      "score": 0.045
+    },
+    {
+      "id": 270162,
+      "level": 318,
+      "slot": "Trinket",
+      "source": { "instanceId": 1320, "encounterId": 2879 },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": -1.25,
+      "hpsGain": -430,
+      "score": -0.0125
+    },
+    {
+      "id": 268197,
+      "level": 321,
+      "slot": "Offhand",
+      "source": { "instanceId": 1320, "encounterId": 2878 },
+      "dropLoc": "Raid",
+      "dropType": "drop",
+      "dropDifficulty": 3,
+      "upgradePercent": 0,
+      "hpsGain": 0,
+      "score": 0
+    },
+    {
+      "id": 268219,
+      "level": 9999,
+      "slot": "Head",
+      "source": { "instanceId": 1320, "encounterId": 2878 },
+      "dropLoc": "Raid",
+      "dropType": "max",
+      "dropDifficulty": 3,
+      "upgradePercent": 2.5,
+      "hpsGain": 870,
+      "score": 0.025
+    },
+    {
+      "id": 272147,
+      "level": 321,
+      "slot": "Finger",
+      "source": { "instanceId": -98, "encounterId": -98 },
+      "dropLoc": "Delves",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 2.371,
+      "hpsGain": 8298,
+      "score": 0.02371
+    },
+    {
+      "id": 0,
+      "level": 300,
+      "slot": "Neck",
+      "source": {},
+      "dropLoc": "Crafted",
+      "dropType": null,
+      "dropDifficulty": "",
+      "upgradePercent": 1.0,
+      "hpsGain": 350,
+      "score": 0.01
+    }
+  ]
+}

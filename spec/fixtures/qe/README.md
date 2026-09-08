@@ -1,6 +1,7 @@
-# QE Live Top Gear exports (`qe-live-droptimizer` v1)
+# QE Live exports (`qe-live-droptimizer` and `qe-live-upgradefinder`, both v1)
 
-Two kinds of file live here, and the difference matters.
+Two kinds of file live here - hand-built and genuine - and the difference
+matters more than which schema a file carries.
 
 ## `sample-handbuilt-v1.json` - hand-built, not from QE Live
 
@@ -53,11 +54,29 @@ Committed unedited for WKE-535 (M3-6).
 - `qe-upgradefinder-Hotornot-kqyktjywppzw.json` - contentType `Raid`,
   exported 2026-09-07T23:41:09Z, 357 items.
 
-`upgradePercent` is > 0 on 263 items and 0 on 94, never negative, and `hpsGain`
-agrees in sign on every item (positive means better - the opposite of the Top
-Gear differentials). Dungeon items sit at levels 311 / 321 / 334 for key level
-7; the journal walk previewed key level 10, so an itemID + level join needs the
-two levels reconciled first (WKE-535).
+`upgradePercent` is > 0 on 263 listings and 0 on 94, never negative, and
+`hpsGain` agrees in sign on every one (positive means better - the opposite of
+the Top Gear differentials). Deduplicated to itemID + item level, the Dungeon
+file is **315 entries: 228 better, 87 at zero, none worse**.
+
+**Measured for WKE-535 (2026-09-08):** dungeon drops sit at 311 / 321 / 334 for
+key level 7 and raid drops at 318 / 324 / 344 for difficulty 3. Joined to the
+committed journal walks by itemID + item level, **30 rows gain a number** - all
+of them raid drops, whose levels the walk previews too - while 218 rows of the
+20:09 cold walk (97 distinct drops) are ranked at an item level the walk does
+not show, because the walk previewed key level 10 and the export assumed 7.
+See ARCHITECTURE.md 9.
+
+## `sample-upgradefinder-v1.json` - hand-built, not from QE Live
+
+Written for M3-6 (WKE-535) by mirroring the fork's exporter field for field.
+**No number in it was produced by QE Live.** It covers what the real exports
+do not: a **negative** `upgradePercent` (the real files have none), a zero, a
+drop listed twice with two drop types, a Delve drop whose `dropType` is `null`
+and whose `dropDifficulty` is the empty string, a drop ranked only at an item
+level the journal never lists, and an entry with an unusable itemID. Its
+itemIDs are ones the committed walks really carry, so the panel join can be
+exercised in both directions.
 
 Files here are excluded from luacheck and StyLua (raw third-party payloads,
 never linted or formatted).

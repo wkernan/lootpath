@@ -32,7 +32,7 @@ local UI = ns.UI
 UI.FRAME_NAME = "LootpathMainFrame"
 UI.WIDTH = 620
 UI.HEIGHT = 640
-UI.PASTE_INSTRUCTIONS = "Paste your QE Live Top Gear JSON here"
+UI.PASTE_INSTRUCTIONS = "Paste your QE Live Top Gear or Upgrade Finder JSON here"
 
 -- One tab per promise, in the order the product states them (ARCHITECTURE.md
 -- 1). `key` is the field on the frame that holds that tab's panel; `refresh` is
@@ -79,6 +79,78 @@ function UI.AgeText(iso, now)
     return string.format("%d day(s) ago", math.floor(seconds / 86400 + 0.5))
 end
 
+-- The two exports the paste box takes, and what each is called on screen. The
+-- kind travels on the import result so the status line can name it: two files
+-- that both say "QE Live" answer different questions, and an owner who pasted
+-- the wrong one has to be able to see that from the line.
+UI.KIND_TOP_GEAR = "topgear"
+UI.KIND_UPGRADE_FINDER = "upgradefinder"
+UI.KIND_LABEL = {
+    [UI.KIND_TOP_GEAR] = "Top Gear",
+    [UI.KIND_UPGRADE_FINDER] = "Upgrade Finder",
+}
+
+-- The schema a pasted blob names, read WITHOUT decoding it. A Top Gear export
+-- is tens of kilobytes and an Upgrade Finder export is over a hundred, and
+-- decoding twice - once to route, once to parse - would double that for no
+-- gain. Nothing is trusted to this match: it only chooses which parser sees the
+-- text, and that parser checks the schema, the version and the game type
+-- properly. Returns nil when the text names no schema at all.
+function UI.DetectSchema(text)
+    if type(text) ~= "string" then
+        return nil
+    end
+    return text:match('"schema"%s*:%s*"([^"]*)"')
+end
+
+-- Routes a paste to the parser that reads it. Text naming neither schema goes
+-- to QEImport, so "that is not JSON" and "nothing to import" still come from a
+-- parser rather than from here; text naming a schema that is neither is refused
+-- by name, because "not a Top Gear export" would be a half-truth once there are
+-- two kinds.
+function UI.ImportAny(text)
+    local schema = UI.DetectSchema(text)
+    if schema and schema ~= ns.QEImport.SCHEMA and schema ~= ns.UFImport.SCHEMA then
+        return {
+            ok = false,
+            reason = string.format(
+                'that export carries schema "%s"; Lootpath reads "%s" (Top Gear) and "%s" (Upgrade Finder)',
+                schema,
+                ns.QEImport.SCHEMA,
+                ns.UFImport.SCHEMA
+            ),
+        }
+    end
+    local result
+    if schema == ns.UFImport.SCHEMA then
+        result = ns.UFImport.Import(text)
+        result.kind = UI.KIND_UPGRADE_FINDER
+    else
+        result = ns.QEImport.Import(text)
+        result.kind = UI.KIND_TOP_GEAR
+    end
+    return result
+end
+
+-- The other kind of export stored for the same content type, as one line, or
+-- nil when there is none. Both ages on screen is what tells the owner that the
+-- Upgrade Map's numbers and the Equip Now list came from two different runs.
+function UI.OtherImportLine(kind, verdict, now)
+    local module = kind == UI.KIND_UPGRADE_FINDER and ns.QEImport or ns.UFImport
+    local otherKind = kind == UI.KIND_UPGRADE_FINDER and UI.KIND_TOP_GEAR or UI.KIND_UPGRADE_FINDER
+    local contentType = type(verdict) == "table" and verdict.contentType or nil
+    local other = contentType and module.ForContentType(contentType) or nil
+    if not other then
+        return nil
+    end
+    return string.format(
+        "|cff868e96Also stored:|r %s (%s), exported %s",
+        UI.KIND_LABEL[otherKind],
+        other.contentType or "unknown content type",
+        UI.AgeText(other.exportedAt, now)
+    )
+end
+
 -- The import status line. A refusal is shown verbatim - the parser's message
 -- already names what it saw, and rewording it here would hide that.
 function UI.StatusText(result, now)
@@ -89,15 +161,28 @@ function UI.StatusText(result, now)
         return "|cffff6b6b" .. tostring(result.reason) .. "|r"
     end
     local verdict = result.verdict
+    local kind = result.kind or UI.KIND_TOP_GEAR
+    local count, noun
+    if kind == UI.KIND_UPGRADE_FINDER then
+        count, noun = #(verdict.order or {}), "ranked drops"
+    else
+        count, noun = #(verdict.topSet.order or {}), "items"
+    end
     local line = string.format(
-        "|cff40c057Imported|r %s, %s, exported %s, %d items",
+        "|cff40c057Imported|r %s: %s, %s, exported %s, %d %s",
+        UI.KIND_LABEL[kind] or kind,
         verdict.spec or "unknown spec",
         verdict.contentType or "unknown content type",
         UI.AgeText(verdict.exportedAt, now),
-        #(verdict.topSet.order or {})
+        count,
+        noun
     )
     for _, warning in ipairs(result.warnings or {}) do
         line = line .. "\n|cffffd43bNote:|r " .. warning
+    end
+    local other = UI.OtherImportLine(kind, verdict, now)
+    if other then
+        line = line .. "\n" .. other
     end
     return line
 end
@@ -114,6 +199,23 @@ function UI.ActiveVerdict()
     local current = ns.QEImport.Current()
     if current then
         return current, ns.QEImport.ContentTypeKey(current), true
+    end
+    return nil, wanted, false
+end
+
+-- The Upgrade Finder export the panels read, chosen exactly as ActiveVerdict
+-- chooses a Top Gear one. Kept as its own function rather than a flag on
+-- ActiveVerdict so a caller cannot get both verdicts back in one call and treat
+-- them as one thing: they are different schemas with opposite sign conventions.
+function UI.ActiveUpgradeFinder()
+    local wanted = UI.Options and UI.Options.Get() or nil
+    local verdict = wanted and ns.UFImport.ForContentType(wanted) or nil
+    if verdict then
+        return verdict, wanted, false
+    end
+    local current = ns.UFImport.Current()
+    if current then
+        return current, ns.UFImport.ContentTypeKey(current), true
     end
     return nil, wanted, false
 end
@@ -139,7 +241,7 @@ function UI.VerdictNoteText(now)
 end
 
 function UI.Import(text)
-    local result = ns.QEImport.Import(text)
+    local result = UI.ImportAny(text)
     if UI.frame then
         UI.frame.status:SetText(UI.StatusText(result))
     end
