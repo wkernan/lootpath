@@ -22,16 +22,56 @@ local Companion = ns.Companion
 -- The schema strings this module knows how to hand on, and which importer
 -- takes each. QE Live's Top Gear export is ns.QEImport's; the Upgrade Finder
 -- export (`qe-live-upgradefinder`, the fork's own, docs/qe-live-pr.md) is
--- M3-6's, and until that module exists an entry carrying it is REFUSED by
--- name rather than passed to a parser that would call it "not a Top Gear
--- export". Guessing at it here would be inventing an importer.
+-- ns.UFImport's, since M3-6 - until that module existed an entry carrying it
+-- was refused by name rather than handed to a parser that would have called it
+-- a bad Top Gear export.
+--
+-- The two importers share the four calls this file makes of them - Parse,
+-- ContentTypeKey, ForContentType, Store - and NOTHING here reaches past that
+-- into either verdict's shape, because the two shapes disagree and their sign
+-- conventions are opposites (decision 2026-09-08). A schema that is in neither
+-- table is still refused by name; this module never guesses at an importer.
 Companion.TOP_GEAR_SCHEMA = "qe-live-droptimizer"
 Companion.UPGRADE_FINDER_SCHEMA = "qe-live-upgradefinder"
+
+-- Resolved at call time, not at load: the module tables are built by files the
+-- `.toc` lists before this one, but a name looked up now cannot be a stale
+-- reference to a table that was replaced.
+function Companion.ImporterFor(schema)
+    if schema == Companion.TOP_GEAR_SCHEMA then
+        return ns.QEImport
+    end
+    if schema == Companion.UPGRADE_FINDER_SCHEMA then
+        return ns.UFImport
+    end
+    return nil
+end
+
+-- How many things a verdict carries, for the chat line, in each verdict's own
+-- words. A Top Gear export names a set; an Upgrade Finder export ranks drops.
+function Companion.CountOf(schema, verdict)
+    if type(verdict) ~= "table" then
+        return 0, "items"
+    end
+    if schema == Companion.UPGRADE_FINDER_SCHEMA then
+        return #(verdict.order or {}), "ranked drops"
+    end
+    local topSet = type(verdict.topSet) == "table" and verdict.topSet or {}
+    return #(topSet.order or {}), "items"
+end
 
 -- Where the verdict on screen came from. Stored on the verdict at import time
 -- so it survives /reload in SavedVariables.
 Companion.SOURCE_PASTE = "paste"
 Companion.SOURCE_COMPANION = "companion"
+
+-- The window already names the two kinds on the status line (ns.UI.KIND_LABEL);
+-- the chat line says the same words, so an owner reading either sees one
+-- vocabulary. Keyed by schema, because that is what the file carries.
+Companion.KIND_OF = {
+    ["qe-live-droptimizer"] = "topgear",
+    ["qe-live-upgradefinder"] = "upgradefinder",
+}
 
 -- An export text longer than this is refused unread. A real Top Gear export is
 -- tens of kilobytes (the committed one is 21 KB); a megabyte of Lua string in
@@ -132,19 +172,13 @@ function Companion.Entry(raw, index)
     if not schema then
         return refuse("export %d carries no schema string (it is %s)", index, shown(safe.schema))
     end
-    if schema == Companion.UPGRADE_FINDER_SCHEMA then
+    if not Companion.ImporterFor(schema) then
         return refuse(
-            "export %d is a %s document, and Lootpath cannot read those yet (M3-6)",
-            index,
-            Companion.UPGRADE_FINDER_SCHEMA
-        )
-    end
-    if schema ~= Companion.TOP_GEAR_SCHEMA then
-        return refuse(
-            'export %d declares schema %s; Lootpath reads "%s"',
+            'export %d declares schema %s; Lootpath reads "%s" (Top Gear) and "%s" (Upgrade Finder)',
             index,
             shown(schema),
-            Companion.TOP_GEAR_SCHEMA
+            Companion.TOP_GEAR_SCHEMA,
+            Companion.UPGRADE_FINDER_SCHEMA
         )
     end
     return { ok = true, schema = schema, contentType = safeString(safe.contentType), json = json }
@@ -189,15 +223,21 @@ function Companion.ImportAll(raw, now)
         if not entry.ok then
             result.skipped[#result.skipped + 1] = { index = index, reason = entry.reason }
         else
-            -- The same parser the editbox calls, so every schema, version,
-            -- gameType and topSet refusal applies here word for word.
-            local parsed = ns.QEImport.Parse(entry.json)
+            -- The same parser the editbox calls - whichever of the two that
+            -- is - so every schema, version and gameType refusal applies here
+            -- word for word.
+            local importer = Companion.ImporterFor(entry.schema)
+            local parsed = importer.Parse(entry.json)
             if not parsed.ok then
                 result.skipped[#result.skipped + 1] = { index = index, reason = parsed.reason }
             else
                 local verdict = parsed.verdict
-                local contentType = ns.QEImport.ContentTypeKey(verdict)
-                local existing = ns.QEImport.ForContentType(contentType)
+                local contentType = importer.ContentTypeKey(verdict)
+                -- The counterpart of the SAME kind, never the other kind's:
+                -- a Top Gear import and an Upgrade Finder import for one
+                -- content type are two different answers and neither is stale
+                -- because of the other.
+                local existing = importer.ForContentType(contentType)
                 local existingAt = storedAt(existing)
                 if existing and existing.companionWrittenAt == file.writtenAt then
                     -- The same file, read again on the next /reload. Nothing
@@ -220,14 +260,17 @@ function Companion.ImportAll(raw, now)
                     verdict.source = Companion.SOURCE_COMPANION
                     verdict.companionWrittenAt = file.writtenAt
                     verdict.companionVersion = file.companionVersion
-                    local stored = ns.QEImport.Store(verdict)
+                    local stored = importer.Store(verdict)
                     if not stored.ok then
                         result.skipped[#result.skipped + 1] = { index = index, reason = stored.reason }
                     else
+                        local count, noun = Companion.CountOf(entry.schema, verdict)
                         result.imported[#result.imported + 1] = {
+                            schema = entry.schema,
                             contentType = contentType,
                             spec = verdict.spec,
-                            items = #(verdict.topSet.order or {}),
+                            items = count,
+                            noun = noun,
                             warnings = parsed.warnings,
                         }
                     end
@@ -285,10 +328,12 @@ function Companion.Startup(now)
     end
     for _, entry in ipairs(result.imported) do
         ns.Log(
-            "companion import: %s, %s, %d items, written %s.",
+            "companion import: %s, %s, %s, %d %s, written %s.",
+            ns.UI.KIND_LABEL[Companion.KIND_OF[entry.schema]] or entry.schema,
             entry.spec or "unknown spec",
             entry.contentType,
             entry.items,
+            entry.noun or "items",
             ns.UI.AgeText(result.writtenAt, now)
         )
         for _, warning in ipairs(entry.warnings or {}) do

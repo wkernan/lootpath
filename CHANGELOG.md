@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+### M3-6 (WKE-535) - the Upgrade Finder import
+
+- `ns.UFImport`: QE Live's `qe-live-upgradefinder` v1 export - the one that
+  values drops you do **not** own - parsed and stored. Its own module, because
+  its sign convention is the opposite of Top Gear's while the constant is the
+  same `+1`: `upgradePercent` and `hpsGain` are positive when the drop is
+  BETTER. Refuses the wrong schema (naming both), a `version` that is not the
+  number `1`, a missing `items` list and a non-Retail export; warns on a
+  character mismatch, an empty export, skipped drops and a drop listed twice
+  with different values. Entries key on **itemID + item level**, because the
+  stored report carries no bonus IDs; a drop several drop types list is one
+  entry with several `sources`. Filed per content type in `db.char.ufImports`
+  beside `db.char.qeImport`, so neither kind can overwrite the other.
+- **One paste box, two schemas.** `UI.DetectSchema` reads the `schema` string
+  without decoding the blob and `UI.ImportAny` routes it; the status line says
+  which kind was imported and, when the character has both for that content
+  type, shows the other one's age too. A third schema is refused by name.
+  `UI.ActiveUpgradeFinder()` picks the export the content-type setting asks for,
+  exactly as `UI.ActiveVerdict()` does for Top Gear.
+- **The Upgrade Map has a second path to a number**, and it is still QE Live's
+  own: a row whose itemID and item level the Upgrade Finder ranked shows his
+  percentage. Measured over the committed fixtures - the 2026-09-06 20:09 cold
+  walk against the 2026-09-07 Dungeon export - **30 of 478 rows gained a
+  number**; 218 rows over 97 distinct drops are ranked at another item level,
+  show nothing, and are counted with a line saying so. A zero reads "no change"
+  rather than a direction QE Live did not give, `hpsGain` never reaches a row,
+  and a pending row is never joined because its level is unknown, not wrong.
+
 ### C-2 (WKE-534) - the addon side of the local companion
 
 - `Lootpath/Data/QEVerdict.lua`, listed in the `.toc` after `Core.lua`: the one

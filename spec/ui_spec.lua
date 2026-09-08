@@ -783,3 +783,180 @@ describe("the window after WKE-530", function()
         assert.equal("Lootpath dev", dev.UI.Frame().TitleText:GetText())
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- M3-6 (WKE-535): one paste box, two schemas.
+
+local UF_DUNGEON_EXPORT = "spec/fixtures/qe/qe-upgradefinder-Hotornot-abxrrnezfilt.json"
+local UF_RAID_EXPORT = "spec/fixtures/qe/qe-upgradefinder-Hotornot-kqyktjywppzw.json"
+
+describe("the paste box routes by schema", function()
+    local ns, world, frame
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        frame = ns.UI.Frame()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("reads the schema out of the text without decoding it", function()
+        assert.equal("qe-live-droptimizer", ns.UI.DetectSchema(readFile(REAL_EXPORT)))
+        assert.equal("qe-live-upgradefinder", ns.UI.DetectSchema(readFile(UF_DUNGEON_EXPORT)))
+        assert.is_nil(ns.UI.DetectSchema("not json at all"))
+        assert.is_nil(ns.UI.DetectSchema(nil))
+    end)
+
+    it("sends an Upgrade Finder export to UFImport and leaves the Top Gear store empty", function()
+        frame.pasteBox:SetText(readFile(UF_DUNGEON_EXPORT))
+        assert.is_true(frame.importButton:Click())
+        assert.is_nil(ns.QEImport.Current())
+        assert.is_table(ns.UFImport.Current())
+        assert.equal("abxrrnezfilt", ns.UFImport.Current().reportId)
+        local status = frame.status:GetText()
+        assert.is_truthy(status:find("Upgrade Finder", 1, true))
+        assert.is_truthy(status:find("Restoration Druid", 1, true))
+        assert.is_truthy(status:find("Dungeon", 1, true))
+        assert.is_truthy(status:find("315 ranked drops", 1, true))
+    end)
+
+    it("sends a Top Gear export to QEImport and names it as such", function()
+        frame.pasteBox:SetText(readFile(REAL_EXPORT))
+        assert.is_true(frame.importButton:Click())
+        assert.is_table(ns.QEImport.Current())
+        assert.is_nil(ns.UFImport.Current())
+        local status = frame.status:GetText()
+        assert.is_truthy(status:find("Top Gear", 1, true))
+        assert.is_truthy(status:find("15 items", 1, true))
+    end)
+
+    it("refuses a third schema by name, naming both the ones it reads, and stores nothing", function()
+        frame.pasteBox:SetText('{ "schema": "raidbots-droptimizer", "version": 1 }')
+        frame.importButton:Click()
+        local status = frame.status:GetText()
+        assert.is_truthy(status:find("raidbots-droptimizer", 1, true))
+        assert.is_truthy(status:find("qe-live-droptimizer", 1, true))
+        assert.is_truthy(status:find("qe-live-upgradefinder", 1, true))
+        assert.is_nil(ns.QEImport.Current())
+        assert.is_nil(ns.UFImport.Current())
+    end)
+
+    it("still lets a parser answer for text that names no schema at all", function()
+        frame.pasteBox:SetText("{ not json at all")
+        frame.importButton:Click()
+        assert.is_truthy(frame.status:GetText():find("that is not JSON", 1, true))
+    end)
+
+    it("shows both ages once the character has both kinds for one content type", function()
+        frame.pasteBox:SetText(readFile(REAL_EXPORT))
+        frame.importButton:Click()
+        assert.equal("Raid", ns.QEImport.Current().contentType)
+        frame.pasteBox:SetText(readFile(UF_RAID_EXPORT))
+        frame.importButton:Click()
+        local status = frame.status:GetText()
+        -- "Imported" and the kind are separated by the colour escape.
+        assert.is_truthy(status:find("|r Upgrade Finder:", 1, true))
+        assert.is_truthy(status:find("Also stored:", 1, true))
+        assert.is_truthy(status:find("Top Gear (Raid)", 1, true))
+    end)
+
+    it("says nothing about a counterpart of another content type", function()
+        frame.pasteBox:SetText(readFile(REAL_EXPORT))
+        frame.importButton:Click()
+        -- The Top Gear export is Raid; this Upgrade Finder one is Dungeon.
+        frame.pasteBox:SetText(readFile(UF_DUNGEON_EXPORT))
+        frame.importButton:Click()
+        assert.is_nil(frame.status:GetText():find("Also stored:", 1, true))
+    end)
+end)
+
+describe("UI.ActiveUpgradeFinder", function()
+    local ns, world, frame
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        frame = ns.UI.Frame()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("answers nothing before anything is imported", function()
+        assert.is_nil(ns.UI.ActiveUpgradeFinder())
+    end)
+
+    it("prefers the content type the setting asks for over the most recent paste", function()
+        frame.pasteBox:SetText(readFile(UF_DUNGEON_EXPORT))
+        frame.importButton:Click()
+        frame.pasteBox:SetText(readFile(UF_RAID_EXPORT))
+        frame.importButton:Click()
+        assert.equal("Raid", ns.UFImport.Current().contentType)
+        assert.equal("Dungeon", ns.UI.Options.Get())
+        local verdict, contentType, fellBack = ns.UI.ActiveUpgradeFinder()
+        assert.equal("Dungeon", verdict.contentType)
+        assert.equal("Dungeon", contentType)
+        assert.is_false(fellBack)
+    end)
+
+    it("falls back to the most recent one, and says it fell back", function()
+        frame.pasteBox:SetText(readFile(UF_RAID_EXPORT))
+        frame.importButton:Click()
+        local verdict, contentType, fellBack = ns.UI.ActiveUpgradeFinder()
+        assert.equal("Raid", verdict.contentType)
+        assert.equal("Raid", contentType)
+        assert.is_true(fellBack)
+    end)
+end)
+
+describe("the Upgrade Map tab with an Upgrade Finder export", function()
+    local ns, world, frame, panel
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        withJournalWalk(ns)
+        frame = ns.UI.Frame()
+        frame.pasteBox:SetText(readFile(UF_DUNGEON_EXPORT))
+        frame.importButton:Click()
+        frame.tabs[2]:Click()
+        panel = frame.upgradeMapPanel
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("puts QE Live's Upgrade Finder numbers on the rows he ranked, through the window", function()
+        -- Measured over the 2026-09-06 16:12 walk (558 sources) and the
+        -- 2026-09-07 Dungeon export.
+        assert.is_true(panel.model.hasUpgrades)
+        assert.equal(30, panel.model.counts.ranked)
+        assert.equal(151, panel.model.counts.rankedAtAnotherLevel)
+        local valued = 0
+        for i = 1, #panel.lines do
+            if panel.rows[i]:GetText():find("QE Live: ", 1, true) then
+                valued = valued + 1
+            end
+        end
+        -- The 30 ranked rows plus nothing else: this export has no Top Gear
+        -- coverage behind it, so `covered` is still zero.
+        assert.equal(0, panel.model.counts.covered)
+        assert.equal(30, valued)
+    end)
+
+    it("goes back to a values-free map the moment the import is gone", function()
+        ns.db.char.ufImport = nil
+        ns.db.char.ufImports = {}
+        frame.tabs[2]:Click()
+        assert.is_false(panel.model.hasUpgrades)
+        assert.equal(0, panel.model.counts.ranked)
+        for i = 1, #panel.lines do
+            assert.is_nil(panel.rows[i]:GetText():find("QE Live: ", 1, true))
+        end
+    end)
+end)
