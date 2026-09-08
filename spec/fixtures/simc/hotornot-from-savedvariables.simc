@@ -1,0 +1,148 @@
+# Hotornot - Guardian - 2026-09-05 13:33 - ??/Arthas
+# Built by Lootpath's companion from SavedVariables (WKE-532 spike), not by /simc
+# WoW 12.1.0.69587, TOC 120100
+# Inventory captured 2026-09-05T13:33:25
+
+druid="Hotornot"
+server=arthas
+spec=guardian
+
+# Enigmatic Dreamwatcher's Somnolent Stare (308)
+head=,id=271528,bonus_id=6652/13439/13696/12838/13692/13698/1561,redirected_base_stats=251140
+# Whispering Periapt (308)
+neck=,id=272228,bonus_id=6652/13668/12842,content_tuning=6014
+# Venom-Cursed Lynx's Spaulders (289)
+shoulder=,id=277782,bonus_id=6652/13662/12828,content_tuning=6146
+# Venom-Cursed Lynx's Mane (295)
+back=,id=279220,bonus_id=6652/13662/12830,content_tuning=6146
+# Maledict Vest (276)
+chest=,id=251216,bonus_id=13440/6652/13577/12699/12802
+# Preyhunter's Sleek Armlets (321)
+wrist=,id=275512,bonus_id=6652/13696/13662/12846
+# Arbortenders of the Luminous Bloom (276)
+hands=,id=250025,bonus_id=6652/13337/13574/12798
+# Venom-Cursed Lynx's Buckle (292)
+waist=,id=277781,bonus_id=12833/6652/13696/13662
+# Enigmatic Dreamwatcher's Leggings (295)
+legs=,id=271527,bonus_id=13693/13438/6652/13698/12830
+# Breakwater Boots (295)
+feet=,id=268247,bonus_id=6652/13662/13332/12830
+# Band of the Triumvirate (263)
+finger1=,id=151311,enchant_id=7968,gem_id=240892,bonus_id=13440/6652/13668/12699/12790,content_tuning=1279
+# Signet of Snarling Servitude (282)
+finger2=,id=251136,bonus_id=13438/6652/13668/12698/12822,content_tuning=3024
+# Sealed Chaos Urn (276)
+trinket1=,id=251787,bonus_id=6652/12798,content_tuning=6015
+# Glorious Crusader's Keepsake (276)
+trinket2=,id=251792,bonus_id=6652/12798
+# Final Grade (263)
+main_hand=,id=193707,enchant_id=8038,bonus_id=13439/6652/12701/12790,content_tuning=3025
+
+### Gear from Bags
+#
+# Miststalker's Cowl (308)
+# head=,id=272242,bonus_id=42/13696/13662/12838,content_tuning=6014
+#
+# Silvermoon Sunguard (263)
+# head=,id=266430,enchant_id=7960,bonus_id=13577/12790/12667,content_tuning=4240
+#
+# Serpentine Talisman (308)
+# neck=,id=272229,gem_id=240892,bonus_id=6652/13668/12838,content_tuning=6014
+#
+# Necklace of the Twisting Void (276)
+# neck=,id=151309,gem_id=240899,bonus_id=13440/6652/13668/12699/12798
+#
+# Arboreal Vine Collar (269)
+# neck=,id=249627,bonus_id=6652/13668/12796,content_tuning=6015
+#
+# Seedpods of the Luminous Bloom (289)
+# shoulder=,id=250022,enchant_id=8031,bonus_id=12806/6652/13440/13340/13574/3174
+#
+# Miststalker's Spaulders (282)
+# shoulder=,id=272244,bonus_id=6652/13663/12822,content_tuning=6014
+#
+# Preyhunter's Refined Shawl (292)
+# back=,id=275522,bonus_id=12833/41/13662,content_tuning=5236
+#
+# Defiant Defender's Drape (282)
+# back=,id=260312,bonus_id=13440/6652/13577/12699/12804
+#
+# Shroud of the Soulhunter (272)
+# back=,id=251161,bonus_id=12801/13440/6652/13577/12699
+#
+# Tarnished Dawnlit Sentinel's Hauberk (253)
+# chest=,id=258928,bonus_id=13900/13663,drop_level=90,content_tuning=5381
+#
+# Osseoclad Ivory Wrist (276)
+# wrist=,id=249644,bonus_id=6652/12667/13577/12798
+#
+# Verdant Tracker's Cuffs (285)
+# wrist=,id=256967,bonus_id=12827/6652/13696/13662,content_tuning=4240
+#
+# Corroded Cursebreaker's Wristwraps (285)
+# wrist=,id=276643,bonus_id=13662/13696/12827,content_tuning=5381
+#
+# Tarnished Dawnlit Commander's Gauntlets (253)
+# hands=,id=258938,bonus_id=13900/13663,drop_level=90,content_tuning=5381
+#
+# Venom-Cursed Lynx's Buckle (292)
+# waist=,id=277781,bonus_id=6652/13696/13662/12829,content_tuning=6146
+#
+# Falconer's Cinch (263)
+# waist=,id=251166,gem_id=240982,bonus_id=13439/6652/13534/13577/12699/12790,content_tuning=3025
+#
+# Preyhunter's Sleek Trousers (295)
+# legs=,id=275519,bonus_id=6652/13662/12834,content_tuning=5236
+#
+# Tarnished Dawnlit Spellbinder's Trousers (260)
+# legs=,id=258916,bonus_id=13901/6652/13663,drop_level=90,content_tuning=5381
+#
+# Miststalker's Striders (295)
+# feet=,id=272240,bonus_id=12834/6652/13662,content_tuning=6015
+#
+# Preyseeker's Signet (263)
+# finger1=,id=259912,enchant_id=7968,gem_id=240892,bonus_id=6652/13668/12790,content_tuning=5236
+#
+# Tarnished Dawnlit Band (253)
+# finger1=,id=258908,bonus_id=13900/13668,drop_level=90,content_tuning=3321
+#
+# Tarnished Dawnlit Signet (253)
+# finger1=,id=258909,bonus_id=13900/13668,drop_level=90,content_tuning=5381
+#
+# Consecrated Chalice (298)
+# trinket1=,id=251789,bonus_id=6652/12835,content_tuning=6014
+#
+# Pulse Seeker's Oculus (298)
+# trinket1=,id=274495,bonus_id=6652/12835,content_tuning=6014
+#
+# Breath of Jan'alai (295)
+# trinket1=,id=280377,bonus_id=6652/12830,content_tuning=6145
+#
+# Sylvan Wakrapuku (295)
+# trinket1=,id=251784,bonus_id=6652/11215/12830,content_tuning=6014
+#
+# Ultradon Cuirass (295)
+# trinket1=,id=264694,bonus_id=6652/11215/12830,content_tuning=6014
+#
+# Heart of Wind (282)
+# trinket1=,id=250256,bonus_id=13440/6652/12699/12804
+#
+# Effigy of Ula'tek's Faithful (282)
+# trinket1=,id=274493,bonus_id=6652/12822,content_tuning=6013
+#
+# Glorious Crusader's Keepsake (282)
+# trinket1=,id=251792,bonus_id=6652/12822,content_tuning=6012
+#
+# Vile Vial of Volatile Venom (282)
+# trinket1=,id=273796,bonus_id=13438/6652/12698/12822,content_tuning=3024
+#
+# Sharp Axe Holster (272)
+# trinket1=,id=280123,bonus_id=6652/11311/12819,content_tuning=5381
+#
+# Forgotten Eidolon's Dagger (295)
+# main_hand=,id=272266,bonus_id=12834/6652,content_tuning=6015
+#
+# Tarnished Dawnlit Defender (253)
+# off_hand=,id=258961,bonus_id=13900,drop_level=90,content_tuning=3321
+
+# Checksum: cd13649
