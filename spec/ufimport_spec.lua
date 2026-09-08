@@ -542,3 +542,154 @@ describe("UFImport storage", function()
         assert.same({}, ns.UFImport.StoredContentTypes())
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- C-7 (WKE-543): one Upgrade Finder verdict per Mythic+ key level.
+--
+-- QE Live's Upgrade Finder values every dungeon drop at ONE key - the one
+-- `ufSettings.dungeon` names - so "which dungeon at the lowest key still gives
+-- me an upgrade" takes several exports. The companion asks him once per level
+-- and writes the level onto each document; this is the shelf they land on.
+--
+-- The key level is always the COMPANION's number. `settings.dungeon` is an
+-- index into his MPLUS_KEY_REWARDS table (index 7 is the "+10" button), and
+-- nothing here turns one into the other.
+describe("UFImport key levels", function()
+    local ns
+
+    -- A stored import at a key level, the way ns.Companion files one: the
+    -- verdict is parsed from real JSON, then the level the companion file named
+    -- is set on it before Store, which is exactly Companion.ImportAll's order.
+    local function importAt(path, keyLevel)
+        local result = ns.UFImport.Parse(readFile(path))
+        assert(result.ok, result.reason)
+        result.verdict.keyLevel = keyLevel
+        assert(ns.UFImport.Store(result.verdict).ok)
+        return result.verdict
+    end
+
+    before_each(function()
+        ns = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("reads a key level only when it is a whole, non-negative number", function()
+        assert.equal(0, ns.UFImport.KeyLevelOf({ keyLevel = 0 }))
+        assert.equal(10, ns.UFImport.KeyLevelOf({ keyLevel = 10 }))
+        assert.is_nil(ns.UFImport.KeyLevelOf({ keyLevel = 7.5 }))
+        assert.is_nil(ns.UFImport.KeyLevelOf({ keyLevel = -1 }))
+        assert.is_nil(ns.UFImport.KeyLevelOf({ keyLevel = "10" }), "a level nobody wrote as a number is not a level")
+        assert.is_nil(ns.UFImport.KeyLevelOf({}))
+        assert.is_nil(ns.UFImport.KeyLevelOf(nil))
+        -- What a CALLER asks about is normalised instead, because a lookup by
+        -- key "10" is a lookup for key 10 and refusing it would only hide a
+        -- typo behind an empty panel.
+        assert.equal(10, ns.UFImport.KeyLevelKey("10"))
+        assert.equal(ns.UFImport.UNKNOWN_KEY_LEVEL, ns.UFImport.KeyLevelKey(nil))
+        assert.equal(ns.UFImport.UNKNOWN_KEY_LEVEL, ns.UFImport.KeyLevelKey(7.5))
+    end)
+
+    it("files one content type's exports side by side, one per key level", function()
+        importAt(REAL_DUNGEON, 2)
+        importAt(REAL_DUNGEON, 10)
+        assert.same({ 2, 10 }, (ns.UFImport.StoredKeyLevels("Dungeon")))
+        assert.equal(2, ns.UFImport.ForContentTypeAndLevel("Dungeon", 2).keyLevel)
+        assert.equal(10, ns.UFImport.ForContentTypeAndLevel("Dungeon", 10).keyLevel)
+        -- A level nobody asked QE Live about is nothing, never the nearest one.
+        assert.is_nil(ns.UFImport.ForContentTypeAndLevel("Dungeon", 4))
+        -- And the Raid shelf is untouched by any of it.
+        assert.same({}, (ns.UFImport.StoredKeyLevels("Raid")))
+    end)
+
+    it("keeps a level-less export on its own shelf rather than under a level it made up", function()
+        importAt(REAL_DUNGEON, 10)
+        local pasted = ns.UFImport.Import(readFile(REAL_DUNGEON))
+        assert.is_true(pasted.ok)
+        local levels, unrecorded = ns.UFImport.StoredKeyLevels("Dungeon")
+        assert.same({ 10 }, levels)
+        assert.is_true(unrecorded)
+        assert.equal(10, ns.UFImport.ForContentTypeAndLevel("Dungeon", 10).keyLevel)
+        assert.is_nil(ns.UFImport.ForContentTypeAndLevel("Dungeon", nil).keyLevel)
+        -- `settings.dungeon` is 7 in this export and 7 is an INDEX, not a key
+        -- level. Reading it as one would file a +10 answer under "+7".
+        assert.equal(7, pasted.verdict.settings.dungeon)
+    end)
+
+    it("picks the level asked for, then the highest asked about, then the one that does not say", function()
+        importAt(REAL_DUNGEON, 2)
+        importAt(REAL_DUNGEON, 8)
+        local verdict, level, how = ns.UFImport.PickForLevel("Dungeon", 8)
+        assert.equal(8, level)
+        assert.equal(ns.UFImport.PICK_WANTED, how)
+        assert.equal(8, verdict.keyLevel)
+
+        -- Nothing was run at +4, so the answer is the highest key QE Live WAS
+        -- asked about, and the panel is told so rather than shown +4.
+        verdict, level, how = ns.UFImport.PickForLevel("Dungeon", 4)
+        assert.equal(8, verdict.keyLevel)
+        assert.equal(8, level)
+        assert.equal(ns.UFImport.PICK_HIGHEST, how)
+
+        -- A walk that recorded no preview level asks for none.
+        verdict, level, how = ns.UFImport.PickForLevel("Dungeon", nil)
+        assert.equal(8, verdict.keyLevel)
+        assert.equal(8, level)
+        assert.equal(ns.UFImport.PICK_HIGHEST, how)
+    end)
+
+    it("falls back to an export that never said its key level, and says that is what it did", function()
+        assert.is_true(ns.UFImport.Import(readFile(REAL_DUNGEON)).ok)
+        local verdict, level, how = ns.UFImport.PickForLevel("Dungeon", 10)
+        assert.is_not_nil(verdict)
+        assert.is_nil(level)
+        assert.equal(ns.UFImport.PICK_UNRECORDED, how)
+        assert.matches("does not say which Mythic%+ key level", ns.UFImport.KeyLevelNote(level, how, 10))
+    end)
+
+    it("reads SavedVariables written before the by-level shelf existed", function()
+        -- A character who imported under M3-6 has ufImports and no
+        -- ufImportsByLevel at all. The verdict is still there; it simply never
+        -- said which key it was run at.
+        assert.is_true(ns.UFImport.Import(readFile(REAL_DUNGEON)).ok)
+        ns.db.char.ufImportsByLevel = nil
+        local verdict, level, how = ns.UFImport.PickForLevel("Dungeon", 10)
+        assert.equal("Dungeon", verdict.contentType)
+        assert.is_nil(level)
+        assert.equal(ns.UFImport.PICK_UNRECORDED, how)
+    end)
+
+    it("finds nothing for a content type nothing was ever stored for", function()
+        importAt(REAL_DUNGEON, 10)
+        assert.is_nil(ns.UFImport.PickForLevel("Raid", 10))
+        assert.is_nil(ns.UFImport.PickForLevel(nil, 10))
+    end)
+
+    it("says which key level is on screen, in words that name the fallback", function()
+        assert.equal(
+            "QE Live ran these numbers on a +10 key, the level the loot map previews.",
+            ns.UFImport.KeyLevelNote(10, ns.UFImport.PICK_WANTED, 10)
+        )
+        assert.equal(
+            "QE Live has no +4 run stored, so these numbers are its +8 run - the highest key it was asked about.",
+            ns.UFImport.KeyLevelNote(8, ns.UFImport.PICK_HIGHEST, 4)
+        )
+        assert.equal(
+            "QE Live ran these numbers on a +8 key, the highest it was asked about.",
+            ns.UFImport.KeyLevelNote(8, ns.UFImport.PICK_HIGHEST, nil)
+        )
+        assert.is_nil(ns.UFImport.KeyLevelNote(nil, nil, nil))
+    end)
+
+    it("answers what a new verdict replaces by content type AND key level", function()
+        local at2 = importAt(REAL_DUNGEON, 2)
+        assert.equal(at2, ns.UFImport.Existing({ contentType = "Dungeon", keyLevel = 2 }))
+        -- The +4 document is not a repeat of the +2 one, which is the whole
+        -- reason ns.Companion asks the importer instead of matching on content
+        -- type: five documents in one file would otherwise become one import.
+        assert.is_nil(ns.UFImport.Existing({ contentType = "Dungeon", keyLevel = 4 }))
+        assert.is_nil(ns.UFImport.Existing({ contentType = "Raid", keyLevel = 2 }))
+    end)
+end)

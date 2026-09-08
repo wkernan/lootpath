@@ -396,6 +396,15 @@ function QEImport.ForContentType(contentType)
     return byType and byType[contentType] or nil
 end
 
+-- The stored verdict this one would replace. For a Top Gear import that is
+-- simply the one for the same content type; ns.UFImport answers the same
+-- question in its own terms, because since C-7 an Upgrade Finder verdict is
+-- identified by content type AND Mythic+ key level. ns.Companion asks whichever
+-- importer owns the schema, so it never reaches into either shape itself.
+function QEImport.Existing(verdict)
+    return QEImport.ForContentType(QEImport.ContentTypeKey(verdict))
+end
+
 -- Every content type this character has an import for, in QE Live's order with
 -- anything unexpected appended.
 function QEImport.StoredContentTypes()

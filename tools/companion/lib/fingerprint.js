@@ -92,16 +92,36 @@ function settingsLine(qeSettings) {
     );
 }
 
-function fingerprint(profileText, qeSettings) {
+// The key levels the Upgrade Finder will be asked about (WKE-543, C-7) are the
+// other half of the question the settings above are half of: the same gear at
+// the same settings, asked about a +2 key and about a +10 key, gets two
+// different sets of documents out of QE Live. Adding a level to the list has to
+// cost a run, and dropping one has to cost a run too - the verdict file would
+// otherwise keep a document for a key the owner stopped asking about.
+//
+// Sorted and deduplicated HERE as well as in `lib/config.js`, for the same
+// reason `settingsLine` sorts its keys: the hash must not move because a list
+// was typed in a different order, and the canonical form belongs next to the
+// line it makes rather than only at the one door that happens to load a config
+// file today.
+function keyLevelsLine(keyLevels) {
+    const levels = Array.isArray(keyLevels) ? keyLevels : [];
+    const canonical = [...new Set(levels)].sort((a, b) => a - b);
+    return '# upgradeFinderKeyLevels ' + (canonical.length ? canonical.join(',') : 'none');
+}
+
+function fingerprint(profileText, qeSettings, keyLevels) {
     const { kept, dropped } = stripVolatile(profileText);
     const line = settingsLine(qeSettings);
+    const levels = keyLevelsLine(keyLevels);
     return {
         hash: crypto
             .createHash('sha256')
-            .update(kept.concat([line]).join('\n'), 'utf8')
+            .update(kept.concat([line, levels]).join('\n'), 'utf8')
             .digest('hex'),
         dropped,
         settingsLine: line,
+        keyLevelsLine: levels,
     };
 }
 
@@ -162,4 +182,4 @@ function isCurrent(state, hash, target) {
     return { current: true, writtenAt: state.writtenAt };
 }
 
-module.exports = { fingerprint, settingsLine, stripVolatile, readState, writeState, statePath, isCurrent, VOLATILE_LINES, STATE_FILE };
+module.exports = { fingerprint, settingsLine, keyLevelsLine, stripVolatile, readState, writeState, statePath, isCurrent, VOLATILE_LINES, STATE_FILE };

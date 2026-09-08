@@ -19,6 +19,26 @@ const DEFAULTS = {
         { kind: 'topgear', contentType: 'Raid' },
         { kind: 'upgradefinder', contentType: 'Raid' },
     ],
+    // Which Mythic+ key levels the Upgrade Finder is asked about (WKE-543,
+    // C-7). The owner's question is "which dungeon at the LOWEST key level
+    // still gives me an upgrade", and QE Live can only answer it one key at a
+    // time: his Upgrade Finder values every dungeon drop at the single key his
+    // `ufSettings.dungeon` names. So the companion asks him once per level and
+    // the addon files each answer under the level it was asked at.
+    //
+    // These are KEY LEVELS, the numbers a player says out loud. They are not
+    // `ufSettings.dungeon`, which is an INDEX into his MPLUS_KEY_REWARDS table
+    // (index 7 is the "+10" button, and its rows come back at 311/321/334).
+    // The companion never restates that table: it reads the labels off his own
+    // selector ("M0", "+2/3", "+10"), clicks the button whose label covers the
+    // wanted level, and then checks the export's `settings.dungeon` against the
+    // position of the button it clicked. A level his page does not offer is a
+    // named failure, never a silent nearest match.
+    //
+    // The default spread stops at 10 because that is the top of his table on
+    // the branch this drives (MPLUS_KEY_REWARDS ends at "+10"); 10 is in it
+    // because 10 is the level the journal walk previews.
+    upgradeFinderKeyLevels: [2, 4, 6, 8, 10],
     includeBank: true,
     // QE Live's own import checkboxes (SimCraftDialog.js lines 122-133), asked
     // for explicitly on every run rather than inherited (WKE-539, C-5).
@@ -98,8 +118,56 @@ function merge(config, raw) {
         }
     }
     if (!config.documents.length) throw new ConfigError('documents is empty, so there would be nothing to write');
+    config.upgradeFinderKeyLevels = normaliseKeyLevels(config.upgradeFinderKeyLevels);
     config.warnings = warnings;
     return config;
+}
+
+// Sorted ascending and deduplicated, so `[10, 2, 2]` and `[2, 10]` are the same
+// question rather than two fingerprints - and so the last dungeon run of a plan
+// is always the highest key, which is the one the Raid document inherits.
+function normaliseKeyLevels(raw) {
+    if (!Array.isArray(raw)) throw new ConfigError(`upgradeFinderKeyLevels should be a list of key levels, not ${JSON.stringify(raw)}`);
+    const seen = new Set();
+    for (const value of raw) {
+        if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+            throw new ConfigError(
+                `upgradeFinderKeyLevels holds ${JSON.stringify(value)}; every entry must be a whole key level like 2, 4 or 10`
+            );
+        }
+        seen.add(value);
+    }
+    if (!seen.size) {
+        throw new ConfigError('upgradeFinderKeyLevels is empty, so the Upgrade Finder would never be run for a dungeon');
+    }
+    return [...seen].sort((a, b) => a - b);
+}
+
+// The documents one run actually produces, in order. A dungeon Upgrade Finder
+// document is asked once per configured key level, because his engine values
+// dungeon drops at exactly one key; everything else is asked once.
+//
+// A NON-dungeon Upgrade Finder document is asked once, at the HIGHEST
+// configured level, and records it. WKE-543 proposed recording nothing there,
+// but a Raid export is not free of the key selector: measured on the committed
+// 2026-09-07 pair, the Raid Upgrade Finder export carries the same 201
+// dungeon-sourced rows as the Dungeon one, every one of them stamped
+// `dropDifficulty: 7` at 311/321/334 - the levels key index 7 gives. A document
+// whose rows were valued at a key is filed under that key, whichever content
+// type QE Live was set to when it was asked.
+function plannedDocuments(config) {
+    const levels = config.upgradeFinderKeyLevels;
+    const plan = [];
+    for (const doc of config.documents) {
+        if (doc.kind !== 'upgradefinder') {
+            plan.push({ kind: doc.kind, contentType: doc.contentType });
+        } else if (doc.contentType === 'Dungeon') {
+            for (const keyLevel of levels) plan.push({ kind: doc.kind, contentType: doc.contentType, keyLevel });
+        } else {
+            plan.push({ kind: doc.kind, contentType: doc.contentType, keyLevel: levels[levels.length - 1] });
+        }
+    }
+    return plan;
 }
 
 // The addon's own file inside the game folder. Nothing else is ever written
@@ -141,4 +209,4 @@ function maskAccount(file) {
     return String(file).replace(/([\\/]Account[\\/])[^\\/]+/i, '$1<account>');
 }
 
-module.exports = { DEFAULTS, load, qeSettings, verdictPath, findSavedVariables, maskAccount, ConfigError };
+module.exports = { DEFAULTS, load, plannedDocuments, qeSettings, verdictPath, findSavedVariables, maskAccount, ConfigError };

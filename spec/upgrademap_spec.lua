@@ -1547,3 +1547,133 @@ describe("UpgradeMapPanel view toggle on the frames", function()
         assert.equal(ns.UpgradeMapPanel.NOTE, frame.note:GetText())
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- C-7 (WKE-543): the panel reads the Upgrade Finder export for the key level
+-- the walk previewed.
+--
+-- Since the companion asks QE Live once per key level, "the Upgrade Finder
+-- export" is no longer one thing. The slot view asks for the level its own rows
+-- are about - the walk's preview level - and says on the panel which level it
+-- actually got, because a +2 answer under a +10 heading is a wrong number that
+-- looks right.
+describe("UpgradeMapPanel and the Mythic+ key level QE Live was run at", function()
+    local ns
+
+    -- One stored Upgrade Finder verdict per key level, filed the way
+    -- ns.Companion files them. Every level here carries the SAME committed
+    -- export - what is under test is which shelf is read, not what is on it.
+    local function storeAt(level, path)
+        local parsed = ns.UFImport.Parse(readFile(path or UF_DUNGEON))
+        assert(parsed.ok, parsed.reason)
+        parsed.verdict.keyLevel = level
+        assert(ns.UFImport.Store(parsed.verdict).ok)
+        return parsed.verdict
+    end
+
+    before_each(function()
+        ns = H.load()
+        ns.UI.Options.Set("Dungeon")
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("reads the export run at the level the walk previewed", function()
+        storeAt(2)
+        local wanted = storeAt(10)
+        local sources, summary = coldWalk(ns)
+        assert.equal(10, summary.previewMythicPlusLevel, "the committed walk previews +10")
+        -- End to end, the way the panel does it: the walk in the database
+        -- decides the level, and Gather comes back with the export QE Live ran
+        -- at exactly that key.
+        ns.db.global.captures = { journal = { R.snapshot("journal", R.JOURNAL_TWO_READ_COLD, R.JOURNAL_TWO_READ) } }
+        local gathered = ns.UpgradeMapPanel.Gather({ db = ns.db })
+        assert.equal(wanted, gathered.upgrades)
+        assert.equal(10, gathered.upgradeKeyLevel)
+        assert.equal(ns.UFImport.PICK_WANTED, gathered.upgradeKeyPick)
+
+        local model = ns.UpgradeMapPanel.Model(gathered)
+        assert.equal(sources ~= nil, true)
+        assert.equal(10, model.upgradeKeyLevel)
+        assert.matches("ran these numbers on a %+10 key", model.upgradeKeyNote)
+        local said = false
+        for _, line in ipairs(ns.UpgradeMapPanel.Lines(model)) do
+            said = said or line == model.upgradeKeyNote
+        end
+        assert.is_true(said, "the panel has to say which key level it is showing")
+    end)
+
+    it("falls back to the highest key QE Live was asked about, and says so", function()
+        storeAt(2)
+        local highest = storeAt(8)
+        -- verdict, contentType, fellBack, keyLevel, how
+        local verdict, _, _, level, how = ns.UI.ActiveUpgradeFinder(10)
+        assert.equal(highest, verdict)
+        assert.equal(8, level)
+        assert.equal(ns.UFImport.PICK_HIGHEST, how)
+        local model = ns.UpgradeMapPanel.Model({
+            sources = select(1, coldWalk(ns)),
+            summary = select(2, coldWalk(ns)),
+            upgrades = verdict,
+            upgradeKeyLevel = level,
+            upgradeKeyPick = how,
+        })
+        assert.matches("no %+10 run stored", model.upgradeKeyNote)
+        assert.matches("its %+8 run", model.upgradeKeyNote)
+    end)
+
+    it("says nothing about a key level when there is no export at all", function()
+        local sources, summary = coldWalk(ns)
+        local model = ns.UpgradeMapPanel.Model({ sources = sources, summary = summary })
+        assert.is_false(model.hasUpgrades)
+        assert.is_nil(model.upgradeKeyNote)
+        for _, line in ipairs(ns.UpgradeMapPanel.Lines(model)) do
+            assert.is_nil(line:find("key", 1, true) and line:find("QE Live ran", 1, true))
+        end
+    end)
+
+    it("says a pasted export does not name its key level, rather than inventing one", function()
+        assert.is_true(ns.UFImport.Import(readFile(UF_DUNGEON)).ok)
+        local verdict, _, _, level, how = ns.UI.ActiveUpgradeFinder(10)
+        assert.is_not_nil(verdict)
+        assert.is_nil(level)
+        assert.equal(ns.UFImport.PICK_UNRECORDED, how)
+        local sources, summary = coldWalk(ns)
+        local model = ns.UpgradeMapPanel.Model({
+            sources = sources,
+            summary = summary,
+            upgrades = verdict,
+            upgradeKeyLevel = level,
+            upgradeKeyPick = how,
+        })
+        assert.matches("does not say which Mythic%+ key level", model.upgradeKeyNote)
+    end)
+
+    -- The by-run view has the walk's own key level line already (M3-8); the two
+    -- are different facts and both are said, in that order.
+    it("puts QE Live's key level beside the walk's, never instead of it", function()
+        storeAt(10)
+        local sources, summary = coldWalk(ns)
+        local model = ns.UpgradeMapPanel.RunModel({
+            sources = sources,
+            summary = summary,
+            upgrades = ns.UFImport.ForContentTypeAndLevel("Dungeon", 10),
+            upgradeKeyLevel = 10,
+            upgradeKeyPick = ns.UFImport.PICK_WANTED,
+        })
+        local lines = ns.UpgradeMapPanel.RunLines(model)
+        local walkAt, qeAt
+        for index, line in ipairs(lines) do
+            if line == model.keyLevelNote then
+                walkAt = index
+            elseif line == model.upgradeKeyNote then
+                qeAt = index
+            end
+        end
+        assert.is_number(walkAt)
+        assert.is_number(qeAt)
+        assert.is_true(walkAt < qeAt)
+    end)
+end)

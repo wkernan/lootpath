@@ -207,15 +207,31 @@ end
 -- chooses a Top Gear one. Kept as its own function rather than a flag on
 -- ActiveVerdict so a caller cannot get both verdicts back in one call and treat
 -- them as one thing: they are different schemas with opposite sign conventions.
-function UI.ActiveUpgradeFinder()
+--
+-- Since C-7 (WKE-543) there can be SEVERAL Upgrade Finder exports for one
+-- content type, one per Mythic+ key level the companion asked QE Live about, so
+-- this takes the level the caller wants - the loot map passes the level the
+-- journal walk previewed. UFImport.PickForLevel settles which one answers and
+-- why; `how` and `keyLevel` come back so the panel can say which key level is
+-- on screen instead of showing a +2 answer under a +10 heading.
+--
+-- Returns verdict, contentType, fellBack, keyLevel, how.
+function UI.ActiveUpgradeFinder(keyLevel)
     local wanted = UI.Options and UI.Options.Get() or nil
-    local verdict = wanted and ns.UFImport.ForContentType(wanted) or nil
-    if verdict then
-        return verdict, wanted, false
+    if wanted then
+        local verdict, level, how = ns.UFImport.PickForLevel(wanted, keyLevel)
+        if verdict then
+            return verdict, wanted, false, level, how
+        end
     end
     local current = ns.UFImport.Current()
     if current then
-        return current, ns.UFImport.ContentTypeKey(current), true
+        local contentType = ns.UFImport.ContentTypeKey(current)
+        local verdict, level, how = ns.UFImport.PickForLevel(contentType, keyLevel)
+        if verdict then
+            return verdict, contentType, true, level, how
+        end
+        return current, contentType, true, ns.UFImport.KeyLevelOf(current), ns.UFImport.PICK_UNRECORDED
     end
     return nil, wanted, false
 end

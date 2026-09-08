@@ -39,9 +39,14 @@ local function verdictChunkSource(verdict)
     local parts = {}
     for _, export in ipairs(verdict.exports) do
         parts[#parts + 1] = string.format(
-            "        { schema = %q, contentType = %q, json = %q },\n",
+            "        { schema = %q, contentType = %q,%s json = %q },\n",
             export.schema,
             export.contentType or "",
+            -- C-7 (WKE-543): an Upgrade Finder document says which Mythic+ key
+            -- level QE Live ran it at. Written into the chunk source as a bare
+            -- number, because that is what the companion writes and what the
+            -- addon has to read back.
+            export.keyLevel and string.format(" keyLevel = %d,", export.keyLevel) or "",
             export.json
         )
     end
@@ -727,5 +732,134 @@ ns.companionVerdict = {
         assert.is_true(result.ok)
         assert.is_nil(result.qeSettings)
         assert.is_nil(ns.QEImport.ForContentType("Raid").qeSettings)
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- C-7 (WKE-543): one file, several Upgrade Finder documents, one per Mythic+
+-- key level.
+--
+-- The failure this guards is quiet and total: before C-7, ImportAll asked
+-- "is there already an import for this content type from this file?" and the
+-- answer for the second, third, fourth and fifth dungeon document was YES,
+-- because the first had just stored one. Four of five key levels would have
+-- been reported as unchanged and thrown away.
+describe("Companion.ImportAll with several key levels", function()
+    local ns
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function fiveLevels(writtenAt)
+        local exports = {}
+        for _, level in ipairs({ 2, 4, 6, 8, 10 }) do
+            exports[#exports + 1] = {
+                schema = "qe-live-upgradefinder",
+                contentType = "Raid",
+                keyLevel = level,
+                json = readFile(UPGRADE_FINDER_EXPORT),
+            }
+        end
+        return { writtenAt = writtenAt or "2026-09-08T02:00:00Z", companionVersion = "0.2.0", exports = exports }
+    end
+
+    it("files every key level out of one file, and calls none of them a repeat", function()
+        ns = H.load()
+        local result = ns.Companion.ImportAll(fiveLevels())
+        assert.is_true(result.ok)
+        assert.equal(5, #result.imported)
+        assert.equal(0, #result.skipped)
+        assert.equal(0, #result.unchanged)
+        assert.same({ 2, 4, 6, 8, 10 }, (ns.UFImport.StoredKeyLevels("Raid")))
+        for _, level in ipairs({ 2, 4, 6, 8, 10 }) do
+            local verdict = ns.UFImport.ForContentTypeAndLevel("Raid", level)
+            assert.equal(level, verdict.keyLevel)
+            assert.equal("companion", verdict.source)
+        end
+        -- The chat line names the level, so five lines are five answers rather
+        -- than the same sentence five times.
+        assert.equal(10, result.imported[5].keyLevel)
+    end)
+
+    it("reads the levels back out of a real chunk, as numbers", function()
+        ns = loadWithChunk(verdictChunkSource(fiveLevels()))
+        assert.equal(2, ns.companionVerdict.exports[1].keyLevel)
+        assert.equal("number", type(ns.companionVerdict.exports[1].keyLevel))
+        assert.same({ 2, 4, 6, 8, 10 }, (ns.UFImport.StoredKeyLevels("Raid")))
+    end)
+
+    it("reads the same file twice as unchanged, level for level", function()
+        ns = H.load()
+        assert.equal(5, #ns.Companion.ImportAll(fiveLevels()).imported)
+        local again = ns.Companion.ImportAll(fiveLevels())
+        assert.equal(0, #again.imported)
+        assert.equal(5, #again.unchanged)
+        assert.equal(0, #again.skipped)
+    end)
+
+    it("files a document with no key level apart, never under one it inferred", function()
+        ns = H.load()
+        local result = ns.Companion.ImportAll({
+            writtenAt = "2026-09-08T02:00:00Z",
+            exports = {
+                { schema = "qe-live-upgradefinder", contentType = "Raid", json = readFile(UPGRADE_FINDER_EXPORT) },
+            },
+        })
+        assert.is_true(result.ok)
+        assert.equal(1, #result.imported)
+        assert.is_nil(result.imported[1].keyLevel)
+        local levels, unrecorded = ns.UFImport.StoredKeyLevels("Raid")
+        assert.same({}, levels)
+        assert.is_true(unrecorded)
+        -- Its own settings.dungeon is 7, and 7 is an INDEX into QE Live's key
+        -- table, not a key level. Reading it as one would file a +10 answer
+        -- under "+7"; the addon would rather say it does not know.
+        assert.equal(7, ns.UFImport.ForContentType("Raid").settings.dungeon)
+        assert.is_nil(ns.UFImport.ForContentType("Raid").keyLevel)
+    end)
+
+    it("ignores a key level that is not a whole number, rather than filing under it", function()
+        ns = H.load()
+        local result = ns.Companion.ImportAll({
+            writtenAt = "2026-09-08T02:00:00Z",
+            exports = {
+                {
+                    schema = "qe-live-upgradefinder",
+                    contentType = "Raid",
+                    keyLevel = 7.5,
+                    json = readFile(UPGRADE_FINDER_EXPORT),
+                },
+            },
+        })
+        assert.is_true(result.ok)
+        assert.equal(1, #result.imported, "a bad key level loses the level, never the export")
+        assert.is_nil(result.imported[1].keyLevel)
+        local levels, unrecorded = ns.UFImport.StoredKeyLevels("Raid")
+        assert.same({}, levels)
+        assert.is_true(unrecorded)
+    end)
+
+    -- Every value read out of the companion file passes ns.Safe first, the
+    -- standing client rule. A secret number answers no type honestly, so a key
+    -- level marked secret is silence and the export is still imported.
+    it("passes a secret key level through ns.Safe before it is believed", function()
+        local world
+        ns, world = H.load()
+        local result = ns.Companion.ImportAll({
+            writtenAt = "2026-09-08T02:00:00Z",
+            exports = {
+                {
+                    schema = "qe-live-upgradefinder",
+                    contentType = "Raid",
+                    keyLevel = world.markSecret(10),
+                    json = readFile(UPGRADE_FINDER_EXPORT),
+                },
+            },
+        })
+        assert.is_true(result.ok)
+        assert.equal(1, #result.imported)
+        assert.is_nil(result.imported[1].keyLevel)
+        assert.is_true((select(2, ns.UFImport.StoredKeyLevels("Raid"))))
     end)
 end)

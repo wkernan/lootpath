@@ -38,6 +38,15 @@ at 308, because QE Live had been asked about the vault copy at 321. Since C-5
 (WKE-539) the companion **sets both boxes explicitly on every run**, defaulting
 to both OFF, and records which pair it asked for in the file it writes.
 
+**It asks about several Mythic+ keys, because his engine only answers about
+one.** The Upgrade Finder values every dungeon drop at the single key level
+`ufSettings.dungeon` names, so "which dungeon at the lowest key still gives me
+an upgrade" is not a question one export can answer. Since C-7 (WKE-543) the
+companion runs the dungeon Upgrade Finder once per level in
+`upgradeFinderKeyLevels` (default `+2, +4, +6, +8, +10`) and writes the level
+onto each document; the addon files one verdict per `(content type, key level)`
+and the loot map reads the one matching the level its walk previewed.
+
 This is the Raider.IO pattern - their desktop client writes score databases into
 the addon folder the same way - and it is the one exception to Lootpath's
 "everything external arrives by paste" rule (decision 2026-09-07,
@@ -120,6 +129,7 @@ the defaults, which are the owner's machine. Every key is optional.
 | `forkPath` | `c:\Code\qe-live-fork` | the QE Live clone to start |
 | `forkUrl` | `http://localhost:3000` | |
 | `documents` | Top Gear and Upgrade Finder, Dungeon then Raid | `contentType` is QE Live's own string; it has no "Mythic+" |
+| `upgradeFinderKeyLevels` | `[2, 4, 6, 8, 10]` | key levels, sorted and deduplicated; the dungeon Upgrade Finder is run once per level |
 | `includeBank` | `true` | bank items only reach the profile if the bank was open when the capture ran |
 | `qeAutoUpgradeVault` | `false` | QE Live's "Upgrade Vault to Max Level" box, set explicitly every run |
 | `qeAutoUpgradeAll` | `false` | his "Upgrade ALL to Max Level" box, likewise |
@@ -128,6 +138,43 @@ the defaults, which are the owner's machine. Every key is optional.
 | `stateDir` | `.state` | the browser profile (so the welcome dialog is answered once) and `last-profile.json`, the fingerprint of the last verdict written |
 | `forkStartTimeoutSeconds` | `180` | |
 | `debounceMs` | `1500` | quiet time after a SavedVariables write before reading it |
+
+### The Mythic+ key levels
+
+QE Live's Upgrade Finder has one key selector and values every dungeon drop at
+it. `upgradeFinderKeyLevels` is the list of key **levels** the companion asks
+him about; the dungeon Upgrade Finder is planned once per level, and every
+Upgrade Finder document says which level produced it:
+
+```lua
+        {
+            schema = "qe-live-upgradefinder",
+            contentType = "Dungeon",
+            keyLevel = 10,
+            ...
+```
+
+**A key level is not `ufSettings.dungeon`.** That field is an INDEX into his
+`MPLUS_KEY_REWARDS` table (`src/Databases/MPlusKeyRewards.ts`): index 7 is the
+"+10" button, whose rows come back at 311 / 321 / 334. The companion never
+restates that table. It reads the labels off his own selector - `M0`, `+2/3`,
+`+4`, `+8/9`, `+10` - clicks the button whose label covers the level asked for,
+and then checks the export's `settings.dungeon` against the position of the
+button it clicked. A level his page does not offer (`+12` today) is a named
+failure, never a nearest match; a mismatch between the click and the export
+fails the whole run with exit code 4, because a document filed under the wrong
+key level is a wrong answer that looks right.
+
+The Raid Upgrade Finder runs once, at the highest configured level, and records
+it. WKE-543 proposed recording nothing there; the export does not allow it. On
+the committed 2026-09-07 pair the Raid export carries the same 201
+dungeon-sourced rows as the Dungeon one, every one stamped `dropDifficulty: 7`
+at 311 / 321 / 334 - so a Raid document IS valued at a key, and is filed under
+it.
+
+Changing the list changes the question, so it changes the fingerprint: adding or
+removing a level costs one run even though not a byte of gear moved. Reordering
+it does not - the list is sorted and deduplicated before it is hashed.
 
 ### The two upgrade settings
 
@@ -167,6 +214,12 @@ The file the addon reads carries the pair:
     },
 ```
 
+and, on every Upgrade Finder document, the key level it was run at:
+
+```lua
+        { schema = "qe-live-upgradefinder", contentType = "Dungeon", keyLevel = 2, ... },
+```
+
 ## What it is made of
 
 | file | what it does |
@@ -181,6 +234,10 @@ The file the addon reads carries the pair:
 | `lib/output.js` | temp file, then rename, so the client never reads half a file |
 | `lib/watch.js` | one run per `/reload`, never one per byte written |
 | `lib/fingerprint.js` | is this the profile QE Live was already asked about? (C-4) |
+
+`lib/config.js` also owns `plannedDocuments(config)`, which turns the configured
+document list into the documents one run actually produces - the dungeon Upgrade
+Finder fanned out over `upgradeFinderKeyLevels` (C-7).
 
 ## What the addon gets
 
@@ -199,9 +256,13 @@ ns.companionVerdict = {
     },
     exports = {
         { schema = "qe-live-droptimizer", contentType = "Dungeon", bytes = 16315, json = "..." },
-        { schema = "qe-live-upgradefinder", contentType = "Dungeon", bytes = 120577, json = "..." },
+        { schema = "qe-live-upgradefinder", contentType = "Dungeon", keyLevel = 2, bytes = 118981, json = "..." },
+        { schema = "qe-live-upgradefinder", contentType = "Dungeon", keyLevel = 4, bytes = 119038, json = "..." },
+        { schema = "qe-live-upgradefinder", contentType = "Dungeon", keyLevel = 6, bytes = 98092, json = "..." },
+        { schema = "qe-live-upgradefinder", contentType = "Dungeon", keyLevel = 8, bytes = 98320, json = "..." },
+        { schema = "qe-live-upgradefinder", contentType = "Dungeon", keyLevel = 10, bytes = 120017, json = "..." },
         { schema = "qe-live-droptimizer", contentType = "Raid", bytes = 16263, json = "..." },
-        { schema = "qe-live-upgradefinder", contentType = "Raid", bytes = 120396, json = "..." },
+        { schema = "qe-live-upgradefinder", contentType = "Raid", keyLevel = 10, bytes = 120396, json = "..." },
     },
 }
 ```
@@ -268,8 +329,8 @@ until WKE-535's reader exists (Upgrade Finder).
 npm test        # node --test, no install needed for the pure parts
 ```
 
-91 tests over the reader, the profile builder, the config, the writer, the
-watcher, the fingerprint and the driver's checkbox step. The profile builder is measured against the owner's
+111 tests over the reader, the profile builder, the config, the writer, the
+watcher, the fingerprint, the driver's checkbox step and its key selector. The profile builder is measured against the owner's
 own `/simc` string (`spec/fixtures/simc/hotornot-20260907.txt`) and against a
 committed generated profile; the writer's golden is loaded by a real Lua interpreter in
 `spec/companionfile_spec.lua`. The fork driver is not mocked: it is proven by a
@@ -278,4 +339,8 @@ recorded run, whose figures are in the pull request. C-4's guards drive the real
 driver, so no browser opens and nothing is written near the real game folder.
 C-5's checkbox step is proved against a fake page that records every click and
 answers `isChecked` the way his controlled MUI checkboxes do; that Playwright
-finds those boxes by label in a real page is a recorded run, not a test.
+finds those boxes by label in a real page is a recorded run, not a test. C-7's
+key selector is proved the same way, against a fake page carrying his eight
+toggle labels plus a decoy row of raid difficulties - what is NOT proved there is
+that the "Mythic+ Key Level" Paper is the one Playwright finds in his real page,
+and that is the recorded run in the pull request.

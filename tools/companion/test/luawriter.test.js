@@ -128,6 +128,11 @@ test('renders the committed golden byte for byte', () => {
         qeSettings: { autoUpgradeVault: false, autoUpgradeAll: false },
         documents: [
             { kind: 'topgear', contentType: 'Dungeon', json: '{"schema":"qe-live-droptimizer","version":1}' },
+            // C-7 (WKE-543): an Upgrade Finder document says which Mythic+ key
+            // level QE Live ran it at, and spec/companionfile_spec.lua loads
+            // this golden in a real Lua interpreter to prove the number comes
+            // back as a number.
+            { kind: 'upgradefinder', contentType: 'Dungeon', keyLevel: 10, json: '{"schema":"qe-live-upgradefinder","version":1}' },
             { kind: 'upgradefinder', contentType: 'Raid', json: HOSTILE },
         ],
     });

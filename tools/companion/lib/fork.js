@@ -17,6 +17,8 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
+const configLib = require('./config');
+
 class ForkError extends Error {
     constructor(message, code) {
         super(message);
@@ -274,11 +276,131 @@ async function runTopGear(page, log) {
     return readJson(page);
 }
 
-async function runUpgradeFinder(page) {
+// -------------------------------------------------------------------------
+// The Mythic+ key selector (WKE-543, C-7).
+//
+// UpgradeFinder/UpgradeFinderFront.js lines 505-530, read 2026-09-08: a row of
+// MUI ToggleButtons rendered straight out of `MPLUS_KEY_REWARDS.map`, each one
+// labelled `key.label` and calling `setDungeonDifficulty(key.index)`. The
+// selected index is what lands in `ufSettings.dungeon`, and that is an INDEX
+// into his table, NOT a key level: index 7 is the "+10" button, whose rows come
+// back at 311 / 321 / 334 (Databases/MPlusKeyRewards.ts).
+//
+// His labels are how a player says a key - "M0", "+4", "+8/9" - so the
+// companion asks for a key LEVEL and finds the button whose label covers it.
+// The level -> index mapping is therefore read off his own page every run and
+// never restated here; a key he adds is a button this finds, and a level his
+// page does not offer is a named failure rather than a nearest match.
+const KEY_LEVEL_SECTION = 'Mythic+ Key Level';
+
+// "M0" -> [0]; "+4" -> [4]; "+8/9" -> [8, 9]. Null for anything that is not one
+// of his key labels, which is how the reader below notices it is looking at the
+// wrong row of buttons instead of guessing at an index.
+function keyLevelsOfLabel(label) {
+    const text = String(label).trim();
+    if (!/^[M+]\d+(\/\d+)*$/.test(text)) return null;
+    return text
+        .slice(1)
+        .split('/')
+        .map((part) => Number(part));
+}
+
+// Is this toggle the selected one? MUI's ToggleButton carries `aria-pressed`,
+// and the fork restyles it through `classes.selected` while MUI still adds its
+// own `Mui-selected`. Either is proof; needing both would break on a restyle.
+async function isSelectedToggle(locator) {
+    if ((await locator.getAttribute('aria-pressed')) === 'true') return true;
+    return /Mui-selected/.test((await locator.getAttribute('class')) || '');
+}
+
+// Every key toggle on the page, in DOM order, which is `MPLUS_KEY_REWARDS`
+// order and so is `key.index`. That the position really is his index is not
+// assumed: every Upgrade Finder run below checks the export's own
+// `settings.dungeon` against the position of the button it clicked.
+async function readKeyLevelButtons(page) {
+    const section = page.locator('.MuiPaper-root').filter({ hasText: KEY_LEVEL_SECTION }).last();
+    if (!(await section.count())) {
+        throw new ForkError(
+            `QE Live's Upgrade Finder page has no "${KEY_LEVEL_SECTION}" section (UpgradeFinderFront.js); the companion will not guess at which buttons are the key selector`,
+            DRIVE
+        );
+    }
+    const toggles = section.getByRole('button');
+    const total = await toggles.count();
+    const buttons = [];
+    for (let i = 0; i < total; i++) {
+        const locator = toggles.nth(i);
+        const label = (await locator.innerText()).trim();
+        const levels = keyLevelsOfLabel(label);
+        if (!levels) {
+            throw new ForkError(
+                `the "${KEY_LEVEL_SECTION}" section holds a button labelled ${JSON.stringify(label)}, which is not one of QE Live's key labels (M0, +4, +8/9); the companion will not count positions past a button it cannot read`,
+                DRIVE
+            );
+        }
+        buttons.push({ index: buttons.length, label, levels, locator });
+    }
+    if (!buttons.length) {
+        throw new ForkError(`the "${KEY_LEVEL_SECTION}" section holds no key buttons at all`, DRIVE);
+    }
+    return buttons;
+}
+
+// Click the button that covers `level`, then read it back: a click that did not
+// take would otherwise export a document filed under a key it was never run at.
+async function selectKeyLevel(page, level, log) {
+    const buttons = await readKeyLevelButtons(page);
+    const chosen = buttons.find((button) => button.levels.includes(level));
+    if (!chosen) {
+        throw new ForkError(
+            `QE Live's key selector offers ${buttons.map((b) => b.label).join(', ')}, so it cannot be asked about a +${level} key`,
+            DRIVE
+        );
+    }
+    const was = await isSelectedToggle(chosen.locator);
+    if (!was) await chosen.locator.click();
+    if (!(await isSelectedToggle(chosen.locator))) {
+        throw new ForkError(`clicking "${chosen.label}" did not select it, so the run would be at the wrong key level`, DRIVE);
+    }
+    if (log) log.info(`  mythic+ key ${chosen.label} (his index ${chosen.index})${was ? '' : ' (clicked)'}`);
+    return chosen;
+}
+
+// `settings.dungeon` out of an export, or null when it does not say. The addon
+// is the parser for everything else in these documents; this reads one integer
+// so a run can refuse to file a document under a key it was not run at.
+function exportedKeyIndex(json) {
+    try {
+        const settings = JSON.parse(json).settings || {};
+        return Number.isInteger(settings.dungeon) ? settings.dungeon : null;
+    } catch {
+        return null;
+    }
+}
+
+// One Upgrade Finder document. `keyLevel` is the key the run is for; the
+// selector is set before Go! and the export is checked against it afterwards,
+// because a document filed under the wrong key level is a wrong answer that
+// looks right.
+async function runUpgradeFinder(page, keyLevel, log) {
     await goTo(page, '/upgradefinder');
+    let chosen = null;
+    if (keyLevel !== null && keyLevel !== undefined) {
+        chosen = await selectKeyLevel(page, keyLevel, log);
+    }
     await page.getByRole('button', { name: 'Go!' }).click();
     await page.waitForURL((u) => u.pathname.includes('/upgradereport'), { timeout: 120000 });
-    return readJson(page);
+    const json = await readJson(page);
+    if (chosen) {
+        const said = exportedKeyIndex(json);
+        if (said !== chosen.index) {
+            throw new ForkError(
+                `this run asked for a +${keyLevel} key ("${chosen.label}", his index ${chosen.index}) but the export says settings.dungeon = ${said}; refusing to file a document under a key level it was not run at`,
+                DRIVE
+            );
+        }
+    }
+    return json;
 }
 
 // profileText in, [{ kind, contentType, json }] out. The caller owns the
@@ -327,17 +449,23 @@ async function run(config, profileText, log, options) {
         timings.push(['profile import', done()]);
 
         let content = null;
-        for (const wanted of config.documents) {
-            if (wanted.contentType !== content) {
-                done = log.stage(`  content ${wanted.contentType}`);
-                await setContent(page, wanted.contentType, log);
-                content = wanted.contentType;
-                timings.push([`content ${wanted.contentType}`, done()]);
+        // The PLAN, not the configured list: a dungeon Upgrade Finder document
+        // is one document per configured key level (WKE-543, C-7).
+        for (const planned of configLib.plannedDocuments(config)) {
+            const at = planned.keyLevel === undefined ? '' : ` +${planned.keyLevel}`;
+            if (planned.contentType !== content) {
+                done = log.stage(`  content ${planned.contentType}`);
+                await setContent(page, planned.contentType, log);
+                content = planned.contentType;
+                timings.push([`content ${planned.contentType}`, done()]);
             }
-            done = log.stage(`  ${wanted.kind} ${wanted.contentType}`);
-            const json = wanted.kind === 'topgear' ? await runTopGear(page, log) : await runUpgradeFinder(page);
-            timings.push([`${wanted.kind} ${wanted.contentType} (${json.length} chars)`, done(`${json.length} chars`)]);
-            documents.push({ kind: wanted.kind, contentType: wanted.contentType, json });
+            done = log.stage(`  ${planned.kind} ${planned.contentType}${at}`);
+            const json =
+                planned.kind === 'topgear'
+                    ? await runTopGear(page, log)
+                    : await runUpgradeFinder(page, planned.keyLevel, log);
+            timings.push([`${planned.kind} ${planned.contentType}${at} (${json.length} chars)`, done(`${json.length} chars`)]);
+            documents.push({ kind: planned.kind, contentType: planned.contentType, keyLevel: planned.keyLevel, json });
         }
     } catch (e) {
         if (opts.screenshotDir) {
@@ -352,4 +480,22 @@ async function run(config, profileText, log, options) {
     return { documents, timings, qeSettings };
 }
 
-module.exports = { run, ensureUp, isUp, setUpgradeCheckboxes, settingsFrom, importProfile, CHECKBOX_LABELS, ForkError, UNREACHABLE, REFUSED, DRIVE };
+module.exports = {
+    run,
+    ensureUp,
+    isUp,
+    setUpgradeCheckboxes,
+    settingsFrom,
+    importProfile,
+    keyLevelsOfLabel,
+    readKeyLevelButtons,
+    selectKeyLevel,
+    exportedKeyIndex,
+    runUpgradeFinder,
+    CHECKBOX_LABELS,
+    KEY_LEVEL_SECTION,
+    ForkError,
+    UNREACHABLE,
+    REFUSED,
+    DRIVE,
+};
