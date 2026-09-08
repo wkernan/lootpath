@@ -302,6 +302,65 @@ local function sortCandidates(rows)
     end)
 end
 
+-- One journal entry as a candidate row, without any number on it. Both views
+-- build their rows here, so a row means the same thing in the slot view and in
+-- the run view and neither can drift into saying something the other does not.
+local function candidateRow(itemID, entry, owned, difficultyLabels, previewLevel)
+    local ownedRecord = owned[itemID]
+    return {
+        itemID = itemID,
+        itemKey = entry.itemKey,
+        name = entry.name,
+        itemLevel = entry.itemLevel,
+        slot = entry.slot,
+        instanceID = entry.instanceID,
+        instanceName = entry.instanceName,
+        encounterID = entry.encounterID,
+        encounterName = entry.encounterName,
+        difficultyID = entry.difficultyID,
+        isRaid = entry.isRaid == true,
+        pending = entry.pending == true,
+        sourceLabel = sourceLabel(entry),
+        difficultyLabel = difficultyLabels[entry.difficultyID]
+            or Panel.DifficultyLabel(entry.difficultyID, previewLevel),
+        owned = ownedRecord ~= nil or nil,
+        ownedItemLevel = ownedRecord and ownedRecord.itemLevel or nil,
+    }
+end
+
+-- Which difficulties a map holds and how many rows each carries. The counts are
+-- of the WHOLE map, before any filter, so clicking a filter never renames or
+-- renumbers a button. Shared by both views for exactly that reason.
+local function difficultySurvey(sources, itemIDs)
+    local counts, ids = {}, {}
+    for _, itemID in ipairs(itemIDs) do
+        for _, entry in ipairs(sources[itemID]) do
+            if counts[entry.difficultyID] == nil then
+                ids[#ids + 1] = entry.difficultyID
+            end
+            counts[entry.difficultyID] = (counts[entry.difficultyID] or 0) + 1
+        end
+    end
+    return counts, ids
+end
+
+local function difficultyList(counts, labels, wanted, previewLevel)
+    local ids, list = {}, {}
+    for id in pairs(counts) do
+        ids[#ids + 1] = id
+    end
+    table.sort(ids)
+    for _, id in ipairs(ids) do
+        list[#list + 1] = {
+            difficultyID = id,
+            label = labels[id] or Panel.DifficultyLabel(id, previewLevel),
+            count = counts[id],
+            selected = (not wanted) or wanted[id] == true,
+        }
+    end
+    return list
+end
+
 -- Model(opts) -> the whole panel as plain data, so every rule above is a test
 -- over fixtures rather than a claim about frames.
 --
@@ -331,7 +390,7 @@ function Panel.Model(opts)
     -- Upgrade Finder ranked at some OTHER item level. Deduplicated, so the list
     -- is one entry per drop and counts.rankedAtAnotherLevel is one per row.
     local mismatches, mismatchOrder = {}, {}
-    local difficultyCounts = {}
+    local difficultyCounts
     local model = {
         -- The model keeps the pinned note so a headless test can read it; the
         -- frame prints it once, in its header, and Lines does NOT repeat it
@@ -368,40 +427,14 @@ function Panel.Model(opts)
     -- labels are made unique against each other here rather than row by row, so
     -- that two difficulties the client names identically end up on two
     -- different buttons (finding 1).
-    local difficultyIDs = {}
-    for _, itemID in ipairs(itemIDs) do
-        for _, entry in ipairs(sources[itemID]) do
-            if difficultyCounts[entry.difficultyID] == nil then
-                difficultyIDs[#difficultyIDs + 1] = entry.difficultyID
-            end
-            difficultyCounts[entry.difficultyID] = (difficultyCounts[entry.difficultyID] or 0) + 1
-        end
-    end
+    local difficultyIDs
+    difficultyCounts, difficultyIDs = difficultySurvey(sources, itemIDs)
     local difficultyLabels = Panel.DifficultyLabels(difficultyIDs, previewLevel)
 
     for _, itemID in ipairs(itemIDs) do
         for _, entry in ipairs(sources[itemID]) do
             if not wanted or wanted[entry.difficultyID] then
-                local ownedRecord = owned[itemID]
-                local row = {
-                    itemID = itemID,
-                    itemKey = entry.itemKey,
-                    name = entry.name,
-                    itemLevel = entry.itemLevel,
-                    slot = entry.slot,
-                    instanceID = entry.instanceID,
-                    instanceName = entry.instanceName,
-                    encounterID = entry.encounterID,
-                    encounterName = entry.encounterName,
-                    difficultyID = entry.difficultyID,
-                    isRaid = entry.isRaid == true,
-                    pending = entry.pending == true,
-                    sourceLabel = sourceLabel(entry),
-                    difficultyLabel = difficultyLabels[entry.difficultyID]
-                        or Panel.DifficultyLabel(entry.difficultyID, previewLevel),
-                    owned = ownedRecord ~= nil or nil,
-                    ownedItemLevel = ownedRecord and ownedRecord.itemLevel or nil,
-                }
+                local row = candidateRow(itemID, entry, owned, difficultyLabels, previewLevel)
                 -- The only path to a number on a candidate row. `qe` is nil
                 -- whenever the verdict does not carry this exact key, and
                 -- `value` is nil whenever `qe` is.
@@ -496,19 +529,7 @@ function Panel.Model(opts)
         end
     end
 
-    local ids = {}
-    for id in pairs(difficultyCounts) do
-        ids[#ids + 1] = id
-    end
-    table.sort(ids)
-    for _, id in ipairs(ids) do
-        model.difficulties[#model.difficulties + 1] = {
-            difficultyID = id,
-            label = difficultyLabels[id] or Panel.DifficultyLabel(id, previewLevel),
-            count = difficultyCounts[id],
-            selected = (not wanted) or wanted[id] == true,
-        }
-    end
+    model.difficulties = difficultyList(difficultyCounts, difficultyLabels, wanted, previewLevel)
     return model
 end
 
@@ -576,6 +597,363 @@ function Panel.Lines(model)
                     row.itemID,
                     row.sourceLabel,
                     row.difficultyLabel
+                )
+            )
+        end
+    end
+    return lines
+end
+
+-- ---------------------------------------------------------------------------
+-- The by-run view (M3-8, WKE-542).
+--
+-- The slot view above answers "what could fill this slot". The owner's question
+-- on the first day of real use was a different one: "what would be the best run
+-- for me to do right now". That is this view, and it is a second model over the
+-- SAME two inputs - the journal walk and QE Live's Upgrade Finder export - with
+-- no new number of its own.
+--
+-- THE RULE, stated before the sorting: ranking runs by QE Live's own
+-- `upgradePercent`, and counting how many of a run's drops carry a positive one
+-- out of how many drops the journal lists, are display over his numbers and the
+-- client's facts. A probability-weighted "expected upgrade" is NOT: the
+-- Adventure Guide gives no drop rates, "1 in N" would be Lootpath's own
+-- assumption, and multiplying his number by it would produce a number he never
+-- gave. So the two rankings the owner named are offered as facts side by side -
+-- the best single upgrade, and the count of rated upgrades over the run's whole
+-- drop list - and the reader judges the odds. RUN_NOTE says so on screen.
+Panel.MODE_SLOT = "slot"
+Panel.MODE_RUN = "run"
+Panel.MODE_LABEL = { [Panel.MODE_SLOT] = "By slot", [Panel.MODE_RUN] = "By run" }
+
+Panel.SORT_BEST = "best"
+Panel.SORT_COUNT = "count"
+Panel.SORT_LABEL = { [Panel.SORT_BEST] = "best upgrade", [Panel.SORT_COUNT] = "most upgrades" }
+Panel.SORTS = { Panel.SORT_BEST, Panel.SORT_COUNT }
+Panel.MODES = { Panel.MODE_SLOT, Panel.MODE_RUN }
+
+Panel.RUN_NOTE = "Two facts side by side: QE Live's best single upgrade in a run, and how many of that run's drops he "
+    .. "rates as upgrades. Neither is weighted by drop chance - the Adventure Guide gives none, and Lootpath will not "
+    .. "invent one - so the odds are yours to judge."
+
+Panel.RUN_NO_IMPORT_NOTE =
+    "No QE Live Upgrade Finder import yet, so no run can be ranked. Paste an Upgrade Finder export to change that."
+
+-- The denominator is every drop the journal lists for the run, so the reader
+-- can see how thin a "best upgrade" is spread.
+Panel.RUN_COUNT_TEXT = "%d of %d drops rated upgrades"
+Panel.RUN_NO_UPGRADE_TEXT = "no drop rated by QE Live yet"
+
+Panel.RUN_HEADLINE_BEST = "Best run right now (by best upgrade): %s - %+.2f%% for %s."
+Panel.RUN_HEADLINE_COUNT = "Best run right now (by most upgrades): %s - %s."
+Panel.RUN_HEADLINE_NONE = "No run in this map has a drop QE Live rates as an upgrade."
+
+-- One key level exists today: the one the walk previewed. QE Live's Upgrade
+-- Finder values a dungeon drop at ITS OWN key setting (key 7 in the committed
+-- export: 311/321/334), so "the lowest key level that still gives an upgrade"
+-- needs an Upgrade Finder document per key level, and a walk that previewed
+-- each of them - that is WKE-543. Until it lands the view says which level it
+-- is showing rather than inventing item levels for the others.
+Panel.KEY_LEVEL_NOTE = "Mythic Keystone runs are shown at key %s, which is what the walk previewed. "
+    .. "A key level with no walk and no QE Live export of its own is not shown."
+
+-- The keystone level a run's item levels mean nothing without. Only the Mythic
+-- Keystone difficulty has one, and it comes from the entry itself when the
+-- entry carries one - the field a walk of several key levels will set (WKE-543)
+-- - and from the walk's single previewed level otherwise, which is every walk
+-- that exists today.
+function Panel.RunKeyLevel(difficultyID, previewMythicPlusLevel, entry)
+    if difficultyID ~= mythicPlusDifficulty() then
+        return nil
+    end
+    local own = entry and tonumber(entry.mythicPlusLevel)
+    return own or previewMythicPlusLevel
+end
+
+-- A run is what the owner actually chooses to do: a dungeon at a difficulty
+-- (you run the whole dungeon, so every boss in it is one run) or a raid boss at
+-- a difficulty (you pick the boss). The key level is part of a Mythic Keystone
+-- run's identity, so one dungeon at two key levels is two runs and they sort
+-- against each other - the shape WKE-543 fills in.
+function Panel.RunKey(entry, keyLevel)
+    if entry.isRaid then
+        return table.concat({
+            "raid",
+            tostring(entry.instanceID),
+            tostring(entry.encounterID),
+            tostring(entry.difficultyID),
+        }, ":")
+    end
+    return table.concat({
+        "dungeon",
+        tostring(entry.instanceID),
+        tostring(entry.difficultyID),
+        tostring(keyLevel or "-"),
+    }, ":")
+end
+
+local function runParts(run)
+    local parts = { run.instanceName or ("Instance " .. tostring(run.instanceID)) }
+    if run.isRaid then
+        parts[#parts + 1] = run.encounterName or ("encounter " .. tostring(run.encounterID))
+    end
+    parts[#parts + 1] = run.difficultyLabel
+    return parts
+end
+
+-- The difficulty word plus THIS run's key level, so two key levels of one
+-- dungeon read as the two different runs they are. The filter buttons keep the
+-- whole map's labels (Panel.DifficultyLabels with the walk's preview level), so
+-- the row and the button agree whenever there is only one key level, which is
+-- every walk that exists today.
+local function runDifficultyLabel(baseLabels, difficultyID, keyLevel)
+    local base = baseLabels[difficultyID] or Panel.DifficultyLabel(difficultyID, nil)
+    if keyLevel then
+        return string.format("%s %d", base, keyLevel)
+    end
+    return base
+end
+
+-- Best first, and then a stable order so the same map always reads the same.
+local function sortRunUpgrades(rows)
+    table.sort(rows, function(a, b)
+        local ap = tonumber(a.upgrade.upgradePercent) or 0
+        local bp = tonumber(b.upgrade.upgradePercent) or 0
+        if ap ~= bp then
+            return ap > bp
+        end
+        if (a.name or "") ~= (b.name or "") then
+            return (a.name or "") < (b.name or "")
+        end
+        if a.itemID ~= b.itemID then
+            return a.itemID < b.itemID
+        end
+        return (a.encounterID or 0) < (b.encounterID or 0)
+    end)
+end
+
+-- A run with nothing rated sorts last under BOTH orders, and it needs no clause
+-- of its own to do it: only a drop QE Live's own IsUpgrade calls an upgrade is
+-- ever counted, so a rated run always has a positive `bestPercent` and a `rated`
+-- above zero, and an unrated run loses on the first comparison either way. A
+-- guard here that no test could turn red would be a claim rather than a rule.
+local function runComparator(sort)
+    return function(a, b)
+        if sort == Panel.SORT_COUNT then
+            if a.rated ~= b.rated then
+                return a.rated > b.rated
+            end
+            if (a.bestPercent or 0) ~= (b.bestPercent or 0) then
+                return (a.bestPercent or 0) > (b.bestPercent or 0)
+            end
+        else
+            if (a.bestPercent or 0) ~= (b.bestPercent or 0) then
+                return (a.bestPercent or 0) > (b.bestPercent or 0)
+            end
+            if a.rated ~= b.rated then
+                return a.rated > b.rated
+            end
+        end
+        if a.label ~= b.label then
+            return a.label < b.label
+        end
+        return a.key < b.key
+    end
+end
+
+-- RunModel(opts) takes exactly what Model does, plus opts.runSort, and is pure
+-- over it in the same way. It walks `sources` itself rather than regrouping
+-- Model's output, because the denominator has to be every drop the journal
+-- lists for the run - including the cosmetics the slot view hides and the rows
+-- whose item data never arrived - and a filtered list cannot say that.
+function Panel.RunModel(opts)
+    opts = opts or {}
+    local sources = opts.sources or {}
+    local summary = opts.summary or {}
+    local upgrades = opts.upgrades
+    local previewLevel = opts.previewMythicPlusLevel or summary.previewMythicPlusLevel
+    local sort = (opts.runSort == Panel.SORT_COUNT) and Panel.SORT_COUNT or Panel.SORT_BEST
+
+    local wanted
+    for _, id in ipairs(opts.difficultyIDs or {}) do
+        wanted = wanted or {}
+        wanted[id] = true
+    end
+
+    local owned = ownedByItemID(opts.inventory)
+    local model = {
+        note = Panel.NOTE,
+        runNote = Panel.RUN_NOTE,
+        mode = Panel.MODE_RUN,
+        sort = sort,
+        sortLabel = Panel.SORT_LABEL[sort],
+        previewMythicPlusLevel = previewLevel,
+        hasMap = false,
+        hasVerdict = opts.verdict ~= nil,
+        hasUpgrades = upgrades ~= nil,
+        runs = {},
+        difficulties = {},
+        keyLevels = {},
+        counts = { runs = 0, ratedRuns = 0, drops = 0, rated = 0, keyLevels = 0 },
+    }
+
+    local itemIDs = {}
+    for itemID in pairs(sources) do
+        model.hasMap = true
+        itemIDs[#itemIDs + 1] = itemID
+    end
+    table.sort(itemIDs)
+
+    local difficultyCounts, difficultyIDs = difficultySurvey(sources, itemIDs)
+    -- Two label sets. The filter buttons keep the whole map's labels, key level
+    -- and all, exactly as the slot view draws them; the run rows take the bare
+    -- difficulty word and append their OWN key level.
+    local difficultyLabels = Panel.DifficultyLabels(difficultyIDs, previewLevel)
+    local baseLabels = Panel.DifficultyLabels(difficultyIDs, nil)
+
+    local runs, order, keyLevels = {}, {}, {}
+    for _, itemID in ipairs(itemIDs) do
+        for _, entry in ipairs(sources[itemID]) do
+            if not wanted or wanted[entry.difficultyID] then
+                local keyLevel = Panel.RunKeyLevel(entry.difficultyID, previewLevel, entry)
+                local key = Panel.RunKey(entry, keyLevel)
+                local run = runs[key]
+                if not run then
+                    run = {
+                        key = key,
+                        instanceID = entry.instanceID,
+                        instanceName = entry.instanceName,
+                        encounterID = entry.isRaid and entry.encounterID or nil,
+                        encounterName = entry.isRaid and entry.encounterName or nil,
+                        difficultyID = entry.difficultyID,
+                        difficultyLabel = runDifficultyLabel(baseLabels, entry.difficultyID, keyLevel),
+                        isRaid = entry.isRaid == true,
+                        keyLevel = keyLevel,
+                        drops = 0,
+                        pendingDrops = 0,
+                        rated = 0,
+                        upgrades = {},
+                    }
+                    local parts = runParts(run)
+                    run.label = table.concat(parts, " - ")
+                    run.name = table.concat(parts, ", ")
+                    runs[key] = run
+                    order[#order + 1] = key
+                    if keyLevel and not keyLevels[keyLevel] then
+                        keyLevels[keyLevel] = true
+                        model.keyLevels[#model.keyLevels + 1] = keyLevel
+                        model.counts.keyLevels = model.counts.keyLevels + 1
+                    end
+                end
+                run.drops = run.drops + 1
+                model.counts.drops = model.counts.drops + 1
+                if entry.pending then
+                    run.pendingDrops = run.pendingDrops + 1
+                end
+                -- The one path to a number here, and it is the slot view's own:
+                -- QE Live ranked THIS itemID AT THIS item level, and his own
+                -- IsUpgrade says the number means better. Nothing else counts.
+                local ranked = (upgrades and entry.itemLevel) and ns.UFImport.Lookup(upgrades, itemID, entry.itemLevel)
+                    or nil
+                if ranked and ns.UFImport.IsUpgrade(ranked) then
+                    local row = candidateRow(itemID, entry, owned, difficultyLabels, previewLevel)
+                    row.upgrade = ranked
+                    row.upgradeValue = Panel.UpgradeText(ranked)
+                    run.rated = run.rated + 1
+                    run.upgrades[#run.upgrades + 1] = row
+                    model.counts.rated = model.counts.rated + 1
+                end
+            end
+        end
+    end
+
+    for _, key in ipairs(order) do
+        local run = runs[key]
+        sortRunUpgrades(run.upgrades)
+        run.best = run.upgrades[1]
+        run.bestPercent = run.best and tonumber(run.best.upgrade.upgradePercent) or nil
+        run.countText = string.format(Panel.RUN_COUNT_TEXT, run.rated, run.drops)
+        if run.best then
+            local what = run.best.name or ("item " .. tostring(run.best.itemID))
+            if run.best.slot then
+                what = what .. ", " .. run.best.slot
+            end
+            -- His sign, his magnitude, and no direction word: only a drop his
+            -- own IsUpgrade calls an upgrade ever reaches this line.
+            run.bestText = string.format("best %+.2f%% (%s)", run.bestPercent, what)
+            run.text = string.format("%s: %s; %s", run.label, run.bestText, run.countText)
+            model.counts.ratedRuns = model.counts.ratedRuns + 1
+        else
+            run.text = string.format("%s: %s; %s", run.label, Panel.RUN_NO_UPGRADE_TEXT, run.countText)
+        end
+        model.runs[#model.runs + 1] = run
+        model.counts.runs = model.counts.runs + 1
+    end
+    table.sort(model.runs, runComparator(sort))
+
+    local top = model.runs[1]
+    if top and top.best then
+        if sort == Panel.SORT_COUNT then
+            model.headline = string.format(Panel.RUN_HEADLINE_COUNT, top.name, top.countText)
+        else
+            model.headline =
+                string.format(Panel.RUN_HEADLINE_BEST, top.name, top.bestPercent, top.best.slot or top.best.name)
+        end
+    elseif model.hasMap then
+        model.headline = Panel.RUN_HEADLINE_NONE
+    end
+
+    if model.counts.keyLevels > 0 then
+        table.sort(model.keyLevels)
+        local shown = {}
+        for index, level in ipairs(model.keyLevels) do
+            shown[index] = tostring(level)
+        end
+        model.keyLevelNote = string.format(
+            Panel.KEY_LEVEL_NOTE,
+            string.format("%s %s", #shown == 1 and "level" or "levels", table.concat(shown, ", "))
+        )
+    end
+
+    model.difficulties = difficultyList(difficultyCounts, difficultyLabels, wanted, previewLevel)
+    return model
+end
+
+-- The by-run model as display lines. The pinned note is still the header's and
+-- is not repeated here (WKE-530 finding 3); RUN_NOTE is not the pinned note and
+-- the header does not draw it, so it belongs to the list.
+function Panel.RunLines(model)
+    local lines = {}
+    local function add(text)
+        lines[#lines + 1] = text
+    end
+    if not model.hasMap then
+        add(Panel.EMPTY_NOTE)
+        return lines
+    end
+    if model.headline then
+        add(model.headline)
+    end
+    add(Panel.RUN_NOTE)
+    if not model.hasUpgrades then
+        add(Panel.RUN_NO_IMPORT_NOTE)
+    end
+    if model.keyLevelNote then
+        add(model.keyLevelNote)
+    end
+    for _, run in ipairs(model.runs) do
+        add(run.text)
+        for _, row in ipairs(run.upgrades) do
+            local what = row.name or ("item " .. tostring(row.itemID))
+            local level = row.slot and string.format("%s, %s", row.slot, tostring(row.itemLevel))
+                or tostring(row.itemLevel)
+            add(
+                string.format(
+                    "  %s (%s) - %s - %s",
+                    what,
+                    level,
+                    row.encounterName or row.sourceLabel,
+                    row.upgradeValue
                 )
             )
         end
@@ -674,12 +1052,26 @@ function Panel.Create(parent)
     frame.note:SetPoint("RIGHT", frame, "RIGHT", -8, 0)
     frame.note:SetText(Panel.NOTE)
 
+    -- The view row sits above the difficulty row, so the difficulty buttons
+    -- keep anchoring to frame.filterLabel exactly as they did and their wrap
+    -- (WKE-530 finding 2) is untouched.
+    frame.viewLabel = fontString(frame)
+    frame.viewLabel:SetPoint("TOPLEFT", frame.note, "BOTTOMLEFT", 0, -8)
+    frame.viewLabel:SetText("View:")
+
+    frame.modeButtons = {}
+    frame.sortButtons = {}
+    frame.sortLabel = fontString(frame)
+    frame.sortLabel:SetText("Sort:")
+
     frame.filterLabel = fontString(frame)
-    frame.filterLabel:SetPoint("TOPLEFT", frame.note, "BOTTOMLEFT", 0, -8)
+    frame.filterLabel:SetPoint("TOPLEFT", frame.viewLabel, "BOTTOMLEFT", 0, -8)
     frame.filterLabel:SetText("Difficulty:")
 
     frame.filterButtons = {}
     frame.difficultyIDs = nil
+    frame.mode = Panel.MODE_SLOT
+    frame.runSort = Panel.SORT_BEST
 
     frame.scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
     frame.scroll:SetPoint("TOPLEFT", frame.filterLabel, "BOTTOMLEFT", 0, -24)
@@ -799,6 +1191,59 @@ local function placeFilterButtons(frame, labels)
     return layout
 end
 
+-- The view row: two buttons naming the two views, and - in the run view only -
+-- two more naming the two sort orders. The button for what is on screen now is
+-- disabled, so the row says where you are as well as where you can go.
+local function viewButton(list, frame, index)
+    local button = list[index]
+    if not button then
+        button = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+        list[index] = button
+    end
+    return button
+end
+
+local function sizeViewButton(button, label, anchor, gap)
+    button:SetText(label)
+    button:SetSize(
+        math.max(Panel.FILTER_BUTTON_MIN_WIDTH, math.ceil(labelWidth(button, label))),
+        Panel.FILTER_ROW_HEIGHT - 2
+    )
+    button:ClearAllPoints()
+    button:SetPoint("LEFT", anchor, "RIGHT", gap, 0)
+end
+
+local function placeViewRow(frame, mode, runSort)
+    local previous = frame.viewLabel
+    for index, name in ipairs(Panel.MODES) do
+        local button = viewButton(frame.modeButtons, frame, index)
+        sizeViewButton(button, Panel.MODE_LABEL[name], previous, Panel.FILTER_BUTTON_GAP + 2)
+        button:SetShown(true)
+        button:SetEnabled(mode ~= name)
+        button:SetScript("OnClick", function()
+            frame.mode = name
+            Panel.Refresh(frame)
+        end)
+        previous = button
+    end
+
+    frame.sortLabel:ClearAllPoints()
+    frame.sortLabel:SetPoint("LEFT", previous, "RIGHT", 12, 0)
+    frame.sortLabel:SetShown(mode == Panel.MODE_RUN)
+    previous = frame.sortLabel
+    for index, name in ipairs(Panel.SORTS) do
+        local button = viewButton(frame.sortButtons, frame, index)
+        sizeViewButton(button, Panel.SORT_LABEL[name], previous, Panel.FILTER_BUTTON_GAP + 2)
+        button:SetShown(mode == Panel.MODE_RUN)
+        button:SetEnabled(mode == Panel.MODE_RUN and runSort ~= name)
+        button:SetScript("OnClick", function()
+            frame.runSort = name
+            Panel.Refresh(frame)
+        end)
+        previous = button
+    end
+end
+
 local function row(frame, index)
     local text = frame.rows[index]
     if not text then
@@ -823,10 +1268,23 @@ function Panel.Refresh(self, opts)
     end
     opts = opts or {}
     opts.difficultyIDs = opts.difficultyIDs or self.difficultyIDs
+    local mode = opts.mode or self.mode or Panel.MODE_SLOT
+    local runSort = opts.runSort or self.runSort or Panel.SORT_BEST
     local gathered = Panel.Gather(opts)
-    local model = Panel.Model(gathered)
+    gathered.runSort = runSort
+    -- Two models over one gather. The slot view is the one M3-3 shipped and
+    -- nothing here changes what it renders; the run view is its sibling.
+    local model
+    if mode == Panel.MODE_RUN then
+        model = Panel.RunModel(gathered)
+    else
+        model = Panel.Model(gathered)
+    end
     self.model = model
+    self.mode = mode
+    self.runSort = runSort
     self.difficultyIDs = opts.difficultyIDs
+    placeViewRow(self, mode, runSort)
 
     -- Text first, then the layout, because a button's width is its label's.
     local labels = {}
@@ -856,7 +1314,7 @@ function Panel.Refresh(self, opts)
 
     -- The pinned note is the header's, drawn once; it is not a line of the
     -- list, in combat or out of it (WKE-530 finding 3).
-    local lines = Panel.Lines(model)
+    local lines = (mode == Panel.MODE_RUN) and Panel.RunLines(model) or Panel.Lines(model)
     if gathered.inCombat then
         lines = { "Lootpath does not read the client in combat. Leave combat and reopen this panel." }
     end
