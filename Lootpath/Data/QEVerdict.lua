@@ -1,0 +1,39 @@
+-- Lootpath/Data/QEVerdict.lua (C-2, WKE-534)
+-- The one file the local companion writes into the addon folder, and the only
+-- thing that reaches Lootpath other than a paste (decision 2026-09-07,
+-- docs/ARCHITECTURE.md 7). It is listed in the .toc, so the client loads it
+-- at login or /reload exactly like any other addon file.
+--
+-- THIS COMMITTED COPY IS A PLACEHOLDER AND SETS NOTHING. It ships with the
+-- addon so a fresh install has the file its .toc names; the companion
+-- overwrites it on the owner's own machine (temp file + rename), and
+-- tools\sync.ps1 leaves an existing copy alone unless it is passed
+-- -IncludeData. It is NOT gitignored: ignoring it would break the .toc entry
+-- for everyone who installs from a release.
+--
+-- The contract, and nothing beyond it. The chunk assigns exactly one field on
+-- the addon namespace and does no other work - no function calls, no
+-- loadstring, no client reads:
+--
+--   local _, ns = ...
+--   ns.companionVerdict = {
+--       writtenAt = "2026-09-08T14:05:11Z",   -- ISO 8601 UTC, when the companion wrote this file
+--       companionVersion = "0.1.0",           -- whatever wrote it, for a refusal message
+--       exports = {
+--           {
+--               schema = "qe-live-droptimizer",  -- QE Live's own schema string
+--               contentType = "Dungeon",         -- what the companion asked QE Live for; advisory only
+--               json = "{\"schema\":\"qe-live-droptimizer\",...}",
+--           },
+--           -- ... one entry per document the companion produced
+--       },
+--   }
+--
+-- Lua strings, numbers and tables only. `json` is QE Live's export text
+-- VERBATIM: Lootpath runs it through the same ns.QEImport parser as a paste,
+-- so every schema, version and gameType refusal still applies, and the
+-- contentType above is never trusted over the one inside the JSON. Lootpath
+-- computes no healer value here or anywhere; this file moves bytes.
+--
+-- ns.Companion (Lootpath/Modules/Companion.lua) validates every field of it
+-- and reports what it refused in chat. Nothing here is code Lootpath calls.

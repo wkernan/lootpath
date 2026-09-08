@@ -57,6 +57,9 @@ read_globals = {
     "GetSpecializationInfo",
     "InCombatLockdown",
     "ItemLocation",
+    -- Protected in combat, which is why Companion.Refresh checks
+    -- InCombatLockdown before it calls this.
+    "ReloadUI",
     "UnitClass",
     "UnitLevel",
     "UnitName",

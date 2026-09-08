@@ -381,6 +381,7 @@ function Stub.install()
         items = {}, -- [link] = { level = , info = {...}, instant = {...} }
         bankOpen = false,
         vaultOpen = false,
+        reloads = 0,
         vault = { hasAvailable = false, canClaim = false, activities = {}, links = {}, examples = {} },
         secondsUntilReset = 3600,
         difficultyNames = {},
@@ -443,6 +444,14 @@ function Stub.install()
         local sentinel = { secret = label or "table" }
         world.secrets[sentinel] = "table"
         return sentinel
+    end
+    -- Marks a value that already exists - a string, a number - as secret and
+    -- hands it straight back. The two helpers above return a fresh TABLE, so a
+    -- guard that only type-checks its input passes them by accident; this one
+    -- is how a test proves ns.Safe itself is doing the work (C-2).
+    function world.markSecret(value)
+        world.secrets[value] = "value"
+        return value
     end
     function world.fireEvent(event, ...)
         for _, f in ipairs(world.frames) do
@@ -546,6 +555,12 @@ function Stub.install()
             return nil
         end
         return name, "party", false, false, false, false
+    end)
+    -- ReloadUI: protected in combat in the real client, which is why
+    -- Companion.Refresh checks InCombatLockdown before it ever gets here. The
+    -- stub only counts the calls; what a reload does is the client's.
+    define("ReloadUI", function()
+        world.reloads = world.reloads + 1
     end)
     define("debugprofilestop", function()
         return os.clock() * 1000

@@ -48,33 +48,15 @@ UI.TABS = {
 -- ISO 8601 in UTC, which is what QE Live's exportedAt is
 -- ("2026-09-06T21:14:24.465Z", read from the committed export). Returns the
 -- age in seconds, or nil when the string is not one of those.
+-- The stamp reader is ns.EpochFromISO (Core), shared with the companion's
+-- writtenAt so an age on screen and a freshness decision never disagree about
+-- what a timestamp means.
 function UI.AgeSeconds(iso, now)
-    if type(iso) ~= "string" then
+    local epoch = ns.EpochFromISO(iso, now)
+    if not epoch then
         return nil
     end
-    local year, month, day, hour, minute, second = iso:match("^(%d%d%d%d)-(%d%d)-(%d%d)T(%d%d):(%d%d):(%d%d)")
-    if not year then
-        return nil
-    end
-    now = now or time()
-    local fields = {
-        year = tonumber(year),
-        month = tonumber(month),
-        day = tonumber(day),
-        hour = tonumber(hour),
-        min = tonumber(minute),
-        sec = tonumber(second),
-    }
-    -- `time(t)` reads its fields as LOCAL time and `date("!*t", t)` writes UTC
-    -- ones, so the difference between the two is this machine's offset from
-    -- UTC, and adding it back turns UTC fields into an epoch. Nothing here
-    -- assumes a timezone.
-    local utcNow = date("!*t", now)
-    if type(utcNow) ~= "table" then
-        return nil
-    end
-    local offset = now - time(utcNow)
-    return now - (time(fields) + offset)
+    return (now or time()) - epoch
 end
 
 function UI.AgeText(iso, now)
@@ -136,19 +118,24 @@ function UI.ActiveVerdict()
     return nil, wanted, false
 end
 
-function UI.VerdictNoteText()
+-- Which import is on screen and where it came from - "pasted", or "companion,
+-- written 4 minute(s) ago" (C-2). The source is on the line the window keeps,
+-- not the status line the next paste overwrites.
+function UI.VerdictNoteText(now)
     local verdict, contentType, fellBack = UI.ActiveVerdict()
     if not verdict then
         return "No QE Live export on this character yet."
     end
+    local source = ns.Companion.SourceText(verdict, now)
     if fellBack then
         return string.format(
-            "|cffffd43bShowing the %s export|r - nothing has been pasted for %s yet.",
+            "|cffffd43bShowing the %s export|r (%s) - nothing has been imported for %s yet.",
             contentType,
+            source,
             UI.Options.Get()
         )
     end
-    return string.format("Showing the %s export.", contentType)
+    return string.format("Showing the %s export (%s).", contentType, source)
 end
 
 function UI.Import(text)
