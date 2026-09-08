@@ -10,7 +10,13 @@
 --        status, matchedBy, reason, dstSlot }
 --   equipped_is_best - QE Live's item for that slot is already on the character
 --   swap             - it is in the bags or the bank; `equipped` is what it replaces
---   best_not_owned   - the scan cannot find it; `reason` says why it might be missing
+--   best_in_vault    - the scan cannot find it because it is an unclaimed Great
+--                      Vault option; `equipped` is what you wear meanwhile and
+--                      there is nothing here to equip. Not a gap: the item is
+--                      waiting for you, one claim away (WKE-541).
+--   best_not_owned   - the scan cannot find it; `reason` says why it might be
+--                      missing. Two meanings only: the bank was closed so it was
+--                      never scanned, or it is genuinely absent.
 --   no_verdict       - something is worn in a slot the export does not name
 --
 -- Identity is ns.ItemKey (itemID + sorted bonus IDs), the same definition
@@ -26,6 +32,7 @@ local Match = ns.Match
 Match.STATUS = {
     EQUIPPED_IS_BEST = "equipped_is_best",
     SWAP = "swap",
+    BEST_IN_VAULT = "best_in_vault",
     BEST_NOT_OWNED = "best_not_owned",
     NO_VERDICT = "no_verdict",
 }
@@ -127,12 +134,10 @@ local function bonusText(bonusIDs)
     return table.concat(parts, ":")
 end
 
--- `best_not_owned` has three quite different meanings and the panel must be
--- able to say which one it is looking at.
-local function notOwnedReason(item, inventory)
-    if item.isVault then
-        return "it is a Great Vault option you have not taken yet"
-    end
+-- `best_not_owned` is a gap, and it has two meanings the panel must be able to
+-- tell apart. The third thing the scan cannot find - a Great Vault option - is
+-- not a gap and never reaches here; it gets its own status above.
+local function notOwnedReason(inventory)
     if inventory.bankAvailable == false then
         return "it is not in your gear or bags, and your bank is closed so Lootpath cannot see inside it"
     end
@@ -200,9 +205,13 @@ function Match.Build(inventory, verdict)
                 if row.slot == "Unknown" and record.slot then
                     row.slot = record.slot
                 end
+            elseif item.isVault then
+                -- No `reason`: this row is not a failure to explain away. The
+                -- panel says what it is and points at the Vault tab.
+                row.status = STATUS.BEST_IN_VAULT
             else
                 row.status = STATUS.BEST_NOT_OWNED
-                row.reason = notOwnedReason(item, inventory)
+                row.reason = notOwnedReason(inventory)
             end
             rows[#rows + 1] = row
         end
@@ -244,7 +253,7 @@ function Match.Build(inventory, verdict)
         end
     end
 
-    local counts = { equipped_is_best = 0, swap = 0, best_not_owned = 0, no_verdict = 0 }
+    local counts = { equipped_is_best = 0, swap = 0, best_in_vault = 0, best_not_owned = 0, no_verdict = 0 }
     for i = 1, #rows do
         local row = rows[i]
         row.dstSlot = row.equipped and row.equipped.slotIndex or nil

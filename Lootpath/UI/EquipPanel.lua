@@ -19,17 +19,33 @@ UI.EquipPanel = {}
 local EquipPanel = UI.EquipPanel
 
 EquipPanel.ROW_HEIGHT = 20
+-- A row that has something more to say gets a second line under it rather than
+-- a longer first one: the reason a row is what it is used to be appended to the
+-- detail text, which does not wrap, so the frame cut it off mid-sentence
+-- (owner, 2026-09-08). The note wraps and takes its width from the row, so it
+-- fits the frame at whatever size the frame is.
+EquipPanel.NOTE_HEIGHT = 16
 -- The panel draws a fixed list rather than a scroll frame. A full set is 15 to
 -- 19 rows (the export's items plus anything worn in a slot it does not name),
 -- so 20 covers it; anything past that is counted in a line under the list
 -- instead of being silently dropped.
 EquipPanel.MAX_ROWS = 20
 
+-- The column the slot name gets. Everything to the right of it is anchored, not
+-- sized, so the text a row shows is bounded by the frame and not by a number.
+EquipPanel.SLOT_COLUMN = 80
+
 EquipPanel.COMBAT_TOOLTIP = "Lootpath does not equip anything in combat."
+
+-- The panel's note colour: the grey it already uses for asides that are not a
+-- row's verdict (the bank-closed hint, the matched-by hint).
+EquipPanel.NOTE_COLOR = "|cff909296"
 
 local STATUS_COLOR = {
     equipped_is_best = "|cff40c057",
     swap = "|cffffd43b",
+    -- Blue, not the gap's red: a vault option is waiting for you, not missing.
+    best_in_vault = "|cff74c0fc",
     best_not_owned = "|cffff6b6b",
     no_verdict = "|cff909296",
 }
@@ -69,6 +85,24 @@ function EquipPanel.VerdictItemText(item)
     return name
 end
 
+-- The line under a `best_in_vault` row. It quotes QE Live's own item level and
+-- sends the reader to the tab that shows the vault: Lootpath never computes a
+-- healer value, so this line says where the number came from and stops.
+function EquipPanel.VaultNoteText(item)
+    local name
+    if type(item) == "table" and C_Item and C_Item.GetItemInfo and item.itemID then
+        name = ns.Safe(C_Item.GetItemInfo(item.itemID))
+    end
+    if type(name) ~= "string" or name == "" then
+        name = "item " .. tostring(type(item) == "table" and item.itemID or "?")
+    end
+    local level = type(item) == "table" and item.level or nil
+    if level then
+        name = string.format("%s (QE Live's level %s)", name, tostring(level))
+    end
+    return string.format("QE Live's best set has a Great Vault option in this slot: %s - see the Vault tab", name)
+end
+
 local function whereText(record)
     if record.location == "bank" then
         return "in your bank"
@@ -79,14 +113,15 @@ local function whereText(record)
     return "on your character"
 end
 
--- One row as { slot, text, status, actionable }. Pure: the frames call it, the
--- tests call it, and neither needs the other.
+-- One row as { slot, text, note, status, actionable }. `note` is a whole second
+-- line or nil; nothing long is ever appended to `text`, because `text` does not
+-- wrap. Pure: the frames call it, the tests call it, and neither needs the other.
 function EquipPanel.Describe(row)
     if type(row) ~= "table" then
         return { slot = "", text = "", status = "", actionable = false }
     end
     local status = row.status
-    local text
+    local text, note
     if status == "equipped_is_best" then
         text = string.format("%s - %s", EquipPanel.RecordText(row.best), colored(status, "already equipped"))
     elseif status == "swap" then
@@ -96,13 +131,26 @@ function EquipPanel.Describe(row)
             EquipPanel.RecordText(row.best),
             colored(status, "(" .. whereText(row.best) .. ")")
         )
+    elseif status == "best_in_vault" then
+        -- Not a failed swap. The row says what you are wearing, exactly as it
+        -- would if QE Live had not named a vault option here, and the note
+        -- underneath says what QE Live wanted instead.
+        if row.equipped then
+            text = string.format("%s - %s", EquipPanel.RecordText(row.equipped), colored(status, "already equipped"))
+        else
+            text = string.format("%s - %s", NOTHING_EQUIPPED, colored(status, "nothing owned for this slot"))
+        end
+        note = EquipPanel.NOTE_COLOR .. EquipPanel.VaultNoteText(row.verdictItem) .. "|r"
     elseif status == "best_not_owned" then
         text = string.format(
             "%s  ->  %s  %s",
             EquipPanel.RecordText(row.equipped),
             EquipPanel.VerdictItemText(row.verdictItem),
-            colored(status, "(not found: " .. tostring(row.reason) .. ")")
+            colored(status, "(not found)")
         )
+        -- The reason is a sentence, so it goes on its own line rather than off
+        -- the right-hand edge of the frame.
+        note = colored(status, tostring(row.reason))
     else
         text = string.format(
             "%s - %s",
@@ -113,7 +161,7 @@ function EquipPanel.Describe(row)
     if row.matchedBy == ns.Match.MATCHED_BY_ID_LEVEL then
         text = text .. " |cff909296[matched by itemID and item level]|r"
     end
-    return { slot = row.slot, text = text, status = status, actionable = ns.Match.IsSwap(row) }
+    return { slot = row.slot, text = text, note = note, status = status, actionable = ns.Match.IsSwap(row) }
 end
 
 -- Equips one row's item. The combat check is here, not only on the button, so
@@ -170,9 +218,10 @@ function EquipPanel.SummaryText(match)
     end
     local line = prefix
         .. string.format(
-            "%d already best, %d to swap, %d not owned, %d without a verdict",
+            "%d already best, %d to swap, %d waiting in the Great Vault, %d not owned, %d without a verdict",
             counts.equipped_is_best,
             counts.swap,
+            counts.best_in_vault or 0,
             counts.best_not_owned,
             counts.no_verdict
         )
@@ -201,13 +250,16 @@ local function createRow(panel, index)
     end
 
     row.slotText = row:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-    row.slotText:SetPoint("LEFT", row, "LEFT", 0, 0)
-    row.slotText:SetWidth(80)
+    row.slotText:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+    row.slotText:SetWidth(EquipPanel.SLOT_COLUMN)
+    row.slotText:SetHeight(EquipPanel.ROW_HEIGHT)
     row.slotText:SetJustifyH("LEFT")
 
     row.equip = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
     row.equip:SetSize(64, EquipPanel.ROW_HEIGHT - 2)
-    row.equip:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    -- Anchored to the top, not the middle: a row with a note is taller than one
+    -- line and the button belongs beside the first one.
+    row.equip:SetPoint("TOPRIGHT", row, "TOPRIGHT", 0, -1)
     row.equip:SetText("Equip")
     row.equip:SetScript("OnClick", function()
         EquipPanel.OnEquipClicked(panel, row)
@@ -224,10 +276,21 @@ local function createRow(panel, index)
     end)
 
     row.detail = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    row.detail:SetPoint("LEFT", row.slotText, "RIGHT", 6, 0)
+    row.detail:SetPoint("TOPLEFT", row.slotText, "TOPRIGHT", 6, 0)
     row.detail:SetPoint("RIGHT", row.equip, "LEFT", -6, 0)
+    row.detail:SetHeight(EquipPanel.ROW_HEIGHT)
     row.detail:SetJustifyH("LEFT")
     row.detail:SetWordWrap(false)
+
+    -- The note takes its width from the row itself - LEFT and RIGHT anchors,
+    -- no SetWidth - so it is as wide as the frame is and wraps inside it. It
+    -- clears the Equip button because it sits under it, not beside it.
+    row.note = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    row.note:SetPoint("TOPLEFT", row.detail, "BOTTOMLEFT", 0, -1)
+    row.note:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    row.note:SetJustifyH("LEFT")
+    row.note:SetWordWrap(true)
+    row.note:Hide()
 
     return row
 end
@@ -313,6 +376,15 @@ function EquipPanel.Refresh(panel, match)
         frameRow.matchRow = matchRow
         frameRow.slotText:SetText(described.slot)
         frameRow.detail:SetText(described.text)
+        if described.note then
+            frameRow.note:SetText(described.note)
+            frameRow.note:Show()
+            frameRow:SetHeight(EquipPanel.ROW_HEIGHT + EquipPanel.NOTE_HEIGHT)
+        else
+            frameRow.note:SetText("")
+            frameRow.note:Hide()
+            frameRow:SetHeight(EquipPanel.ROW_HEIGHT)
+        end
         if described.actionable then
             frameRow.equip:Show()
             frameRow.equip:SetEnabled(not inCombat)
@@ -331,6 +403,12 @@ function EquipPanel.Refresh(panel, match)
     end
 
     if #rows > shown then
+        -- Under the last row that was drawn, not under the list frame: rows with
+        -- a note are taller than one line, so the list's own height is no longer
+        -- where the list ends.
+        panel.overflow:ClearAllPoints()
+        local last = shown > 0 and panel.rows[shown] or panel.list
+        panel.overflow:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, -4)
         panel.overflow:SetText(string.format("%d more row(s) not shown.", #rows - shown))
         panel.overflow:Show()
     else

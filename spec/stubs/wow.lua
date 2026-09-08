@@ -54,7 +54,6 @@ local IGNORED_REGION_METHODS = {
     "SetVertexColor",
     "SetJustifyH",
     "SetJustifyV",
-    "SetWordWrap",
     "SetFontObject",
     "SetFont",
     "SetTexture",
@@ -128,6 +127,13 @@ local function newRegion(kind, parent)
     end
     function r:GetText()
         return self.text
+    end
+    -- Not appearance-only: whether a font string wraps decides whether a long
+    -- line is shown or cut off at the frame's edge, which is a contract a test
+    -- can hold the UI to. Recorded as stub state (`region.wordWrap`); the real
+    -- widget has no getter for it, so none is faked here.
+    function r:SetWordWrap(value)
+        self.wordWrap = value and true or false
     end
     for _, name in ipairs(IGNORED_REGION_METHODS) do
         r[name] = function() end
