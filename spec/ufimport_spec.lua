@@ -618,35 +618,19 @@ describe("UFImport key levels", function()
         assert.equal(7, pasted.verdict.settings.dungeon)
     end)
 
-    it("picks the level asked for, then the highest asked about, then the one that does not say", function()
-        importAt(REAL_DUNGEON, 2)
+    it("hands every stored document back in ascending key order, the one that does not say last", function()
         importAt(REAL_DUNGEON, 8)
-        local verdict, level, how = ns.UFImport.PickForLevel("Dungeon", 8)
-        assert.equal(8, level)
-        assert.equal(ns.UFImport.PICK_WANTED, how)
-        assert.equal(8, verdict.keyLevel)
-
-        -- Nothing was run at +4, so the answer is the highest key QE Live WAS
-        -- asked about, and the panel is told so rather than shown +4.
-        verdict, level, how = ns.UFImport.PickForLevel("Dungeon", 4)
-        assert.equal(8, verdict.keyLevel)
-        assert.equal(8, level)
-        assert.equal(ns.UFImport.PICK_HIGHEST, how)
-
-        -- A walk that recorded no preview level asks for none.
-        verdict, level, how = ns.UFImport.PickForLevel("Dungeon", nil)
-        assert.equal(8, verdict.keyLevel)
-        assert.equal(8, level)
-        assert.equal(ns.UFImport.PICK_HIGHEST, how)
-    end)
-
-    it("falls back to an export that never said its key level, and says that is what it did", function()
+        importAt(REAL_DUNGEON, 2)
         assert.is_true(ns.UFImport.Import(readFile(REAL_DUNGEON)).ok)
-        local verdict, level, how = ns.UFImport.PickForLevel("Dungeon", 10)
-        assert.is_not_nil(verdict)
-        assert.is_nil(level)
-        assert.equal(ns.UFImport.PICK_UNRECORDED, how)
-        assert.matches("does not say which Mythic%+ key level", ns.UFImport.KeyLevelNote(level, how, 10))
+        local documents = ns.UFImport.Documents("Dungeon")
+        assert.equal(3, #documents)
+        assert.equal(2, documents[1].keyLevel)
+        assert.equal(8, documents[2].keyLevel)
+        assert.is_nil(documents[3].keyLevel, "a document that names no key level comes last")
+        assert.equal(2, documents[1].verdict.keyLevel)
+        -- Nothing else's shelf is read.
+        assert.same({}, ns.UFImport.Documents("Raid"))
+        assert.same({}, ns.UFImport.Documents(nil))
     end)
 
     it("reads SavedVariables written before the by-level shelf existed", function()
@@ -655,32 +639,10 @@ describe("UFImport key levels", function()
         -- said which key it was run at.
         assert.is_true(ns.UFImport.Import(readFile(REAL_DUNGEON)).ok)
         ns.db.char.ufImportsByLevel = nil
-        local verdict, level, how = ns.UFImport.PickForLevel("Dungeon", 10)
-        assert.equal("Dungeon", verdict.contentType)
-        assert.is_nil(level)
-        assert.equal(ns.UFImport.PICK_UNRECORDED, how)
-    end)
-
-    it("finds nothing for a content type nothing was ever stored for", function()
-        importAt(REAL_DUNGEON, 10)
-        assert.is_nil(ns.UFImport.PickForLevel("Raid", 10))
-        assert.is_nil(ns.UFImport.PickForLevel(nil, 10))
-    end)
-
-    it("says which key level is on screen, in words that name the fallback", function()
-        assert.equal(
-            "QE Live ran these numbers on a +10 key, the level the loot map previews.",
-            ns.UFImport.KeyLevelNote(10, ns.UFImport.PICK_WANTED, 10)
-        )
-        assert.equal(
-            "QE Live has no +4 run stored, so these numbers are its +8 run - the highest key it was asked about.",
-            ns.UFImport.KeyLevelNote(8, ns.UFImport.PICK_HIGHEST, 4)
-        )
-        assert.equal(
-            "QE Live ran these numbers on a +8 key, the highest it was asked about.",
-            ns.UFImport.KeyLevelNote(8, ns.UFImport.PICK_HIGHEST, nil)
-        )
-        assert.is_nil(ns.UFImport.KeyLevelNote(nil, nil, nil))
+        local documents = ns.UFImport.Documents("Dungeon")
+        assert.equal(1, #documents)
+        assert.equal("Dungeon", documents[1].verdict.contentType)
+        assert.is_nil(documents[1].keyLevel)
     end)
 
     it("answers what a new verdict replaces by content type AND key level", function()
@@ -691,5 +653,172 @@ describe("UFImport key levels", function()
         -- type: five documents in one file would otherwise become one import.
         assert.is_nil(ns.UFImport.Existing({ contentType = "Dungeon", keyLevel = 4 }))
         assert.is_nil(ns.UFImport.Existing({ contentType = "Raid", keyLevel = 2 }))
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- M3-10 (WKE-545): the cross-level join.
+--
+-- C-7 filed one document per key level and the panel picked ONE of them. That
+-- answered nothing about dungeons: QE Live's +10 document values a dungeon drop
+-- at 311 while the client's own keystone-10 preview lists it at 305, so the
+-- exact `itemID@level` key missed on every dungeon row. Neither number is
+-- Lootpath's to adjust, so the join asks EVERY stored document and keeps the
+-- exact match wherever it is - which turns out to be his +6 document, whose
+-- dungeon drops come back at 305.
+--
+-- The five documents below are one companion run (2026-09-08 22:47, five key
+-- levels), committed unedited; see spec/fixtures/qe/README.md.
+describe("UFImport.LookupAcrossLevels over the five committed key levels", function()
+    local ns
+
+    local BY_LEVEL = {
+        [2] = "spec/fixtures/qe/qe-upgradefinder-Hotornot-lrxljklscrjr.json",
+        [4] = "spec/fixtures/qe/qe-upgradefinder-Hotornot-jnjnmzftoppb.json",
+        [6] = "spec/fixtures/qe/qe-upgradefinder-Hotornot-zmtnpejwfewe.json",
+        [8] = "spec/fixtures/qe/qe-upgradefinder-Hotornot-lttldhvkiqlr.json",
+        [10] = "spec/fixtures/qe/qe-upgradefinder-Hotornot-wyharestkdyr.json",
+    }
+    local LEVELS = { 2, 4, 6, 8, 10 }
+
+    -- The item level each of his dungeon documents drops at, read off the
+    -- documents themselves by tools/measure-cross-level.lua: +2 at 295, +4 at
+    -- 298, +6 at 305, +8 at 308, +10 at 311. 305 is the level the client
+    -- previews a keystone 10 at, which is why the +6 document is the one that
+    -- answers the walk.
+    local DUNGEON_DROP_LEVEL = { [2] = 295, [4] = 298, [6] = 305, [8] = 308, [10] = 311 }
+
+    -- A real dungeon drop, carried by every one of the five documents at that
+    -- document's own level: Sickening Signet of Atroxus, which the 2026-09-06
+    -- walk lists too.
+    local DUNGEON_ITEM = 252258
+    local DUNGEON_KEY_321 = "252258@321"
+
+    local function documents()
+        for _, level in ipairs(LEVELS) do
+            local document = ns.UFImport.Parse(readFile(BY_LEVEL[level]))
+            assert(document.ok, document.reason)
+            document.verdict.keyLevel = level
+            assert(ns.UFImport.Store(document.verdict).ok)
+        end
+        return ns.UFImport.Documents("Dungeon")
+    end
+
+    before_each(function()
+        ns = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("finds the walk's 305 dungeon drop in the +6 document and nowhere else", function()
+        local list = documents()
+        assert.equal(5, #list)
+        local entry, keyLevel, how, matches = ns.UFImport.LookupAcrossLevels(list, DUNGEON_ITEM, 305)
+        assert.is_not_nil(entry)
+        assert.equal(6, keyLevel)
+        assert.equal(ns.UFImport.MATCH_ONLY, how)
+        assert.equal(1, matches)
+        assert.equal(305, entry.level)
+        assert.equal("drop", entry.dropType)
+        -- Which is exactly the level the single-document pick could not reach:
+        -- the +10 document has this item, at 311, and says nothing about 305.
+        assert.is_nil(ns.UFImport.Lookup(ns.UFImport.ForContentTypeAndLevel("Dungeon", 10), DUNGEON_ITEM, 305))
+        assert.is_not_nil(ns.UFImport.Lookup(ns.UFImport.ForContentTypeAndLevel("Dungeon", 10), DUNGEON_ITEM, 311))
+    end)
+
+    it("takes each document's own drop level from that document and no other", function()
+        local list = documents()
+        for _, level in ipairs(LEVELS) do
+            local entry, keyLevel = ns.UFImport.LookupAcrossLevels(list, DUNGEON_ITEM, DUNGEON_DROP_LEVEL[level])
+            assert.is_not_nil(entry, "no document carries this drop at " .. DUNGEON_DROP_LEVEL[level])
+            assert.equal(level, keyLevel)
+            assert.equal(DUNGEON_DROP_LEVEL[level], entry.level)
+        end
+    end)
+
+    it("never answers for an item level no document carries", function()
+        local list = documents()
+        -- 306 sits between his +6 (305) and his +8 (308) and belongs to
+        -- neither. A neighbour is not an answer, and interpolating one would be
+        -- Lootpath computing a healer value.
+        assert.is_nil(ns.UFImport.LookupAcrossLevels(list, DUNGEON_ITEM, 306))
+        assert.is_nil(ns.UFImport.LookupAcrossLevels(list, DUNGEON_ITEM, nil))
+        assert.is_nil(ns.UFImport.LookupAcrossLevels(list, 0, 305))
+        assert.is_nil(ns.UFImport.LookupAcrossLevels(nil, DUNGEON_ITEM, 305))
+        -- But it does say the item is known at other levels, which is the fact
+        -- the panel counts instead of showing a number.
+        assert.same({ 295, 298, 305, 308, 311, 321, 334 }, ns.UFImport.LevelsAcrossLevels(list, DUNGEON_ITEM))
+        assert.is_nil(ns.UFImport.LevelsAcrossLevels(list, 1))
+    end)
+
+    it("prefers the document that calls the level a drop when several carry it", function()
+        local list = documents()
+        -- 321 is a real collision: all five documents list this item there,
+        -- four of them as a `bonus` roll and the +10 one as its `max` upgrade.
+        -- None of them calls it a drop, so the lowest key level wins.
+        local entry, keyLevel, how, matches = ns.UFImport.LookupAcrossLevels(list, DUNGEON_ITEM, 321)
+        assert.equal(5, matches)
+        assert.equal(ns.UFImport.MATCH_LOWEST, how)
+        assert.equal(2, keyLevel)
+        assert.equal(321, entry.level)
+
+        -- And when one of them DOES call it a drop, that one wins whatever its
+        -- key level: the tie follows QE Live's own dropType, not the order the
+        -- documents happen to sit in.
+        local higher = ns.UFImport.ForContentTypeAndLevel("Dungeon", 8)
+        higher.items[DUNGEON_KEY_321].dropType = ns.UFImport.DROP_TYPE_DROP
+        local picked, level, pick = ns.UFImport.LookupAcrossLevels(list, DUNGEON_ITEM, 321)
+        assert.equal(8, level)
+        assert.equal(ns.UFImport.MATCH_DROP, pick)
+        assert.equal(higher.items[DUNGEON_KEY_321], picked)
+    end)
+
+    it("reads a drop type QE Live listed on a repeat of the same item at that level", function()
+        local list = documents()
+        local entry = ns.UFImport.ForContentTypeAndLevel("Dungeon", 6).items[DUNGEON_KEY_321]
+        assert.is_false(ns.UFImport.IsDropAtLevel(entry))
+        assert.is_false(ns.UFImport.IsDropAtLevel(nil))
+        -- One item at one level can be listed several ways in one export (drop,
+        -- max, bonus); the parser keeps the first and files the rest as
+        -- `sources`, so both are read before the tie is called.
+        entry.sources[#entry.sources + 1] = { dropType = ns.UFImport.DROP_TYPE_DROP }
+        assert.is_true(ns.UFImport.IsDropAtLevel(entry))
+        local _, keyLevel, how = ns.UFImport.LookupAcrossLevels(list, DUNGEON_ITEM, 321)
+        assert.equal(6, keyLevel)
+        assert.equal(ns.UFImport.MATCH_DROP, how)
+    end)
+
+    it("names the documents it joined against, and only says how when there are several", function()
+        local list = documents()
+        assert.equal(
+            "QE Live's Upgrade Finder at +2, +4, +6, +8, +10 (5 documents)."
+                .. " A drop takes its number from whichever of them values it at the item level the loot map lists.",
+            ns.UFImport.DocumentsNote(list)
+        )
+        assert.equal(
+            "QE Live's Upgrade Finder at +6 (1 document).",
+            ns.UFImport.DocumentsNote({ { verdict = {}, keyLevel = 6 } })
+        )
+        assert.equal(
+            "QE Live's Upgrade Finder, with no Mythic+ key level named (1 document).",
+            ns.UFImport.DocumentsNote({ { verdict = {} } })
+        )
+        assert.matches(
+            "at %+2, and 1 that name no key level %(2 documents%)",
+            ns.UFImport.DocumentsNote({ { verdict = {}, keyLevel = 2 }, { verdict = {} } })
+        )
+        assert.is_nil(ns.UFImport.DocumentsNote({}))
+        assert.is_nil(ns.UFImport.DocumentsNote(nil))
+    end)
+
+    it("labels a key level as QE Live's own button and nothing else", function()
+        assert.equal("+10", ns.UFImport.KeyLabel(10))
+        assert.equal("+0", ns.UFImport.KeyLabel(0))
+        assert.equal("+2", ns.UFImport.KeyLabel("2"))
+        assert.is_nil(ns.UFImport.KeyLabel(nil))
+        assert.is_nil(ns.UFImport.KeyLabel(7.5))
+        assert.is_nil(ns.UFImport.KeyLabel(-1))
     end)
 end)

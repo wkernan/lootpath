@@ -78,6 +78,50 @@ of them raid drops, whose levels the walk previews too - while 218 rows of the
 not show, because the walk previewed key level 10 and the export assumed 7.
 See ARCHITECTURE.md 9.
 
+## Upgrade Finder exports at five Mythic+ key levels (M3-10, WKE-545)
+
+Six documents from **one companion run**, 2026-09-08 22:47 UTC, extracted
+unedited from the `Data/QEVerdict.lua` it wrote (the same extraction the C-2
+contract feeds the addon). C-7 (WKE-543) is what made the run several documents
+wide: the companion clicks QE Live's own key selector once per level in
+`upgradeFinderKeyLevels` and stamps the level it clicked onto each document.
+**The key level is not in the JSON** - the JSON carries `settings.dungeon`,
+which is an *index* into his `MPLUS_KEY_REWARDS` table - so a test that needs
+the level supplies it the way `ns.Companion` does, from the file's own
+`keyLevel` field.
+
+| file | content type | key level | `settings.dungeon` | items | dungeon drop / max / bonus |
+|---|---|---|---|---|---|
+| `qe-upgradefinder-Hotornot-lrxljklscrjr.json` | Dungeon | +2 | 1 | 357 | 295 / 308 / 321 |
+| `qe-upgradefinder-Hotornot-jnjnmzftoppb.json` | Dungeon | +4 | 2 | 357 | 298 / 308 / 321 |
+| `qe-upgradefinder-Hotornot-zmtnpejwfewe.json` | Dungeon | +6 | 4 | 290 | 305 / - / 321 |
+| `qe-upgradefinder-Hotornot-lttldhvkiqlr.json` | Dungeon | +8 | 6 | 290 | 308 / - / 321 |
+| `qe-upgradefinder-Hotornot-wyharestkdyr.json` | Dungeon | +10 | 7 | 357 | 311 / 321 / 334 |
+| `qe-upgradefinder-Hotornot-ynfzbppepnzw.json` | Raid | +10 | 7 | 357 | 311 / 321 / 334 |
+
+Every one of them carries the same raid rows (his `raid: [3]` setting is
+unchanged across the run) at 318 / 321 / 324 / 334 / 344, which is why the four
+documents that are not +6 still rank 30 rows of the committed walk.
+
+**The measurement this set exists for** (`tools/measure-cross-level.lua`, over
+the 2026-09-06 20:09 cold walk, 478 drops previewed at keystone 10):
+
+- The client lists a Mythic Keystone drop at **305**; QE Live's **+10** document
+  values it at **311**. Neither is Lootpath's to adjust, and joining on the
+  exact `itemID@itemLevel` pair against the +10 document alone ranks **30** rows,
+  all of them raid drops - which is why every dungeon run read "no drop rated by
+  QE Live yet" before M3-10.
+- His **+6** document drops at 305, so joining across all five ranks **84** rows
+  (54 of them Mythic Keystone), leaving 164 ranked only at another item level.
+  The other four documents carry **no** keystone row of this walk at all.
+- These are the exports `spec/ufimport_spec.lua` and `spec/upgrademap_spec.lua`
+  read in their M3-10 blocks.
+
+The 2026-09-07 pair above (`abxrrnezfilt`, `kqyktjywppzw`) is kept as it is: it
+is a different run, with QE Live's default upgrade checkboxes rather than C-5's
+explicit pair, and the specs that read it are testing the parser and the
+single-document paste path.
+
 ## `sample-upgradefinder-v1.json` - hand-built, not from QE Live
 
 Written for M3-6 (WKE-535) by mirroring the fork's exporter field for field.
