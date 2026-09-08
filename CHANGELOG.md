@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### M2-4 (WKE-541) - Equip Now says plainly when the best set is in the vault
+
+- **A Great Vault option in QE Live's best set is not a "not owned" swap.** The
+  tab used to draw it in the same red as a real gap -
+  `[Lightgrasp Worldroot] -> item 251935 (ilvl 321) (not found: it is a Great
+  Vault option you have not taken yet)` - for an item that is not missing at
+  all, only unclaimed. The row now shows the piece you are wearing meanwhile,
+  and a line under it says
+  `QE Live's best set has a Great Vault option in this slot: Lightgrasp
+  Worldroot (QE Live's level 321) - see the Vault tab`. The summary counts it
+  apart: `14 already best, 0 to swap, 1 waiting in the Great Vault, 0 not
+  owned, 0 without a verdict`.
+- **Nothing is cut off at the frame's edge any more.** Every sentence a row has
+  to say - the vault line, and the reason an item really was not found - now
+  goes on its own wrapping line whose width comes from the row rather than from
+  a fixed number.
+- The Equip button is unchanged, and a vault row offers none: nothing here
+  equips anything new.
+
 ### M3-7 (WKE-538) - the Vault panel against the real reward shape
 
 - **The Mythic Keystone is no longer listed as gear.** The client hands one over

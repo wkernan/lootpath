@@ -332,6 +332,71 @@ describe("the Equip Now panel", function()
         assert.is_truthy(described.text:find("251153", 1, true))
     end)
 
+    -- WKE-541: the reason a row is what it is is a sentence, and the detail
+    -- line does not wrap, so the frame used to cut it off mid-word. It goes on
+    -- its own line under the row instead.
+    it("puts a not-owned reason on its own line and not off the edge of the first", function()
+        local feet = panel.match.bySlot["Feet"][1]
+        local described = ns.UI.EquipPanel.Describe(feet)
+        assert.is_truthy(described.note:find(feet.reason, 1, true))
+        assert.is_falsy(described.text:find(feet.reason, 1, true))
+
+        local frameRow
+        for _, candidate in ipairs(panel.rows) do
+            if candidate.matchRow == feet then
+                frameRow = candidate
+            end
+        end
+        assert.is_table(frameRow)
+        assert.is_true(frameRow.note:IsShown())
+        assert.is_truthy(frameRow.note:GetText():find(feet.reason, 1, true))
+        assert.is_falsy(frameRow.detail:GetText():find(feet.reason, 1, true))
+        assert.equal(ns.UI.EquipPanel.ROW_HEIGHT + ns.UI.EquipPanel.NOTE_HEIGHT, frameRow:GetHeight())
+    end)
+
+    it("gives every note line the frame's width rather than a number of its own", function()
+        local frameRow = panel.rows[1]
+        -- Never SetWidth: the note is anchored to both edges of the row, so it
+        -- is as wide as the frame is at whatever size the frame is.
+        assert.equal(0, frameRow.note:GetWidth())
+        assert.is_true(frameRow.note.wordWrap)
+        local anchors = {}
+        for _, point in ipairs(frameRow.note.points) do
+            anchors[point[1]] = point[2]
+        end
+        assert.equal(frameRow.detail, anchors["TOPLEFT"])
+        assert.equal(frameRow, anchors["RIGHT"])
+        -- The first line still does not wrap: it is one line by design, and
+        -- everything long about a row now lives on the note.
+        assert.is_false(frameRow.detail.wordWrap)
+    end)
+
+    it("takes a row back to one line when its note goes away", function()
+        local feet, head
+        for _, frameRow in ipairs(panel.rows) do
+            if frameRow.matchRow and frameRow.matchRow.status == "best_not_owned" then
+                feet = feet or frameRow
+            elseif frameRow.matchRow and frameRow.matchRow.status == "equipped_is_best" then
+                head = head or frameRow
+            end
+        end
+        assert.is_table(feet)
+        assert.is_table(head)
+        assert.equal(ns.UI.EquipPanel.ROW_HEIGHT, head:GetHeight())
+        assert.is_false(head.note:IsShown())
+        assert.equal("", head.note:GetText())
+        -- Frames are reused across refreshes: a note left on a recycled row
+        -- would attach one row's sentence to another row's item.
+        -- Held before the refresh: Refresh reassigns every frame row's matchRow,
+        -- and these two frames are the ones it is about to hand new rows to.
+        local feetRow, headRow = feet.matchRow, head.matchRow
+        ns.UI.EquipPanel.Refresh(panel, { ok = true, rows = { feetRow, headRow }, counts = panel.match.counts })
+        assert.equal(ns.UI.EquipPanel.ROW_HEIGHT + ns.UI.EquipPanel.NOTE_HEIGHT, panel.rows[1]:GetHeight())
+        ns.UI.EquipPanel.Refresh(panel, { ok = true, rows = { headRow }, counts = panel.match.counts })
+        assert.equal(ns.UI.EquipPanel.ROW_HEIGHT, panel.rows[1]:GetHeight())
+        assert.is_false(panel.rows[1].note:IsShown())
+    end)
+
     it("shows nothing to equip before anything is imported", function()
         H.unload()
         ns, world = H.load()
@@ -341,6 +406,105 @@ describe("the Equip Now panel", function()
         local fresh = ns.UI.frame.equipPanel
         assert.is_truthy(fresh.summary:GetText():find("Paste a QE Live", 1, true))
         assert.is_false(fresh.equipAll:IsShown())
+    end)
+end)
+
+-- WKE-541 (M2-4): the row the owner saw on his first day. The 2026-09-08
+-- inventory snapshot `/lootpath refresh` took at 12:45:26 (snapshot 7) joined
+-- to the export the companion wrote from it, which put the Great Vault's
+-- Lightgrasp Worldroot at QE Live's level 321 in the top set while the owner
+-- was wearing the 305 copy. The tab used to render that as a red failed swap
+-- with the explanation running off the frame; it is now the staff he wears,
+-- with a line underneath naming the vault option and the tab that shows it.
+describe("the Equip Now panel on a Great Vault option in the top set (WKE-541)", function()
+    local ns, world, panel
+    local AFTER_RESET = "spec/fixtures/captures/Lootpath-20260908-124527.lua"
+    local VAULT_EXPORT = "spec/fixtures/qe/qe-droptimizer-Hotornot-uliwcyoomcub.json"
+    local WEAPON_ID = 251935
+    local EXPECTED_NOTE = "QE Live's best set has a Great Vault option in this slot: "
+        .. "Lightgrasp Worldroot (QE Live's level 321) - see the Vault tab"
+
+    local function vaultRow()
+        for _, frameRow in ipairs(panel.rows) do
+            if frameRow.matchRow and frameRow.matchRow.status == "best_in_vault" then
+                return frameRow
+            end
+        end
+        return nil
+    end
+
+    before_each(function()
+        ns, world = H.load()
+        R.inventory(world, R.snapshot("inventory", 7, AFTER_RESET))
+        -- C_Item.GetItemInfo takes an itemID as well as a link (Blizzard's
+        -- exported docs), which is the form the panel uses because QE Live
+        -- names an item by id and never by link. The stub answers whatever it
+        -- was given, so the id is registered here with the name the transcript
+        -- carries on the equipped copy of the same staff.
+        world.items[WEAPON_ID] = { info = { "Lightgrasp Worldroot", n = 1 } }
+        ns.UI.Frame()
+        ns.UI.frame.pasteBox:SetText(readFile(VAULT_EXPORT))
+        ns.UI.frame.importButton:Click()
+        panel = ns.UI.frame.equipPanel
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("shows the staff he is wearing instead of a swap that failed", function()
+        local frameRow = vaultRow()
+        assert.is_table(frameRow)
+        assert.equal("2H Weapon", frameRow.slotText:GetText())
+        local detail = frameRow.detail:GetText()
+        assert.is_truthy(detail:find("already equipped", 1, true))
+        assert.is_falsy(detail:find("not found", 1, true))
+        assert.is_falsy(detail:find("->", 1, true))
+        assert.is_truthy(detail:find("[Lightgrasp Worldroot]", 1, true))
+    end)
+
+    it("names the vault option and the tab that shows it, on a line of its own", function()
+        local frameRow = vaultRow()
+        assert.is_true(frameRow.note:IsShown())
+        local note = frameRow.note:GetText()
+        assert.is_truthy(note:find(EXPECTED_NOTE, 1, true))
+        assert.is_truthy(note:find(ns.UI.EquipPanel.NOTE_COLOR, 1, true))
+        assert.is_falsy(frameRow.detail:GetText():find("Great Vault", 1, true))
+        assert.equal(EXPECTED_NOTE, ns.UI.EquipPanel.VaultNoteText(frameRow.matchRow.verdictItem))
+    end)
+
+    it("wraps that line inside the frame rather than cutting it off", function()
+        local frameRow = vaultRow()
+        assert.is_true(frameRow.note.wordWrap)
+        assert.equal(0, frameRow.note:GetWidth())
+        assert.equal(ns.UI.EquipPanel.ROW_HEIGHT + ns.UI.EquipPanel.NOTE_HEIGHT, frameRow:GetHeight())
+    end)
+
+    it("offers nothing to equip on that row and nothing to equip at all", function()
+        local frameRow = vaultRow()
+        assert.is_false(ns.UI.EquipPanel.Describe(frameRow.matchRow).actionable)
+        assert.is_false(frameRow.equip:IsShown())
+        assert.is_false(frameRow.equip:IsEnabled())
+        assert.equal(0, panel.match.counts.swap)
+        assert.is_false(panel.equipAll:IsShown())
+        assert.is_false(ns.UI.EquipPanel.Equip(frameRow.matchRow).ok)
+    end)
+
+    it("counts it as waiting in the vault, not as a hole in his gear", function()
+        local summary = panel.summary:GetText()
+        assert.is_truthy(summary:find("14 already best, 0 to swap, 1 waiting in the Great Vault, 0 not owned", 1, true))
+    end)
+
+    it("does not claim an empty slot is already equipped", function()
+        local row = {
+            slot = "Trinket",
+            status = "best_in_vault",
+            verdictItem = { itemID = 998877, level = 300, isVault = true },
+        }
+        local described = ns.UI.EquipPanel.Describe(row)
+        assert.is_falsy(described.text:find("already equipped", 1, true))
+        assert.is_truthy(described.text:find("nothing equipped", 1, true))
+        assert.is_truthy(described.note:find("Great Vault option in this slot", 1, true))
     end)
 end)
 

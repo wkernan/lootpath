@@ -121,7 +121,11 @@ describe("Match.Build over the 2026-09-05 transcript and the genuine QE Live exp
         assert.equal(0, match.counts.no_verdict)
         assert.equal(
             15,
-            match.counts.equipped_is_best + match.counts.swap + match.counts.best_not_owned + match.counts.no_verdict
+            match.counts.equipped_is_best
+                + match.counts.swap
+                + match.counts.best_in_vault
+                + match.counts.best_not_owned
+                + match.counts.no_verdict
         )
     end)
 
@@ -257,7 +261,7 @@ describe("Match.Build over the hand-built sample", function()
     end)
 
     it("calls a vault item the sample owns nowhere a vault option, not a missing item", function()
-        -- The sample's Chest (251216) IS in the transcript, so the vault reason
+        -- The sample's Chest (251216) IS in the transcript, so the vault case
         -- needs an item the scan cannot see: the sample's second differential
         -- carries an isVault Trinket that the top set does not.
         local vaultItem
@@ -279,8 +283,76 @@ describe("Match.Build over the hand-built sample", function()
             })
         )
         local row = rowsFor(built, "Trinket")[1]
-        assert.equal("best_not_owned", row.status)
-        assert.is_truthy(row.reason:find("Great Vault", 1, true))
+        -- WKE-541: its own status, not a gap, and no reason to explain away.
+        assert.equal("best_in_vault", row.status)
+        assert.is_nil(row.reason)
+        assert.equal(1, built.counts.best_in_vault)
+        assert.equal(0, built.counts.best_not_owned)
+    end)
+end)
+
+-- WKE-541 (M2-4): a Great Vault option QE Live put in the top set is not a hole
+-- in your gear, and Match says so with its own status. Proven over the join the
+-- owner actually saw on 2026-09-08: the inventory snapshot `/lootpath refresh`
+-- took at 12:45:26 (snapshot 7 of that transcript, the same refresh as the vault
+-- snapshot the M3-7 panel tests replay) and the export the companion wrote from
+-- it, which put the vault's Lightgrasp Worldroot at QE Live's level 321 in the
+-- top set while the owner was wearing the 305 copy of the same staff.
+describe("Match.Build over the 2026-09-08 vault export (WKE-541)", function()
+    local ns, world, match
+    local AFTER_RESET = "spec/fixtures/captures/Lootpath-20260908-124527.lua"
+    local VAULT_EXPORT = "spec/fixtures/qe/qe-droptimizer-Hotornot-uliwcyoomcub.json"
+    local INVENTORY_SNAPSHOT = 7
+    local WEAPON_ID = 251935
+
+    before_each(function()
+        ns, world = H.load()
+        R.inventory(world, R.snapshot("inventory", INVENTORY_SNAPSHOT, AFTER_RESET))
+        local scan = ns.Inventory.Scan()
+        assert(scan.ok, scan.reason)
+        match = ns.Match.Build(scan, verdictFrom(ns, VAULT_EXPORT))
+        assert(match.ok, match.reason)
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("gives the vault option its own status and no not-owned reason", function()
+        local weapon = rowsFor(match, "2H Weapon")[1]
+        assert.equal("best_in_vault", weapon.status)
+        assert.is_nil(weapon.reason)
+        assert.is_nil(weapon.best)
+        assert.is_false(ns.Match.IsSwap(weapon))
+        assert.is_true(weapon.verdictItem.isVault)
+        assert.equal(WEAPON_ID, weapon.verdictItem.itemID)
+        assert.equal(321, weapon.verdictItem.level)
+    end)
+
+    it("still hands the row the staff he is wearing meanwhile", function()
+        local weapon = rowsFor(match, "2H Weapon")[1]
+        assert.is_table(weapon.equipped)
+        assert.equal(WEAPON_ID, weapon.equipped.itemID)
+        assert.equal("equipped", weapon.equipped.location)
+        assert.equal(16, weapon.dstSlot)
+    end)
+
+    it("counts it apart from the gaps", function()
+        assert.equal(15, #match.rows)
+        assert.same({
+            equipped_is_best = 14,
+            swap = 0,
+            best_in_vault = 1,
+            best_not_owned = 0,
+            no_verdict = 0,
+        }, match.counts)
+    end)
+
+    it("keeps calling it a vault option when the bank is the thing that is closed", function()
+        -- That refresh was taken with the bank shut, and it makes no difference:
+        -- a closed bank explains a missing item, and this item is not missing.
+        assert.is_false(match.bankAvailable)
+        assert.equal("best_in_vault", rowsFor(match, "2H Weapon")[1].status)
     end)
 end)
 
