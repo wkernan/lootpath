@@ -56,11 +56,22 @@ async function importSimc(page, simc) {
   // autoUpgradeVault (default ON), autoCatalyze (off). --no-vault-upgrade
   // unchecks the second so vault options are valued at the level the client
   // reports, like owned gear, instead of at their assumed upgrade.
-  if (flags.includes('--no-vault-upgrade')) {
-    const vaultBox = page.getByRole('checkbox').nth(1);
-    if (await vaultBox.isChecked()) await vaultBox.click();
-    if (await vaultBox.isChecked()) throw new Error('could not uncheck autoUpgradeVault');
-    console.log('  autoUpgradeVault: unchecked');
+  // Boxes by JSX order: 0 autoUpgradeAll, 1 autoUpgradeVault, 2 autoCatalyze.
+  // --scenario asOffered|catalyzed|maxed sets all three (WKE-540); the older
+  // --no-vault-upgrade only unchecks the vault box.
+  const scenarioFlag = flags.find((f) => f.startsWith('--scenario='));
+  if (scenarioFlag || flags.includes('--no-vault-upgrade')) {
+    const name = scenarioFlag ? scenarioFlag.split('=')[1] : 'vaultOff';
+    const want = { asOffered: [false, false, false], catalyzed: [false, false, true], maxed: [true, true, true], vaultOff: [null, false, null] }[name];
+    if (!want) throw new Error('unknown scenario ' + name);
+    const boxes = page.getByRole('checkbox');
+    for (let i = 0; i < 3; i++) {
+      if (want[i] === null) continue;
+      const box = boxes.nth(i);
+      if ((await box.isChecked()) !== want[i]) await box.click();
+      if ((await box.isChecked()) !== want[i]) throw new Error('checkbox ' + i + ' did not take');
+    }
+    console.log('  scenario ' + name + ': boxes [all, vault, catalyze] = ' + JSON.stringify(want));
   }
   await page.getByRole('button', { name: 'Submit' }).click();
   // The dialog closes on success; #SimCError carries the reason otherwise.

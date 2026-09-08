@@ -303,3 +303,13 @@ unchecks the vault box before Submit. Measured on the companion's profile of
 set and that weapon was an alternative 0.5681% / -1983 HPS behind the worn 308
 copy (Dungeon; Raid 0.5471% / -1905). The companion adopts explicit settings in
 WKE-539.
+
+## `--scenario=asOffered|catalyzed|maxed` (added 2026-09-08, WKE-540)
+
+Sets all three import-dialog boxes - `autoUpgradeAll`, `autoUpgradeVault`,
+`autoCatalyze`, in JSX order - to the named scenario before Submit, and asserts
+each took. Measured on the 12:45 profile of 2026-09-08: `asOffered` Dungeon
+5544.654 with no vault item in the top set; `catalyzed` 5724.919 with the
+vault's shoulders catalyzed into the tier piece in the top set (and the worn
+chest catalyzed too); `maxed` 5853.843 with the vault weapon at 321. The
+companion adopts these scenarios in WKE-540.
