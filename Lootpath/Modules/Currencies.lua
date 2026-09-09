@@ -1,4 +1,4 @@
--- Lootpath/Modules/Currencies.lua (M3-9, WKE-544)
+-- Lootpath/Modules/Currencies.lua (M3-9, WKE-544; by-ID reading M3-11, WKE-546)
 -- What the player has, in the client's own words and the client's own numbers.
 --
 -- This module exists for exactly two lines on the Vault tab: QE Live's
@@ -12,13 +12,17 @@
 -- value applies to a crest price for the same reason: a number Lootpath made up
 -- is a number the owner cannot check.
 --
--- **Which currencies these are is not guessed.** The season's crests and the
--- Catalyst charge are identified by the CLIENT'S OWN NAMES, and the name tables
--- below are empty until `/lootpath capture currencies` has been run once and its
--- transcript committed (the capture is in Captures.lua; the names and their IDs
--- are then recorded in docs/ARCHITECTURE.md 9). Until then every reader is told
--- "unknown", which is true, rather than a number read off an ID somebody
--- remembered from a wiki page.
+-- **Which currencies these are is not guessed - and is not read off the currency
+-- tab either.** `GetCurrencyListInfo` walks the currency TAB, and the tab lists
+-- only the rows of EXPANDED headers: the owner's 2026-09-08 23:04 transcript has
+-- `isHeaderExpanded = false` on 8 of its 10 headers, so the 8 currencies it
+-- listed are simply the ones under the two that happened to be open. Reading
+-- "the Catalyst charge is not a currency" off that list was reading the tab's
+-- scroll state (M3-9, corrected here in M3-11). `GetCurrencyInfo(currencyID)`
+-- answers for any ID whatever the tab is showing, so KNOWN_IDS below is the
+-- primary key and the list is the fallback. Every ID in it was MEASURED - from
+-- the transcript, or from the owner's own tooltip - and none is remembered from
+-- a wiki page.
 --
 -- Every value read from the client passes ns.Safe; a secret is dropped and
 -- counted, never stored or shown. Nothing runs in combat except reading a
@@ -42,13 +46,29 @@ Currencies.FUNCTION_NAMES = {
 -- The capture this module falls back to when it cannot read the client itself.
 Currencies.CAPTURE = "currencies"
 
--- The season's upgrade crests, by the name the client prints for them, in the
--- order they should be shown. Read from the owner's transcript of 2026-09-08
--- 23:04:26 (`spec/fixtures/captures/Lootpath-20260908-230426.lua`, the
--- `currencies` capture `/lootpath refresh` took): the "Crests" header groups
--- five Mistcrests, currencyIDs 3442-3446, in this order. Names, not IDs, are
--- the key because the list is what the client prints; the IDs are recorded in
--- docs/ARCHITECTURE.md 9 as the measured fact behind each name.
+-- The season's currencies BY ID, which is what the client answers for whatever
+-- the currency tab happens to be showing. Every one of these was read from a
+-- tool, never from memory:
+--
+--   crests   3442-3446, the five Mistcrests under the "Crests" header of the
+--            owner's 2026-09-08 23:04:26 transcript
+--            (`spec/fixtures/captures/Lootpath-20260908-230426.lua`), in the
+--            order the client listed them.
+--   catalyst 3465, "Venomblight Manaflux", from the owner's own Catalyst
+--            tooltip on 2026-09-08 ("Total Maximum: 1/8, CurrencyID 3465"),
+--            confirmed by the next capture's `byID` probe.
+--
+-- Nothing here is expanded, collapsed or otherwise touched to make it readable:
+-- `ExpandCurrencyList` changes UI state and is never called.
+Currencies.KNOWN_IDS = {
+    crests = { 3442, 3443, 3444, 3445, 3446 },
+    catalyst = { 3465 },
+}
+
+-- The names those IDs carried in the transcript, kept as the by-name fallback
+-- for a client whose `GetCurrencyInfo` answers nothing for an ID, and as the
+-- order the crests are shown in. The ID wins whenever it resolves, and the name
+-- shown is then the client's own `CurrencyInfo.name`.
 Currencies.CREST_NAMES = {
     "Adventurer Mistcrest", -- 3442
     "Veteran Mistcrest", -- 3443
@@ -57,15 +77,20 @@ Currencies.CREST_NAMES = {
     "Myth Mistcrest", -- 3446
 }
 
--- The Catalyst charge, the same way, as a list because the client may not call
--- it what the community does - or may not carry it as a currency at all. The
--- 2026-09-08 transcript shows the latter: the 12.1.0 client's currency list is
--- eighteen entries - ten headers and eight currencies - and none of them is a
--- Catalyst charge. So the list stays empty on measurement, not by default, and
--- CATALYST_NOT_A_CURRENCY makes `catalystKnown` true with no count, which the
--- Vault tab renders as "Catalyst charges: not readable" rather than "unknown".
-Currencies.CATALYST_NAMES = {}
-Currencies.CATALYST_NOT_A_CURRENCY = true
+Currencies.CATALYST_NAMES = {
+    "Venomblight Manaflux", -- 3465
+}
+
+-- Every known ID, crests then the Catalyst, as the capture probes them.
+function Currencies.AllKnownIDs()
+    local out = {}
+    for _, group in ipairs({ Currencies.KNOWN_IDS.crests, Currencies.KNOWN_IDS.catalyst }) do
+        for _, id in ipairs(group or {}) do
+            out[#out + 1] = id
+        end
+    end
+    return out
+end
 
 -- Secret-guarded read, the shape Vault.lua uses: a secret is dropped and counted.
 local function guarded(counter, value)
@@ -100,10 +125,34 @@ local function record(counter, raw, index)
     return {
         index = index,
         isHeader = guarded(counter, safe.isHeader) == true,
+        -- Kept because it is the field that proved the tab hides what it has
+        -- not expanded, and a reader of a future transcript needs it too.
+        isHeaderExpanded = guarded(counter, safe.isHeaderExpanded) == true,
         name = type(name) == "string" and name ~= "" and name or nil,
         currencyID = tonumber(guarded(counter, safe.currencyID)),
         quantity = tonumber(guarded(counter, safe.quantity)),
+        maxQuantity = tonumber(guarded(counter, safe.maxQuantity)),
     }
+end
+
+-- The live answer for every known ID, whatever the currency tab is showing.
+-- `GetCurrencyInfo(currencyID)` is documented to answer for any ID (Ketho's
+-- CurrencyInfoDocumentation.lua) and is the reason this module no longer
+-- depends on which headers the player left expanded.
+local function liveByID(counter)
+    local C = C_CurrencyInfo
+    if not (C and C.GetCurrencyInfo) then
+        return {}
+    end
+    local out = {}
+    for _, id in ipairs(Currencies.AllKnownIDs()) do
+        local full = record(counter, call(C.GetCurrencyInfo, id), nil)
+        if full then
+            full.currencyID = full.currencyID or id
+            out[full.currencyID] = full
+        end
+    end
+    return out
 end
 
 -- The live list, or nil when this client has no currency API to ask.
@@ -126,10 +175,15 @@ local function liveEntries(counter)
     return out
 end
 
--- The same list out of a stored `currencies` snapshot. `data.list[i]` is an
--- ns.Probe pack, so the CurrencyInfo is its first positional result; `data.info`
--- carries the full GetCurrencyInfo for every non-header entry, and supplies the
--- quantity for anything the list itself did not name.
+-- The same list out of a stored `currencies` snapshot, plus everything the
+-- snapshot knows by ID. `data.list[i]` is an ns.Probe pack, so the CurrencyInfo
+-- is its first positional result; `data.info` carries the full GetCurrencyInfo
+-- for every non-header entry the list showed, and `data.byID[id]` (M3-11) the
+-- same call made for every ID in KNOWN_IDS whether the tab showed it or not.
+--
+-- Returns `entries, byID`. `byID` is the ID-keyed answer the reader should
+-- prefer; a snapshot taken before M3-11 has no `data.byID`, so it carries only
+-- what the list itself named, which is exactly what such a transcript knows.
 function Currencies.FromSnapshot(snapshot, counter)
     counter = counter or { secretsSeen = 0 }
     local data = type(snapshot) == "table" and snapshot.data or nil
@@ -141,6 +195,16 @@ function Currencies.FromSnapshot(snapshot, counter)
         local probe = type(extra) == "table" and extra.info or nil
         local full = type(probe) == "table" and record(counter, probe[1], nil) or nil
         if full and full.currencyID then
+            byID[full.currencyID] = full
+        end
+    end
+    -- The direct probe outranks the list's info half: it is the one that
+    -- answers for a currency under a collapsed header.
+    for id, probe in pairs(type(data.byID) == "table" and data.byID or {}) do
+        local key = tonumber(id)
+        local full = type(probe) == "table" and record(counter, probe[1], nil) or nil
+        if full and key then
+            full.currencyID = full.currencyID or key
             byID[full.currencyID] = full
         end
     end
@@ -157,7 +221,7 @@ function Currencies.FromSnapshot(snapshot, counter)
             out[#out + 1] = entry
         end
     end
-    return out
+    return out, byID
 end
 
 -- The newest stored `currencies` snapshot, or nil when none has been taken.
@@ -171,15 +235,25 @@ function Currencies.NewestSnapshot()
     return list[#list]
 end
 
--- Read(opts) -> { ok = true, source = "live"|"capture", entries, crests,
---                 crestsKnown, catalystKnown, catalystCharges, secretsSeen }
+-- Read(opts) -> { ok = true, source = "live"|"capture", entries, byID, crests,
+--                 crestsKnown, catalystKnown, catalystCharges, catalystMax,
+--                 secretsSeen }
 --            or { ok = false, reason }
 --
--- `crests` is one record per name in CREST_NAMES that the player actually
--- carries, in that order; `crestsKnown` says whether the name list has been
--- filled in from a transcript at all, which is the difference between "you have
--- none" and "nobody has told this addon what a crest is called".
--- `catalystCharges` is a number or nil, and nil is never shown as 0.
+-- **By ID first.** Each of KNOWN_IDS.crests and KNOWN_IDS.catalyst is looked up
+-- in the ID-keyed answers (the direct `GetCurrencyInfo` probe, then the info
+-- half of the list); only when no ID answers does the client's list get asked
+-- by name, through CREST_NAMES / CATALYST_NAMES. The name shown is always the
+-- client's own `CurrencyInfo.name`. That order is the whole point of M3-11: the
+-- currency tab lists only expanded headers, so a by-name read of it reports
+-- absent for a currency the player is holding.
+--
+-- `crests` is one record per configured crest that the player actually carries,
+-- in KNOWN_IDS order; `crestsKnown` / `catalystKnown` say whether an ID (or a
+-- name) is configured at all, which is the difference between "you have none"
+-- and "nobody has told this addon what a crest is". `catalystCharges` and
+-- `catalystMax` are the client's `quantity` and `maxQuantity`, numbers or nil,
+-- and nil is never shown as 0.
 --
 -- The live client wins when it can be asked, because the capture may be days
 -- old; in combat, or on a client with no currency API, the newest stored
@@ -187,17 +261,21 @@ end
 function Currencies.Read(opts)
     opts = opts or {}
     local counter = { secretsSeen = 0 }
-    local entries, source
+    local entries, byID, source
     if opts.snapshot ~= nil then
-        entries, source = Currencies.FromSnapshot(opts.snapshot, counter), "capture"
+        entries, byID = Currencies.FromSnapshot(opts.snapshot, counter)
+        source = "capture"
     elseif not InCombatLockdown() then
         entries = liveEntries(counter)
-        source = entries and "live" or nil
+        if entries then
+            byID, source = liveByID(counter), "live"
+        end
     end
     if not entries then
         local snapshot = Currencies.NewestSnapshot()
         if snapshot then
-            entries, source = Currencies.FromSnapshot(snapshot, counter), "capture"
+            entries, byID = Currencies.FromSnapshot(snapshot, counter)
+            source = "capture"
         end
     end
     if not entries then
@@ -207,27 +285,47 @@ function Currencies.Read(opts)
             secretsSeen = counter.secretsSeen,
         }
     end
+    byID = byID or {}
 
-    local byName = {}
+    local byName, listByID = {}, {}
     for _, entry in ipairs(entries) do
-        if not entry.isHeader and entry.name and byName[entry.name] == nil then
-            byName[entry.name] = entry
+        if not entry.isHeader then
+            if entry.name and byName[entry.name] == nil then
+                byName[entry.name] = entry
+            end
+            if entry.currencyID and listByID[entry.currencyID] == nil then
+                listByID[entry.currencyID] = entry
+            end
         end
     end
 
+    -- One currency, by ID first and by name only when no ID answered.
+    local function resolve(id, name)
+        local found = (id and (byID[id] or listByID[id])) or (name and byName[name]) or nil
+        if found and found.quantity then
+            return found
+        end
+        return nil
+    end
+
+    local crestIDs, crestNames = Currencies.KNOWN_IDS.crests or {}, Currencies.CREST_NAMES
     local crests = {}
-    for _, name in ipairs(Currencies.CREST_NAMES) do
-        local entry = byName[name]
-        if entry and entry.quantity then
-            crests[#crests + 1] = { name = name, currencyID = entry.currencyID, quantity = entry.quantity }
+    for index = 1, math.max(#crestIDs, #crestNames) do
+        local found = resolve(crestIDs[index], crestNames[index])
+        if found then
+            crests[#crests + 1] = {
+                name = found.name or crestNames[index],
+                currencyID = found.currencyID,
+                quantity = found.quantity,
+            }
         end
     end
 
-    local catalystCharges
-    for _, name in ipairs(Currencies.CATALYST_NAMES) do
-        local entry = byName[name]
-        if entry and entry.quantity then
-            catalystCharges = entry.quantity
+    local catalystIDs = Currencies.KNOWN_IDS.catalyst or {}
+    local catalyst
+    for index = 1, math.max(#catalystIDs, #Currencies.CATALYST_NAMES) do
+        catalyst = resolve(catalystIDs[index], Currencies.CATALYST_NAMES[index])
+        if catalyst then
             break
         end
     end
@@ -236,10 +334,12 @@ function Currencies.Read(opts)
         ok = true,
         source = source,
         entries = entries,
+        byID = byID,
         crests = crests,
-        crestsKnown = #Currencies.CREST_NAMES > 0,
-        catalystKnown = #Currencies.CATALYST_NAMES > 0 or Currencies.CATALYST_NOT_A_CURRENCY == true,
-        catalystCharges = catalystCharges,
+        crestsKnown = #crestIDs > 0 or #crestNames > 0,
+        catalystKnown = #catalystIDs > 0 or #Currencies.CATALYST_NAMES > 0,
+        catalystCharges = catalyst and catalyst.quantity or nil,
+        catalystMax = catalyst and catalyst.maxQuantity or nil,
         secretsSeen = counter.secretsSeen,
     }
 end

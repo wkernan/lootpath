@@ -284,16 +284,18 @@ describe("captures", function()
         end)
     end)
 
-    -- WKE-544 (M3-9). No transcript of this capture exists yet, so every name
-    -- and ID below is a placeholder in Blizzard's documented CurrencyInfo shape
-    -- (Ketho's CurrencyInfoDocumentation.lua) and is labelled as such. What the
-    -- test pins is the SHAPE of the walk - every index, headers kept, the full
-    -- info behind every non-header entry - not what the season's currencies are
-    -- called.
+    -- WKE-544 (M3-9), with the by-ID probe of WKE-546 (M3-11). Every name and
+    -- ID in `world.currencies` below is a placeholder in Blizzard's documented
+    -- CurrencyInfo shape (Ketho's CurrencyInfoDocumentation.lua) and is
+    -- labelled as such; the IDs the capture PROBES are the real measured ones,
+    -- because they are the addon's own `Currencies.KNOWN_IDS`. What the tests
+    -- pin is the SHAPE of the walk - every index, headers kept, the full info
+    -- behind every non-header entry, and a direct answer for every known ID
+    -- whatever the currency tab is showing.
     describe("currencies", function()
         before_each(function()
             world.currencies = {
-                { name = "Placeholder Header", currencyID = 0, isHeader = true, quantity = 0 },
+                { name = "Placeholder Header", currencyID = 0, isHeader = true, isHeaderExpanded = true, quantity = 0 },
                 { name = "Placeholder Crest", currencyID = 900001, isHeader = false, quantity = 42 },
                 { name = "Placeholder Charge", currencyID = 900002, isHeader = false, quantity = 1 },
             }
@@ -304,8 +306,52 @@ describe("captures", function()
             assert.equal(3, data.listSize[1])
             assert.equal(3, #data.list)
             assert.is_true(data.list[1][1].isHeader)
+            -- The field that proved the list is the tab's scroll state and not
+            -- the player's holdings (WKE-546); it keeps being recorded.
+            assert.is_true(data.list[1][1].isHeaderExpanded)
             assert.equal("Placeholder Crest", data.list[2][1].name)
             assert.equal(42, data.list[2][1].quantity)
+        end)
+
+        -- The M3-11 half: the capture asks the client about every ID the addon
+        -- knows, so a currency under a header the player left collapsed - which
+        -- the list never shows - is in the transcript all the same.
+        it("probes every known currency ID and stores the answers under byID", function()
+            world.currencies = {
+                {
+                    name = "Placeholder Collapsed Header",
+                    currencyID = 0,
+                    isHeader = true,
+                    isHeaderExpanded = false,
+                    quantity = 0,
+                },
+            }
+            world.currencyByID = {
+                [3465] = {
+                    name = "Venomblight Manaflux",
+                    currencyID = 3465,
+                    isHeader = false,
+                    quantity = 1,
+                    maxQuantity = 8,
+                },
+            }
+            local data = ns.RunCapture("currencies").snapshot.data
+            assert.same(ns.Currencies.AllKnownIDs(), data.probedIDs)
+            assert.equal(1, #data.list)
+            assert.equal(0, #data.info)
+            for _, id in ipairs(data.probedIDs) do
+                assert.is_table(data.byID[id])
+            end
+            assert.equal("Venomblight Manaflux", data.byID[3465][1].name)
+            assert.equal(1, data.byID[3465][1].quantity)
+            assert.equal(8, data.byID[3465][1].maxQuantity)
+        end)
+
+        it("never expands a header to make one readable", function()
+            _G.C_CurrencyInfo.ExpandCurrencyList = function()
+                error("ExpandCurrencyList changes UI state and must never be called")
+            end
+            assert.is_true(ns.RunCapture("currencies").ok)
         end)
 
         it("records the full info behind every non-header entry and no header", function()
@@ -337,6 +383,7 @@ describe("captures", function()
             assert.same({ absent = true }, result.snapshot.data.listSize)
             assert.same({}, result.snapshot.data.list)
             assert.same({}, result.snapshot.data.info)
+            assert.same({}, result.snapshot.data.byID)
         end)
 
         it("drops a secret entry rather than storing it", function()

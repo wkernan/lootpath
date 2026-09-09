@@ -150,9 +150,12 @@ Panel.NEEDS_TEXT = {
 
 -- The client's count beside the assumption, or the honest absence of one.
 -- `/lootpath capture currencies` has to have run for there to be a number, and
--- which currencies these are is read from that transcript by name and never
--- guessed (Modules/Currencies.lua).
+-- which currencies these are is read from that transcript by ID and never
+-- guessed (Modules/Currencies.lua). HAVE_OF_TEXT carries the client's own
+-- `maxQuantity` beside its `quantity` when the client gives one - two numbers
+-- printed, nothing computed from them.
 Panel.HAVE_TEXT = " (you have %s)"
+Panel.HAVE_OF_TEXT = " (you have %s of %s)"
 Panel.COUNT_UNKNOWN = " (unknown - run /lootpath refresh)"
 Panel.CATALYST_NOT_READABLE = " (Catalyst charges: not readable)"
 Panel.CRESTS_NONE = " (you have none of them)"
@@ -408,11 +411,15 @@ function Panel.ScenarioLine(entry, reward)
 end
 
 -- How many of the thing a scenario assumed the player has, as the client says
--- it. Three answers and no fourth: the number, "unknown" when nobody has
--- captured the currency list yet or the names in it are still unmeasured, and -
--- for the Catalyst alone - "not readable" when the transcript showed the charge
--- is not one of the client's currencies at all. There is no arithmetic here and
--- no cost table anywhere in this file.
+-- it. Three answers and no fourth: the number - with the client's own maximum
+-- after it when there is one, "you have 1 of 8" - "unknown" when nobody has
+-- captured the currency list yet or no currency is configured, and - for the
+-- Catalyst alone - "not readable" when the ID probe answered nothing for it.
+-- M3-11 is what made that last phrase mean something: before it, "not readable"
+-- meant "the currency tab did not list it", and the tab decides that by which
+-- headers are expanded. There is no arithmetic here and no cost table anywhere
+-- in this file - "1 of 8" is two client numbers side by side, and the cost of a
+-- transform is not one of them.
 function Panel.CountText(scenario, currencies)
     local ok = type(currencies) == "table" and currencies.ok == true
     if scenario == "catalyzed" then
@@ -421,6 +428,13 @@ function Panel.CountText(scenario, currencies)
         end
         if currencies.catalystCharges == nil then
             return Panel.CATALYST_NOT_READABLE
+        end
+        if currencies.catalystMax then
+            return string.format(
+                Panel.HAVE_OF_TEXT,
+                tostring(currencies.catalystCharges),
+                tostring(currencies.catalystMax)
+            )
         end
         return string.format(Panel.HAVE_TEXT, tostring(currencies.catalystCharges))
     end
