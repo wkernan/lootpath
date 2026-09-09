@@ -16,6 +16,7 @@ Libs\json.lua
 Core.lua
 Data\QEVerdict.lua
 Captures.lua
+Modules\ItemData.lua
 Modules\Inventory.lua
 Modules\Journal.lua
 Modules\Vault.lua
@@ -24,6 +25,7 @@ Modules\QEImport.lua
 Modules\UFImport.lua
 Modules\Companion.lua
 Modules\Match.lua
+UI\ItemLine.lua
 UI\EquipPanel.lua
 UI\Options.lua
 UI\MainFrame.lua

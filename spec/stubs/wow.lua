@@ -49,9 +49,6 @@ end
 -- Appearance-only setters: accepted and ignored, because a headless test has no
 -- pixels to check them against.
 local IGNORED_REGION_METHODS = {
-    "SetAlpha",
-    "SetTextColor",
-    "SetVertexColor",
     "SetJustifyH",
     "SetJustifyV",
     "SetFontObject",
@@ -59,6 +56,46 @@ local IGNORED_REGION_METHODS = {
     "SetNonSpaceWrap",
     "SetDrawLayer",
 }
+
+-- Appearance setters whose ARGUMENT is a contract, recorded rather than
+-- ignored (M5-1, WKE-550). Which icon a row got, which colour its quality
+-- border was tinted and whether a badge is at a downgrade's opacity are
+-- decisions this addon makes and a test can hold it to; what they look like on
+-- the owner's screen is still an in-game step. The real widgets have no
+-- getters for these, so none is faked - the last arguments are left on the
+-- region under names of the stub's own (`texture`, `atlas`, `vertexColor`,
+-- `alpha`, `textColor`).
+local function attachAppearance(r)
+    -- A texture and an atlas are the same slot in the real widget: setting one
+    -- replaces the other, which is why a row that stops being a swap and drops
+    -- its arrow atlas cannot still be showing it.
+    function r:SetTexture(value)
+        self.texture = value
+        self.atlas = nil
+    end
+    function r:GetTexture()
+        return self.texture
+    end
+    function r:SetAtlas(value)
+        self.atlas = value
+        self.texture = nil
+    end
+    function r:GetAtlas()
+        return self.atlas
+    end
+    function r:SetVertexColor(red, green, blue, alpha)
+        self.vertexColor = { red, green, blue, alpha }
+    end
+    function r:SetAlpha(value)
+        self.alpha = value
+    end
+    function r:GetAlpha()
+        return self.alpha == nil and 1 or self.alpha
+    end
+    function r:SetTextColor(red, green, blue, alpha)
+        self.textColor = { red, green, blue, alpha }
+    end
+end
 
 local function newRegion(kind, parent)
     local r = {
@@ -171,6 +208,7 @@ local function newRegion(kind, parent)
     for _, name in ipairs(IGNORED_REGION_METHODS) do
         r[name] = function() end
     end
+    attachAppearance(r)
     return r
 end
 
@@ -446,6 +484,32 @@ function Stub.install()
         -- GET_ITEM_INFO_RECEIVED) itself, which is how "the client answered
         -- late" and "the client never answered" are both drivable (M3-12).
         itemDataRequests = {},
+        -- What C_Texture.GetAtlasInfo answers for. Both entries were read from
+        -- Blizzard's own shipped XML under .luals/ on 2026-09-09 -
+        -- `common-icon-checkmark` in Blizzard_ChromieTimeUI.xml and the
+        -- Housing dashboard, `common-icon-forwardarrow` in
+        -- Blizzard_RotateControlFrame.xml - so a client that has those files
+        -- has these atlases. A test that wants the fallback empties the table.
+        atlases = {
+            ["common-icon-checkmark"] = true,
+            ["common-icon-forwardarrow"] = true,
+        },
+        -- ITEM_QUALITY_COLORS, in Blizzard's documented shape
+        -- ({ r, g, b, hex }, ColorManager.lua under .luals/) with PLACEHOLDER
+        -- values: the real client's quality colours are a data table this
+        -- harness has no transcript of, and a test asserts that the border was
+        -- tinted with the colour the client gave, never that the colour is a
+        -- particular red. Quality 0..7 = Poor..Heirloom.
+        qualityColors = {
+            [0] = { r = 0.1, g = 0.1, b = 0.1 },
+            [1] = { r = 0.2, g = 0.2, b = 0.2 },
+            [2] = { r = 0.3, g = 0.3, b = 0.3 },
+            [3] = { r = 0.4, g = 0.4, b = 0.4 },
+            [4] = { r = 0.5, g = 0.5, b = 0.5 },
+            [5] = { r = 0.6, g = 0.6, b = 0.6 },
+            [6] = { r = 0.7, g = 0.7, b = 0.7 },
+            [7] = { r = 0.8, g = 0.8, b = 0.8 },
+        },
         bankOpen = false,
         vaultOpen = false,
         reloads = 0,
@@ -736,7 +800,15 @@ function Stub.install()
     end
     function tooltip:SetHyperlink(link)
         self.hyperlink = link
+        self.itemID = nil
         self.lines = { tostring(link) }
+    end
+    -- What a row with an id and no link is shown by: QE Live names an item by
+    -- id, so the tooltip has to take one.
+    function tooltip:SetItemByID(itemID)
+        self.itemID = itemID
+        self.hyperlink = nil
+        self.lines = { "item " .. tostring(itemID) }
     end
     function tooltip:ClearLines()
         self.lines = {}
@@ -745,6 +817,12 @@ function Stub.install()
         return table.concat(self.lines, "\n")
     end
     define("GameTooltip", tooltip)
+    -- The shopping compare. A FrameXML global, not an exported API, so what is
+    -- modelled is only that it was asked for and on whose behalf.
+    world.compareCalls = {}
+    define("GameTooltip_ShowCompareItem", function(self, anchorFrame)
+        world.compareCalls[#world.compareCalls + 1] = { self, anchorFrame }
+    end)
 
     -- The Settings API, from Blizzard's shipped Blizzard_Settings.lua (read
     -- 2026-09-06). Only the six calls the options page makes are modelled, and
@@ -987,7 +1065,43 @@ function Stub.install()
         RequestLoadItemDataByID = function(itemID)
             world.itemDataRequests[#world.itemDataRequests + 1] = itemID
         end,
+        -- Blizzard's exported C_Item.GetItemQualityColor(quality) -> r, g, b,
+        -- hex. The values are world.qualityColors' placeholders.
+        GetItemQualityColor = function(quality)
+            local color = world.qualityColors[quality]
+            if not color then
+                return nil
+            end
+            return color.r, color.g, color.b, "|cffffffff"
+        end,
     })
+
+    -- ITEM_QUALITY_COLORS and the accessor Blizzard's own item buttons go
+    -- through (ColorManager.GetColorDataForItemQuality, read under .luals/ on
+    -- 2026-09-09: it returns the table's entry and nil for an unknown
+    -- quality). Both read the same placeholders, so a test can take either
+    -- one away and see the widget fall through to the next.
+    define("ITEM_QUALITY_COLORS", world.qualityColors)
+    define("ColorManager", {
+        GetColorDataForItemQuality = function(quality)
+            return world.qualityColors[quality]
+        end,
+    })
+
+    -- C_Texture.GetAtlasInfo(atlas) -> AtlasInfo, or nil for an atlas this
+    -- client does not have. Only the "does it exist" half matters here.
+    define("C_Texture", {
+        GetAtlasInfo = function(atlas)
+            if not world.atlases[atlas] then
+                return nil
+            end
+            return { file = atlas, width = 16, height = 16 }
+        end,
+    })
+
+    -- The string Blizzard's own journal draws while an item's data is on its
+    -- way (RETRIEVING_ITEM_INFO, a FrameXML global).
+    define("RETRIEVING_ITEM_INFO", "Retrieving item information")
 
     define("C_Container", {
         GetContainerNumSlots = function(bag)

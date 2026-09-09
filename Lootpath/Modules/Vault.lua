@@ -36,18 +36,12 @@
 -- `pending` - "not known yet", never "no name" - and this file asks the client
 -- to load the item and reads it again when the client says it has.
 --
--- Why C_Item.RequestLoadItemDataByID and the two load events, rather than the
--- ItemMixin (`Item:CreateFromItemID(id):ContinueOnItemLoad(fn)`): read under
--- .luals/, the mixin is that same call - `ItemEventListener:AddCallback` runs
--- `C_Item.RequestLoadItemDataByID(id)` once per id and fires the callback on
--- ITEM_DATA_LOAD_RESULT when `success` is true (Blizzard_ObjectAPI's
--- AsyncCallbackSystem.lua and Item.lua). Calling the exported function
--- directly keeps every client call in FUNCTION_NAMES as a literal name, keeps
--- the bound and the combat check in this file where a test can drive them,
--- and takes no dependency on a FrameXML object whose global (`Item`) the
--- headless harness does not model. Blizzard's own gate for "pending" is kept:
--- `itemInfo.name` missing means RETRIEVING_ITEM_INFO in its journal, and
--- `GetItemInfo` answering no name means pending here.
+-- The asking itself is ns.ItemData's since M5-1 (WKE-550) - the request, the
+-- two load events, the bounded timer and the reason none of it is the
+-- ItemMixin are all documented there - and every rule about WHAT is pending
+-- and when it is re-read stayed here. Blizzard's own gate for "pending" is
+-- kept: `itemInfo.name` missing means RETRIEVING_ITEM_INFO in its journal,
+-- and `GetItemInfo` answering no name means pending here.
 --
 -- Every value read from the client passes ns.Safe; a secret is dropped and
 -- counted, never stored. Nothing runs in combat. Reads only - asking the
@@ -64,7 +58,9 @@ local Vault = ns.Vault
 -- same reason JournalAdapter.FUNCTION_NAMES is a list of strings: a nil entry
 -- in a table of values cannot be told from an absent one. The C_Item reads
 -- were called from the start and are listed since M3-12 so the list is what it
--- claims to be; RequestLoadItemDataByID is the one call M3-12 added.
+-- claims to be. `C_Item.RequestLoadItemDataByID` left the list in M5-1 when
+-- the asking moved to ns.ItemData, which names it in ItemData.FUNCTION_NAMES:
+-- this list is what THIS file calls, or it is worth nothing.
 Vault.FUNCTION_NAMES = {
     "C_WeeklyRewards.HasAvailableRewards",
     "C_WeeklyRewards.CanClaimRewards",
@@ -74,28 +70,21 @@ Vault.FUNCTION_NAMES = {
     "C_Item.GetDetailedItemLevelInfo",
     "C_Item.GetItemInfoInstant",
     "C_Item.GetItemInfo",
-    "C_Item.RequestLoadItemDataByID",
 }
 
--- The second read's bound, the journal's shape (Adapter.ITEM_DATA_WAIT_SECONDS
--- x ITEM_DATA_MAX_ATTEMPTS, 8 x 0.25 s): after asking the client for an item,
--- the pending records are re-read on each of the two load events for that
--- itemID and, failing those, on a timer up to this many times. A record that
--- has not resolved by then stays `pending` and is forgotten by this file, so
--- the next Options() call asks again; it is never filled with a guess.
-Vault.ITEM_DATA_WAIT_SECONDS = 0.25
-Vault.ITEM_DATA_MAX_ATTEMPTS = 8
+-- The second read's bound and the two load events now live in
+-- ns.ItemData (M5-1, WKE-550), which is the same mechanism this module built
+-- in M3-12 lifted out so an item line on any tab waits the same way. The
+-- names stay here because they are this module's contract: 8 x 0.25 s, the
+-- journal's shape.
+Vault.ITEM_DATA_WAIT_SECONDS = ns.ItemData.WAIT_SECONDS
+Vault.ITEM_DATA_MAX_ATTEMPTS = ns.ItemData.MAX_ATTEMPTS
+Vault.ITEM_DATA_EVENTS = ns.ItemData.EVENTS
 
--- Both events Blizzard's docs list with `itemID, success` payloads
--- (Event.lua under .luals/): ITEM_DATA_LOAD_RESULT is what the mixin's
--- AsyncCallbackSystem listens for after RequestLoadItemDataByID;
--- GET_ITEM_INFO_RECEIVED is what a plain GetItemInfo miss produces.
-Vault.ITEM_DATA_EVENTS = { "ITEM_DATA_LOAD_RESULT", "GET_ITEM_INFO_RECEIVED" }
-
--- What this file is still waiting for: [itemID] = { itemID, attempts,
--- records = { [itemDBID] = record } }. One request per itemID per episode; a
--- second Options() call while the item is still pending re-uses the episode
--- rather than asking the client again.
+-- What this file is still waiting for: [itemID] = { itemID, handle,
+-- records = { [itemDBID] = record } }. One ItemData episode per itemID; a
+-- second Options() call while the item is still pending re-uses it rather
+-- than asking the client again.
 Vault.pendingItems = {}
 
 -- Enum.WeeklyRewardChestThresholdType, as the 12.1.0 client enumerated it in
@@ -225,6 +214,11 @@ local function readItem(record, counter)
     end
     record.equipLoc = guarded(counter, instant[4])
     record.slot = ns.Inventory and ns.Inventory.SlotForEquipLoc(record.equipLoc) or nil
+    -- The icon is the FIFTH return of GetItemInfoInstant (Blizzard's exported
+    -- ItemDocumentation, read under .luals/ on 2026-09-09), which is static
+    -- data: it answers for an item the client has not loaded yet, which is why
+    -- a pending row still draws its own icon rather than a question mark.
+    record.icon = tonumber(guarded(counter, instant[5]))
     local name = guarded(counter, info[1])
     record.name = (type(name) == "string" and name ~= "") and name or nil
     record.quality = guarded(counter, info[3])
@@ -284,9 +278,11 @@ function Vault.Reread(record, counter)
 end
 
 -- ---------------------------------------------------------------------------
--- The request and the second read (M3-12, WKE-547).
+-- The request and the second read (M3-12, WKE-547; the mechanism moved into
+-- ns.ItemData in M5-1, WKE-550, and nothing about the behaviour below moved
+-- with it - what is pending, when it is re-read and when the tab redraws is
+-- still this file's).
 
-local listener
 local redrawScheduled = false
 
 local function after(seconds, fn)
@@ -326,12 +322,17 @@ local function notifyResolved()
     end)
 end
 
-local function stopWatching()
-    if listener then
-        for _, event in ipairs(Vault.ITEM_DATA_EVENTS) do
-            listener:UnregisterEvent(event)
-        end
+-- Forgets an item, resolved or not. Its records keep whatever they say - a
+-- record that never resolved stays `pending` and says so on screen - and the
+-- next Options() call asks the client again.
+function Vault.Forget(itemID)
+    local entry = Vault.pendingItems[itemID]
+    if not entry then
+        return false
     end
+    Vault.pendingItems[itemID] = nil
+    ns.ItemData.Cancel(entry.handle)
+    return true
 end
 
 -- Re-reads every pending record for `itemID` (or for every pending item when
@@ -350,29 +351,20 @@ function Vault.ResolvePending(itemID)
                 end
             end
             if not stillPending then
-                Vault.pendingItems[id] = nil
+                Vault.Forget(id)
             end
         end
     end
     if resolved > 0 then
         notifyResolved()
     end
-    if pendingCount() == 0 then
-        stopWatching()
-    end
     return resolved
 end
 
--- Forgets an item without resolving it: the client said the load failed, or
--- the bound ran out. Its records stay `pending` and say so on screen; the next
--- Options() call asks the client again.
-local function forget(itemID)
-    Vault.pendingItems[itemID] = nil
-    if pendingCount() == 0 then
-        stopWatching()
-    end
-end
-
+-- One occasion for one item: a load event, or a tick of ItemData's bound
+-- (`event` nil then). Reachable directly, which is how a test drives it, so
+-- the combat check and the failed-load rule are stated here as well as in
+-- ItemData - a guard that only holds on one path is not a guard.
 function Vault.OnItemData(event, itemID, success)
     if not Vault.pendingItems[itemID] then
         return false
@@ -385,55 +377,11 @@ function Vault.OnItemData(event, itemID, success)
     if success == false and event == "ITEM_DATA_LOAD_RESULT" then
         -- What Blizzard's AsyncCallbackSystem does with a failed load: drop the
         -- callbacks. The record is not filled and not guessed at.
-        forget(itemID)
+        Vault.Forget(itemID)
         return false
     end
     Vault.ResolvePending(itemID)
     return true
-end
-
-local function ensureListener()
-    if listener then
-        return listener
-    end
-    listener = CreateFrame("Frame")
-    listener:SetScript("OnEvent", function(_, event, itemID, success)
-        Vault.OnItemData(event, itemID, success)
-    end)
-    return listener
-end
-
-function Vault.WatchItemData()
-    local frame = ensureListener()
-    for _, event in ipairs(Vault.ITEM_DATA_EVENTS) do
-        frame:RegisterEvent(event)
-    end
-    return frame
-end
-
--- The bound: one timer per pending item, re-armed until the item resolves or
--- ITEM_DATA_MAX_ATTEMPTS have passed. The events above are the fast path;
--- this is what stops a record from waiting forever on a client that never
--- answers.
-local function scheduleCheck(entry)
-    after(Vault.ITEM_DATA_WAIT_SECONDS, function()
-        local live = Vault.pendingItems[entry.itemID]
-        if live ~= entry then
-            return -- resolved, forgotten, or replaced by a later episode
-        end
-        entry.attempts = entry.attempts + 1
-        if not InCombatLockdown() then
-            Vault.ResolvePending(entry.itemID)
-        end
-        if Vault.pendingItems[entry.itemID] == entry then
-            if entry.attempts >= Vault.ITEM_DATA_MAX_ATTEMPTS then
-                entry.gaveUp = true
-                forget(entry.itemID)
-            else
-                scheduleCheck(entry)
-            end
-        end
-    end)
 end
 
 -- Asks the client to load a pending record's item, once per itemID per
@@ -443,17 +391,22 @@ function Vault.RequestItemData(record)
     if type(record) ~= "table" or not record.pending or type(record.itemID) ~= "number" then
         return false
     end
-    local entry = Vault.pendingItems[record.itemID]
+    local itemID = record.itemID
+    local entry = Vault.pendingItems[itemID]
     local requested = false
     if not entry then
-        entry = { itemID = record.itemID, attempts = 0, records = {} }
-        Vault.pendingItems[record.itemID] = entry
-        Vault.WatchItemData()
-        if C_Item and type(C_Item.RequestLoadItemDataByID) == "function" then
-            requested = pcall(C_Item.RequestLoadItemDataByID, record.itemID) == true
-        end
+        entry = { itemID = itemID, records = {} }
+        Vault.pendingItems[itemID] = entry
+        entry.handle = ns.ItemData.Watch(itemID, function(id, event, success)
+            Vault.OnItemData(event, id, success)
+            return Vault.pendingItems[id] == nil
+        end, function(id)
+            -- The bound ran out, or the client said the load failed: the
+            -- records stay pending, in words, and the next look asks again.
+            Vault.pendingItems[id] = nil
+        end)
+        requested = (entry.handle and entry.handle.requested) == true
         entry.requested = requested
-        scheduleCheck(entry)
     end
     entry.records[record.itemDBID or record] = record
     return requested
@@ -467,6 +420,10 @@ end
 -- One record per activity, in the order the client listed them:
 --   { type, typeLabel, index, id, threshold, progress, level, activityTierID,
 --     unlocked, rewards = { <Vault.Reward records> } }
+--
+-- A reward record is { itemDBID, itemID, key, link, itemLevel, slot, equipLoc,
+-- name, quality, quantity, icon, pending }; `icon` is M5-1's addition, for the
+-- item line every tab draws.
 --
 -- Every activity is kept, unlocked or not: "2 of 4 bosses" is the answer to
 -- "what can I still earn this week", and dropping the locked rows would hide it.

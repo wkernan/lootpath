@@ -50,6 +50,7 @@ read_globals = {
     -- pair, which its own annotations mark deprecated; MainFrame asks for this
     -- first and the two globals second, so both are listed.
     "C_SpecializationInfo",
+    "C_Texture",
     "C_Timer",
     "C_WeeklyRewards",
     "Enum",
@@ -104,6 +105,16 @@ read_globals = {
     -- because a client without one is a client with no minimap button.
     "Minimap",
     "MinimalSliderWithSteppersMixin",
+    -- The item widget's four FrameXML names (M5-1, WKE-550). Each is reached
+    -- through a type check or a pcall, because a client without one must still
+    -- draw a row: ColorManager and ITEM_QUALITY_COLORS are the quality colour
+    -- Blizzard's own item buttons read, RETRIEVING_ITEM_INFO is the string its
+    -- journal shows while an item loads, and GameTooltip_ShowCompareItem is
+    -- the shopping compare.
+    "ColorManager",
+    "ITEM_QUALITY_COLORS",
+    "RETRIEVING_ITEM_INFO",
+    "GameTooltip_ShowCompareItem",
     "Settings",
     "UIParent",
     "DifficultyUtil",
@@ -125,4 +136,8 @@ read_globals = {
 files["spec/**/*.lua"] = {
     std = "lua51+busted",
     -- Specs reach the stubbed client through _G; the stub installs via _G too.
+    -- RETRIEVING_ITEM_INFO is the one client global a spec names directly: the
+    -- item line draws Blizzard's own string, so the test asserts Blizzard's own
+    -- string rather than a copy of it.
+    read_globals = { "RETRIEVING_ITEM_INFO" },
 }

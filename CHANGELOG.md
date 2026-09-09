@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### M5-1 (WKE-550) - Equip Now, drawn as items
+
+- **Every row is the item, not a sentence about it.** A row now shows the
+  item's own icon with a quality-coloured border, its item level in the icon's
+  corner, its name in quality colour and a grey line under it saying where it
+  is - the shape Blizzard's Adventure Guide and every popular bag addon use. A
+  swap reads left to right: what you are wearing, an arrow, what QE Live wants,
+  the Equip button. An already-best row is one icon with a green tick. Hovering
+  the icon or the name opens the item's own tooltip, with the shopping compare.
+- **The five counts are chips above the list**, each in its status colour, so
+  "5 to swap" is legible before a single row is read.
+- **A verdict badge on the right, in QE Live's own colours** - gold when his
+  number says better, burnt orange when it says worse, grey when he did not
+  rank it. It is always text: a bar's length would be arithmetic on his
+  numbers, and Lootpath never computes a healer value.
+- **The list scrolls** rather than the window growing.
+- **An item the client has not loaded yet is still a readable row.** It keeps
+  its own icon (static data answers before the load) and says
+  "Retrieving item information", exactly as Blizzard's journal does; Lootpath
+  asks the client for the item once and fills the row in when it answers, and
+  leaves the row alone if it never does. A row handed another item stops
+  waiting for the first, so a late answer can never land on the wrong line.
+- **One loader, shared.** The request-and-re-read the Vault tab got in M3-12 is
+  now `ns.ItemData` and every tab uses it. The Vault tab behaves exactly as it
+  did.
+
 ### M5-2 (WKE-551) - the chrome: a portrait ring, a status strip, and the paste box behind a dialog
 
 - **The window wears Blizzard's portrait frame, and the ring says whose answer
