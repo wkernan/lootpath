@@ -941,3 +941,353 @@ describe("QEImport.CatalyzedOwned over the fourth question (WKE-548)", function(
         assert.same({}, ns.QEImport.CatalyzedOwned("thisWeek", scan()))
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- M3-14 (WKE-555): the fifth question - with ONE charge, which single
+-- conversion does QE Live rate best?
+--
+-- Nothing here chooses an item. Every candidate is a set QE Live built and
+-- scored himself: his top set, or one of the twelve alternatives his exporter
+-- carries. OneChargeCandidates keeps the ones that spend the charge exactly
+-- once on an item the owner owns and puts them in his own order.
+--
+-- The first block is measured over both committed `thisWeek` documents of the
+-- 2026-09-09 19:22 run, joined to inventory snapshot 7 of the 2026-09-08 12:45
+-- capture; the hand-built documents after it cover the shapes the owner's own
+-- data does not happen to contain.
+
+local THIS_WEEK_RAID_EXPORT = "spec/fixtures/qe/qe-droptimizer-Hotornot-rrwofzsbrbou.json"
+
+describe("QEImport.OneChargeCandidates over the real thisWeek documents (WKE-555)", function()
+    local ns, world
+
+    before_each(function()
+        ns, world = H.load()
+        R.inventory(world, R.snapshot("inventory", PROFILE_SNAPSHOT, AFTER_RESET_CAPTURE))
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local THIS_WEEK_BOXES = { autoUpgradeVault = true, autoUpgradeAll = false, autoCatalyze = true }
+
+    local function document(path, boxes)
+        local parsed = ns.QEImport.Parse(readFile(path))
+        assert.is_true(parsed.ok, parsed.reason)
+        parsed.verdict.scenario = "thisWeek"
+        parsed.verdict.qeSettings = boxes or THIS_WEEK_BOXES
+        return parsed.verdict
+    end
+
+    local function scan()
+        local result = ns.Inventory.Scan()
+        assert.is_true(result.ok, result.reason)
+        return result
+    end
+
+    -- The measurement this issue exists for, Dungeon side. His top set spends
+    -- TWO charges (M3-13); three of his twelve alternatives spend exactly one,
+    -- and the best of them by his own scorePercent is differential 7 - "take the
+    -- vault Spaulders instead, catalyzed and upgraded to 321, and keep the 308
+    -- weapon you wear" - which leaves the charge on the Hide of Pestilence.
+    -- Every figure below is read off the committed file.
+    it("finds three one-charge sets in the Dungeon document, best at 1.7292%", function()
+        local candidates = ns.QEImport.OneChargeCandidates(document(THIS_WEEK_EXPORT), scan())
+        assert.equal(3, #candidates)
+        local best = candidates[1]
+        assert.equal("alternative", best.where)
+        assert.equal(7, best.index)
+        assert.equal(1.7291667240187969, best.scorePercent)
+        assert.equal(-6009, best.hpsDifference)
+        assert.equal("Chest", best.catalyzed.slot)
+        assert.equal(271531, best.catalyzed.item.itemID)
+        assert.equal(251226, best.catalyzed.owned.itemID)
+        assert.equal("Hide of Pestilence", best.catalyzed.owned.name)
+        assert.equal(302, best.catalyzed.owned.itemLevel)
+        -- His order, worst last, and the two behind it are the same conversion
+        -- in a set that also swaps the back.
+        assert.same({ 8, 9 }, { candidates[2].index, candidates[3].index })
+        assert.equal(2.0646766853955785, candidates[2].scorePercent)
+        assert.equal(2.0646766853955785, candidates[3].scorePercent)
+    end)
+
+    -- The Raid document of the same run, same profile, same two-charge top set,
+    -- a different best alternative and a different number.
+    it("finds three in the Raid document, best at 1.6461%", function()
+        local candidates = ns.QEImport.OneChargeCandidates(document(THIS_WEEK_RAID_EXPORT), scan())
+        assert.equal(3, #candidates)
+        assert.equal(9, candidates[1].index)
+        assert.equal(1.6460891664886173, candidates[1].scorePercent)
+        assert.equal(-5732, candidates[1].hpsDifference)
+        assert.equal(251226, candidates[1].catalyzed.owned.itemID)
+        assert.same({ 10, 11 }, { candidates[2].index, candidates[3].index })
+    end)
+
+    -- The top set itself is never a candidate on this profile, and that is the
+    -- fact the whole issue rests on: it spends two.
+    it("leaves his two-charge top set out of the list", function()
+        for _, path in ipairs({ THIS_WEEK_EXPORT, THIS_WEEK_RAID_EXPORT }) do
+            local verdict = document(path)
+            assert.equal(2, #ns.QEImport.CatalyzedOwned(verdict, scan()))
+            for _, candidate in ipairs(ns.QEImport.OneChargeCandidates(verdict, scan())) do
+                assert.are_not.equal("topSet", candidate.where)
+            end
+        end
+    end)
+
+    -- The sets his alternatives 3, 4, 5 and 12 build catalyze the owner's
+    -- Miststalker's Cowl as well - a second charge on a head he owns, found by
+    -- the same join - so they are not one-charge sets and are not offered as
+    -- one. Read off both sides here rather than asserted by absence alone.
+    it("counts a differential's own clone as a second charge", function()
+        local verdict = document(THIS_WEEK_EXPORT)
+        local head
+        for _, entry in ipairs(verdict.alternatives[12].items) do
+            if entry.slot == "Head" then
+                head = entry
+            end
+        end
+        assert.is_not_nil(head)
+        assert.equal(271528, head.itemID)
+        assert.same({ 42, 12838, 13662, 13696 }, head.bonusIDs)
+        local cowl
+        for _, record in ipairs(scan().records) do
+            if record.itemID == 272242 then
+                cowl = record
+            end
+        end
+        assert.is_not_nil(cowl)
+        assert.equal("Miststalker's Cowl", cowl.name)
+        assert.same(head.bonusIDs, cowl.bonusIDs)
+        for _, candidate in ipairs(ns.QEImport.OneChargeCandidates(verdict, scan())) do
+            assert.are_not.equal(12, candidate.index)
+        end
+    end)
+
+    -- CatalyzedOwned's guards, on the same document, because a set the run never
+    -- catalyzed cannot spend a charge and bags nobody read cannot own an item.
+    it("says nothing when the run did not catalyze, or there is no scan", function()
+        local off =
+            document(THIS_WEEK_EXPORT, { autoUpgradeVault = true, autoUpgradeAll = false, autoCatalyze = false })
+        assert.same({}, ns.QEImport.OneChargeCandidates(off, scan()))
+        local silent = document(THIS_WEEK_EXPORT)
+        silent.qeSettings = nil
+        assert.same({}, ns.QEImport.OneChargeCandidates(silent, scan()))
+        assert.same({}, ns.QEImport.OneChargeCandidates(document(THIS_WEEK_EXPORT), nil))
+        assert.same({}, ns.QEImport.OneChargeCandidates(document(THIS_WEEK_EXPORT), { records = {} }))
+        assert.same({}, ns.QEImport.OneChargeCandidates(nil, scan()))
+        assert.same({}, ns.QEImport.OneChargeCandidates("thisWeek", scan()))
+    end)
+end)
+
+-- The shapes the owner's own week does not contain. These documents are
+-- hand-built, and no number in them came from QE Live: they exist to pin the
+-- logic, not to say anything about a healer. The inventory beside them is a
+-- plain record list of the shape ns.Inventory.Scan() returns.
+describe("QEImport.OneChargeCandidates over hand-built shapes (WKE-555)", function()
+    local ns
+
+    before_each(function()
+        ns = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function item(slot, id, bonusIDs, setId)
+        return {
+            slot = slot,
+            id = id,
+            level = 300,
+            bonusIDs = bonusIDs,
+            gems = {},
+            enchant = "",
+            tertiary = "",
+            setId = setId or 0,
+            isVault = false,
+            isExclusive = false,
+            source = {},
+        }
+    end
+
+    local function document(topItems, differentials)
+        local payload = {
+            schema = "qe-live-droptimizer",
+            version = 1,
+            exportedAt = "2026-09-09T19:22:00Z",
+            reportId = "handbuilt",
+            contentType = "Dungeon",
+            player = {
+                name = "Hotornot",
+                realm = "Test",
+                region = "US",
+                spec = "Restoration Druid",
+                gameType = "Retail",
+            },
+            topSet = { score = 1000, stats = {}, items = topItems },
+            differentials = differentials or {},
+        }
+        local parsed = ns.QEImport.Parse(ns.json.encode(payload))
+        assert.is_true(parsed.ok, parsed.reason)
+        parsed.verdict.qeSettings = { autoUpgradeVault = true, autoUpgradeAll = false, autoCatalyze = true }
+        return parsed.verdict
+    end
+
+    local function owned(records)
+        local out = {}
+        for _, record in ipairs(records) do
+            out[#out + 1] = {
+                itemID = record.id,
+                key = ns.ItemKey(record.id, record.bonusIDs),
+                slot = record.slot,
+                bonusIDs = record.bonusIDs,
+                name = record.name,
+                itemLevel = record.level or 300,
+            }
+        end
+        return { ok = true, records = out }
+    end
+
+    -- The top set itself spends exactly one charge. It is a candidate like any
+    -- other, and it is at zero from the top set by definition - QE Live never
+    -- writes a differential for the set he picked.
+    it("offers his top set when the top set is the one-charge answer", function()
+        local verdict = document({
+            item("Chest", 271531, { 1, 2 }, 2057),
+            item("Head", 500, { 3 }, 0),
+        })
+        local candidates = ns.QEImport.OneChargeCandidates(
+            verdict,
+            owned({ { id = 251226, slot = "Chest", bonusIDs = { 1, 2 }, name = "Hide of Pestilence" } })
+        )
+        assert.equal(1, #candidates)
+        assert.equal("topSet", candidates[1].where)
+        assert.is_nil(candidates[1].index)
+        assert.equal(0, candidates[1].scorePercent)
+        assert.equal(0, candidates[1].hpsDifference)
+        assert.equal("Hide of Pestilence", candidates[1].catalyzed.owned.name)
+    end)
+
+    -- Every set in the document spends two, which is an answer and not a
+    -- failure: the caller says so in those words.
+    it("returns nothing when no set in the document spends the charge once", function()
+        local verdict = document({
+            item("Chest", 271531, { 1, 2 }, 2057),
+            item("Shoulder", 271526, { 3, 4 }, 2057),
+        }, {
+            { scorePercent = 0.5, hpsDifference = -100, items = { item("Head", 500, { 9 }, 0) }, gems = {} },
+        })
+        local scan = owned({
+            { id = 251226, slot = "Chest", bonusIDs = { 1, 2 }, name = "Hide of Pestilence" },
+            { id = 277782, slot = "Shoulder", bonusIDs = { 3, 4 }, name = "Venom-Cursed Lynx's Spaulders" },
+        })
+        assert.equal(2, #ns.QEImport.CatalyzedOwned(verdict, scan))
+        assert.same({}, ns.QEImport.OneChargeCandidates(verdict, scan))
+    end)
+
+    -- The two-slot case. QE Live's own buildDifferential (TopGearEngine.ts:499-
+    -- 511) pushes BOTH rings the first time either one differs, so a slot his
+    -- differential names, it names completely: applying it replaces every
+    -- top-set item in that slot, not one of them. Here the top set spends two
+    -- charges on a pair of rings; his differential keeps one of the two clones
+    -- and brings a plain ring for the other, which is a one-charge set. If the
+    -- replacement dropped only one of the pair the surviving clone would make it
+    -- two and this document would have no answer at all.
+    it("replaces every top-set item in a slot the differential names", function()
+        local verdict = document({
+            item("Finger", 200, { 7 }, 55),
+            item("Finger", 201, { 8 }, 55),
+            item("Head", 500, { 3 }, 0),
+        }, {
+            {
+                scorePercent = 0.5,
+                hpsDifference = -100,
+                items = { item("Finger", 300, { 9 }, 0), item("Finger", 201, { 8 }, 55) },
+                gems = {},
+            },
+            {
+                scorePercent = 0.2,
+                hpsDifference = -40,
+                items = { item("Finger", 300, { 9 }, 0), item("Finger", 301, { 10 }, 0) },
+                gems = {},
+            },
+        })
+        local scan = owned({
+            { id = 900, slot = "Finger", bonusIDs = { 7 }, name = "First Band" },
+            { id = 901, slot = "Finger", bonusIDs = { 8 }, name = "Second Band" },
+        })
+        assert.equal(2, #ns.QEImport.CatalyzedOwned(verdict, scan))
+        local candidates = ns.QEImport.OneChargeCandidates(verdict, scan)
+        assert.equal(1, #candidates)
+        assert.equal(1, candidates[1].index)
+        assert.equal(0.5, candidates[1].scorePercent)
+        assert.equal(201, candidates[1].catalyzed.item.itemID)
+        assert.equal("Second Band", candidates[1].catalyzed.owned.name)
+    end)
+
+    -- His ordering, not ours: the better set is the one with the LOWER
+    -- scorePercent, because a positive percent means the alternative is worse.
+    -- Read through the module's own sign constant.
+    it("orders the candidates by his scorePercent, best first", function()
+        local verdict = document({
+            item("Chest", 271531, { 1, 2 }, 2057),
+            item("Shoulder", 271526, { 3, 4 }, 2057),
+        }, {
+            { scorePercent = 3.0, hpsDifference = -300, items = { item("Chest", 600, { 9 }, 0) }, gems = {} },
+            { scorePercent = 1.0, hpsDifference = -100, items = { item("Chest", 601, { 10 }, 0) }, gems = {} },
+            { scorePercent = 2.0, hpsDifference = -200, items = { item("Chest", 602, { 11 }, 0) }, gems = {} },
+        })
+        local scan = owned({
+            { id = 251226, slot = "Chest", bonusIDs = { 1, 2 }, name = "Hide of Pestilence" },
+            { id = 277782, slot = "Shoulder", bonusIDs = { 3, 4 }, name = "Venom-Cursed Lynx's Spaulders" },
+        })
+        local candidates = ns.QEImport.OneChargeCandidates(verdict, scan)
+        assert.same({ 1.0, 2.0, 3.0 }, {
+            candidates[1].scorePercent,
+            candidates[2].scorePercent,
+            candidates[3].scorePercent,
+        })
+        assert.same({ 2, 3, 1 }, { candidates[1].index, candidates[2].index, candidates[3].index })
+        assert.equal(ALT_IS_WORSE_SCORE_PERCENT_SIGN, ns.QEImport.ALT_WORSE_SCORE_PERCENT_SIGN)
+    end)
+
+    -- With no bags read, nothing is claimed at all - not even the "he did not
+    -- say which" shape, which needs a scan to have been looked in. The same
+    -- document with a scan beside it does answer, which is what makes this the
+    -- guard and not the document.
+    it("claims nothing with no scan, on a document that otherwise answers", function()
+        local verdict = document({
+            item("Chest", 271531, { 1, 2 }, 2057),
+            item("Head", 500, { 3 }, 0),
+        })
+        assert.equal(
+            1,
+            #ns.QEImport.OneChargeCandidates(
+                verdict,
+                owned({ { id = 700, slot = "Waist", bonusIDs = { 42 }, name = "Something Else" } })
+            )
+        )
+        assert.same({}, ns.QEImport.OneChargeCandidates(verdict, nil))
+        assert.same({}, ns.QEImport.OneChargeCandidates(verdict, { records = {} }))
+        assert.same({}, ns.QEImport.OneChargeCandidates(verdict, { ok = false, reason = "combat" }))
+    end)
+
+    -- A qualifying set whose one clone matched nothing in the bags is still
+    -- offered, with no owned item on it, so the caller can say he spends the
+    -- charge in that slot without naming an item he never named.
+    it("offers a qualifying set whose clone matched nothing owned", function()
+        local verdict = document({
+            item("Chest", 271531, { 1, 2 }, 2057),
+            item("Head", 500, { 3 }, 0),
+        })
+        local candidates = ns.QEImport.OneChargeCandidates(
+            verdict,
+            owned({ { id = 700, slot = "Waist", bonusIDs = { 42 }, name = "Something Else" } })
+        )
+        assert.equal(1, #candidates)
+        assert.equal("Chest", candidates[1].catalyzed.slot)
+        assert.is_nil(candidates[1].catalyzed.owned)
+    end)
+end)

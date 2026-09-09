@@ -301,18 +301,15 @@ end
 -- A clone no owned item matches is still listed, with `owned` nil, because the
 -- caller has to say that he catalyzed SOMETHING in that slot without naming
 -- what.
-function QEImport.CatalyzedOwned(verdict, inventory)
-    local found = {}
-    if type(verdict) ~= "table" then
-        return found
-    end
-    local settings = type(verdict.qeSettings) == "table" and verdict.qeSettings or nil
-    if not settings or settings.autoCatalyze ~= true then
-        return found
-    end
+--
+-- The scan is indexed once by `ownedIndex` below and the join itself is
+-- `catalyzedOwnedIn`, because OneChargeCandidates asks the same question of
+-- thirteen sets and re-walking the bags for each of them would be the same
+-- answer computed thirteen times.
+local function ownedIndex(inventory)
     local records = type(inventory) == "table" and (inventory.records or inventory) or nil
     if type(records) ~= "table" or #records == 0 then
-        return found
+        return nil
     end
     local owned, ownedKeys = {}, {}
     for _, record in ipairs(records) do
@@ -323,13 +320,16 @@ function QEImport.CatalyzedOwned(verdict, inventory)
             owned[#owned + 1] = record
         end
     end
-    local topSet = type(verdict.topSet) == "table" and verdict.topSet or {}
-    local items = type(topSet.items) == "table" and topSet.items or {}
-    for _, key in ipairs(topSet.order or {}) do
-        local item = items[key]
-        if item and item.isVault ~= true and (tonumber(item.setId) or 0) ~= 0 and not ownedKeys[key] then
+    return { records = owned, keys = ownedKeys }
+end
+
+-- The join itself, over any list of set items in the order they are given.
+local function catalyzedOwnedIn(items, index)
+    local found = {}
+    for _, item in ipairs(items) do
+        if item and item.isVault ~= true and (tonumber(item.setId) or 0) ~= 0 and not index.keys[item.key] then
             local match
-            for _, record in ipairs(owned) do
+            for _, record in ipairs(index.records) do
                 -- The item ID is deliberately NOT compared. It cannot be equal
                 -- here: an owned record with this item ID AND these bonus IDs
                 -- would carry this exact key, and the guard above already passed
@@ -344,6 +344,142 @@ function QEImport.CatalyzedOwned(verdict, inventory)
         end
     end
     return found
+end
+
+-- The top set as a plain list in QE Live's own order. `order` repeats a key for
+-- a matched pair, which is what makes the pair two entries here rather than one.
+local function topSetItems(verdict)
+    local topSet = type(verdict) == "table" and type(verdict.topSet) == "table" and verdict.topSet or {}
+    local items = type(topSet.items) == "table" and topSet.items or {}
+    local list = {}
+    for _, key in ipairs(topSet.order or {}) do
+        local item = items[key]
+        if item then
+            list[#list + 1] = item
+        end
+    end
+    return list
+end
+
+function QEImport.CatalyzedOwned(verdict, inventory)
+    if type(verdict) ~= "table" then
+        return {}
+    end
+    local settings = type(verdict.qeSettings) == "table" and verdict.qeSettings or nil
+    if not settings or settings.autoCatalyze ~= true then
+        return {}
+    end
+    local index = ownedIndex(inventory)
+    if not index then
+        return {}
+    end
+    return catalyzedOwnedIn(topSetItems(verdict), index)
+end
+
+-- OneChargeCandidates(verdict, inventory) -> the sets in THIS document that
+-- spend exactly one Catalyst charge on an item the owner owns, best first by QE
+-- Live's own ordering, as a list of
+--
+--   { where = "topSet"|"alternative", index (its 1-based place in
+--     `verdict.alternatives`, nil for the top set), scorePercent,
+--     hpsDifference, catalyzed = { item, slot, owned } }
+--
+-- Always a list; empty when no set in the document qualifies, which is an
+-- answer and not a failure.
+--
+-- Why this exists (M3-14, WKE-555). `thisWeek` asks "take one thing out of the
+-- vault, upgrade it, spend the charge" - but QE Live's `autoCatalyze` clones
+-- every item his `canBeCatalyzed()` accepts and his set builder then picks
+-- freely, so his best set may spend more charges than the question implied.
+-- Measured on the owner's own profile: his `thisWeek` top set catalyzes TWO of
+-- his items while he holds ONE charge. The owner's remaining question - with one
+-- charge, which single conversion does QE Live rate best? - is answered here
+-- WITHOUT Lootpath choosing an item, because a Top Gear export already carries
+-- up to twelve alternative sets that he scored himself. A set with exactly one
+-- catalyzed owned item is a set HE built and HE ranked; showing the best-ranked
+-- of those is display, not a healer value.
+--
+-- **How a differential becomes a set.** His `differentials` carry only the items
+-- that differ from the top set, and his own builder decides what "differ" puts
+-- in the list: `TopGearEngine.ts:491-513` walks the two item lists index by
+-- index and pushes `diffList[x]` whenever the hashes differ - and for the ring
+-- pair (indices 10/11) and the trinket pair (12/13) it pushes BOTH of the
+-- alternative's items the first time either one differs. So a slot the
+-- differential names, it names completely, and applying one is exactly: every
+-- item in a slot the differential mentions comes from the differential, and
+-- every other slot keeps the top set's. Nothing is interleaved and nothing has
+-- to be guessed at.
+--
+-- The guards are CatalyzedOwned's, for the same reasons: the run's own
+-- `autoCatalyze` must have been on, and with no scan to read nothing is claimed.
+-- A qualifying set whose one clone matched nothing in the scan is still
+-- returned, with `owned` nil, so the caller says he spends the charge in that
+-- slot without naming an item he never named.
+function QEImport.OneChargeCandidates(verdict, inventory)
+    local candidates = {}
+    if type(verdict) ~= "table" then
+        return candidates
+    end
+    local settings = type(verdict.qeSettings) == "table" and verdict.qeSettings or nil
+    if not settings or settings.autoCatalyze ~= true then
+        return candidates
+    end
+    local index = ownedIndex(inventory)
+    if not index then
+        return candidates
+    end
+
+    local top = topSetItems(verdict)
+    local function consider(items, where, alternativeIndex, alternative)
+        local found = catalyzedOwnedIn(items, index)
+        if #found ~= 1 then
+            return
+        end
+        candidates[#candidates + 1] = {
+            where = where,
+            index = alternativeIndex,
+            -- The top set is zero from the top set by definition; his own
+            -- numbers are carried through untouched everywhere else.
+            scorePercent = alternative and alternative.scorePercent or 0,
+            hpsDifference = alternative and alternative.hpsDifference or 0,
+            catalyzed = found[1],
+        }
+    end
+
+    consider(top, "topSet", nil, nil)
+    for alternativeIndex, alternative in ipairs(verdict.alternatives or {}) do
+        local replaced = {}
+        local bySlot = {}
+        for _, item in ipairs(alternative.items or {}) do
+            if type(item.slot) == "string" then
+                bySlot[item.slot] = true
+            end
+        end
+        for _, item in ipairs(top) do
+            if not bySlot[item.slot] then
+                replaced[#replaced + 1] = item
+            end
+        end
+        for _, item in ipairs(alternative.items or {}) do
+            replaced[#replaced + 1] = item
+        end
+        consider(replaced, "alternative", alternativeIndex, alternative)
+    end
+
+    -- His ordering, through the sign constant rather than a comparison of our
+    -- own; ties keep the document's order so the answer is the same every time.
+    local ranked = {}
+    for position, candidate in ipairs(candidates) do
+        ranked[candidate] = position
+    end
+    table.sort(candidates, function(left, right)
+        local leftRank, rightRank = QEImport.AlternativeRank(left), QEImport.AlternativeRank(right)
+        if leftRank ~= rightRank then
+            return leftRank < rightRank
+        end
+        return ranked[left] < ranked[right]
+    end)
+    return candidates
 end
 
 -- Renders a value seen in the export for a refusal message. Strings are quoted

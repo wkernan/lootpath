@@ -1525,6 +1525,8 @@ describe("VaultPanel over the fourth scenario (M3-13, WKE-548)", function()
                 .. " - needs a Catalyst charge (you have 1) and crests (you have Placeholder Crest 42)"
                 .. " - and catalyze your Venom-Cursed Lynx's Spaulders (295) into the tier shoulder"
                 .. " and your Hide of Pestilence (302) into the tier chest",
+            "  one charge (this week, Catalyst used once):"
+                .. " catalyze your Hide of Pestilence (302) into the tier chest - 1.73% behind",
         }, headlineLines(model({ currencies = currencies() })))
     end)
 
@@ -1619,5 +1621,207 @@ describe("VaultPanel over the fourth scenario (M3-13, WKE-548)", function()
             "No this week (vault upgraded, Catalyst used) answer is stored yet, so the pick below follows as offered.",
             m.highlightNote
         )
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- M3-14 (WKE-555): the fifth line - one charge, spent once.
+--
+-- The fourth line above it says his `thisWeek` best set catalyzes TWO of the
+-- owner's items while the owner holds ONE charge. This line answers what is
+-- left: of the sets QE Live himself built and scored in that same document,
+-- which is the best one that spends the charge exactly once? Every figure is
+-- his; the panel picks no item and compares no two of his answers.
+--
+-- The same four real documents and the same replayed profile as the M3-13 block
+-- above, plus the Raid `thisWeek` document of the same 19:22 run.
+
+describe("VaultPanel's fifth line, one charge (M3-14, WKE-555)", function()
+    local ns, world
+    local CAPTURE = "spec/fixtures/captures/Lootpath-20260908-124527.lua"
+    local PROFILE_SNAPSHOT = 7
+    local SCENARIO_FILES = {
+        asOffered = "spec/fixtures/qe/qe-droptimizer-Hotornot-hldibnbaajft.json",
+        catalyzed = "spec/fixtures/qe/qe-droptimizer-Hotornot-xrjevewtwqsw.json",
+        thisWeek = "spec/fixtures/qe/qe-droptimizer-Hotornot-hdaldwpeakpb.json",
+        maxed = "spec/fixtures/qe/qe-droptimizer-Hotornot-qqrqsbudcszh.json",
+    }
+    local THIS_WEEK_RAID = "spec/fixtures/qe/qe-droptimizer-Hotornot-rrwofzsbrbou.json"
+    local BOXES = {
+        asOffered = { autoUpgradeVault = false, autoUpgradeAll = false, autoCatalyze = false },
+        catalyzed = { autoUpgradeVault = false, autoUpgradeAll = false, autoCatalyze = true },
+        thisWeek = { autoUpgradeVault = true, autoUpgradeAll = false, autoCatalyze = true },
+        maxed = { autoUpgradeVault = true, autoUpgradeAll = true, autoCatalyze = true },
+    }
+
+    before_each(function()
+        ns, world = H.load()
+        R.vault(world, R.snapshot("vault", 9, CAPTURE))
+        R.inventory(world, R.snapshot("inventory", PROFILE_SNAPSHOT, CAPTURE))
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function scenarios(opts)
+        opts = opts or {}
+        local out = {}
+        for _, name in ipairs(ns.QEImport.SCENARIOS) do
+            local path = (name == "thisWeek" and opts.thisWeekFile) or SCENARIO_FILES[name]
+            local parsed = ns.QEImport.Parse(readFile(path))
+            assert(parsed.ok, parsed.reason)
+            parsed.verdict.scenario = name
+            parsed.verdict.qeSettings = BOXES[name]
+            if name == "thisWeek" and opts.thisWeekBoxes ~= nil then
+                parsed.verdict.qeSettings = opts.thisWeekBoxes or nil
+            end
+            if not (name == "thisWeek" and opts.dropThisWeek) then
+                out[#out + 1] = { verdict = parsed.verdict, scenario = name }
+            end
+        end
+        return out
+    end
+
+    local function model(opts)
+        opts = opts or {}
+        local list = opts.scenarios or scenarios(opts)
+        return ns.VaultPanel.Model({
+            vault = ns.Vault.Options(),
+            scenarios = list,
+            verdict = list[1] and list[1].verdict or nil,
+            inventory = opts.inventory == nil and ns.Inventory.Scan() or opts.inventory,
+            highlightScenario = "thisWeek",
+            captures = false,
+            now = 1788900000,
+        })
+    end
+
+    local function hasLine(lines, needle)
+        for _, line in ipairs(lines) do
+            if line == needle then
+                return true
+            end
+        end
+        return false
+    end
+
+    local function oneChargeText(m)
+        return m.headline.oneCharge and m.headline.oneCharge.text or nil
+    end
+
+    -- The measured answer on the owner's own week, Dungeon side: of his thirteen
+    -- sets, three spend the charge once, and the best of them by his own
+    -- scorePercent is 1.7292% behind his top set and spends it on the Hide of
+    -- Pestilence. The panel prints his percentage at his magnitude.
+    it("reads the Dungeon answer off his own alternatives", function()
+        local m = model()
+        assert.equal(
+            "one charge (this week, Catalyst used once):"
+                .. " catalyze your Hide of Pestilence (302) into the tier chest - 1.73% behind",
+            oneChargeText(m)
+        )
+        -- It is the last line of the headline block, after the four scenarios,
+        -- and it lives in the model rather than in the drawing (M5-4 redraws
+        -- this tab).
+        assert.equal(5, #m.headline.lines)
+        assert.equal(m.headline.oneCharge, m.headline.lines[5])
+        assert.equal("oneCharge", m.headline.lines[5].kind)
+        assert.is_true(hasLine(ns.VaultPanel.Lines(m), "  " .. oneChargeText(m)))
+    end)
+
+    -- The Raid document of the same run: a different set of his wins, at a
+    -- different number, on the same conversion.
+    it("reads the Raid answer off the Raid document", function()
+        assert.equal(
+            "one charge (this week, Catalyst used once):"
+                .. " catalyze your Hide of Pestilence (302) into the tier chest - 1.65% behind",
+            oneChargeText(model({ thisWeekFile = THIS_WEEK_RAID }))
+        )
+    end)
+
+    -- The line never carries a number that is not his: the only figures in it
+    -- are the client's item level for the owned item and his own scorePercent.
+    it("shows his scorePercent and the client's level, and nothing else", function()
+        local candidates = ns.QEImport.OneChargeCandidates(scenarios()[3].verdict, ns.Inventory.Scan())
+        assert.equal(1.7291667240187969, candidates[1].scorePercent)
+        assert.equal(302, candidates[1].catalyzed.owned.itemLevel)
+        local text = ns.VaultPanel.OneChargeLine(candidates).text
+        for number in text:gmatch("%d+%.?%d*") do
+            assert.is_true(number == "302" or number == "1.73", "unexpected number on the one-charge line: " .. number)
+        end
+    end)
+
+    -- When his top set is itself the one-charge answer there is no percentage to
+    -- show: it is not behind anything, it IS the set. Hand-built candidates,
+    -- because the owner's own week does not contain that shape.
+    it("says in your best set when the top set is the one-charge answer", function()
+        local line = ns.VaultPanel.OneChargeLine({
+            {
+                where = "topSet",
+                scorePercent = 0,
+                hpsDifference = 0,
+                catalyzed = {
+                    slot = "Shoulder",
+                    item = { itemID = 271526 },
+                    owned = { name = "Venom-Cursed Lynx's Spaulders", itemLevel = 295 },
+                },
+            },
+        })
+        assert.equal(
+            "one charge (this week, Catalyst used once):"
+                .. " catalyze your Venom-Cursed Lynx's Spaulders (295) into the tier shoulder - in your best set",
+            line.text
+        )
+        assert.is_nil(line.text:find("%%"))
+    end)
+
+    -- No set in the document spends it once: that is the answer, said in those
+    -- words, and never filled in with the two-charge set from the line above.
+    it("says so plainly when no set of his spends the charge once", function()
+        local line = ns.VaultPanel.OneChargeLine({})
+        assert.equal(
+            "one charge (this week, Catalyst used once):"
+                .. " not in QE Live's export - no set he ranked spends the charge just once",
+            line.text
+        )
+        assert.is_nil(line.candidate)
+    end)
+
+    -- His clone matched nothing in the bags: the slot is named and the absence
+    -- stated, the same two shapes the fourth line uses.
+    it("names the slot and the absence when nothing owned matches his clone", function()
+        local line = ns.VaultPanel.OneChargeLine({
+            {
+                where = "alternative",
+                index = 3,
+                scorePercent = 0.34,
+                hpsDifference = -120,
+                catalyzed = { slot = "Shoulder", item = { itemID = 271526 } },
+            },
+        })
+        assert.equal(
+            "one charge (this week, Catalyst used once):"
+                .. " catalyze a shoulder you own (QE Live did not say which) - 0.34% behind",
+            line.text
+        )
+    end)
+
+    -- The question only arises because his best set spends the charge more than
+    -- once on the owner's items. With no `thisWeek` document, with the Catalyst
+    -- box off in the run that made one, or with no bags read, there is no such
+    -- set - so there is no line, not even the absence one.
+    it("leaves the line off when the question cannot be asked", function()
+        assert.is_nil(oneChargeText(model({ inventory = false })))
+        assert.is_nil(oneChargeText(model({ dropThisWeek = true })))
+        assert.is_nil(oneChargeText(model({
+            thisWeekBoxes = { autoUpgradeVault = true, autoUpgradeAll = false, autoCatalyze = false },
+        })))
+        assert.is_nil(oneChargeText(model({ thisWeekBoxes = false })))
+        for _, m in ipairs({ model({ inventory = false }), model({ dropThisWeek = true }) }) do
+            for _, line in ipairs(m.headline.lines) do
+                assert.is_nil(line.text:find("one charge", 1, true))
+            end
+        end
     end)
 end)
