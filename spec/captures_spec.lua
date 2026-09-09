@@ -18,10 +18,10 @@ describe("captures", function()
         H.unload()
     end)
 
-    it("registers env, inventory, vault and journal in that order", function()
+    it("registers env, inventory, vault, currencies and journal in that order", function()
         -- `journal` registers in Modules/Journal.lua, which the .toc loads
         -- after this file, so it comes last.
-        assert.same({ "env", "inventory", "vault", "journal" }, ns.captureOrder)
+        assert.same({ "env", "inventory", "vault", "currencies", "journal" }, ns.captureOrder)
     end)
 
     describe("env", function()
@@ -281,6 +281,74 @@ describe("captures", function()
             local result = ns.RunCapture("vault")
             assert.is_true(result.ok)
             assert.same({}, result.snapshot.data.rewardLinks)
+        end)
+    end)
+
+    -- WKE-544 (M3-9). No transcript of this capture exists yet, so every name
+    -- and ID below is a placeholder in Blizzard's documented CurrencyInfo shape
+    -- (Ketho's CurrencyInfoDocumentation.lua) and is labelled as such. What the
+    -- test pins is the SHAPE of the walk - every index, headers kept, the full
+    -- info behind every non-header entry - not what the season's currencies are
+    -- called.
+    describe("currencies", function()
+        before_each(function()
+            world.currencies = {
+                { name = "Placeholder Header", currencyID = 0, isHeader = true, quantity = 0 },
+                { name = "Placeholder Crest", currencyID = 900001, isHeader = false, quantity = 42 },
+                { name = "Placeholder Charge", currencyID = 900002, isHeader = false, quantity = 1 },
+            }
+        end)
+
+        it("records every index of the list, headers included", function()
+            local data = ns.RunCapture("currencies").snapshot.data
+            assert.equal(3, data.listSize[1])
+            assert.equal(3, #data.list)
+            assert.is_true(data.list[1][1].isHeader)
+            assert.equal("Placeholder Crest", data.list[2][1].name)
+            assert.equal(42, data.list[2][1].quantity)
+        end)
+
+        it("records the full info behind every non-header entry and no header", function()
+            local data = ns.RunCapture("currencies").snapshot.data
+            assert.equal(2, #data.info)
+            assert.equal(900001, data.info[1].currencyID)
+            assert.equal(2, data.info[1].index)
+            assert.equal(42, data.info[1].info[1].quantity)
+            assert.equal(900002, data.info[2].currencyID)
+            for _, entry in ipairs(data.info) do
+                assert.is_false(entry.info[1].isHeader)
+            end
+        end)
+
+        it("names the namespace it read without calling anything it did not name", function()
+            local called = false
+            _G.C_CurrencyInfo.RequestCurrencyDataForAccountCharacters = function()
+                called = true
+            end
+            local data = ns.RunCapture("currencies").snapshot.data
+            assert.is_false(called)
+            assert.is_truthy(table.concat(data.namespaceKeys, " "):find("GetCurrencyListSize", 1, true))
+        end)
+
+        it("survives a client with no currency API", function()
+            _G.C_CurrencyInfo = nil
+            local result = ns.RunCapture("currencies")
+            assert.is_true(result.ok)
+            assert.same({ absent = true }, result.snapshot.data.listSize)
+            assert.same({}, result.snapshot.data.list)
+            assert.same({}, result.snapshot.data.info)
+        end)
+
+        it("drops a secret entry rather than storing it", function()
+            world.currencies[2] = world.secretTable("currency")
+            local result = ns.RunCapture("currencies")
+            assert.is_true(result.ok)
+            assert.is_true(result.snapshot.sawSecret)
+            assert.equal(ns.MARKERS.secretTable, result.snapshot.data.list[2][1])
+            -- The secret entry produced no GetCurrencyInfo call, so only the
+            -- other non-header entry is in `info`.
+            assert.equal(1, #result.snapshot.data.info)
+            assert.equal(900002, result.snapshot.data.info[1].currencyID)
         end)
     end)
 end)

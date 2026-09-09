@@ -418,7 +418,7 @@ describe("capture journal", function()
     end
 
     it("is registered last, after env, inventory and vault", function()
-        assert.same({ "env", "inventory", "vault", "journal" }, ns.captureOrder)
+        assert.same({ "env", "inventory", "vault", "currencies", "journal" }, ns.captureOrder)
         assert.is_true(ns.captures.journal.async)
     end)
 

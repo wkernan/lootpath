@@ -36,6 +36,7 @@ read_globals = {
     "C_Bank",
     "C_ChallengeMode",
     "C_Container",
+    "C_CurrencyInfo",
     "C_DateAndTime",
     "C_EncounterJournal",
     "C_Item",

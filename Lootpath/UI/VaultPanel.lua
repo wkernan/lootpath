@@ -103,6 +103,56 @@ Panel.NOT_CATALYZED_TEXT = "the Catalyst run made no tier version of this item"
 -- a pick that came from a what-if is never mistaken for what you have now.
 Panel.PICK_TEXT = "  <- QE Live's pick (%s)"
 
+-- ---------------------------------------------------------------------------
+-- The headline block (M3-9, WKE-544). The owner's words, 2026-09-08, after the
+-- first in-game run of this tab: it "doesn't do a good job of telling me what my
+-- top pick is and why - the catalyst example: it should guide me that I would
+-- need to get the shoulders, then use the catalyst (which we should know how
+-- many charges I have), then upgrade with crests (which we should know how many
+-- the player has and what type)".
+--
+-- So the block leads with QE Live's pick under the scenario the owner asked for,
+-- and then lists every scenario he has an answer for, in QE Live's own order,
+-- with what that answer assumed and how many of the thing it assumed the player
+-- has. Three kinds of words and no others: a QE Live verdict, a client number,
+-- and a fixed phrase naming what a scenario assumed. Nothing is computed - not a
+-- cost, not a count of upgrades a pile of crests would buy, not a preference
+-- between two of his answers.
+Panel.HEADLINE_TEXT = "QE Live's pick this week (%s): %s"
+Panel.HEADLINE_WHERE = " (%s)"
+Panel.HEADLINE_NO_PICK = "QE Live's pick this week (%s): no option in this vault is in his answer"
+
+-- What one scenario's own pick is, said in his terms. "In your best set" is the
+-- top-set case; anything else is an alternative, and an alternative in a Top
+-- Gear export is by construction not better than the set it is measured
+-- against, which is what the second phrase says. The per-option lines below the
+-- block still carry his percentages; this is the summary, not a second source.
+Panel.IN_BEST_SET = "in your best set"
+Panel.NOTHING_BEATS = "nothing in the vault beats your set"
+Panel.SCENARIO_SILENT = "none of these options is in this answer"
+
+-- The scenario's pick is a different item from the headline's, so it is named.
+Panel.INSTEAD_TEXT = "%s instead - "
+
+-- What each scenario ASSUMED, as a fixed phrase per scenario. These are not
+-- derived from anything and are not a model of either system: `catalyzed` was
+-- QE Live's Catalyst box, `maxed` was his upgrade boxes, and `asOffered`
+-- assumed nothing, which is why it has no phrase. Lootpath does not know what
+-- the Catalyst costs, which items it takes, or what a crest buys.
+Panel.NEEDS_TEXT = {
+    catalyzed = "needs a Catalyst charge",
+    maxed = "needs crests",
+}
+
+-- The client's count beside the assumption, or the honest absence of one.
+-- `/lootpath capture currencies` has to have run for there to be a number, and
+-- which currencies these are is read from that transcript by name and never
+-- guessed (Modules/Currencies.lua).
+Panel.HAVE_TEXT = " (you have %s)"
+Panel.COUNT_UNKNOWN = " (unknown - run /lootpath refresh)"
+Panel.CATALYST_NOT_READABLE = " (Catalyst charges: not readable)"
+Panel.CRESTS_NONE = " (you have none of them)"
+
 -- The scenario the owner asked to be highlighted has no stored answer, so the
 -- highlight fell back. Said rather than silently substituted.
 Panel.HIGHLIGHT_FALLBACK_NOTE = "No %s answer is stored yet, so the pick below follows %s."
@@ -353,11 +403,120 @@ function Panel.ScenarioLine(entry, reward)
     }
 end
 
+-- How many of the thing a scenario assumed the player has, as the client says
+-- it. Three answers and no fourth: the number, "unknown" when nobody has
+-- captured the currency list yet or the names in it are still unmeasured, and -
+-- for the Catalyst alone - "not readable" when the transcript showed the charge
+-- is not one of the client's currencies at all. There is no arithmetic here and
+-- no cost table anywhere in this file.
+function Panel.CountText(scenario, currencies)
+    local ok = type(currencies) == "table" and currencies.ok == true
+    if scenario == "catalyzed" then
+        if not ok or not currencies.catalystKnown then
+            return Panel.COUNT_UNKNOWN
+        end
+        if currencies.catalystCharges == nil then
+            return Panel.CATALYST_NOT_READABLE
+        end
+        return string.format(Panel.HAVE_TEXT, tostring(currencies.catalystCharges))
+    end
+    if scenario == "maxed" then
+        if not ok or not currencies.crestsKnown then
+            return Panel.COUNT_UNKNOWN
+        end
+        local parts = {}
+        for _, crest in ipairs(currencies.crests or {}) do
+            parts[#parts + 1] = string.format("%s %s", crest.name, tostring(crest.quantity))
+        end
+        if #parts == 0 then
+            return Panel.CRESTS_NONE
+        end
+        return string.format(Panel.HAVE_TEXT, table.concat(parts, ", "))
+    end
+    return ""
+end
+
+-- The fixed phrase naming what a scenario assumed, with the client's count
+-- after it, or nil for a scenario that assumed nothing.
+function Panel.NeedsText(scenario, currencies)
+    local needs = Panel.NEEDS_TEXT[scenario]
+    if not needs then
+        return nil
+    end
+    return needs .. Panel.CountText(scenario, currencies)
+end
+
+-- One line of the headline block: what QE Live picked under this scenario, and
+-- what that answer assumed. `pick` is { reward, coverage, viaCatalyst } - the
+-- best-ranked thing he said about any option in this vault under this scenario,
+-- by his own ordering - and `headlinePick` is the reward the block leads with,
+-- so the item is named only when the two differ.
+function Panel.HeadlineLine(scenario, pick, headlinePick, currencies)
+    local label = Panel.ScenarioLabel(scenario) .. ((pick and pick.viaCatalyst) and Panel.CATALYZED_SUFFIX or "")
+    if not pick then
+        return { scenario = scenario, text = label .. ": " .. Panel.SCENARIO_SILENT }
+    end
+    local coverage = pick.coverage
+    local answer, names
+    if coverage.where == "topSet" then
+        answer, names = Panel.IN_BEST_SET, true
+    elseif coverage.isBetter == true then
+        -- Not reachable from a Top Gear export as QE Live builds one (an
+        -- alternative is the set he did NOT pick), but the sign convention is
+        -- read from him rather than assumed here, so if he ever says it his
+        -- own words are shown instead of a phrase that would contradict them.
+        answer, names = ns.UpgradeMapPanel.ValueText(coverage), true
+    else
+        answer, names = Panel.NOTHING_BEATS, false
+    end
+    local prefix = ""
+    if names and headlinePick ~= nil and pick.reward ~= headlinePick then
+        prefix = string.format(Panel.INSTEAD_TEXT, rewardName(pick.reward))
+    end
+    local needs = Panel.NeedsText(scenario, currencies)
+    return {
+        scenario = scenario,
+        reward = pick.reward,
+        coverage = coverage,
+        viaCatalyst = pick.viaCatalyst,
+        text = label .. ": " .. prefix .. answer .. (needs and (" - " .. needs) or ""),
+    }
+end
+
+-- Where on the Great Vault screen the pick sits: the row's own name and its
+-- index within that row, the same two words the row header uses. Not its
+-- progress - after a reset the client zeroes that while the reward is sitting
+-- there claimable (finding 2, WKE-538), and "Dungeons 0/1" beside a pick would
+-- read as a reason not to take it.
+local function pickWhere(reward)
+    if type(reward) ~= "table" or not reward.rowLabel then
+        return nil
+    end
+    if reward.rowIndex then
+        return string.format("%s %d", reward.rowLabel, reward.rowIndex)
+    end
+    return reward.rowLabel
+end
+
+-- The block's first line: QE Live's pick under the scenario the owner asked
+-- for, and which row of the Great Vault screen it is sitting on.
+function Panel.HeadlineText(scenario, pick)
+    local label = Panel.ScenarioLabel(scenario)
+    if not pick then
+        return string.format(Panel.HEADLINE_NO_PICK, label)
+    end
+    local where = pickWhere(pick)
+    return string.format(Panel.HEADLINE_TEXT, label, rewardName(pick))
+        .. (where and string.format(Panel.HEADLINE_WHERE, where) or "")
+end
+
 -- Model(opts) -> the panel as plain data.
 --
--- opts.vault    ns.Vault.Options()'s result
--- opts.verdict  ns.QEImport.Current()
--- opts.now      epoch second (default time()); only used for the stale note
+-- opts.vault       ns.Vault.Options()'s result
+-- opts.verdict     ns.QEImport.Current()
+-- opts.currencies  ns.Currencies.Read()'s result; only the headline block reads
+--                  it, and only to say how many of a thing the player has
+-- opts.now         epoch second (default time()); only used for the stale note
 --
 -- A rewarded row is split in two on the way in. `rewards` are the gear options
 -- - the things this panel is for - and only they are counted, valued and
@@ -505,11 +664,21 @@ function Panel.Model(opts)
         model.best = best
     end
 
+    -- Every scenario's own pick, by QE Live's own ordering over the answers he
+    -- gave under it. Built out of the lines already on the rows below, so the
+    -- headline block and the option list can never disagree about what he said.
+    local bestByScenario = {}
+
     -- The extras fragment rides on the first gear option of its row, so name,
     -- level and "+ Mythic Keystone" stay one unit; a row with extras and no gear
     -- keeps the fragment on a line of its own rather than losing it.
     for _, option in ipairs(model.options) do
         for index, reward in ipairs(option.rewards) do
+            -- Which row of the Great Vault screen this option sits on, carried
+            -- onto the reward so the headline can point at it without walking
+            -- back up to the option.
+            reward.rowLabel = option.rowLabel
+            reward.rowIndex = option.index
             local text = string.format("%s (%s)", rewardName(reward), reward.levelText)
             if index == 1 and option.extrasText then
                 text = text .. " " .. option.extrasText
@@ -541,7 +710,34 @@ function Panel.Model(opts)
             reward.verdictLines = {}
             for _, line in ipairs(reward.scenarioLines) do
                 reward.verdictLines[#reward.verdictLines + 1] = line.text
+                local rank = coverageRank(line.coverage)
+                local current = bestByScenario[line.scenario]
+                if not current or rank < current.rank then
+                    bestByScenario[line.scenario] = {
+                        reward = reward,
+                        coverage = line.coverage,
+                        viaCatalyst = line.viaCatalyst,
+                        rank = rank,
+                    }
+                end
             end
+        end
+    end
+
+    -- The headline block. Only when there is something to head: a verdict, a
+    -- vault that could be read, and at least one gear option on it. Everything
+    -- else on the tab already says why there is not.
+    if model.hasVerdict and #scenarios > 0 and model.counts.rewards > 0 then
+        local pick = model.best
+        model.headline = {
+            scenario = highlight,
+            pick = pick,
+            text = Panel.HeadlineText(highlight, pick),
+            lines = {},
+        }
+        for _, entry in ipairs(scenarios) do
+            model.headline.lines[#model.headline.lines + 1] =
+                Panel.HeadlineLine(entry.scenario, bestByScenario[entry.scenario], pick, opts.currencies)
         end
     end
 
@@ -584,6 +780,14 @@ function Panel.Lines(model)
     end
     if model.rewardsNote then
         add(model.rewardsNote)
+    end
+    -- The answer first, the evidence under it (M3-9). The option list below is
+    -- unchanged; this block is what the owner reads before scrolling.
+    if model.headline then
+        add(model.headline.text)
+        for _, line in ipairs(model.headline.lines) do
+            add("  " .. line.text)
+        end
     end
     for _, option in ipairs(model.options) do
         add(option.headerText)
@@ -638,6 +842,9 @@ function Panel.Gather(opts)
         vault = ns.Vault.Options(),
         verdict = activeVerdict(),
         scenarios = activeScenarios(),
+        -- The only client numbers on this tab that are not the vault's own.
+        -- Read here rather than inside Model so a headless test drives them.
+        currencies = ns.Currencies and ns.Currencies.Read() or nil,
         highlightScenario = ns.UI
                 and ns.UI.Options
                 and ns.UI.Options.GetVaultScenario
