@@ -389,6 +389,13 @@ function Stub.install()
         vaultOpen = false,
         reloads = 0,
         vault = { hasAvailable = false, canClaim = false, activities = {}, links = {}, examples = {} },
+        -- The currency list, in the order the client would list it, in
+        -- Blizzard's documented CurrencyInfo shape (Ketho's
+        -- CurrencyInfoDocumentation.lua: name, description, currencyID,
+        -- isHeader, quantity, ...). Placeholders in every particular - no
+        -- `/lootpath capture currencies` transcript exists yet, so no name or
+        -- ID here is claimed to be a real one (WKE-544).
+        currencies = {},
         secondsUntilReset = 3600,
         difficultyNames = {},
         printed = {},
@@ -917,6 +924,37 @@ function Stub.install()
         return world.vaultOpen
     end
     define("WeeklyRewardsFrame", vaultFrame)
+
+    -- C_CurrencyInfo. Only the three read-only calls Captures.lua and
+    -- Modules/Currencies.lua name; the namespace's transfer calls are absent
+    -- here on purpose, so a test would fail rather than silently pass if
+    -- anything ever reached for one.
+    define("C_CurrencyInfo", {
+        GetCurrencyListSize = function()
+            return #world.currencies
+        end,
+        GetCurrencyListInfo = function(index)
+            local entry = world.currencies[index]
+            if not entry then
+                return nil
+            end
+            -- A copy of a secret table is not itself secret, so an entry the
+            -- test registered as one is handed back as it stands. Everything
+            -- else is copied, as C_WeeklyRewards.GetActivities is.
+            if world.secrets[entry] then
+                return entry
+            end
+            return deepcopy(entry)
+        end,
+        GetCurrencyInfo = function(currencyID)
+            for _, entry in ipairs(world.currencies) do
+                if entry.currencyID == currencyID then
+                    return deepcopy(entry)
+                end
+            end
+            return nil
+        end,
+    })
 
     define("C_DateAndTime", {
         GetSecondsUntilWeeklyReset = function()

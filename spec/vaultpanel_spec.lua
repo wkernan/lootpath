@@ -855,3 +855,235 @@ describe("VaultPanel over the three named scenarios (WKE-540)", function()
         assert.same({ "catalyzed: worse by 1.07% (-3782.0 score)" }, weapon.verdictLines)
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- M3-9 (WKE-544): the tab leads with QE Live's pick and the steps to get there.
+--
+-- The owner's words after the first in-game run, 2026-09-08: the tab "doesn't do
+-- a good job of telling me what my top pick is and why - the catalyst example:
+-- it should guide me that I would need to get the shoulders, then use the
+-- catalyst (which we should know how many charges I have), then upgrade with
+-- crests (which we should know how many the player has and what type)".
+--
+-- Same three real documents as the C-6 block above, over the same real
+-- after-reset vault. The CURRENCY half is placeholders in Blizzard's documented
+-- `CurrencyInfo` shape and is labelled as such everywhere it appears: no
+-- `/lootpath capture currencies` transcript exists yet, so no name or ID here is
+-- claimed to be the season's real crest (spec/currencies_spec.lua says the same).
+describe("VaultPanel's headline block (WKE-544)", function()
+    local ns, world
+    local AFTER_RESET = "spec/fixtures/captures/Lootpath-20260908-124527.lua"
+    local SCENARIO_FILES = {
+        asOffered = "spec/fixtures/qe/qe-droptimizer-Hotornot-hldibnbaajft.json",
+        catalyzed = "spec/fixtures/qe/qe-droptimizer-Hotornot-xrjevewtwqsw.json",
+        maxed = "spec/fixtures/qe/qe-droptimizer-Hotornot-qqrqsbudcszh.json",
+    }
+
+    before_each(function()
+        ns, world = H.load()
+        R.vault(world, R.snapshot("vault", 9, AFTER_RESET))
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function scenarios(names)
+        local out = {}
+        for _, name in ipairs(names or { "asOffered", "catalyzed", "maxed" }) do
+            local parsed = ns.QEImport.Parse(readFile(SCENARIO_FILES[name]))
+            assert(parsed.ok, parsed.reason)
+            parsed.verdict.scenario = name
+            parsed.verdict.qeSettings = {
+                autoUpgradeVault = name == "maxed",
+                autoUpgradeAll = name == "maxed",
+                autoCatalyze = name ~= "asOffered",
+            }
+            out[#out + 1] = { verdict = parsed.verdict, scenario = name }
+        end
+        return out
+    end
+
+    -- Placeholder currencies, named as placeholders. What this proves is the
+    -- path from the client's list to the line, not what the season's crests are.
+    local function knownCurrencies()
+        world.currencies = {
+            { name = "Placeholder Group", currencyID = 0, isHeader = true, quantity = 0 },
+            { name = "Placeholder Crest", currencyID = 900001, isHeader = false, quantity = 42 },
+            { name = "Placeholder Charge", currencyID = 900002, isHeader = false, quantity = 1 },
+        }
+        ns.Currencies.CREST_NAMES = { "Placeholder Crest" }
+        ns.Currencies.CATALYST_NAMES = { "Placeholder Charge" }
+        return ns.Currencies.Read()
+    end
+
+    local function model(opts)
+        opts = opts or {}
+        local list = opts.scenarios or scenarios()
+        return ns.VaultPanel.Model({
+            vault = ns.Vault.Options(),
+            scenarios = list,
+            verdict = list[1] and list[1].verdict or nil,
+            highlightScenario = opts.highlightScenario,
+            currencies = opts.currencies,
+            now = 1788900000,
+        })
+    end
+
+    local function headlineLines(m)
+        local out = { m.headline.text }
+        for _, line in ipairs(m.headline.lines) do
+            out[#out + 1] = "  " .. line.text
+        end
+        return out
+    end
+
+    -- The owner's own example, on his own vault, in his own words: the pick, the
+    -- shoulders, the Catalyst charge he has, and the crests the other answer
+    -- would need. Every number in it is QE Live's or the client's.
+    it("leads with the pick under the owner's scenario and answers every question under it", function()
+        local m = model({ highlightScenario = "catalyzed", currencies = knownCurrencies() })
+        assert.same({
+            "QE Live's pick this week (catalyzed): Scavenger's Spaulders (Dungeons 1)",
+            "  as offered: nothing in the vault beats your set",
+            "  catalyzed, as tier: in your best set - needs a Catalyst charge (you have 1)",
+            "  everything upgraded: Lightgrasp Worldroot instead - in your best set"
+                .. " - needs crests (you have Placeholder Crest 42)",
+        }, headlineLines(m))
+    end)
+
+    it("puts the block on screen above the option list", function()
+        local m = model({ highlightScenario = "catalyzed", currencies = knownCurrencies() })
+        local lines = ns.VaultPanel.Lines(m)
+        assert.equal(m.headline.text, lines[1])
+        assert.equal("  " .. m.headline.lines[1].text, lines[2])
+        assert.equal(m.options[1].headerText, lines[2 + #m.headline.lines])
+    end)
+
+    -- The headline follows the owner's setting and nothing else. Three settings,
+    -- three sentences, two different items - all of them his answers.
+    it("leads with whichever scenario the owner asked for", function()
+        assert.equal(
+            "QE Live's pick this week (as offered): Lightgrasp Worldroot (World 2)",
+            model({ highlightScenario = "asOffered", currencies = knownCurrencies() }).headline.text
+        )
+        assert.equal(
+            "QE Live's pick this week (everything upgraded): Lightgrasp Worldroot (World 2)",
+            model({ highlightScenario = "maxed", currencies = knownCurrencies() }).headline.text
+        )
+        local m = model({ highlightScenario = "catalyzed", currencies = knownCurrencies() })
+        assert.equal("Scavenger's Spaulders", m.headline.pick.name)
+        assert.equal("catalyzed", m.headline.scenario)
+    end)
+
+    -- Named only when it is a different item: repeating the headline's own name
+    -- under every scenario buries the one line where the answer changes.
+    it("names a scenario's pick only when it differs from the headline's", function()
+        local m = model({ highlightScenario = "asOffered", currencies = knownCurrencies() })
+        assert.is_truthy(m.headline.lines[2].text:find("Scavenger's Spaulders instead", 1, true))
+        assert.is_nil(m.headline.lines[3].text:find("Lightgrasp Worldroot", 1, true))
+    end)
+
+    -- The whole reason Modules/Currencies.lua exists, and the whole reason it
+    -- ships knowing no currency by name: with nothing captured the tab says so.
+    it("says unknown rather than a number when no currency list has been read", function()
+        local m = model({ highlightScenario = "catalyzed" })
+        assert.is_truthy(
+            m.headline.lines[2].text:find("needs a Catalyst charge (unknown - run /lootpath refresh)", 1, true)
+        )
+        assert.is_truthy(m.headline.lines[3].text:find("needs crests (unknown - run /lootpath refresh)", 1, true))
+    end)
+
+    it("says unknown while the addon has been told no currency's name", function()
+        world.currencies = {
+            { name = "Placeholder Crest", currencyID = 900001, isHeader = false, quantity = 42 },
+        }
+        local read = ns.Currencies.Read()
+        assert.is_true(read.ok)
+        local m = model({ highlightScenario = "catalyzed", currencies = read })
+        assert.is_truthy(m.headline.lines[3].text:find("(unknown - run /lootpath refresh)", 1, true))
+    end)
+
+    -- The transcript may show the Catalyst charge is not a currency at all. Then
+    -- the line says that, in those words, and never a 0.
+    it("says the Catalyst charge is not readable when the client carries no such currency", function()
+        knownCurrencies()
+        ns.Currencies.CATALYST_NAMES = { "Placeholder Charge The Client Does Not Have" }
+        local m = model({ highlightScenario = "catalyzed", currencies = ns.Currencies.Read() })
+        assert.is_truthy(m.headline.lines[2].text:find("(Catalyst charges: not readable)", 1, true))
+        assert.is_nil(m.headline.lines[2].text:find("you have", 1, true))
+    end)
+
+    it("says the player has none of the named crests rather than nothing at all", function()
+        knownCurrencies()
+        ns.Currencies.CREST_NAMES = { "Placeholder Crest Nobody Has" }
+        local m = model({ highlightScenario = "catalyzed", currencies = ns.Currencies.Read() })
+        assert.is_truthy(m.headline.lines[3].text:find("needs crests (you have none of them)", 1, true))
+    end)
+
+    -- No assumption, no phrase: `asOffered` asked QE Live about the vault as it
+    -- stands, so its line names nothing the owner would have to go and get.
+    it("hangs no assumption on the scenario that assumed nothing", function()
+        local m = model({ highlightScenario = "asOffered", currencies = knownCurrencies() })
+        assert.equal("as offered: nothing in the vault beats your set", m.headline.lines[1].text)
+        assert.is_nil(ns.VaultPanel.NEEDS_TEXT.asOffered)
+    end)
+
+    -- The standing rule, as a test. Lootpath never computes a healer value and
+    -- never a cost: no line here counts upgrades, prices one, or totals crests.
+    it("never puts a cost or a count of upgrades on the block", function()
+        for _, name in ipairs({ "asOffered", "catalyzed", "maxed" }) do
+            local lines = headlineLines(model({ highlightScenario = name, currencies = knownCurrencies() }))
+            for _, line in ipairs(lines) do
+                for _, forbidden in ipairs({ "enough for", "cost", "each", "per upgrade", "total" }) do
+                    assert.is_nil(line:lower():find(forbidden, 1, true), forbidden .. " in: " .. line)
+                end
+            end
+        end
+    end)
+
+    it("says nothing at all when there is no QE Live import to lead with", function()
+        local m = ns.VaultPanel.Model({ vault = ns.Vault.Options(), now = 1788900000 })
+        assert.is_nil(m.headline)
+        assert.equal(ns.VaultPanel.NO_VERDICT_NOTE, ns.VaultPanel.Lines(m)[1])
+    end)
+
+    it("says nothing at all when the vault has generated no gear", function()
+        R.vault(world, R.snapshot("vault", WITH_PROGRESS, R.JOURNAL))
+        local m = model({ highlightScenario = "catalyzed", currencies = knownCurrencies() })
+        assert.equal(0, m.counts.rewards)
+        assert.is_nil(m.headline)
+    end)
+
+    -- A scenario that mentions none of these options says so, rather than
+    -- borrowing the answer next to it.
+    it("says a scenario that ranked none of these options is silent", function()
+        local list = scenarios({ "asOffered", "catalyzed" })
+        list[2].verdict.topSet = { items = {}, order = {} }
+        list[2].verdict.alternatives = {}
+        local m = model({ scenarios = list, highlightScenario = "asOffered", currencies = knownCurrencies() })
+        assert.equal("catalyzed: none of these options is in this answer", m.headline.lines[2].text)
+        assert.is_nil(m.headline.lines[2].text:find("you have", 1, true))
+    end)
+
+    -- The block is built out of the lines already on the rows, so it cannot
+    -- claim a pick the list below does not carry.
+    it("picks the same option the list highlights", function()
+        for _, name in ipairs({ "asOffered", "catalyzed", "maxed" }) do
+            local m = model({ highlightScenario = name, currencies = knownCurrencies() })
+            assert.equal(m.best, m.headline.pick)
+            assert.is_truthy(m.best.text:find("<- QE Live's pick", 1, true))
+        end
+    end)
+
+    -- The refresh the "unknown" line points at really is the one that takes the
+    -- capture the count comes from.
+    it("is refreshed by the command its own unknown line names", function()
+        assert.is_truthy(ns.VaultPanel.COUNT_UNKNOWN:find("/lootpath refresh", 1, true))
+        local seen = false
+        for _, name in ipairs(ns.Companion.REFRESH_CAPTURES) do
+            seen = seen or name == ns.Currencies.CAPTURE
+        end
+        assert.is_true(seen)
+    end)
+end)

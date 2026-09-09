@@ -483,7 +483,14 @@ end
 -- walks), the SimC profile reads none of it, and a reload while it is running
 -- would abandon it. The loot map's own cache (`db.global.journalCache`) is
 -- untouched by a refresh.
-Companion.REFRESH_CAPTURES = { "env", "inventory", "vault" }
+--
+-- `currencies` joined the list in M3-9 (WKE-544) for a different reason from the
+-- other three: the SimC profile does not read it and the companion never sees
+-- it, but the Vault tab's headline says how many Catalyst charges and crests the
+-- player has beside the scenarios that assumed them, and `/lootpath refresh` is
+-- the one command the owner already runs every week. It is a synchronous read of
+-- C_CurrencyInfo, so it costs the refresh nothing.
+Companion.REFRESH_CAPTURES = { "env", "inventory", "vault", "currencies" }
 
 Companion.REFRESH_CAPTURED_LINE = "captured %s - reloading so the companion can read them."
 Companion.REFRESH_SECOND_LINE = "reload again when it says done; that second /lootpath refresh is all that is "
@@ -510,7 +517,7 @@ function Companion.RefreshSummary(snapshots)
     if character and ns.Safe(character[1]) == true then
         bank = "open"
     end
-    return string.format("gear, bags, bank (%s), vault", bank)
+    return string.format("gear, bags, bank (%s), vault, currencies", bank)
 end
 
 function Companion.Refresh()

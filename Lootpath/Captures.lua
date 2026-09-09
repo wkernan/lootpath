@@ -278,3 +278,57 @@ ns.RegisterCapture(
         }
     end
 )
+
+-- currencies: the client's own currency list, headers included, and the full
+-- CurrencyInfo behind every non-header entry (M3-9, WKE-544).
+--
+-- The Vault tab wants to say "you have 1 Catalyst charge" and "you have 42
+-- Runed Mistcrests" beside the scenarios that assumed them. **Which currency
+-- IDs those are is not known and is not guessed**: this capture writes down
+-- what the client calls everything the player has, the owner commits the
+-- transcript, and Modules/Currencies.lua reads the season's crests and the
+-- Catalyst charge BY THE NAMES THE TRANSCRIPT SHOWS. Until that has happened
+-- the tab says "unknown - run /lootpath refresh" rather than a number.
+--
+-- The headers are kept because they are how the client groups the list, and the
+-- grouping is the evidence for which entries are the season's upgrade
+-- currencies. All three calls are in Blizzard's exported docs (Ketho's
+-- CurrencyInfoDocumentation.lua): GetCurrencyListSize() -> number,
+-- GetCurrencyListInfo(index) -> CurrencyInfo, GetCurrencyInfo(type) ->
+-- CurrencyInfo, whose fields include name, description, currencyID, isHeader,
+-- quantity, maxQuantity, quantityEarnedThisWeek and iconFileID. Every one of
+-- them only answers a question; nothing in C_CurrencyInfo is called that is not
+-- named here, and nothing here transfers, spends or converts anything.
+ns.RegisterCapture("currencies", "the currency list with its headers, and the full info behind every entry", function()
+    local C = C_CurrencyInfo
+    local size = ns.Probe(C and C.GetCurrencyListSize)
+    local list, info = {}, {}
+    local count = size[1]
+    if C and type(count) == "number" then
+        for index = 1, count do
+            local probe = ns.Probe(C.GetCurrencyListInfo, index)
+            list[index] = probe
+            -- Guard first, read second: a secret CurrencyInfo comes back
+            -- from ns.Safe as a marker string, and asking a string for its
+            -- currencyID would be a nil index rather than a finding.
+            local record = ns.Safe(probe[1])
+            if type(record) == "table" then
+                local isHeader = ns.Safe(record.isHeader)
+                local currencyID = ns.Safe(record.currencyID)
+                if isHeader ~= true and type(currencyID) == "number" then
+                    info[#info + 1] = {
+                        index = index,
+                        currencyID = currencyID,
+                        info = ns.Probe(C.GetCurrencyInfo, currencyID),
+                    }
+                end
+            end
+        end
+    end
+    return {
+        namespaceKeys = sortedKeys(C),
+        listSize = size,
+        list = list,
+        info = info,
+    }
+end)
