@@ -948,7 +948,7 @@ describe("VaultPanel's headline block (WKE-544)", function()
             "  as offered: nothing in the vault beats your set",
             "  catalyzed, as tier: in your best set - needs a Catalyst charge (you have 1)",
             "  everything upgraded: Lightgrasp Worldroot instead - in your best set"
-                .. " - needs crests (you have Placeholder Crest 42)",
+                .. " - needs a Catalyst charge (you have 1) and crests (you have Placeholder Crest 42)",
         }, headlineLines(m))
     end)
 
@@ -992,7 +992,7 @@ describe("VaultPanel's headline block (WKE-544)", function()
         assert.is_truthy(
             m.headline.lines[2].text:find("needs a Catalyst charge (unknown - run /lootpath refresh)", 1, true)
         )
-        assert.is_truthy(m.headline.lines[3].text:find("needs crests (unknown - run /lootpath refresh)", 1, true))
+        assert.is_truthy(m.headline.lines[3].text:find("and crests (unknown - run /lootpath refresh)", 1, true))
     end)
 
     it("says unknown while the addon has been told no currency's name", function()
@@ -1090,7 +1090,7 @@ describe("VaultPanel's headline block (WKE-544)", function()
         ns.Currencies.KNOWN_IDS = { crests = {}, catalyst = ns.Currencies.KNOWN_IDS.catalyst }
         ns.Currencies.CREST_NAMES = { "Placeholder Crest Nobody Has" }
         local m = model({ highlightScenario = "catalyzed", currencies = ns.Currencies.Read() })
-        assert.is_truthy(m.headline.lines[3].text:find("needs crests (you have none of them)", 1, true))
+        assert.is_truthy(m.headline.lines[3].text:find("and crests (you have none of them)", 1, true))
     end)
 
     -- No assumption, no phrase: `asOffered` asked QE Live about the vault as it
@@ -1406,5 +1406,218 @@ describe("VaultPanel over the fresh-login vault (M3-12, WKE-547)", function()
         ns.UI.SelectTab(frame, ns.UI.VAULT_TAB)
         frame:Hide()
         assert.is_false(ns.UI.RefreshVault())
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- M3-13 (WKE-548): the fourth scenario on the tab.
+--
+-- All four documents are real and committed unedited: the three of the
+-- 2026-09-09 01:15 run and the `thisWeek` pair of the 19:22 run, every one of
+-- them over the same profile - the 2026-09-08 12:45 capture, whose vault
+-- snapshot 9 and inventory snapshot 7 are replayed underneath them here.
+
+describe("VaultPanel over the fourth scenario (M3-13, WKE-548)", function()
+    local ns, world
+    local CAPTURE = "spec/fixtures/captures/Lootpath-20260908-124527.lua"
+    local PROFILE_SNAPSHOT = 7
+    local SCENARIO_FILES = {
+        asOffered = "spec/fixtures/qe/qe-droptimizer-Hotornot-hldibnbaajft.json",
+        catalyzed = "spec/fixtures/qe/qe-droptimizer-Hotornot-xrjevewtwqsw.json",
+        thisWeek = "spec/fixtures/qe/qe-droptimizer-Hotornot-hdaldwpeakpb.json",
+        maxed = "spec/fixtures/qe/qe-droptimizer-Hotornot-qqrqsbudcszh.json",
+    }
+    local SPAULDERS_KEY = "251146:6652:12699:12842:13440:13662"
+    local WEAPON_KEY = "251935:6652:12841"
+
+    -- The boxes each run really used, as the companion records them per
+    -- document. `thisWeek` is the only one with the vault box on and the ALL box
+    -- off, which is the whole of the question.
+    local BOXES = {
+        asOffered = { autoUpgradeVault = false, autoUpgradeAll = false, autoCatalyze = false },
+        catalyzed = { autoUpgradeVault = false, autoUpgradeAll = false, autoCatalyze = true },
+        thisWeek = { autoUpgradeVault = true, autoUpgradeAll = false, autoCatalyze = true },
+        maxed = { autoUpgradeVault = true, autoUpgradeAll = true, autoCatalyze = true },
+    }
+
+    before_each(function()
+        ns, world = H.load()
+        R.vault(world, R.snapshot("vault", 9, CAPTURE))
+        R.inventory(world, R.snapshot("inventory", PROFILE_SNAPSHOT, CAPTURE))
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function scenarios(names)
+        local out = {}
+        for _, name in ipairs(names or ns.QEImport.SCENARIOS) do
+            local parsed = ns.QEImport.Parse(readFile(SCENARIO_FILES[name]))
+            assert(parsed.ok, parsed.reason)
+            parsed.verdict.scenario = name
+            parsed.verdict.qeSettings = BOXES[name]
+            out[#out + 1] = { verdict = parsed.verdict, scenario = name }
+        end
+        return out
+    end
+
+    local function currencies()
+        world.currencies = {
+            { name = "Placeholder Group", currencyID = 0, isHeader = true, quantity = 0 },
+            { name = "Placeholder Crest", currencyID = 900001, isHeader = false, quantity = 42 },
+            { name = "Placeholder Charge", currencyID = 900002, isHeader = false, quantity = 1 },
+        }
+        ns.Currencies.CREST_NAMES = { "Placeholder Crest" }
+        ns.Currencies.CATALYST_NAMES = { "Placeholder Charge" }
+        return ns.Currencies.Read()
+    end
+
+    local function model(opts)
+        opts = opts or {}
+        local list = opts.scenarios or scenarios()
+        return ns.VaultPanel.Model({
+            vault = ns.Vault.Options(),
+            scenarios = list,
+            verdict = list[1] and list[1].verdict or nil,
+            inventory = opts.inventory == nil and ns.Inventory.Scan() or opts.inventory,
+            highlightScenario = opts.highlightScenario or "thisWeek",
+            currencies = opts.currencies,
+            captures = false,
+            now = 1788900000,
+        })
+    end
+
+    local function headlineLines(m)
+        local out = { m.headline.text }
+        for _, line in ipairs(m.headline.lines) do
+            out[#out + 1] = "  " .. line.text
+        end
+        return out
+    end
+
+    local function rewardByKey(m, key)
+        for _, option in ipairs(m.options) do
+            for _, reward in ipairs(option.rewards) do
+                if reward.key == key then
+                    return reward
+                end
+            end
+        end
+        return nil
+    end
+
+    -- The whole answer on one screen, in his words and the client's. The pick is
+    -- the vault weapon; the step beside it is the Catalyst charge spent on a
+    -- pair of shoulders the owner already had.
+    it("leads with the fourth question and says both halves of his answer", function()
+        assert.same({
+            "QE Live's pick this week (vault upgraded, Catalyst used): Lightgrasp Worldroot (World 2)",
+            "  as offered: nothing in the vault beats your set",
+            "  catalyzed, as tier: Scavenger's Spaulders instead - in your best set"
+                .. " - needs a Catalyst charge (you have 1)"
+                .. " - and catalyze your Hide of Pestilence (302) into the tier chest",
+            "  this week (vault upgraded, Catalyst used): in your best set"
+                .. " - needs a Catalyst charge (you have 1) and crests (you have Placeholder Crest 42)"
+                .. " - and catalyze your Venom-Cursed Lynx's Spaulders (295) into the tier shoulder"
+                .. " and your Hide of Pestilence (302) into the tier chest",
+            "  everything upgraded: in your best set"
+                .. " - needs a Catalyst charge (you have 1) and crests (you have Placeholder Crest 42)"
+                .. " - and catalyze your Venom-Cursed Lynx's Spaulders (295) into the tier shoulder"
+                .. " and your Hide of Pestilence (302) into the tier chest",
+        }, headlineLines(model({ currencies = currencies() })))
+    end)
+
+    -- The first line supplies "this week" itself, so the scenario is named there
+    -- in its short form; the line below it carries the full label the issue
+    -- asked for. Both are the same scenario.
+    it("says the scenario short in the first line and in full on its own", function()
+        assert.equal("vault upgraded, Catalyst used", ns.VaultPanel.ScenarioHeadlineLabel("thisWeek"))
+        assert.equal("this week (vault upgraded, Catalyst used)", ns.VaultPanel.ScenarioLabel("thisWeek"))
+        -- Every other scenario is the same word in both places.
+        for _, name in ipairs({ "asOffered", "catalyzed", "maxed" }) do
+            assert.equal(ns.VaultPanel.ScenarioLabel(name), ns.VaultPanel.ScenarioHeadlineLabel(name))
+        end
+    end)
+
+    -- `asOffered` stays the first line of the list whatever the highlight is, so
+    -- "nothing beats your set as offered" is never hidden behind a what-if.
+    it("keeps as offered first in the list under every highlight", function()
+        for _, name in ipairs(ns.QEImport.SCENARIOS) do
+            local m = model({ highlightScenario = name, currencies = currencies() })
+            assert.equal("asOffered", m.headline.lines[1].scenario)
+            assert.equal("thisWeek", m.headline.lines[3].scenario)
+        end
+    end)
+
+    -- His own numbers about the vault Spaulders under the fourth question: the
+    -- 1.7292% alternative of the 19:22 run, which is "take the Spaulders
+    -- instead, catalyzed and upgraded to 321, and keep the 308 weapon you wear".
+    it("carries his fourth answer onto every option that has one", function()
+        local m = model({ currencies = currencies() })
+        assert.same({
+            "as offered: worse by 0.57% (-1983.0 score)",
+            "catalyzed: worse by 1.07% (-3782.0 score) (the Catalyst run made no tier version of this item)",
+            "this week (vault upgraded, Catalyst used): in your best set",
+            "everything upgraded: in your best set",
+        }, rewardByKey(m, WEAPON_KEY).verdictLines)
+        assert.same({
+            "catalyzed, as tier: in your best set",
+            "this week (vault upgraded, Catalyst used), as tier: worse by 1.73% (-6009.0 score)",
+            "everything upgraded, as tier: worse by 1.72% (-5966.0 score)",
+        }, rewardByKey(m, SPAULDERS_KEY).verdictLines)
+    end)
+
+    -- The sentence is about the owner's own bags, so with no scan it is not
+    -- guessed at and not softened: it is simply not said.
+    it("says nothing about catalyzing an owned item when there is no scan", function()
+        local m = model({ inventory = false, currencies = currencies() })
+        for _, line in ipairs(m.headline.lines) do
+            assert.is_nil(line.text:find("catalyze your", 1, true))
+            assert.is_nil(line.text:find("QE Live did not say which", 1, true))
+        end
+    end)
+
+    -- His clone is there and nothing owned matches it: the slot is named and the
+    -- absence is stated, rather than a shoulder being picked for him.
+    it("names the slot and the absence when nothing owned matches his clone", function()
+        local records = {}
+        for _, record in ipairs(ns.Inventory.Scan().records) do
+            if record.itemID ~= 277782 and record.itemID ~= 251226 then
+                records[#records + 1] = record
+            end
+        end
+        local m = model({ inventory = { ok = true, records = records }, currencies = currencies() })
+        assert.is_truthy(
+            m.headline.lines[3].text:find(
+                "and catalyze a shoulder you own (QE Live did not say which)"
+                    .. " and a chest you own (QE Live did not say which)",
+                1,
+                true
+            )
+        )
+    end)
+
+    -- Nothing on this tab is valued from the scan: the pick, its row and every
+    -- percentage are the same with the bags read and with them not.
+    it("values nothing from the inventory it reads", function()
+        local with = model({ currencies = currencies() })
+        local without = model({ inventory = false, currencies = currencies() })
+        assert.equal(with.headline.pick.key, without.headline.pick.key)
+        assert.equal(with.headline.text, without.headline.text)
+        assert.same(rewardByKey(with, SPAULDERS_KEY).verdictLines, rewardByKey(without, SPAULDERS_KEY).verdictLines)
+    end)
+
+    -- The fourth answer is missing - the companion has not run since the addon
+    -- learned the name - so the highlight falls back and says so rather than
+    -- answering a different question in silence.
+    it("falls back to as offered, out loud, when no fourth answer is stored", function()
+        local m = model({ scenarios = scenarios({ "asOffered", "catalyzed" }), currencies = currencies() })
+        assert.equal("asOffered", m.headline.scenario)
+        assert.is_true(m.highlightFellBack)
+        assert.equal(
+            "No this week (vault upgraded, Catalyst used) answer is stored yet, so the pick below follows as offered.",
+            m.highlightNote
+        )
     end)
 end)

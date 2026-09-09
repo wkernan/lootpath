@@ -43,11 +43,13 @@ it is offered.** Put the 308 Scavenger's Spaulders through the Catalyst and they
 are tier shoulders at 308 - the set bonus kept, the item level unchanged. QE
 Live models that (and upgrade tracks) in his three import checkboxes, so
 Lootpath models neither: since C-6 (WKE-540) the companion runs Top Gear once per
-named scenario - `asOffered`, `catalyzed`, `maxed` - because the boxes act AT
-import, and stamps each document with the scenario it answers. Measured
-2026-09-09 on the owner's own vault: `asOffered` ranks the vault weapon 0.57%
-behind, `catalyzed` puts the catalyzed shoulders in the best set, `maxed` puts
-the weapon in it at 321. Three questions, three answers, none of them Lootpath's.
+named scenario - `asOffered`, `catalyzed`, `thisWeek`, `maxed` - because the
+boxes act AT import, and stamps each document with the scenario it answers.
+Measured 2026-09-09 on the owner's own vault: `asOffered` ranks the vault weapon
+0.57% behind, `catalyzed` puts the catalyzed shoulders in the best set,
+`thisWeek` takes the weapon at 321 and catalyzes a pair of shoulders already in
+his bag, `maxed` puts the weapon in it at 321 with everything else capped too.
+Four questions, four answers, none of them Lootpath's.
 
 **It asks about several Mythic+ keys, because his engine only answers about
 one.** The Upgrade Finder values every dungeon drop at the single key level
@@ -141,7 +143,7 @@ the defaults, which are the owner's machine. Every key is optional.
 | `forkUrl` | `http://localhost:3000` | |
 | `documents` | Top Gear and Upgrade Finder, Dungeon then Raid | `contentType` is QE Live's own string; it has no "Mythic+" |
 | `upgradeFinderKeyLevels` | `[2, 4, 6, 8, 10]` | key levels, sorted and deduplicated; the dungeon Upgrade Finder is run once per level |
-| `scenarios` | `["asOffered", "catalyzed", "maxed"]` | the named what-ifs Top Gear is run under; must include `asOffered` |
+| `scenarios` | `["asOffered", "catalyzed", "thisWeek", "maxed"]` | the named what-ifs Top Gear is run under; must include `asOffered` |
 | `includeBank` | `true` | bank items only reach the profile if the bank was open when the capture ran |
 | `qeAutoUpgradeVault` | `false` | QE Live's "Upgrade Vault to Max Level" box **for the Upgrade Finder**; Top Gear takes its boxes from the scenario |
 | `qeAutoUpgradeAll` | `false` | his "Upgrade ALL to Max Level" box, likewise |
@@ -234,7 +236,19 @@ Lootpath asks him each question by name instead of modelling either.
 |---|---|---|---|---|
 | `asOffered` | off | off | off | what each item is right now |
 | `catalyzed` | off | off | **on** | if I catalyze what can be catalyzed |
+| `thisWeek` | off | **on** | **on** | take one thing, upgrade it, use the charge once |
 | `maxed` | **on** | **on** | **on** | if I upgrade everything to its cap and catalyze |
+
+`thisWeek` (M3-13, WKE-548) is the question a player with one Catalyst charge and
+a pile of crests actually asks, and none of the other three answer it:
+`asOffered` assumes no charge and no upgrade, `catalyzed` assumes the charge but
+no upgrade, and `maxed` assumes every item you own is at its cap, which nobody
+reaches in a week. **Take one thing, upgrade it, use the charge once** - the
+vault box on so the one option you take goes to the top of its track, the ALL box
+off so nothing else moves. Measured 2026-09-09 19:22 on the owner's own profile:
+Dungeon 5812.048, Raid 6014.255, the vault's Lightgrasp Worldroot at 321 in the
+set and the Venom-Cursed Lynx's Spaulders already in his bag catalyzed into the
+tier shoulder (`spec/fixtures/qe/README.md`).
 
 The names are the contract: they are what `lib/config.js` holds, what each
 document in `Data/QEVerdict.lua` carries, and what `ns.QEImport.SCENARIOS` reads
@@ -244,7 +258,9 @@ scenarios do not apply to those.
 Each scenario is a separate IMPORT, not a flag on a run: `runSimC` is handed the
 checkbox state at Submit (`SimCraftDialog.js` `handleSubmit`), so a box flipped
 afterwards changes nothing. Measured 2026-09-09, three scenarios over two content
-types: **three imports, six documents, 41.7 s warm**. The two what-ifs are asked
+types: **three imports, six documents, 41.7 s warm**; the `thisWeek` import alone,
+measured the same day at 19:22 through the S-1 spike, took **39.3 s** for its two
+Top Gear and two Upgrade Finder documents. The two what-ifs are asked
 only when the profile carries a vault section with gear in it, or under
 `--force`; `asOffered` is always asked, because Equip Now and the Upgrade Map
 read that document and no other.
@@ -263,8 +279,8 @@ each Top Gear document's scenario and its own three boxes:
 ```lua
         {
             schema = "qe-live-droptimizer", contentType = "Dungeon",
-            scenario = "catalyzed",
-            qeSettings = { autoUpgradeVault = false, autoUpgradeAll = false, autoCatalyze = true },
+            scenario = "thisWeek",
+            qeSettings = { autoUpgradeVault = true, autoUpgradeAll = false, autoCatalyze = true },
             ...
         },
 ```

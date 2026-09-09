@@ -414,7 +414,13 @@ end
 ns.DB_DEFAULTS = {
     char = { qeImports = {}, qeImportsByScenario = {}, ufImports = {} },
     global = { journalCache = {}, captures = {} },
-    profile = { settings = { contentType = "Dungeon", vaultScenario = "asOffered" } },
+    -- `vaultScenario` is the Vault tab's HIGHLIGHT only; Equip Now and the
+    -- Upgrade Map read `asOffered` and nothing else, whatever this says. It
+    -- defaults to `thisWeek` since M3-13 (WKE-548) because that is the question
+    -- the vault poses - take one option, upgrade that one, spend the one
+    -- Catalyst charge - and the tab falls back to `asOffered`, saying so, when
+    -- no `thisWeek` answer has been stored yet.
+    profile = { settings = { contentType = "Dungeon", vaultScenario = "thisWeek" } },
 }
 
 local function onAddonLoaded()

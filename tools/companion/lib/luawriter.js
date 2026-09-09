@@ -75,7 +75,7 @@ const DOCUMENT_QE_SETTING_KEYS = [...QE_SETTING_KEYS, 'autoCatalyze'];
 // The named scenarios (lib/config.js). Repeated here as a set rather than
 // imported, so the writer refuses a name it does not know instead of writing a
 // shelf the addon has never heard of; the two lists are tied together by a test.
-const SCENARIOS = new Set(['asOffered', 'catalyzed', 'maxed']);
+const SCENARIOS = new Set(['asOffered', 'catalyzed', 'thisWeek', 'maxed']);
 
 // A Top Gear document must say which scenario it answers, because filing one
 // under the wrong question is a wrong answer that looks right - and because a

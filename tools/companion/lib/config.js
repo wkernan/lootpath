@@ -42,7 +42,7 @@ const DEFAULTS = {
     // Which of QE Live's named what-if scenarios Top Gear is run under (WKE-540,
     // C-6). See SCENARIOS below; the names are fixed and the file, the addon and
     // the Vault tab all use them verbatim.
-    scenarios: ['asOffered', 'catalyzed', 'maxed'],
+    scenarios: ['asOffered', 'catalyzed', 'thisWeek', 'maxed'],
     includeBank: true,
     // QE Live's own import checkboxes (SimCraftDialog.js lines 122-133), asked
     // for explicitly on every run rather than inherited (WKE-539, C-5).
@@ -107,16 +107,26 @@ const KNOWN = new Set(Object.keys(DEFAULTS));
 //
 // The names are fixed and are the contract: this table, the `scenario` field in
 // Data/QEVerdict.lua, `ns.QEImport.SCENARIOS` in the addon and the Vault tab's
-// labels all use these three strings verbatim.
+// labels all use these four strings verbatim.
+//
+// `thisWeek` (M3-13, WKE-548) is the fourth, and it is the question a player
+// with one Catalyst charge and a pile of crests actually asks: TAKE ONE THING,
+// UPGRADE IT, USE THE CHARGE ONCE. The other three do not answer it - `maxed`
+// assumes every item the character owns is upgraded to its cap, which nobody
+// does in a week, and `catalyzed` assumes the charge but no upgrade at all. Its
+// boxes are `autoUpgradeVault` on (the one thing taken out of the vault goes to
+// the top of its track) with `autoUpgradeAll` off (nothing else moves) and
+// `autoCatalyze` on (the one charge is spent).
 const SCENARIOS = {
     asOffered: { autoUpgradeAll: false, autoUpgradeVault: false, autoCatalyze: false },
     catalyzed: { autoUpgradeAll: false, autoUpgradeVault: false, autoCatalyze: true },
+    thisWeek: { autoUpgradeAll: false, autoUpgradeVault: true, autoCatalyze: true },
     maxed: { autoUpgradeAll: true, autoUpgradeVault: true, autoCatalyze: true },
 };
 
 // The order they are asked in and shown in: what the character has now first,
-// then the two what-ifs in increasing distance from it.
-const SCENARIO_ORDER = ['asOffered', 'catalyzed', 'maxed'];
+// then the three what-ifs in increasing distance from it.
+const SCENARIO_ORDER = ['asOffered', 'catalyzed', 'thisWeek', 'maxed'];
 
 // The one every other part of Lootpath reads. Equip Now and the Upgrade Map
 // answer `asOffered` and nothing else, and a document that names no scenario is

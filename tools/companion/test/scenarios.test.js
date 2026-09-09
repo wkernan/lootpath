@@ -21,6 +21,7 @@ const configLib = require('../lib/config');
 const forkLib = require('../lib/fork');
 const fingerprintLib = require('../lib/fingerprint');
 const logLib = require('../lib/log');
+const luawriterLib = require('../lib/luawriter');
 
 function quietLog() {
     return logLib.make(() => {});
@@ -44,12 +45,14 @@ function loadWith(raw) {
 // the catalyze block, ~673-680 for the two upgrade branches). These three rows
 // ARE the feature: the issue tabled them and the file, the addon and the Vault
 // tab all use these names verbatim.
-test('the three scenarios are the boxes the issue tabled, and nothing else', () => {
-    assert.deepStrictEqual(configLib.SCENARIO_ORDER, ['asOffered', 'catalyzed', 'maxed']);
+test('the four scenarios are the boxes the issues tabled, and nothing else', () => {
+    assert.deepStrictEqual(configLib.SCENARIO_ORDER, ['asOffered', 'catalyzed', 'thisWeek', 'maxed']);
     assert.strictEqual(configLib.DEFAULT_SCENARIO, 'asOffered');
     assert.deepStrictEqual(configLib.SCENARIOS, {
         asOffered: { autoUpgradeAll: false, autoUpgradeVault: false, autoCatalyze: false },
         catalyzed: { autoUpgradeAll: false, autoUpgradeVault: false, autoCatalyze: true },
+        // M3-13 (WKE-548): take one thing, upgrade it, use the charge once.
+        thisWeek: { autoUpgradeAll: false, autoUpgradeVault: true, autoCatalyze: true },
         maxed: { autoUpgradeAll: true, autoUpgradeVault: true, autoCatalyze: true },
     });
     // Handed out as a copy, so a caller cannot edit the table by editing what
@@ -59,9 +62,9 @@ test('the three scenarios are the boxes the issue tabled, and nothing else', () 
     assert.strictEqual(configLib.SCENARIOS.maxed.autoCatalyze, true);
 });
 
-test('the default config asks all three, and the example config agrees', () => {
+test('the default config asks all four, and the example config agrees', () => {
     const config = configLib.load(path.join(os.tmpdir(), 'no-such-config.json'));
-    assert.deepStrictEqual(config.scenarios, ['asOffered', 'catalyzed', 'maxed']);
+    assert.deepStrictEqual(config.scenarios, ['asOffered', 'catalyzed', 'thisWeek', 'maxed']);
     assert.deepStrictEqual(configLib.load(path.join(__dirname, '..', 'config.example.json')).scenarios, config.scenarios);
 });
 
@@ -74,7 +77,7 @@ test('the scenario list is one question however it is typed', () => {
 });
 
 test('a name QE Live is never asked is refused, with the value in the message', () => {
-    assert.throws(() => loadWith({ scenarios: ['catalysed'] }), /QE Live is asked asOffered, catalyzed, maxed/);
+    assert.throws(() => loadWith({ scenarios: ['catalysed'] }), /QE Live is asked asOffered, catalyzed, thisWeek, maxed/);
     assert.throws(() => loadWith({ scenarios: [1] }), /QE Live is asked asOffered/);
     assert.throws(() => loadWith({ scenarios: 'maxed' }), /should be a list, not a string/);
 });
@@ -93,7 +96,7 @@ test('with a vault to ask about, each scenario is one import and one Top Gear ru
     const passes = configLib.plannedPasses(configLib.load(null), WITH_VAULT);
     assert.deepStrictEqual(
         passes.map((p) => p.scenario),
-        ['asOffered', 'catalyzed', 'maxed']
+        ['asOffered', 'catalyzed', 'thisWeek', 'maxed']
     );
     assert.deepStrictEqual(passes[1].boxes, { autoUpgradeAll: false, autoUpgradeVault: false, autoCatalyze: true });
     // The Upgrade Finder is not a scenario question, so it is asked once - in
@@ -135,7 +138,7 @@ test('with no vault gear only asOffered is asked, and --force asks anyway', () =
     );
     assert.deepStrictEqual(
         configLib.plannedPasses(config, { hasVaultGear: false, force: true }).map((p) => p.scenario),
-        ['asOffered', 'catalyzed', 'maxed']
+        ['asOffered', 'catalyzed', 'thisWeek', 'maxed']
     );
     // The Upgrade Finder is never one of the things skipped: it does not depend
     // on the vault at all.
@@ -153,14 +156,16 @@ test('a non-default upgrade pair gives the Upgrade Finder a pass of its own', ()
     const passes = configLib.plannedPasses(config, WITH_VAULT);
     assert.deepStrictEqual(
         passes.map((p) => p.scenario),
-        ['asOffered', 'catalyzed', 'maxed', null]
+        ['asOffered', 'catalyzed', 'thisWeek', 'maxed', null]
     );
-    assert.deepStrictEqual(passes[3].boxes, { autoUpgradeAll: true, autoUpgradeVault: true, autoCatalyze: false });
-    assert.ok(passes[3].documents.every((d) => d.kind === 'upgradefinder'));
+    assert.deepStrictEqual(passes[4].boxes, { autoUpgradeAll: true, autoUpgradeVault: true, autoCatalyze: false });
+    assert.ok(passes[4].documents.every((d) => d.kind === 'upgradefinder'));
     assert.ok(passes[0].documents.every((d) => d.kind === 'topgear'));
     // `maxed` sets the same two upgrade boxes but ALSO catalyze, so it is not
-    // the pass the Upgrade Finder can ride in.
+    // the pass the Upgrade Finder can ride in - and neither is `thisWeek`, which
+    // shares the vault box with it and differs on the other two.
     assert.ok(passes[2].documents.every((d) => d.kind === 'topgear'));
+    assert.ok(passes[3].documents.every((d) => d.kind === 'topgear'));
 });
 
 test('a config with no Upgrade Finder documents plans no pass for one', () => {
@@ -172,9 +177,9 @@ test('a config with no Upgrade Finder documents plans no pass for one', () => {
     const passes = configLib.plannedPasses(config, WITH_VAULT);
     assert.deepStrictEqual(
         passes.map((p) => p.scenario),
-        ['asOffered', 'catalyzed', 'maxed']
+        ['asOffered', 'catalyzed', 'thisWeek', 'maxed']
     );
-    assert.strictEqual(configLib.plannedDocuments(config, WITH_VAULT).length, 3);
+    assert.strictEqual(configLib.plannedDocuments(config, WITH_VAULT).length, 4);
 });
 
 // --- the fingerprint --------------------------------------------------------
@@ -293,4 +298,69 @@ test('each pass re-imports the profile before its documents are run', async () =
         documents.map((d) => `${d.scenario}:${d.qeSettings.autoCatalyze}`),
         ['asOffered:false', 'catalyzed:true']
     );
+});
+
+// --- the fourth question (M3-13, WKE-548) -----------------------------------
+//
+// The three above do not answer the one a player with one Catalyst charge and a
+// pile of crests actually asks. `maxed` assumes every item the character owns is
+// at its cap, which nobody reaches in a week; `catalyzed` assumes the charge and
+// no upgrade at all. `thisWeek` is the middle: take ONE thing out of the vault,
+// upgrade THAT one thing, spend the charge, change nothing else.
+//
+// Measured 2026-09-09 19:22 over the owner's own profile (the 2026-09-08 12:45
+// capture, 158 lines), boxes [all, vault, catalyze] = [false, true, true]:
+// Dungeon top set 5812.048, Raid 6014.255 - the same two figures the earlier
+// spike run of that morning produced, and neither of them any other scenario's.
+test('the fourth scenario is the vault box on, the ALL box off, and the charge spent', () => {
+    assert.deepStrictEqual(configLib.SCENARIOS.thisWeek, {
+        autoUpgradeAll: false,
+        autoUpgradeVault: true,
+        autoCatalyze: true,
+    });
+    // It is nobody else's boxes: the vault box is what separates it from
+    // `catalyzed`, and the ALL box is what separates it from `maxed`.
+    assert.ok(!configLib.sameBoxes(configLib.SCENARIOS.thisWeek, configLib.SCENARIOS.catalyzed));
+    assert.ok(!configLib.sameBoxes(configLib.SCENARIOS.thisWeek, configLib.SCENARIOS.maxed));
+    // Asked third: after what the character has now and the plain Catalyst
+    // question, before the one that assumes everything is capped.
+    assert.strictEqual(configLib.SCENARIO_ORDER.indexOf('thisWeek'), 2);
+});
+
+// It is a what-if about vault options, so it is gated exactly as the other two
+// are: skipped when the profile carries no vault gear, asked under --force.
+test('the fourth scenario is gated on the vault like the other what-ifs', () => {
+    const config = configLib.load(null);
+    assert.ok(!configLib.plannedPasses(config, NO_VAULT).some((p) => p.scenario === 'thisWeek'));
+    assert.ok(configLib.plannedPasses(config, WITH_VAULT).some((p) => p.scenario === 'thisWeek'));
+    assert.ok(
+        configLib
+            .plannedPasses(config, { hasVaultGear: false, force: true })
+            .some((p) => p.scenario === 'thisWeek')
+    );
+});
+
+// Adding it to the list is a new question and has to cost a run, which is the
+// whole point of hashing the scenario list beside the profile.
+test('adding the fourth scenario moves the fingerprint', () => {
+    const profile = 'druid="Hotornot"\nhead=,id=271528';
+    const settings = { autoUpgradeVault: false, autoUpgradeAll: false };
+    const three = fingerprintLib.fingerprint(profile, settings, [2], ['asOffered', 'catalyzed', 'maxed']).hash;
+    const four = fingerprintLib.fingerprint(profile, settings, [2], [
+        'asOffered',
+        'catalyzed',
+        'thisWeek',
+        'maxed',
+    ]).hash;
+    assert.notStrictEqual(three, four);
+    assert.strictEqual(
+        fingerprintLib.scenariosLine(['maxed', 'thisWeek', 'asOffered', 'catalyzed']),
+        '# scenarios asOffered,catalyzed,maxed,thisWeek'
+    );
+});
+
+// The writer refuses a name the addon has never heard of, and the two lists are
+// the same list.
+test('the writer knows exactly the scenarios the config does', () => {
+    assert.deepStrictEqual([...luawriterLib.SCENARIOS].sort(), [...configLib.SCENARIO_ORDER].sort());
 });

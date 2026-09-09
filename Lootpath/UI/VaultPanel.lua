@@ -84,7 +84,20 @@ Panel.SETTINGS_PHRASE = {
 Panel.SCENARIO_LABEL = {
     asOffered = "as offered",
     catalyzed = "catalyzed",
+    -- M3-13 (WKE-548): the fourth question, and the one the vault poses. The
+    -- label spells out both halves of it, because "this week" alone would not
+    -- say what was assumed and this line is read before anything else on the tab.
+    thisWeek = "this week (vault upgraded, Catalyst used)",
     maxed = "everything upgraded",
+}
+
+-- The same names inside the headline's own first line, which already says "this
+-- week" in its own words: "QE Live's pick this week (this week (vault upgraded,
+-- Catalyst used))" is what the plain label produced, and a stutter inside nested
+-- brackets is not a sentence anyone reads. Only the scenarios that need a
+-- shorter form are here; the rest fall through to SCENARIO_LABEL.
+Panel.SCENARIO_HEADLINE_LABEL = {
+    thisWeek = "vault upgraded, Catalyst used",
 }
 
 -- What a line says when the number on it is about QE Live's catalyzed copy of
@@ -144,9 +157,51 @@ Panel.INSTEAD_TEXT = "%s instead - "
 -- assumed nothing, which is why it has no phrase. Lootpath does not know what
 -- the Catalyst costs, which items it takes, or what a crest buys.
 Panel.NEEDS_TEXT = {
-    catalyzed = "needs a Catalyst charge",
-    maxed = "needs crests",
+    catalyst = "needs a Catalyst charge",
+    crests = "needs crests",
 }
+
+-- The same things said second, after an "and": "needs a Catalyst charge (you
+-- have 1 of 8) and needs crests" is not English, and the verb only wants saying
+-- once.
+Panel.NEEDS_ALSO_TEXT = {
+    catalyst = "a Catalyst charge",
+    crests = "crests",
+}
+
+-- Which of those a scenario assumed, in the order they are said. `thisWeek`
+-- (M3-13) assumed BOTH - one charge spent and the one thing taken upgraded - so
+-- it says both, each with its own client number after it, and still computes
+-- nothing: "needs a Catalyst charge (you have 1 of 8) and needs crests (you
+-- have Runed 12)" is four client numbers side by side and no arithmetic over
+-- any of them. `asOffered` assumed nothing, which is why it is absent.
+-- `maxed` gained its Catalyst half in M3-13 and it is a correction, not a new
+-- assumption: its boxes have had `autoCatalyze` on since C-6, and now that the
+-- line under it can read "and catalyze your Venom-Cursed Lynx's Spaulders into
+-- the tier shoulder", saying only "needs crests" beside it would contradict the
+-- sentence next to it.
+Panel.NEEDS_PARTS = {
+    catalyzed = { "catalyst" },
+    thisWeek = { "catalyst", "crests" },
+    maxed = { "catalyst", "crests" },
+}
+
+-- The other half of the fourth question's answer (M3-13, WKE-548). QE Live's
+-- `thisWeek` top set on the owner's own profile takes the vault's weapon AND
+-- catalyzes a pair of shoulders he was already carrying in a bag - so "take the
+-- weapon" is only half of what he said, and the other half is about an item the
+-- vault is not offering at all. The sentence names it: the owned item's own name
+-- and the item level the client reports for it, and the slot QE Live's clone
+-- carries, in his own vocabulary lowercased so it reads inside the sentence.
+--
+-- When his top set holds such a clone but nothing in the scan matches it, the
+-- second phrase is used and says exactly that. It is never filled in with a
+-- guess at which of the owner's shoulders he meant: he did not say, so neither
+-- does this.
+Panel.CATALYZE_OWNED_LEAD = "and catalyze "
+Panel.CATALYZE_OWNED_TEXT = "your %s (%s) into the tier %s"
+Panel.CATALYZE_OWNED_UNKNOWN = "a %s you own (QE Live did not say which)"
+Panel.CATALYZE_OWNED_SLOT_UNKNOWN = "item"
 
 -- The client's count beside the assumption, or the honest absence of one.
 -- `/lootpath capture currencies` has to have run for there to be a number, and
@@ -447,6 +502,11 @@ function Panel.ScenarioLabel(scenario)
     return Panel.SCENARIO_LABEL[scenario] or tostring(scenario)
 end
 
+-- The same name in the headline's first line, which supplies "this week" itself.
+function Panel.ScenarioHeadlineLabel(scenario)
+    return Panel.SCENARIO_HEADLINE_LABEL[scenario] or Panel.ScenarioLabel(scenario)
+end
+
 -- Did the run behind this verdict have QE Live's Catalyst box on? Read off the
 -- `qeSettings` the companion recorded (C-5/C-6), never guessed from the scenario
 -- name: the name is a label, the setting is what QE Live was actually asked.
@@ -508,59 +568,105 @@ end
 -- headers are expanded. There is no arithmetic here and no cost table anywhere
 -- in this file - "1 of 8" is two client numbers side by side, and the cost of a
 -- transform is not one of them.
+local function catalystCount(currencies, ok)
+    if not ok or not currencies.catalystKnown then
+        return Panel.COUNT_UNKNOWN
+    end
+    if currencies.catalystCharges == nil then
+        return Panel.CATALYST_NOT_READABLE
+    end
+    if currencies.catalystMax then
+        return string.format(Panel.HAVE_OF_TEXT, tostring(currencies.catalystCharges), tostring(currencies.catalystMax))
+    end
+    return string.format(Panel.HAVE_TEXT, tostring(currencies.catalystCharges))
+end
+
+local function crestCount(currencies, ok)
+    if not ok or not currencies.crestsKnown then
+        return Panel.COUNT_UNKNOWN
+    end
+    local parts = {}
+    for _, crest in ipairs(currencies.crests or {}) do
+        parts[#parts + 1] = string.format("%s %s", crest.name, tostring(crest.quantity))
+    end
+    if #parts == 0 then
+        return Panel.CRESTS_NONE
+    end
+    return string.format(Panel.HAVE_TEXT, table.concat(parts, ", "))
+end
+
 function Panel.CountText(scenario, currencies)
     local ok = type(currencies) == "table" and currencies.ok == true
-    if scenario == "catalyzed" then
-        if not ok or not currencies.catalystKnown then
-            return Panel.COUNT_UNKNOWN
-        end
-        if currencies.catalystCharges == nil then
-            return Panel.CATALYST_NOT_READABLE
-        end
-        if currencies.catalystMax then
-            return string.format(
-                Panel.HAVE_OF_TEXT,
-                tostring(currencies.catalystCharges),
-                tostring(currencies.catalystMax)
-            )
-        end
-        return string.format(Panel.HAVE_TEXT, tostring(currencies.catalystCharges))
+    local counted = type(currencies) == "table" and currencies or {}
+    local parts = Panel.NEEDS_PARTS[scenario]
+    if not parts then
+        return ""
     end
-    if scenario == "maxed" then
-        if not ok or not currencies.crestsKnown then
-            return Panel.COUNT_UNKNOWN
-        end
-        local parts = {}
-        for _, crest in ipairs(currencies.crests or {}) do
-            parts[#parts + 1] = string.format("%s %s", crest.name, tostring(crest.quantity))
-        end
-        if #parts == 0 then
-            return Panel.CRESTS_NONE
-        end
-        return string.format(Panel.HAVE_TEXT, table.concat(parts, ", "))
+    local out = {}
+    for _, part in ipairs(parts) do
+        out[#out + 1] = part == "catalyst" and catalystCount(counted, ok) or crestCount(counted, ok)
     end
-    return ""
+    return table.concat(out, " ")
 end
 
 -- The fixed phrase naming what a scenario assumed, with the client's count
--- after it, or nil for a scenario that assumed nothing.
+-- after each half of it, or nil for a scenario that assumed nothing.
 function Panel.NeedsText(scenario, currencies)
-    local needs = Panel.NEEDS_TEXT[scenario]
-    if not needs then
+    local parts = Panel.NEEDS_PARTS[scenario]
+    if not parts then
         return nil
     end
-    return needs .. Panel.CountText(scenario, currencies)
+    local ok = type(currencies) == "table" and currencies.ok == true
+    local counted = type(currencies) == "table" and currencies or {}
+    local out = {}
+    for index, part in ipairs(parts) do
+        local count = part == "catalyst" and catalystCount(counted, ok) or crestCount(counted, ok)
+        local phrase = index == 1 and Panel.NEEDS_TEXT[part] or Panel.NEEDS_ALSO_TEXT[part]
+        out[#out + 1] = phrase .. count
+    end
+    return table.concat(out, " and ")
+end
+
+-- The words for ns.QEImport.CatalyzedOwned's list, or nil when it is empty. Two
+-- shapes per clone and no third: the owned item named with the level the client
+-- reports for it, or the slot alone when his clone matched nothing in the scan.
+-- A best set that catalyzed two owned items says both - it is one sentence
+-- because it is one set, and dropping the second would be reporting half of
+-- what he said.
+function Panel.CatalyzeOwnedText(found)
+    if type(found) ~= "table" or #found == 0 then
+        return nil
+    end
+    local parts = {}
+    for _, entry in ipairs(found) do
+        local slot = type(entry.slot) == "string" and entry.slot:lower() or Panel.CATALYZE_OWNED_SLOT_UNKNOWN
+        local owned = entry.owned
+        if type(owned) == "table" and type(owned.name) == "string" and owned.name ~= "" then
+            parts[#parts + 1] = string.format(Panel.CATALYZE_OWNED_TEXT, owned.name, tostring(owned.itemLevel), slot)
+        else
+            parts[#parts + 1] = string.format(Panel.CATALYZE_OWNED_UNKNOWN, slot)
+        end
+    end
+    return Panel.CATALYZE_OWNED_LEAD .. table.concat(parts, " and ")
 end
 
 -- One line of the headline block: what QE Live picked under this scenario, and
 -- what that answer assumed. `pick` is { reward, coverage, viaCatalyst } - the
 -- best-ranked thing he said about any option in this vault under this scenario,
 -- by his own ordering - and `headlinePick` is the reward the block leads with,
--- so the item is named only when the two differ.
-function Panel.HeadlineLine(scenario, pick, headlinePick, currencies)
+-- so the item is named only when the two differ. `catalyzeOwned` is
+-- ns.QEImport.CatalyzedOwned's answer for this scenario's own document, said as
+-- a step after the assumption it belongs to.
+function Panel.HeadlineLine(scenario, pick, headlinePick, currencies, catalyzeOwned)
     local label = Panel.ScenarioLabel(scenario) .. ((pick and pick.viaCatalyst) and Panel.CATALYZED_SUFFIX or "")
+    local owned = Panel.CatalyzeOwnedText(catalyzeOwned)
+    local ownedSuffix = owned and (" - " .. owned) or ""
     if not pick then
-        return { scenario = scenario, text = label .. ": " .. Panel.SCENARIO_SILENT }
+        return {
+            scenario = scenario,
+            catalyzeOwned = catalyzeOwned,
+            text = label .. ": " .. Panel.SCENARIO_SILENT .. ownedSuffix,
+        }
     end
     local coverage = pick.coverage
     local answer, names
@@ -585,7 +691,8 @@ function Panel.HeadlineLine(scenario, pick, headlinePick, currencies)
         reward = pick.reward,
         coverage = coverage,
         viaCatalyst = pick.viaCatalyst,
-        text = label .. ": " .. prefix .. answer .. (needs and (" - " .. needs) or ""),
+        catalyzeOwned = catalyzeOwned,
+        text = label .. ": " .. prefix .. answer .. (needs and (" - " .. needs) or "") .. ownedSuffix,
     }
 end
 
@@ -607,7 +714,7 @@ end
 -- The block's first line: QE Live's pick under the scenario the owner asked
 -- for, and which row of the Great Vault screen it is sitting on.
 function Panel.HeadlineText(scenario, pick, coverage)
-    local label = Panel.ScenarioLabel(scenario)
+    local label = Panel.ScenarioHeadlineLabel(scenario)
     if not pick then
         return string.format(Panel.HEADLINE_NO_PICK, label)
     end
@@ -629,6 +736,9 @@ end
 -- opts.captures    the stored vault snapshots a pending reward's name may be
 --                  read from (default: db.global.captures.vault; `false` reads
 --                  nothing) - M3-12
+-- opts.inventory   ns.Inventory.Scan()'s result, read ONLY to name the item a
+--                  scenario's best set catalyzed out of the owner's own bags
+--                  (M3-13). Nothing on this tab is valued from it.
 --
 -- A rewarded row is split in two on the way in. `rewards` are the gear options
 -- - the things this panel is for - and only they are counted, valued and
@@ -878,8 +988,13 @@ function Panel.Model(opts)
             lines = {},
         }
         for _, entry in ipairs(scenarios) do
-            model.headline.lines[#model.headline.lines + 1] =
-                Panel.HeadlineLine(entry.scenario, bestByScenario[entry.scenario], pick, opts.currencies)
+            model.headline.lines[#model.headline.lines + 1] = Panel.HeadlineLine(
+                entry.scenario,
+                bestByScenario[entry.scenario],
+                pick,
+                opts.currencies,
+                ns.QEImport.CatalyzedOwned(entry.verdict, opts.inventory)
+            )
         end
     end
 
@@ -993,6 +1108,10 @@ function Panel.Gather(opts)
         -- The only client numbers on this tab that are not the vault's own.
         -- Read here rather than inside Model so a headless test drives them.
         currencies = ns.Currencies and ns.Currencies.Read() or nil,
+        -- The bags and the bank, for one sentence and nothing else: which item
+        -- the owner already has that a scenario's best set catalyzed (M3-13).
+        -- Scan refuses in combat and the refusal is simply no sentence.
+        inventory = ns.Inventory and ns.Inventory.Scan() or nil,
         highlightScenario = ns.UI
                 and ns.UI.Options
                 and ns.UI.Options.GetVaultScenario

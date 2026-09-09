@@ -9,7 +9,7 @@
     { "kind": "upgradefinder", "contentType": "Raid" }
   ],
   "upgradeFinderKeyLevels": [2, 4, 6, 8, 10],
-  "scenarios": ["asOffered", "catalyzed", "maxed"],
+  "scenarios": ["asOffered", "catalyzed", "thisWeek", "maxed"],
   "includeBank": true,
   "qeAutoUpgradeVault": false,
   "qeAutoUpgradeAll": false,

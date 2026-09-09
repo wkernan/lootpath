@@ -102,6 +102,45 @@ computed here.
 
 `spec/qeimport_spec.lua` reads these files in its "genuine QE Live export" blocks.
 
+## The fourth scenario (M3-13, WKE-548)
+
+Two more documents from **one headless run**, 2026-09-09 19:22 UTC, over the
+**same profile as the six above** - rebuilt from
+`spec/fixtures/captures/Lootpath-20260908-124527.lua` by
+`tools/companion/lib/profile.js` (15 equipped / 32 bags / 0 bank / 4 vault, 158
+lines) and driven through the fork by `tools/companion-spike/run-fork.js
+--scenario=thisWeek`. Committed unedited, straight from the fork's own Copy
+JSON.
+
+| file | content type | scenario | boxes (all / vault / catalyze) | top set score |
+|---|---|---|---|---|
+| `qe-droptimizer-Hotornot-hdaldwpeakpb.json` | Dungeon | `thisWeek` | off / **on** / **on** | 5812.048 |
+| `qe-droptimizer-Hotornot-rrwofzsbrbou.json` | Raid | `thisWeek` | off / **on** / **on** | 6014.255 |
+
+Both scores reproduce the 2026-09-09 ~09:40 spike recorded in ARCHITECTURE.md
+§9 to the last digit, as does the alternative that run measured: differential 6
+of the Dungeon document is `scorePercent 1.729166724018797`, `hpsDifference
+-6009`, and it is "take the vault Spaulders instead, catalyzed and upgraded to
+321, and keep the 308 weapon you wear".
+
+**What the fourth question answers that the other three do not.** The top set
+takes the vault's **Lightgrasp Worldroot 251935 at 321** (`isVault`, the vault
+box on) while every owned item stays at the level the client reports (the ALL
+box off) - and it catalyzes **two items the owner already had**: the
+Venom-Cursed Lynx's Spaulders `277782 @295` in a bag, as tier shoulder
+`271526 @295`, and the Hide of Pestilence `251226 @302` as tier chest
+`271531 @302`. Neither is a vault option; his `ItemSet.ts:205` allows one vault
+option per set and the weapon won it. So the answer is half about the vault and
+half about the bags, which is what `ns.QEImport.CatalyzedOwned` exists to read -
+the same join as `CatalyzedCoverage`, pointed at the inventory scan.
+
+Note that his `autoCatalyze` clones everything he can, so a set may spend more
+Catalyst charges than the scenario's name implies: this one spends two. The
+Vault tab says both, beside the client's own charge count, and computes nothing.
+
+`spec/qeimport_spec.lua` and `spec/vaultpanel_spec.lua` read these two in their
+M3-13 blocks, joined to inventory snapshot 7 of the same capture.
+
 ## Upgrade Finder exports (`qe-live-upgradefinder` v1, the fork's schema)
 
 Produced headless by `tools/companion-spike/run-fork.js` (WKE-531) from the

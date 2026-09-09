@@ -152,7 +152,7 @@ test('a header-only difference - the capture ran again over the same gear - is s
 test('--force runs even when the profile is unchanged', async () => {
     const h = harness();
     await h.run();
-    assert.strictEqual(await h.run({ force: true }), companion.EXIT.ok);
+    assert.strictEqual(await h.run({ force: true }), companion.EXIT.ok, h.lines.join(' | '));
     assert.strictEqual(h.fork.calls.length, 2);
     assert.strictEqual(h.fork.calls[0], h.fork.calls[1], 'the same profile, asked again because it was told to');
 });
@@ -396,7 +396,7 @@ test('with no vault gear only asOffered is asked, and the log says which were sk
     const h = harness();
     await h.run();
     assert.deepStrictEqual(h.fork.passes, [['asOffered']]);
-    assert.ok(h.said('QE Live scenarios: asOffered (catalyzed, maxed skipped'), h.lines.join(' | '));
+    assert.ok(h.said('QE Live scenarios: asOffered (catalyzed, thisWeek, maxed skipped'), h.lines.join(' | '));
     const written = fs.readFileSync(h.verdict, 'utf8');
     assert.ok(written.includes('scenario = "asOffered",'), written.slice(0, 800));
     assert.ok(!written.includes('scenario = "catalyzed"'), 'a scenario that was skipped must not appear in the file');
@@ -405,9 +405,9 @@ test('with no vault gear only asOffered is asked, and the log says which were sk
 test('--force asks the what-ifs anyway', async () => {
     const h = harness();
     await h.run({ force: true });
-    assert.deepStrictEqual(h.fork.passes, [['asOffered', 'catalyzed', 'maxed']]);
+    assert.deepStrictEqual(h.fork.passes, [['asOffered', 'catalyzed', 'thisWeek', 'maxed']]);
     const written = fs.readFileSync(h.verdict, 'utf8');
-    for (const name of ['asOffered', 'catalyzed', 'maxed']) {
+    for (const name of ['asOffered', 'catalyzed', 'thisWeek', 'maxed']) {
         assert.ok(written.includes('scenario = "' + name + '",'), name + ' is missing from the verdict file');
     }
 });
