@@ -6,7 +6,13 @@
     "workspace.checkThirdParty": false,
     "workspace.maxPreload": 10000,
     "workspace.preloadFileSize": 10000,
-    "diagnostics.globals": ["SLASH_LOOTPATH1"],
+    "diagnostics.globals": [
+        "SLASH_LOOTPATH1",
+        "ColorManager",
+        "ITEM_QUALITY_COLORS",
+        "RETRIEVING_ITEM_INFO",
+        "GameTooltip_ShowCompareItem"
+    ],
     "diagnostics.severity": {
         "undefined-global": "Error",
         "undefined-field": "Warning",

@@ -5,7 +5,8 @@
 -- not from memory; the stub replays that transcript in spec/inventory_spec.lua.
 --
 -- Record: { key, itemID, link, itemLevel, bonusIDs (sorted), slot, equipLoc,
---           location = "equipped"|"bag"|"bank", bag, slotIndex, name, quality }
+--           location = "equipped"|"bag"|"bank", bag, slotIndex, name, quality,
+--           icon }
 -- Only equippable gear becomes a record; consumables, bags, profession tools
 -- and shirts/tabards have no QE Live slot and are skipped.
 --
@@ -81,6 +82,14 @@ function Inventory.Record(link, where, containerInfo, counter)
     if quality == nil and containerInfo then
         quality = guarded(counter, containerInfo.quality)
     end
+    -- The icon is the FIFTH return of GetItemInfoInstant (Blizzard's exported
+    -- ItemDocumentation, read under .luals/ on 2026-09-09) and is static data,
+    -- so it answers even for an item whose full data has not arrived. The
+    -- container's own iconFileID is the fallback, the way quality's is (M5-1).
+    local icon = tonumber(guarded(counter, instant[5]))
+    if icon == nil and containerInfo then
+        icon = tonumber(guarded(counter, containerInfo.iconFileID))
+    end
     return {
         key = parsed.key,
         itemID = parsed.itemID,
@@ -94,6 +103,7 @@ function Inventory.Record(link, where, containerInfo, counter)
         slotIndex = where.slotIndex,
         name = guarded(counter, info[1]),
         quality = quality,
+        icon = icon,
     }
 end
 

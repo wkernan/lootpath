@@ -234,13 +234,23 @@ describe("ns.Vault guards", function()
             "C_Item.GetDetailedItemLevelInfo",
             "C_Item.GetItemInfoInstant",
             "C_Item.GetItemInfo",
-            "C_Item.RequestLoadItemDataByID",
         }, ns.Vault.FUNCTION_NAMES)
+        -- RequestLoadItemDataByID left this list in M5-1 (WKE-550) with the
+        -- asking itself: ns.ItemData calls it now and names it, and a list
+        -- that claimed a call this file no longer makes would be worth nothing.
+        assert.same({
+            "C_Item.GetItemInfoInstant",
+            "C_Item.GetItemInfo",
+            "C_Item.GetDetailedItemLevelInfo",
+            "C_Item.RequestLoadItemDataByID",
+        }, ns.ItemData.FUNCTION_NAMES)
         -- Every name resolves on the stub; the literal call sites are the only
-        -- callers, and nothing in the file is reached through this list.
-        for _, name in ipairs(ns.Vault.FUNCTION_NAMES) do
-            local namespace, member = name:match("^(C_[%w_]+)%.([%w_]+)$")
-            assert.is_function(_G[namespace][member], name)
+        -- callers, and nothing in either file is reached through these lists.
+        for _, list in ipairs({ ns.Vault.FUNCTION_NAMES, ns.ItemData.FUNCTION_NAMES }) do
+            for _, name in ipairs(list) do
+                local namespace, member = name:match("^(C_[%w_]+)%.([%w_]+)$")
+                assert.is_function(_G[namespace][member], name)
+            end
         end
     end)
 end)
@@ -354,6 +364,22 @@ describe("ns.Vault over the after-reset transcript (generated rewards)", functio
             end
         end
         assert.equal(5, keystones)
+    end)
+
+    -- M5-1 (WKE-550): every reward record carries the icon file ID the client
+    -- gave, so the Vault tab's item lines have one to draw. It is the fifth
+    -- return of GetItemInfoInstant and therefore static data, which is why it
+    -- is there even on a record that is still pending.
+    it("carries the client's own icon on every reward", function()
+        local result = ns.Vault.Options()
+        local withIcon = 0
+        for _, option in ipairs(result.options) do
+            for _, reward in ipairs(option.rewards) do
+                assert.is_number(reward.icon)
+                withIcon = withIcon + 1
+            end
+        end
+        assert.is_true(withIcon > 0)
     end)
 
     -- M3-12 must not change what this snapshot says: every item was cached

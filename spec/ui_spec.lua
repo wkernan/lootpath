@@ -279,8 +279,13 @@ describe("the Equip Now panel", function()
     end)
 
     it("summarises the counts and puts the Equip button only on swap rows", function()
-        local summary = panel.summary:GetText()
-        assert.is_truthy(summary:find("already best", 1, true))
+        -- The counts are the five chips above the list (M5-1); the summary
+        -- line keeps only what the chips do not say.
+        local chips = ns.UI.EquipPanel.Chips(panel.match)
+        assert.equal(5, #chips)
+        assert.equal("equipped_is_best", chips[1].key)
+        assert.is_truthy(panel.chips[1]:GetText():find("already best", 1, true))
+        assert.is_truthy(ns.UI.EquipPanel.SummaryText(panel.match):find("already best", 1, true))
         local swapButtons, otherButtons = 0, 0
         for i = 1, #panel.match.rows do
             local frameRow = panel.rows[i]
@@ -350,7 +355,10 @@ describe("the Equip Now panel", function()
         assert.is_table(frameRow)
         assert.is_true(frameRow.note:IsShown())
         assert.is_truthy(frameRow.note:GetText():find(feet.reason, 1, true))
-        assert.is_falsy(frameRow.detail:GetText():find(feet.reason, 1, true))
+        -- Neither line of the item line carries the sentence: the name is the
+        -- item's, the second line is QE Live's level, the note is the reason.
+        assert.is_falsy(frameRow.line.name:GetText():find(feet.reason, 1, true))
+        assert.is_falsy(frameRow.line.second:GetText():find(feet.reason, 1, true))
         assert.equal(ns.UI.EquipPanel.ROW_HEIGHT + ns.UI.EquipPanel.NOTE_HEIGHT, frameRow:GetHeight())
     end)
 
@@ -364,11 +372,12 @@ describe("the Equip Now panel", function()
         for _, point in ipairs(frameRow.note.points) do
             anchors[point[1]] = point[2]
         end
-        assert.equal(frameRow.detail, anchors["TOPLEFT"])
+        assert.equal(frameRow, anchors["TOPLEFT"])
         assert.equal(frameRow, anchors["RIGHT"])
-        -- The first line still does not wrap: it is one line by design, and
-        -- everything long about a row now lives on the note.
-        assert.is_false(frameRow.detail.wordWrap)
+        -- The item line's own two lines still do not wrap: they are one line
+        -- each by design, and everything long about a row lives on the note.
+        assert.is_false(frameRow.line.name.wordWrap)
+        assert.is_false(frameRow.line.second.wordWrap)
     end)
 
     it("takes a row back to one line when its note goes away", function()
@@ -456,11 +465,17 @@ describe("the Equip Now panel on a Great Vault option in the top set (WKE-541)",
         local frameRow = vaultRow()
         assert.is_table(frameRow)
         assert.equal("2H Weapon", frameRow.slotText:GetText())
-        local detail = frameRow.detail:GetText()
-        assert.is_truthy(detail:find("already equipped", 1, true))
-        assert.is_falsy(detail:find("not found", 1, true))
-        assert.is_falsy(detail:find("->", 1, true))
-        assert.is_truthy(detail:find("[Lightgrasp Worldroot]", 1, true))
+        -- One item line, no pair: nothing is being swapped for anything.
+        assert.is_truthy(frameRow.line.name:GetText():find("Lightgrasp Worldroot", 1, true))
+        assert.equal("already equipped", frameRow.line.second:GetText())
+        assert.is_false(frameRow.worn:IsShown())
+        assert.is_false(frameRow.arrow:IsShown())
+        assert.is_false(frameRow.arrowText:IsShown())
+        assert.is_falsy(frameRow.line.badge:GetText():find("not owned", 1, true))
+        -- And QE Live's own word for what is waiting there, in his colour.
+        assert.is_truthy(frameRow.line.tags:GetText():find("Vault", 1, true))
+        assert.is_truthy(frameRow.line.tags:GetText():find(ns.UI.ItemLine.TAG.vault.hex, 1, true))
+        assert.is_truthy(ns.UI.EquipPanel.Describe(frameRow.matchRow).text:find("already equipped", 1, true))
     end)
 
     it("names the vault option and the tab that shows it, on a line of its own", function()
@@ -469,7 +484,8 @@ describe("the Equip Now panel on a Great Vault option in the top set (WKE-541)",
         local note = frameRow.note:GetText()
         assert.is_truthy(note:find(EXPECTED_NOTE, 1, true))
         assert.is_truthy(note:find(ns.UI.EquipPanel.NOTE_COLOR, 1, true))
-        assert.is_falsy(frameRow.detail:GetText():find("Great Vault", 1, true))
+        assert.is_falsy(frameRow.line.name:GetText():find("Great Vault", 1, true))
+        assert.is_falsy(frameRow.line.second:GetText():find("Great Vault", 1, true))
         assert.equal(EXPECTED_NOTE, ns.UI.EquipPanel.VaultNoteText(frameRow.matchRow.verdictItem))
     end)
 
@@ -491,8 +507,16 @@ describe("the Equip Now panel on a Great Vault option in the top set (WKE-541)",
     end)
 
     it("counts it as waiting in the vault, not as a hole in his gear", function()
-        local summary = panel.summary:GetText()
+        local summary = ns.UI.EquipPanel.SummaryText(panel.match)
         assert.is_truthy(summary:find("14 already best, 0 to swap, 1 waiting in the Great Vault, 0 not owned", 1, true))
+        -- The same five counts as the chips the panel actually draws.
+        local drawn = {}
+        for _, chip in ipairs(panel.chips) do
+            drawn[#drawn + 1] = chip:GetText()
+        end
+        assert.is_truthy(drawn[1]:find("14 already best", 1, true))
+        assert.is_truthy(drawn[2]:find("0 to swap", 1, true))
+        assert.is_truthy(drawn[3]:find("1 in the Great Vault", 1, true))
     end)
 
     it("does not claim an empty slot is already equipped", function()
