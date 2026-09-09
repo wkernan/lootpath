@@ -19,19 +19,47 @@ ns.companionVerdict = {
         {
             schema = "qe-live-droptimizer",
             contentType = "Dungeon",
+            scenario = "asOffered",
+            qeSettings = {
+                autoUpgradeVault = false,
+                autoUpgradeAll = false,
+                autoCatalyze = false,
+            },
             bytes = 44,
             json = "{\"schema\":\"qe-live-droptimizer\",\"version\":1}",
+        },
+        {
+            schema = "qe-live-droptimizer",
+            contentType = "Dungeon",
+            scenario = "catalyzed",
+            qeSettings = {
+                autoUpgradeVault = false,
+                autoUpgradeAll = false,
+                autoCatalyze = true,
+            },
+            bytes = 61,
+            json = "{\"schema\":\"qe-live-droptimizer\",\"version\":1,\"catalyzed\":true}",
         },
         {
             schema = "qe-live-upgradefinder",
             contentType = "Dungeon",
             keyLevel = 10,
+            qeSettings = {
+                autoUpgradeVault = false,
+                autoUpgradeAll = false,
+                autoCatalyze = false,
+            },
             bytes = 46,
             json = "{\"schema\":\"qe-live-upgradefinder\",\"version\":1}",
         },
         {
             schema = "qe-live-upgradefinder",
             contentType = "Raid",
+            qeSettings = {
+                autoUpgradeVault = false,
+                autoUpgradeAll = false,
+                autoCatalyze = false,
+            },
             bytes = 128,
             json = "quote \" backslash \\ close ]] and ]==] newline \n return \r tab \t nul \000 del \127 accented é lua os.execute(\"calc\") end return {} --[[",
         },

@@ -11,6 +11,30 @@ describe("Core", function()
         H.unload()
     end)
 
+    -- C-6 (WKE-540). A vault reward record carries the key and not the bonus
+    -- IDs, and recognising QE Live's own catalyzed copy of an option means
+    -- comparing the bonus IDs he copied onto it. The inverse lives beside the
+    -- one definition of the format so nothing else has to know about colons.
+    describe("BonusIDsFromKey", function()
+        it("is the inverse of ItemKey, sorted the way ItemKey sorted them", function()
+            assert.same({ 1, 2, 3 }, ns.BonusIDsFromKey(ns.ItemKey(12345, { 3, 1, 2 })))
+            assert.same(
+                { 6652, 12699, 12842, 13440, 13662 },
+                ns.BonusIDsFromKey(ns.ItemKey(251146, { 13440, 6652, 13662, 12699, 12842 }))
+            )
+        end)
+
+        it("answers an empty list for a key with no bonus IDs, and for nothing at all", function()
+            assert.same({}, ns.BonusIDsFromKey(ns.ItemKey(12345)))
+            assert.same({}, ns.BonusIDsFromKey(nil))
+            assert.same({}, ns.BonusIDsFromKey(12345))
+        end)
+
+        it("answers an empty list rather than a partial one for a key it cannot read", function()
+            assert.same({}, ns.BonusIDsFromKey("12345:1:x:3"))
+        end)
+    end)
+
     describe("ItemKey", function()
         it("is order-independent over bonus IDs", function()
             assert.equal("12345:1:2:3", ns.ItemKey(12345, { 3, 1, 2 }))

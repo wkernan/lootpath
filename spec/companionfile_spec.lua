@@ -46,7 +46,7 @@ describe("the companion's Data/QEVerdict.lua", function()
         assert.are.equal("2026-09-08T00:00:00Z", file.writtenAt)
         assert.are.equal("0.1.0", file.companionVersion)
         assert.are.equal("2026-09-05T13:33:25", file.profileCapturedAt)
-        assert.are.equal(3, #file.exports)
+        assert.are.equal(4, #file.exports)
     end)
 
     -- C-5 (WKE-539): the file says which of QE Live's own import settings
@@ -67,10 +67,29 @@ describe("the companion's Data/QEVerdict.lua", function()
         assert.are.equal("qe-live-droptimizer", documents[1].schema)
         assert.are.equal("Dungeon", documents[1].contentType)
         assert.are.equal('{"schema":"qe-live-droptimizer","version":1}', documents[1].json)
-        assert.are.equal("qe-live-upgradefinder", documents[2].schema)
+        assert.are.equal("qe-live-droptimizer", documents[2].schema)
         assert.are.equal("Dungeon", documents[2].contentType)
+        assert.are.equal('{"schema":"qe-live-droptimizer","version":1,"catalyzed":true}', documents[2].json)
         assert.are.equal("qe-live-upgradefinder", documents[3].schema)
-        assert.are.equal("Raid", documents[3].contentType)
+        assert.are.equal("Dungeon", documents[3].contentType)
+        assert.are.equal("qe-live-upgradefinder", documents[4].schema)
+        assert.are.equal("Raid", documents[4].contentType)
+    end)
+
+    -- C-6 (WKE-540): a Top Gear document says which named scenario it answers,
+    -- and carries the three checkboxes that produced it. Two documents over the
+    -- same gear and the same content type differ only in the question asked, so
+    -- a document that did not say would be indistinguishable from the other.
+    it("says which named scenario each Top Gear document answers", function()
+        local documents = load().companionVerdict.exports
+        assert.are.equal("asOffered", documents[1].scenario)
+        assert.are.equal("catalyzed", documents[2].scenario)
+        assert.is_nil(documents[3].scenario, "an Upgrade Finder document answers no scenario")
+        assert.is_nil(documents[4].scenario)
+        assert.is_false(documents[1].qeSettings.autoCatalyze)
+        assert.is_true(documents[2].qeSettings.autoCatalyze)
+        assert.is_boolean(documents[2].qeSettings.autoUpgradeVault)
+        assert.is_false(documents[2].qeSettings.autoUpgradeAll)
     end)
 
     -- C-7 (WKE-543): an Upgrade Finder document says which Mythic+ key level QE
@@ -81,18 +100,18 @@ describe("the companion's Data/QEVerdict.lua", function()
     it("says which Mythic+ key level an Upgrade Finder document was run at", function()
         local documents = load().companionVerdict.exports
         assert.is_nil(documents[1].keyLevel, "a Top Gear document is not run at a key level")
-        assert.are.equal(10, documents[2].keyLevel)
-        assert.are.equal("number", type(documents[2].keyLevel))
-        assert.is_nil(documents[3].keyLevel, "a document that was not run at a key level must not claim one")
+        assert.are.equal(10, documents[3].keyLevel)
+        assert.are.equal("number", type(documents[3].keyLevel))
+        assert.is_nil(documents[4].keyLevel, "a document that was not run at a key level must not claim one")
     end)
 
     it("round-trips every byte that could have ended the literal early", function()
         local documents = load().companionVerdict.exports
-        assert.are.equal(HOSTILE, documents[3].json)
+        assert.are.equal(HOSTILE, documents[4].json)
         -- Length is asserted separately, because an escape that silently ate a
         -- byte would still compare equal to a matching mistake above.
-        assert.are.equal(#HOSTILE, #documents[3].json)
-        assert.are.equal(#HOSTILE, documents[3].bytes)
+        assert.are.equal(#HOSTILE, #documents[4].json)
+        assert.are.equal(#HOSTILE, documents[4].bytes)
     end)
 
     it("is inert: loading it twice touches nothing but the namespace it is given", function()

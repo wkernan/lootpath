@@ -586,7 +586,9 @@ describe("the content type setting", function()
     end)
 
     it("registers one dropdown offering QE Live's own two content types", function()
-        assert.equal(1, #world.settings.dropdowns)
+        -- Two dropdowns since C-6 (WKE-540): the content type and the Vault
+        -- tab's highlight scenario, in that order.
+        assert.equal(2, #world.settings.dropdowns)
         local dropdown = world.settings.dropdowns[1]
         assert.equal("Lootpath", dropdown.category.name)
         assert.is_true(dropdown.category.registered)
@@ -1144,5 +1146,109 @@ describe("the Upgrade Map tab with an Upgrade Finder export", function()
         for i = 1, #panel.lines do
             assert.is_nil(panel.rows[i]:GetText():find("QE Live: ", 1, true))
         end
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- C-6 (WKE-540): the second setting, and the window's read of the scenarios.
+
+describe("the vault highlight scenario setting", function()
+    local ns, world
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        ns.UI.Frame()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("registers a second dropdown offering the three named scenarios", function()
+        assert.equal(2, #world.settings.dropdowns)
+        local dropdown = world.settings.dropdowns[2]
+        assert.equal("Lootpath", dropdown.category.name)
+        local values = {}
+        for _, entry in ipairs(dropdown.options()) do
+            values[#values + 1] = entry.value
+        end
+        assert.same({ "asOffered", "catalyzed", "maxed" }, values)
+        assert.same(ns.QEImport.SCENARIOS, values)
+    end)
+
+    it("defaults to asOffered, which is what the other two tabs read", function()
+        assert.equal("asOffered", ns.UI.Options.GetVaultScenario())
+        assert.equal("asOffered", ns.DB_DEFAULTS.profile.settings.vaultScenario)
+    end)
+
+    it("remembers what it is set to, and ignores what is not a name", function()
+        ns.UI.Options.SetVaultScenario("catalyzed")
+        assert.equal("catalyzed", ns.UI.Options.GetVaultScenario())
+        assert.equal("catalyzed", ns.db.profile.settings.vaultScenario)
+        ns.UI.Options.SetVaultScenario("")
+        ns.UI.Options.SetVaultScenario(nil)
+        assert.equal("catalyzed", ns.UI.Options.GetVaultScenario())
+    end)
+end)
+
+describe("UI.ActiveVerdictScenarios", function()
+    local ns
+    local SCENARIO_FILES = {
+        asOffered = "spec/fixtures/qe/qe-droptimizer-Hotornot-hldibnbaajft.json",
+        catalyzed = "spec/fixtures/qe/qe-droptimizer-Hotornot-xrjevewtwqsw.json",
+    }
+
+    before_each(function()
+        ns = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function store(scenario)
+        local parsed = ns.QEImport.Parse(readFile(SCENARIO_FILES[scenario]))
+        assert(parsed.ok, parsed.reason)
+        parsed.verdict.scenario = scenario
+        ns.QEImport.Store(parsed.verdict)
+        return parsed.verdict
+    end
+
+    it("answers an empty list before anything is imported, never nil", function()
+        local scenarios, contentType, fellBack = ns.UI.ActiveVerdictScenarios()
+        assert.same({}, scenarios)
+        assert.equal("Dungeon", contentType)
+        assert.is_false(fellBack)
+    end)
+
+    it("hands back every stored scenario for the content type on screen", function()
+        store("asOffered")
+        store("catalyzed")
+        local scenarios, contentType, fellBack = ns.UI.ActiveVerdictScenarios()
+        assert.equal("Dungeon", contentType)
+        assert.is_false(fellBack)
+        assert.same({ "asOffered", "catalyzed" }, { scenarios[1].scenario, scenarios[2].scenario })
+    end)
+
+    -- Deliverable 2, from the window's side: ActiveVerdict answers asOffered
+    -- however many what-ifs are stored beside it, so Equip Now and the Upgrade
+    -- Map read what the character has now.
+    it("leaves ActiveVerdict answering asOffered", function()
+        store("asOffered")
+        store("catalyzed")
+        local verdict, contentType, fellBack = ns.UI.ActiveVerdict()
+        assert.equal(5544.654, verdict.topSet.score)
+        assert.equal("Dungeon", contentType)
+        assert.is_false(fellBack)
+    end)
+
+    it("falls back to the content type that has answers, and says it fell back", function()
+        store("asOffered")
+        ns.UI.Options.Set("Raid")
+        local scenarios, contentType, fellBack = ns.UI.ActiveVerdictScenarios()
+        assert.equal("Dungeon", contentType)
+        assert.is_true(fellBack)
+        assert.equal(1, #scenarios)
     end)
 end)

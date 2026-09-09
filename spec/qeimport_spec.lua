@@ -570,3 +570,246 @@ describe("QEImport.Parse over a genuine QE Live export", function()
         assert.equal("2026-09-06T21:14:24.465Z", ns.QEImport.Current().exportedAt)
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- C-6 (WKE-540): the named scenarios, and QE Live's own catalyzed copy.
+--
+-- Every figure below is read from the six exports of the 2026-09-09 01:15
+-- companion run, committed unedited (spec/fixtures/qe/README.md): the same
+-- profile asked three questions through QE Live's three import checkboxes.
+
+local SCENARIO_EXPORTS = {
+    asOffered = "spec/fixtures/qe/qe-droptimizer-Hotornot-hldibnbaajft.json",
+    catalyzed = "spec/fixtures/qe/qe-droptimizer-Hotornot-xrjevewtwqsw.json",
+    maxed = "spec/fixtures/qe/qe-droptimizer-Hotornot-qqrqsbudcszh.json",
+}
+
+-- The vault options of the 2026-09-08 12:45 capture, as the client's own links
+-- carry them (ARCHITECTURE.md 9).
+local SPAULDERS = { itemID = 251146, slot = "Shoulder", bonusIDs = { 6652, 12699, 12842, 13440, 13662 } }
+local WEAPON = { itemID = 251935, slot = "2H Weapon", bonusIDs = { 6652, 12841 } }
+local NECK = { itemID = 251234, slot = "Neck", bonusIDs = { 6652, 12699, 12842, 13440, 13668 } }
+
+describe("QEImport and the named scenarios", function()
+    local ns
+
+    before_each(function()
+        ns = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function verdictOf(scenario)
+        local parsed = ns.QEImport.Parse(readFile(SCENARIO_EXPORTS[scenario]))
+        assert.is_true(parsed.ok, parsed.reason)
+        parsed.verdict.scenario = scenario
+        return parsed.verdict
+    end
+
+    it("reads a missing scenario as asOffered and an unknown one as its own shelf", function()
+        assert.same({ "asOffered", "catalyzed", "maxed" }, ns.QEImport.SCENARIOS)
+        assert.equal("asOffered", ns.QEImport.DEFAULT_SCENARIO)
+        assert.equal("asOffered", ns.QEImport.ScenarioKey({}))
+        assert.equal("asOffered", ns.QEImport.ScenarioKey(nil))
+        assert.equal("catalyzed", ns.QEImport.ScenarioKey({ scenario = "catalyzed" }))
+        -- Not "asOffered": a name this build does not know is no evidence that
+        -- the answer is the one Equip Now reads.
+        assert.equal("unknown", ns.QEImport.ScenarioKey({ scenario = "catalysed" }))
+        assert.equal("unknown", ns.QEImport.ScenarioKey({ scenario = 7 }))
+    end)
+
+    it("files three answers for one content type on three shelves", function()
+        for _, scenario in ipairs({ "asOffered", "catalyzed", "maxed" }) do
+            local stored = ns.QEImport.Store(verdictOf(scenario))
+            assert.is_true(stored.ok, stored.reason)
+        end
+        local shelves = ns.QEImport.Scenarios("Dungeon")
+        assert.equal(3, #shelves)
+        assert.same(
+            { "asOffered", "catalyzed", "maxed" },
+            { shelves[1].scenario, shelves[2].scenario, shelves[3].scenario }
+        )
+        -- QE Live's own scores, in the order the scenarios are asked.
+        assert.equal(5544.654, shelves[1].verdict.topSet.score)
+        assert.equal(5724.919, shelves[2].verdict.topSet.score)
+        assert.equal(5853.843, shelves[3].verdict.topSet.score)
+    end)
+
+    -- Deliverable 2 of the issue: Equip Now and the Upgrade Map never change
+    -- meaning. They read `qeImports` / `qeImport`, and only the `asOffered`
+    -- document is ever filed there.
+    it("keeps qeImport and qeImports answering asOffered whatever else is stored", function()
+        ns.QEImport.Store(verdictOf("asOffered"))
+        ns.QEImport.Store(verdictOf("catalyzed"))
+        ns.QEImport.Store(verdictOf("maxed"))
+        assert.equal(5544.654, ns.QEImport.ForContentType("Dungeon").topSet.score)
+        assert.equal(5544.654, ns.QEImport.Current().topSet.score)
+        assert.equal("asOffered", ns.QEImport.Current().scenario)
+    end)
+
+    it("asks what a verdict replaces per scenario, so three answers are not one repeat", function()
+        local offered = verdictOf("asOffered")
+        ns.QEImport.Store(offered)
+        assert.equal(offered, ns.QEImport.Existing(verdictOf("asOffered")))
+        assert.is_nil(ns.QEImport.Existing(verdictOf("catalyzed")))
+        ns.QEImport.Store(verdictOf("catalyzed"))
+        assert.equal(5724.919, ns.QEImport.Existing(verdictOf("catalyzed")).topSet.score)
+    end)
+
+    -- A character upgraded from a pre-C-6 build has a verdict under the content
+    -- type alone. It is what it always was - a document that named no scenario -
+    -- so it reads as asOffered and an asOffered import still replaces it.
+    it("reads a pre-C-6 stored verdict as the asOffered answer", function()
+        local legacy = verdictOf("asOffered")
+        legacy.scenario = nil
+        ns.QEImport.Store(legacy)
+        ns.db.char.qeImportsByScenario = {}
+        local shelves = ns.QEImport.Scenarios("Dungeon")
+        assert.equal(1, #shelves)
+        assert.equal("asOffered", shelves[1].scenario)
+        assert.equal(legacy, shelves[1].verdict)
+        assert.equal(legacy, ns.QEImport.Existing(verdictOf("asOffered")))
+    end)
+
+    it("answers nothing for a content type it has never seen", function()
+        assert.same({}, ns.QEImport.Scenarios("Dungeon"))
+        assert.same({}, ns.QEImport.Scenarios(nil))
+        assert.is_nil(ns.QEImport.ForContentTypeAndScenario("Dungeon", "maxed"))
+    end)
+end)
+
+-- QE Live's `autoCatalyze` does not change an item: SimCImportEngine.ts keeps
+-- the original and ADDS a clone, and Item.convertToTier gives the clone the
+-- tier piece's item ID and set ID while keeping the slot, the level, the bonus
+-- IDs and the vault flag. Measured in the committed catalyzed export: the
+-- vault's Scavenger's Spaulders 251146 appear as 271526 at 308, setId 2057,
+-- isVault, carrying the Spaulders' own bonus IDs - IN THE TOP SET.
+describe("QEImport.CatalyzedCoverage over QE Live's own catalyzed run", function()
+    local ns
+
+    before_each(function()
+        ns = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function verdictOf(scenario)
+        local parsed = ns.QEImport.Parse(readFile(SCENARIO_EXPORTS[scenario]))
+        assert.is_true(parsed.ok, parsed.reason)
+        return parsed.verdict
+    end
+
+    it("finds his tier copy of the vault shoulders, which the exact key never could", function()
+        local catalyzed = verdictOf("catalyzed")
+        local key = ns.ItemKey(SPAULDERS.itemID, SPAULDERS.bonusIDs)
+        assert.is_nil(ns.QEImport.Coverage(catalyzed, key), "the un-catalyzed shoulders are not in his answer")
+        local found = ns.QEImport.CatalyzedCoverage(catalyzed, SPAULDERS)
+        assert.is_not_nil(found)
+        assert.equal("topSet", found.where)
+        assert.equal(271526, found.item.itemID)
+        assert.equal(308, found.item.level)
+        assert.equal(2057, found.item.setId)
+        assert.is_true(found.item.isVault)
+        assert.equal(251146, found.catalyzedFrom)
+        -- The bonus IDs are the option's own, which is exactly what makes the
+        -- clone recognisable.
+        assert.same(SPAULDERS.bonusIDs, found.item.bonusIDs)
+    end)
+
+    it("carries his delta when the copy is only an alternative", function()
+        local found = ns.QEImport.CatalyzedCoverage(verdictOf("maxed"), SPAULDERS)
+        assert.is_not_nil(found)
+        assert.equal("alternative", found.where)
+        assert.equal(271526, found.item.itemID)
+        assert.equal(321, found.item.level)
+        assert.is_false(found.isBetter)
+    end)
+
+    it("finds nothing when his run made no copy, which is his canBeCatalyzed saying no", function()
+        -- Catalyze was off in this run altogether.
+        assert.is_nil(ns.QEImport.CatalyzedCoverage(verdictOf("asOffered"), SPAULDERS))
+        -- Catalyze was ON here, and he still made no copy of a weapon or a neck:
+        -- his canBeCatalyzed only accepts Head/Chest/Shoulder/Legs/Hands.
+        local catalyzed = verdictOf("catalyzed")
+        assert.is_nil(ns.QEImport.CatalyzedCoverage(catalyzed, WEAPON))
+        assert.is_nil(ns.QEImport.CatalyzedCoverage(catalyzed, NECK))
+    end)
+
+    it("never matches on the slot alone, and never on an item with no bonus IDs", function()
+        local catalyzed = verdictOf("catalyzed")
+        -- The right slot and the wrong bonus IDs is a different item, however
+        -- close it looks.
+        assert.is_nil(
+            ns.QEImport.CatalyzedCoverage(catalyzed, { itemID = 251146, slot = "Shoulder", bonusIDs = { 6652, 12841 } })
+        )
+        assert.is_nil(ns.QEImport.CatalyzedCoverage(catalyzed, { itemID = 251146, slot = "Shoulder", bonusIDs = {} }))
+        assert.is_nil(
+            ns.QEImport.CatalyzedCoverage(catalyzed, { itemID = 251146, slot = "Head", bonusIDs = SPAULDERS.bonusIDs })
+        )
+        -- And never the option itself, whatever else matches.
+        assert.is_nil(
+            ns.QEImport.CatalyzedCoverage(
+                catalyzed,
+                { itemID = 271526, slot = "Shoulder", bonusIDs = SPAULDERS.bonusIDs }
+            )
+        )
+    end)
+
+    -- His catalyzed run clones the WORN shoulder too (271526 at 295, from the
+    -- 250022 the character is wearing), and that clone is not `isVault`. This
+    -- function answers about vault OPTIONS, so the flag is what stops a line
+    -- about gear the vault is not offering appearing on the Vault tab.
+    it("never answers with the copy of an item the vault is not offering", function()
+        local worn = { itemID = 250022, slot = "Shoulder", bonusIDs = { 6652, 12830, 13662 } }
+        local catalyzed = verdictOf("catalyzed")
+        -- The clone really is in his answer, at the worn item's own bonus IDs.
+        local clone = catalyzed.topSet.items[ns.ItemKey(271526, worn.bonusIDs)]
+        if not clone then
+            for _, alternative in ipairs(catalyzed.alternatives) do
+                for _, item in ipairs(alternative.items) do
+                    if item.itemID == 271526 and item.level == 295 then
+                        clone = item
+                    end
+                end
+            end
+        end
+        assert.is_not_nil(clone, "his catalyzed run cloned the worn shoulder too")
+        assert.is_false(clone.isVault)
+        assert.is_nil(ns.QEImport.CatalyzedCoverage(catalyzed, worn))
+    end)
+
+    -- An item with no bonus IDs is not identified by them: two unrelated plain
+    -- items would match each other. The committed exports carry none, so the
+    -- case is built by hand, field for field from QE Live's own exporter.
+    it("never matches two items that share nothing but an empty bonus ID list", function()
+        local text = [==[{
+            "schema": "qe-live-droptimizer", "version": 1,
+            "exportedAt": "2026-09-09T01:00:00Z",
+            "player": { "name": "Hotornot", "realm": "Arthas", "region": "us",
+                        "spec": "Restoration Druid", "gameType": "Retail" },
+            "contentType": "Dungeon", "reportId": "handbuilt",
+            "topSet": { "score": 1, "stats": {}, "items": [
+                { "slot": "Shoulder", "id": 900001, "level": 300, "bonusIDs": [], "gems": [],
+                  "enchant": "", "tertiary": "", "setId": 0, "isVault": true,
+                  "isExclusive": false, "source": {} }
+            ] },
+            "differentials": []
+        }]==]
+        local parsed = ns.QEImport.Parse(text)
+        assert.is_true(parsed.ok, parsed.reason)
+        assert.is_nil(
+            ns.QEImport.CatalyzedCoverage(parsed.verdict, { itemID = 900002, slot = "Shoulder", bonusIDs = {} })
+        )
+    end)
+
+    it("refuses what it cannot read rather than guessing", function()
+        assert.is_nil(ns.QEImport.CatalyzedCoverage(nil, SPAULDERS))
+        assert.is_nil(ns.QEImport.CatalyzedCoverage(verdictOf("catalyzed"), nil))
+        assert.is_nil(ns.QEImport.CatalyzedCoverage(verdictOf("catalyzed"), { itemID = nil, slot = "Shoulder" }))
+        assert.is_nil(ns.QEImport.CatalyzedCoverage(verdictOf("catalyzed"), { itemID = 251146, slot = nil }))
+    end)
+end)

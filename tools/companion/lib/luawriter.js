@@ -67,6 +67,64 @@ const KINDS = new Set(Object.keys(SCHEMA_BY_KIND));
 // so the file carries it.
 const QE_SETTING_KEYS = ['autoUpgradeVault', 'autoUpgradeAll'];
 
+// The third box, written per document since C-6 (WKE-540) and never at file
+// level: the file-level pair is C-2's contract and stays exactly two booleans,
+// while each document says which of the three checkboxes produced IT.
+const DOCUMENT_QE_SETTING_KEYS = [...QE_SETTING_KEYS, 'autoCatalyze'];
+
+// The named scenarios (lib/config.js). Repeated here as a set rather than
+// imported, so the writer refuses a name it does not know instead of writing a
+// shelf the addon has never heard of; the two lists are tied together by a test.
+const SCENARIOS = new Set(['asOffered', 'catalyzed', 'maxed']);
+
+// A Top Gear document must say which scenario it answers, because filing one
+// under the wrong question is a wrong answer that looks right - and because a
+// document with no scenario means `asOffered` in the addon, which is the ONE
+// reading a `catalyzed` answer must never get. An Upgrade Finder document must
+// NOT say: scenarios do not apply to drops (WKE-540, "not the Upgrade Finder's
+// business"), and one that claimed a scenario would invite a shelf QE Live never
+// answered.
+function scenarioOf(doc) {
+    if (doc.scenario === undefined || doc.scenario === null) {
+        if (doc.kind === 'topgear') {
+            throw new Error(`document ${doc.kind}/${doc.contentType} carries no scenario, and every Top Gear document answers one`);
+        }
+        return null;
+    }
+    if (doc.kind !== 'topgear') {
+        throw new Error(`document ${doc.kind}/${doc.contentType} carries scenario ${JSON.stringify(doc.scenario)}, and only a Top Gear document answers one`);
+    }
+    if (!SCENARIOS.has(doc.scenario)) {
+        throw new Error(`document ${doc.kind}/${doc.contentType} carries scenario ${JSON.stringify(doc.scenario)}, which is not one of ${[...SCENARIOS].join(', ')}`);
+    }
+    return doc.scenario;
+}
+
+// The checkboxes one document was produced under. Required on every document:
+// the whole point of the scenarios is that two documents over the same gear
+// disagree because they were asked different questions, and a document that does
+// not say which question it answered cannot be read next to the other two.
+function documentSettings(doc) {
+    const settings = doc.qeSettings;
+    if (!settings || typeof settings !== 'object') {
+        throw new Error(`document ${doc.kind}/${doc.contentType} does not say which QE Live import settings produced it`);
+    }
+    const out = [];
+    for (const key of DOCUMENT_QE_SETTING_KEYS) {
+        if (settings[key] === undefined) continue;
+        if (typeof settings[key] !== 'boolean') {
+            throw new Error(`document ${doc.kind}/${doc.contentType} has qeSettings.${key} = ${JSON.stringify(settings[key])}, which is not a boolean`);
+        }
+        out.push([key, settings[key]]);
+    }
+    for (const key of QE_SETTING_KEYS) {
+        if (settings[key] === undefined) {
+            throw new Error(`document ${doc.kind}/${doc.contentType} does not say what qeSettings.${key} was`);
+        }
+    }
+    return out;
+}
+
 // The Mythic+ key level an Upgrade Finder document was run at (WKE-543, C-7),
 // written as the number a player says out loud rather than QE Live's
 // `settings.dungeon`, which is an index into his own table. The addon files
@@ -125,8 +183,13 @@ function render(payload) {
             throw new Error(`document ${doc.kind}/${doc.contentType} carries no JSON text`);
         }
         const keyLevel = keyLevelOf(doc);
+        const scenario = scenarioOf(doc);
         lines.push('        {', `            schema = ${luaString(SCHEMA_BY_KIND[doc.kind])},`, `            contentType = ${luaString(doc.contentType)},`);
         if (keyLevel !== null) lines.push(`            keyLevel = ${luaNumber(keyLevel)},`);
+        if (scenario !== null) lines.push(`            scenario = ${luaString(scenario)},`);
+        lines.push('            qeSettings = {');
+        for (const [key, value] of documentSettings(doc)) lines.push(`                ${key} = ${luaBoolean(value)},`);
+        lines.push('            },');
         lines.push(
             `            bytes = ${luaNumber(Buffer.byteLength(doc.json, 'utf8'))},`,
             `            json = ${luaString(doc.json)},`,
@@ -137,4 +200,17 @@ function render(payload) {
     return lines.join('\n');
 }
 
-module.exports = { render, luaString, luaNumber, luaBoolean, keyLevelOf, KINDS, SCHEMA_BY_KIND, QE_SETTING_KEYS };
+module.exports = {
+    render,
+    luaString,
+    luaNumber,
+    luaBoolean,
+    keyLevelOf,
+    scenarioOf,
+    documentSettings,
+    KINDS,
+    SCHEMA_BY_KIND,
+    QE_SETTING_KEYS,
+    DOCUMENT_QE_SETTING_KEYS,
+    SCENARIOS,
+};

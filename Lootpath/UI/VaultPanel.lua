@@ -76,6 +76,37 @@ Panel.SETTINGS_PHRASE = {
     all = "with all upgrades assumed",
     neither = "with no upgrades assumed",
 }
+-- The named scenarios, in the owner's words (C-6, WKE-540). QE Live's engine
+-- answers three questions about the same vault - what each option is now, what
+-- it becomes through the Catalyst, and what it becomes if everything is upgraded
+-- as well - and each answer is shown under its own name. The keys are
+-- ns.QEImport.SCENARIOS; the words are this panel's, and nothing but the words.
+Panel.SCENARIO_LABEL = {
+    asOffered = "as offered",
+    catalyzed = "catalyzed",
+    maxed = "everything upgraded",
+}
+
+-- What a line says when the number on it is about QE Live's catalyzed copy of
+-- the option rather than the option as the vault hands it over. His clone keeps
+-- the slot, the level and the bonus IDs and changes the item ID, so the reader
+-- has to be told which item the percentage is about.
+Panel.CATALYZED_SUFFIX = ", as tier"
+
+-- His `catalyzed` run made no tier copy of this option, which means his own
+-- `Item.canBeCatalyzed()` said no. Read off the absence in his output rather
+-- than restated from his rules: Lootpath does not know what can be catalyzed and
+-- does not want to.
+Panel.NOT_CATALYZED_TEXT = "the Catalyst run made no tier version of this item"
+
+-- Which scenario the "<- QE Live's pick" highlight follows, said on the line, so
+-- a pick that came from a what-if is never mistaken for what you have now.
+Panel.PICK_TEXT = "  <- QE Live's pick (%s)"
+
+-- The scenario the owner asked to be highlighted has no stored answer, so the
+-- highlight fell back. Said rather than silently substituted.
+Panel.HIGHLIGHT_FALLBACK_NOTE = "No %s answer is stored yet, so the pick below follows %s."
+
 Panel.NO_REWARDS_NOTE =
     "The vault has not generated this week's rewards yet. Progress is shown so you can see what is still unearned."
 Panel.NO_VERDICT_NOTE = "No QE Live import yet, so no option carries a value. Paste a Top Gear export to change that."
@@ -224,6 +255,104 @@ local function coverageRank(coverage)
     return ns.QEImport.AlternativeRank(coverage)
 end
 
+-- The scenarios this panel has answers for, as { verdict, scenario } (C-6,
+-- WKE-540). `opts.scenarios` is what ns.UI.ActiveVerdictScenarios hands over; a
+-- caller with only one verdict - a test, or a panel built without the window
+-- around it - gets that verdict under whichever scenario it names, which for a
+-- paste and for everything written before C-6 is `asOffered`.
+function Panel.ScenarioList(opts)
+    local given = opts and opts.scenarios
+    if type(given) == "table" and #given > 0 then
+        return given
+    end
+    if opts and opts.verdict then
+        return { { verdict = opts.verdict, scenario = ns.QEImport.ScenarioKey(opts.verdict) } }
+    end
+    return {}
+end
+
+-- Which scenario the highlight follows: the owner's setting when there is an
+-- answer stored for it, `asOffered` when there is not, and whatever there IS
+-- when even that is missing. Returns the name and whether it fell back, because
+-- a highlight that quietly answered a different question would be the exact
+-- thing this feature exists to stop.
+function Panel.HighlightScenario(scenarios, wanted)
+    local have = {}
+    for _, entry in ipairs(scenarios or {}) do
+        have[entry.scenario] = true
+    end
+    if type(wanted) == "string" and have[wanted] then
+        return wanted, false
+    end
+    local fellBack = type(wanted) == "string"
+    if have[ns.QEImport.DEFAULT_SCENARIO] then
+        return ns.QEImport.DEFAULT_SCENARIO, fellBack and wanted ~= ns.QEImport.DEFAULT_SCENARIO
+    end
+    local first = scenarios and scenarios[1] or nil
+    if first then
+        return first.scenario, fellBack and wanted ~= first.scenario
+    end
+    return nil, false
+end
+
+-- The name a scenario is shown under. An unknown name is shown as itself rather
+-- than translated into one of the three: a document filed under a name this
+-- build does not know is exactly the thing not to relabel.
+function Panel.ScenarioLabel(scenario)
+    return Panel.SCENARIO_LABEL[scenario] or tostring(scenario)
+end
+
+-- Did the run behind this verdict have QE Live's Catalyst box on? Read off the
+-- `qeSettings` the companion recorded (C-5/C-6), never guessed from the scenario
+-- name: the name is a label, the setting is what QE Live was actually asked.
+-- nil when the file does not say, and then nothing is claimed either way.
+local function askedToCatalyze(verdict)
+    local settings = type(verdict) == "table" and verdict.qeSettings or nil
+    if type(settings) ~= "table" or type(settings.autoCatalyze) ~= "boolean" then
+        return nil
+    end
+    return settings.autoCatalyze
+end
+
+-- What QE Live said about one gear option under one scenario: the option itself
+-- by the exact key, or his own catalyzed copy of it, whichever he ranked higher.
+-- Nothing here is computed - both are lookups into his export, and the choice
+-- between them is his own ordering through coverageRank.
+function Panel.ScenarioCoverage(verdict, reward)
+    local direct = reward.key and ns.QEImport.Coverage(verdict, reward.key) or nil
+    local catalyzed = ns.QEImport.CatalyzedCoverage(verdict, {
+        itemID = reward.itemID,
+        slot = reward.slot,
+        bonusIDs = ns.BonusIDsFromKey(reward.key),
+    })
+    if catalyzed and coverageRank(catalyzed) < coverageRank(direct) then
+        return catalyzed, true, catalyzed
+    end
+    return direct, false, catalyzed
+end
+
+-- One line, in QE Live's words and numbers, under the scenario's name.
+function Panel.ScenarioLine(entry, reward)
+    local coverage, viaCatalyst, catalyzed = Panel.ScenarioCoverage(entry.verdict, reward)
+    if not coverage then
+        return nil
+    end
+    local label = Panel.ScenarioLabel(entry.scenario) .. (viaCatalyst and Panel.CATALYZED_SUFFIX or "")
+    return {
+        scenario = entry.scenario,
+        label = label,
+        coverage = coverage,
+        viaCatalyst = viaCatalyst,
+        -- His catalyze box was on and his run produced no tier copy of this
+        -- item, which is `Item.canBeCatalyzed()` answering no. That is HIS
+        -- answer, read off the absence in his own output rather than restated
+        -- from his rules - and it is read off `qeSettings`, the boxes the
+        -- companion recorded, never inferred from the scenario's name.
+        notCatalyzed = not catalyzed and askedToCatalyze(entry.verdict) == true,
+        text = ns.UpgradeMapPanel.ValueText(coverage, label),
+    }
+end
+
 -- Model(opts) -> the panel as plain data.
 --
 -- opts.vault    ns.Vault.Options()'s result
@@ -246,7 +375,17 @@ end
 function Panel.Model(opts)
     opts = opts or {}
     local vault = opts.vault or {}
+    -- The scenarios are the answers; `verdict` is still the one the rest of the
+    -- panel reads for the level text, the settings phrase and the staleness
+    -- check, and it is the highlight's own document rather than a fourth choice.
+    local scenarios = Panel.ScenarioList(opts)
+    local highlight, highlightFellBack = Panel.HighlightScenario(scenarios, opts.highlightScenario)
     local verdict = opts.verdict
+    for _, entry in ipairs(scenarios) do
+        if entry.scenario == highlight then
+            verdict = entry.verdict
+        end
+    end
     local qeSettings = type(verdict) == "table" and verdict.qeSettings or nil
     local model = {
         -- Kept for the headless tests that pin the wording; the frame's header
@@ -258,9 +397,19 @@ function Panel.Model(opts)
         hasAvailableRewards = vault.hasAvailableRewards == true,
         canClaimRewards = vault.canClaimRewards == true,
         qeSettings = qeSettings,
+        scenarios = scenarios,
+        highlightScenario = highlight,
+        highlightFellBack = highlightFellBack == true,
         options = {},
-        counts = { options = 0, rewards = 0, extras = 0, covered = 0 },
+        counts = { options = 0, rewards = 0, extras = 0, covered = 0, scenarios = #scenarios },
     }
+    if highlightFellBack then
+        model.highlightNote = string.format(
+            Panel.HIGHLIGHT_FALLBACK_NOTE,
+            Panel.ScenarioLabel(opts.highlightScenario),
+            Panel.ScenarioLabel(highlight)
+        )
+    end
 
     local best, bestRank
     for _, option in ipairs(vault.options or {}) do
@@ -280,7 +429,13 @@ function Panel.Model(opts)
                 extras[#extras + 1] = extra
                 model.counts.extras = model.counts.extras + 1
             else
-                local coverage = reward.key and ns.QEImport.Coverage(verdict, reward.key) or nil
+                -- The highlight scenario's answer, and QE Live's own catalyzed
+                -- copy of the option counts as an answer about it: under his
+                -- `catalyzed` run the 308 shoulders the vault offers are in the
+                -- top set as the tier piece, and reporting only the exact key
+                -- would answer the owner's Catalyst question with the shoulders
+                -- he did not catalyze.
+                local coverage, viaCatalyst = Panel.ScenarioCoverage(verdict, reward)
                 local qeItem = coverage and coverage.item or nil
                 local row = {
                     itemID = reward.itemID,
@@ -296,6 +451,7 @@ function Panel.Model(opts)
                     -- The only path to a number on a vault row: nil `qe` means nil
                     -- `value`, and there is no other assignment to `value` here.
                     qe = coverage,
+                    qeViaCatalyst = viaCatalyst,
                     value = coverage and ns.UpgradeMapPanel.ValueText(coverage) or nil,
                 }
                 row.levelText = Panel.LevelText(row.itemLevel, row.qeLevel, qeSettings)
@@ -359,10 +515,33 @@ function Panel.Model(opts)
                 text = text .. " " .. option.extrasText
             end
             if reward.best then
-                text = text .. "  <- QE Live's pick"
+                text = text .. string.format(Panel.PICK_TEXT, Panel.ScenarioLabel(model.highlightScenario))
             end
             reward.text = text
-            reward.verdictLines = reward.value and { reward.value } or {}
+            -- One line per scenario that has something to say about THIS option,
+            -- in the order they are asked. A scenario whose document does not
+            -- mention it at all is silent rather than adding a row that says
+            -- nothing; when no scenario mentions it, the option keeps its item
+            -- level and no verdict, exactly as before C-6.
+            reward.scenarioLines = {}
+            local saidNotCatalyzed = false
+            for _, entry in ipairs(scenarios) do
+                local line = Panel.ScenarioLine(entry, reward)
+                if line then
+                    -- Said once per option, on the first catalyze-on line that
+                    -- has to say it: repeating "he made no tier version" under
+                    -- every scenario would bury the answer it sits next to.
+                    if line.notCatalyzed and not saidNotCatalyzed then
+                        line.text = line.text .. " (" .. Panel.NOT_CATALYZED_TEXT .. ")"
+                        saidNotCatalyzed = true
+                    end
+                    reward.scenarioLines[#reward.scenarioLines + 1] = line
+                end
+            end
+            reward.verdictLines = {}
+            for _, line in ipairs(reward.scenarioLines) do
+                reward.verdictLines[#reward.verdictLines + 1] = line.text
+            end
         end
     end
 
@@ -396,6 +575,9 @@ function Panel.Lines(model)
     end
     if model.verdictNote then
         add(model.verdictNote)
+    end
+    if model.highlightNote then
+        add(model.highlightNote)
     end
     if model.staleNote then
         add(model.staleNote)
@@ -439,11 +621,28 @@ local function activeVerdict()
     return ns.QEImport.Current()
 end
 
+-- Every named scenario stored for the content type on screen (C-6). Read
+-- through the window for the same reason the verdict is: the content-type
+-- setting decides which import a panel shows, and reaching past it would answer
+-- a Dungeon setting with a Raid export.
+local function activeScenarios()
+    if ns.UI and ns.UI.ActiveVerdictScenarios then
+        return (ns.UI.ActiveVerdictScenarios())
+    end
+    return {}
+end
+
 function Panel.Gather(opts)
     opts = opts or {}
     return {
         vault = ns.Vault.Options(),
         verdict = activeVerdict(),
+        scenarios = activeScenarios(),
+        highlightScenario = ns.UI
+                and ns.UI.Options
+                and ns.UI.Options.GetVaultScenario
+                and ns.UI.Options.GetVaultScenario()
+            or nil,
         now = opts.now,
     }
 end

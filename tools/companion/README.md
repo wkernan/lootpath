@@ -38,6 +38,17 @@ at 308, because QE Live had been asked about the vault copy at 321. Since C-5
 (WKE-539) the companion **sets both boxes explicitly on every run**, defaulting
 to both OFF, and records which pair it asked for in the file it writes.
 
+**It asks the vault what-ifs by name, because a vault option is not the item as
+it is offered.** Put the 308 Scavenger's Spaulders through the Catalyst and they
+are tier shoulders at 308 - the set bonus kept, the item level unchanged. QE
+Live models that (and upgrade tracks) in his three import checkboxes, so
+Lootpath models neither: since C-6 (WKE-540) the companion runs Top Gear once per
+named scenario - `asOffered`, `catalyzed`, `maxed` - because the boxes act AT
+import, and stamps each document with the scenario it answers. Measured
+2026-09-09 on the owner's own vault: `asOffered` ranks the vault weapon 0.57%
+behind, `catalyzed` puts the catalyzed shoulders in the best set, `maxed` puts
+the weapon in it at 321. Three questions, three answers, none of them Lootpath's.
+
 **It asks about several Mythic+ keys, because his engine only answers about
 one.** The Upgrade Finder values every dungeon drop at the single key level
 `ufSettings.dungeon` names, so "which dungeon at the lowest key still gives me
@@ -130,8 +141,9 @@ the defaults, which are the owner's machine. Every key is optional.
 | `forkUrl` | `http://localhost:3000` | |
 | `documents` | Top Gear and Upgrade Finder, Dungeon then Raid | `contentType` is QE Live's own string; it has no "Mythic+" |
 | `upgradeFinderKeyLevels` | `[2, 4, 6, 8, 10]` | key levels, sorted and deduplicated; the dungeon Upgrade Finder is run once per level |
+| `scenarios` | `["asOffered", "catalyzed", "maxed"]` | the named what-ifs Top Gear is run under; must include `asOffered` |
 | `includeBank` | `true` | bank items only reach the profile if the bank was open when the capture ran |
-| `qeAutoUpgradeVault` | `false` | QE Live's "Upgrade Vault to Max Level" box, set explicitly every run |
+| `qeAutoUpgradeVault` | `false` | QE Live's "Upgrade Vault to Max Level" box **for the Upgrade Finder**; Top Gear takes its boxes from the scenario |
 | `qeAutoUpgradeAll` | `false` | his "Upgrade ALL to Max Level" box, likewise |
 | `startFork` | `true` | |
 | `headed` | `false` | show the browser when a selector stops matching |
@@ -201,17 +213,60 @@ third choice: his `processItem` reads `if (autoUpgradeAll) ... else if (type ===
 anything while it is off. Both are still clicked explicitly, because what is
 being asked should not depend on reading that precedence right.
 
-The Catalyst - his third box, "Auto Catalyze" - is **not touched**. It is
-WKE-540's question (named scenarios, run several times), and a box nobody asked
-about is left exactly where his dialog put it.
+**Since C-6 (WKE-540) this pair governs the Upgrade Finder only.** Top Gear is
+run once per named scenario and takes all three of its boxes from the scenario
+table below. The Upgrade Finder is not a scenario question - it ranks drops you
+do not own - so it is still asked under the pair configured here. When the pair
+is both off (the default) those are the `asOffered` boxes exactly, so the Upgrade
+Finder documents ride in the `asOffered` import and a run costs one import per
+scenario and no more; set it otherwise and the Upgrade Finder gets an import of
+its own, which the log names.
 
-The file the addon reads carries the pair:
+### The named scenarios
+
+A vault option is what it can BECOME, not what it is offered as. QE Live models
+the two transformations that matter in his import dialog - `autoCatalyze` adds a
+catalyzed clone of every active item his `Item.canBeCatalyzed()` accepts, and the
+two upgrade boxes raise tracked items to his `CONSTANTS.itemLevelCaps` - so
+Lootpath asks him each question by name instead of modelling either.
+
+| scenario | ALL | vault | catalyze | the question |
+|---|---|---|---|---|
+| `asOffered` | off | off | off | what each item is right now |
+| `catalyzed` | off | off | **on** | if I catalyze what can be catalyzed |
+| `maxed` | **on** | **on** | **on** | if I upgrade everything to its cap and catalyze |
+
+The names are the contract: they are what `lib/config.js` holds, what each
+document in `Data/QEVerdict.lua` carries, and what `ns.QEImport.SCENARIOS` reads
+back. **Top Gear only** - the Upgrade Finder ranks drops you do not own, and
+scenarios do not apply to those.
+
+Each scenario is a separate IMPORT, not a flag on a run: `runSimC` is handed the
+checkbox state at Submit (`SimCraftDialog.js` `handleSubmit`), so a box flipped
+afterwards changes nothing. Measured 2026-09-09, three scenarios over two content
+types: **three imports, six documents, 41.7 s warm**. The two what-ifs are asked
+only when the profile carries a vault section with gear in it, or under
+`--force`; `asOffered` is always asked, because Equip Now and the Upgrade Map
+read that document and no other.
+
+The file the addon reads carries the pair at file level:
 
 ```lua
     qeSettings = {
         autoUpgradeVault = false,
         autoUpgradeAll = false,
     },
+```
+
+each Top Gear document's scenario and its own three boxes:
+
+```lua
+        {
+            schema = "qe-live-droptimizer", contentType = "Dungeon",
+            scenario = "catalyzed",
+            qeSettings = { autoUpgradeVault = false, autoUpgradeAll = false, autoCatalyze = true },
+            ...
+        },
 ```
 
 and, on every Upgrade Finder document, the key level it was run at:
@@ -229,15 +284,18 @@ and, on every Upgrade Finder document, the key level it was run at:
 | `lib/lua-savedvariables.js` | reads the Lua subset the client writes, without a Lua runtime (S-2's) |
 | `lib/simc-profile.js` | SavedVariables -> SimC text, mirroring the SimulationCraft addon (S-2's) |
 | `lib/profile.js` | the thin shape the CLI reads, plus the spec check |
-| `lib/fork.js` | drives QE Live, lifted from the S-1 spike; sets the two upgrade boxes by their label and reads them back (C-5) |
+| `lib/fork.js` | drives QE Live, lifted from the S-1 spike; sets the checkboxes by their label and reads them back (C-5), one import per scenario (C-6) |
 | `lib/luawriter.js` | renders `Data/QEVerdict.lua`; its escaper is the whole safety story |
 | `lib/output.js` | temp file, then rename, so the client never reads half a file |
 | `lib/watch.js` | one run per `/reload`, never one per byte written |
 | `lib/fingerprint.js` | is this the profile QE Live was already asked about? (C-4) |
 
-`lib/config.js` also owns `plannedDocuments(config)`, which turns the configured
-document list into the documents one run actually produces - the dungeon Upgrade
-Finder fanned out over `upgradeFinderKeyLevels` (C-7).
+`lib/config.js` also owns `plannedPasses(config, { hasVaultGear, force })`, which
+turns the configured lists into the PASSES one run makes over QE Live - an import
+with one set of checkboxes, then every document that import can answer - and
+`plannedDocuments`, which is that flattened. A pass exists because the boxes act
+at import (C-6); inside one, the dungeon Upgrade Finder is fanned out over
+`upgradeFinderKeyLevels` (C-7).
 
 ## What the addon gets
 
@@ -329,8 +387,9 @@ until WKE-535's reader exists (Upgrade Finder).
 npm test        # node --test, no install needed for the pure parts
 ```
 
-111 tests over the reader, the profile builder, the config, the writer, the
-watcher, the fingerprint, the driver's checkbox step and its key selector. The profile builder is measured against the owner's
+130 tests over the reader, the profile builder, the config, the writer, the
+watcher, the fingerprint, the driver's checkbox step, its key selector and its
+scenario passes. The profile builder is measured against the owner's
 own `/simc` string (`spec/fixtures/simc/hotornot-20260907.txt`) and against a
 committed generated profile; the writer's golden is loaded by a real Lua interpreter in
 `spec/companionfile_spec.lua`. The fork driver is not mocked: it is proven by a
@@ -343,4 +402,7 @@ finds those boxes by label in a real page is a recorded run, not a test. C-7's
 key selector is proved the same way, against a fake page carrying his eight
 toggle labels plus a decoy row of raid difficulties - what is NOT proved there is
 that the "Mythic+ Key Level" Paper is the one Playwright finds in his real page,
-and that is the recorded run in the pull request.
+and that is the recorded run in the pull request. C-6's scenario table is
+proved over the plan (`plannedPasses`) and the same fake dialog, and end to end
+through `once()`: with no vault gear only `asOffered` is asked, `--force` asks
+all three, and changing the list costs a run.

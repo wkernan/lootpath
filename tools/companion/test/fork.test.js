@@ -143,7 +143,9 @@ test('what the driver reports is exactly what the verdict writer accepts', async
         writtenAt: '2026-09-08T00:00:00Z',
         companionVersion: '0.1.0',
         qeSettings: settings,
-        documents: [{ kind: 'topgear', contentType: 'Dungeon', json: '{}' }],
+        documents: [
+            { kind: 'topgear', contentType: 'Dungeon', scenario: 'asOffered', qeSettings: settings, json: '{}' },
+        ],
     });
     assert.ok(text.includes('autoUpgradeAll = true,'), text.slice(0, 400));
 });

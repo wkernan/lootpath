@@ -197,23 +197,29 @@ end
 -- conversion to real HPS is commented out in his own source, so the field is a
 -- raw hardScore delta (verified 2026-09-06, ARCHITECTURE.md 9). Calling it HPS
 -- on screen would be this addon inventing a healing number.
-function Panel.ValueText(coverage)
+--
+-- `prefix` names who is speaking and defaults to "QE Live", which is still the
+-- only answer this function ever renders. The Vault tab passes a scenario's name
+-- instead (C-6, WKE-540): there the whole panel is his, and what each line has
+-- to say is WHICH of the three questions it answers.
+function Panel.ValueText(coverage, prefix)
     if type(coverage) ~= "table" then
         return nil
     end
+    local who = type(prefix) == "string" and prefix or "QE Live"
     if coverage.where == "topSet" then
-        return "QE Live: in your best set"
+        return who .. ": in your best set"
     end
     local percent = tonumber(coverage.scorePercent)
     local hps = tonumber(coverage.hpsDifference)
     if not percent then
-        return "QE Live: ranked, no delta given"
+        return who .. ": ranked, no delta given"
     end
     local direction = coverage.isBetter and "better" or "worse"
     if hps then
-        return string.format("QE Live: %s by %.2f%% (%+.1f score)", direction, math.abs(percent), hps)
+        return string.format("%s: %s by %.2f%% (%+.1f score)", who, direction, math.abs(percent), hps)
     end
-    return string.format("QE Live: %s by %.2f%%", direction, math.abs(percent))
+    return string.format("%s: %s by %.2f%%", who, direction, math.abs(percent))
 end
 
 -- The line an Upgrade-Finder-ranked row shows. QE Live's percentage, his sign,

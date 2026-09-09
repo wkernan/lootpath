@@ -40,6 +40,28 @@ QEImport.GAME_TYPE = "Retail"
 QEImport.CONTENT_TYPES = { "Dungeon", "Raid" }
 QEImport.UNKNOWN_CONTENT_TYPE = "Unknown"
 
+-- The named what-if scenarios (C-6, WKE-540; decision 2026-09-08). A vault
+-- option is not the item as it is offered: put the 308 Scavenger's Spaulders
+-- through the Catalyst and they are tier shoulders at 308, and upgrade tracks
+-- move the level the same way. QE Live models both through his import dialog's
+-- three checkboxes, so Lootpath models neither: the companion asks him each
+-- question by name and this module files each answer by name.
+--
+-- The strings are the companion's verbatim (`tools/companion/lib/config.js`,
+-- `SCENARIOS`), because they are what lands in Data/QEVerdict.lua.
+QEImport.SCENARIOS = { "asOffered", "catalyzed", "maxed" }
+
+-- What a document that names no scenario is. Everything written before C-6 -
+-- the committed placeholder, every paste, the two exports of 2026-09-07 - says
+-- nothing, and every one of them IS the character as it stands; treating a
+-- silent document as anything else would change what Equip Now means.
+QEImport.DEFAULT_SCENARIO = "asOffered"
+
+-- A scenario string this build does not know. It is given a shelf of its own
+-- rather than being read as the default, because a name nobody here recognises
+-- is not evidence that the answer is the one Equip Now reads.
+QEImport.UNKNOWN_SCENARIO = "unknown"
+
 -- Sign conventions, the whole failure mode of this module. Pinned twice from
 -- QE Live's source (2026-09-06):
 --   TopGearJSONExport.ts:42-43 states them - "scoreDifference: number (% -
@@ -128,6 +150,109 @@ function QEImport.Coverage(verdict, key)
         hpsDifference = best.hpsDifference,
         isBetter = QEImport.AlternativeIsBetter(best),
     }
+end
+
+-- QE Live's own catalyzed copy of a vault option, when his `catalyzed` or
+-- `maxed` run made one (C-6, WKE-540).
+--
+-- `autoCatalyze` does not change an item: `SimCImportEngine.ts` keeps the
+-- original in the listing and ADDS a clone, and `Item.convertToTier` gives that
+-- clone the tier piece's item ID and set ID while keeping everything else the
+-- original had - the same slot, the same level, the same bonus IDs, the same
+-- `vaultItem` flag. So the catalyzed form of a vault option is a DIFFERENT item
+-- ID and the exact-key join can never find it, and a Vault tab that only ever
+-- joined on the key would answer "if I catalyze these shoulders" with what QE
+-- Live said about the shoulders he did not catalyze. Measured 2026-09-08: the
+-- vault's 251146 becomes 271526 and enters the top set, while 251146 itself sits
+-- in an alternative.
+--
+-- This is a JOIN, not a model of the Catalyst. Nothing here knows which items
+-- can be catalyzed, what a tier piece is, or what the conversion costs: it
+-- recognises the copy QE Live himself put in the export, by the fields he
+-- copied. When his run made no copy - because his own `canBeCatalyzed()` said no
+-- - there is nothing to find and the caller is told that in those words.
+local function sameBonusIDs(a, b)
+    if type(a) ~= "table" or type(b) ~= "table" or #a ~= #b then
+        return false
+    end
+    for index = 1, #a do
+        if a[index] ~= b[index] then
+            return false
+        end
+    end
+    -- An item with no bonus IDs at all is not identified by them: two different
+    -- plain items would match each other. The vault's own links always carry
+    -- some, so this costs nothing real and closes the hole.
+    return #a > 0
+end
+
+-- Every item the export mentions, top set first and then alternatives ordered by
+-- QE Live's own rank, so the first match found is the best thing he said.
+local function eachItem(verdict, visit)
+    local topSet = type(verdict) == "table" and type(verdict.topSet) == "table" and verdict.topSet or {}
+    local items = type(topSet.items) == "table" and topSet.items or {}
+    for _, key in ipairs(topSet.order or {}) do
+        local item = items[key]
+        if item and visit(item, "topSet", nil) then
+            return true
+        end
+    end
+    local ranked = {}
+    for _, alternative in ipairs(verdict.alternatives or {}) do
+        ranked[#ranked + 1] = alternative
+    end
+    table.sort(ranked, function(left, right)
+        return QEImport.AlternativeRank(left) < QEImport.AlternativeRank(right)
+    end)
+    for _, alternative in ipairs(ranked) do
+        for _, item in ipairs(alternative.items or {}) do
+            if visit(item, "alternative", alternative) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+-- CatalyzedCoverage(verdict, option) -> coverage in Coverage's own shape, plus
+-- `catalyzedFrom` (the option's own itemID) and `item` (his clone), or nil.
+-- `option` is `{ itemID, slot, bonusIDs }` - what the vault reward carries.
+function QEImport.CatalyzedCoverage(verdict, option)
+    if type(verdict) ~= "table" or type(option) ~= "table" then
+        return nil
+    end
+    local itemID, slot = tonumber(option.itemID), option.slot
+    if not itemID or type(slot) ~= "string" then
+        return nil
+    end
+    local found
+    eachItem(verdict, function(item, where, alternative)
+        if
+            item.isVault == true
+            and item.slot == slot
+            and item.itemID ~= itemID
+            and sameBonusIDs(item.bonusIDs, option.bonusIDs)
+        then
+            found = {
+                key = item.key,
+                item = item,
+                where = where,
+                isVault = true,
+                catalyzedFrom = itemID,
+                scorePercent = alternative and alternative.scorePercent or nil,
+                hpsDifference = alternative and alternative.hpsDifference or nil,
+            }
+            -- Assigned on its own line, not through `and ... or nil`: a
+            -- perfectly good `false` collapses to nil in that idiom, and this
+            -- field is the direction word on screen.
+            if alternative then
+                found.isBetter = QEImport.AlternativeIsBetter(alternative)
+            end
+            return true
+        end
+        return false
+    end)
+    return found
 end
 
 -- Renders a value seen in the export for a refusal message. Strings are quoted
@@ -368,6 +493,26 @@ end
 -- Dungeon export and a Raid export answer different questions and pasting one
 -- must not lose the other (M2-2's content-type setting is what chooses between
 -- them). SavedVariables flush on /reload or logout, not here.
+-- Which named scenario a verdict answers (C-6, WKE-540). A verdict that does not
+-- say is `asOffered`, so every paste and every file written before C-6 keeps
+-- meaning exactly what it meant. A verdict that names something this build does
+-- not know is filed as unknown rather than read as the default.
+function QEImport.ScenarioKey(verdict)
+    local scenario = type(verdict) == "table" and verdict.scenario or nil
+    if scenario == nil then
+        return QEImport.DEFAULT_SCENARIO
+    end
+    if type(scenario) ~= "string" then
+        return QEImport.UNKNOWN_SCENARIO
+    end
+    for _, name in ipairs(QEImport.SCENARIOS) do
+        if name == scenario then
+            return name
+        end
+    end
+    return QEImport.UNKNOWN_SCENARIO
+end
+
 function QEImport.Store(verdict)
     if type(verdict) ~= "table" then
         return { ok = false, reason = "no verdict to store" }
@@ -376,9 +521,22 @@ function QEImport.Store(verdict)
         return { ok = false, reason = "database not loaded yet" }
     end
     verdict.importedAt = time()
-    ns.db.char.qeImport = verdict
-    ns.db.char.qeImports = ns.db.char.qeImports or {}
-    ns.db.char.qeImports[QEImport.ContentTypeKey(verdict)] = verdict
+    local contentType = QEImport.ContentTypeKey(verdict)
+    local scenario = QEImport.ScenarioKey(verdict)
+    ns.db.char.qeImportsByScenario = ns.db.char.qeImportsByScenario or {}
+    local byScenario = ns.db.char.qeImportsByScenario
+    byScenario[contentType] = byScenario[contentType] or {}
+    byScenario[contentType][scenario] = verdict
+    -- `qeImport` and `qeImports` are the `asOffered` shelves and nothing else.
+    -- Equip Now, the Upgrade Map and every fallback in the window read them, and
+    -- WKE-540's second deliverable is that those two tabs NEVER change meaning:
+    -- a `catalyzed` answer landing here would tell the owner to equip an item
+    -- the Catalyst has not been used on yet.
+    if scenario == QEImport.DEFAULT_SCENARIO then
+        ns.db.char.qeImport = verdict
+        ns.db.char.qeImports = ns.db.char.qeImports or {}
+        ns.db.char.qeImports[contentType] = verdict
+    end
     return { ok = true, verdict = verdict }
 end
 
@@ -402,7 +560,68 @@ end
 -- identified by content type AND Mythic+ key level. ns.Companion asks whichever
 -- importer owns the schema, so it never reaches into either shape itself.
 function QEImport.Existing(verdict)
-    return QEImport.ForContentType(QEImport.ContentTypeKey(verdict))
+    local contentType = QEImport.ContentTypeKey(verdict)
+    local scenario = QEImport.ScenarioKey(verdict)
+    local stored = QEImport.ForContentTypeAndScenario(contentType, scenario)
+    if stored then
+        return stored
+    end
+    -- Nothing on the scenario shelf yet. An `asOffered` import still replaces
+    -- whatever a pre-C-6 build filed under the content type alone, so the first
+    -- companion file after an upgrade is not read as a repeat of itself.
+    if scenario == QEImport.DEFAULT_SCENARIO then
+        return QEImport.ForContentType(contentType)
+    end
+    return nil
+end
+
+-- The stored verdict for one content type under one named scenario.
+function QEImport.ForContentTypeAndScenario(contentType, scenario)
+    if type(contentType) ~= "string" or type(scenario) ~= "string" then
+        return nil
+    end
+    local byScenario = ns.db and ns.db.char and ns.db.char.qeImportsByScenario
+    local shelf = byScenario and byScenario[contentType]
+    return shelf and shelf[scenario] or nil
+end
+
+-- Every stored answer for one content type, in the order the scenarios are
+-- asked, with any name this build does not know appended. This is the ONE place
+-- the scenario shelf is read, so the Vault panel is pure over what it is handed.
+--
+-- A character with nothing on the shelf but a pre-C-6 import for that content
+-- type gets that import back as `asOffered`, which is what it is: a document
+-- that named no scenario.
+function QEImport.Scenarios(contentType)
+    if type(contentType) ~= "string" then
+        return {}
+    end
+    local byScenario = ns.db and ns.db.char and ns.db.char.qeImportsByScenario
+    local shelf = (byScenario and byScenario[contentType]) or {}
+    local out, seen = {}, {}
+    for _, name in ipairs(QEImport.SCENARIOS) do
+        if shelf[name] then
+            out[#out + 1] = { verdict = shelf[name], scenario = name }
+            seen[name] = true
+        end
+    end
+    local extra = {}
+    for name in pairs(shelf) do
+        if not seen[name] then
+            extra[#extra + 1] = name
+        end
+    end
+    table.sort(extra)
+    for _, name in ipairs(extra) do
+        out[#out + 1] = { verdict = shelf[name], scenario = name }
+    end
+    if #out == 0 then
+        local legacy = QEImport.ForContentType(contentType)
+        if legacy then
+            out[#out + 1] = { verdict = legacy, scenario = QEImport.ScenarioKey(legacy) }
+        end
+    end
+    return out
 end
 
 -- Every content type this character has an import for, in QE Live's order with

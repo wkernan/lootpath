@@ -276,14 +276,14 @@ test('an Upgrade Finder run without a key level leaves his selector alone', asyn
 test('the dungeon Upgrade Finder is planned once per key level, everything else once', () => {
     const config = configLib.load(null);
     assert.deepStrictEqual(config.upgradeFinderKeyLevels, [2, 4, 6, 8, 10]);
-    assert.deepStrictEqual(configLib.plannedDocuments(config), [
-        { kind: 'topgear', contentType: 'Dungeon' },
+    assert.deepStrictEqual(configLib.plannedDocuments(config, { hasVaultGear: false }), [
+        { kind: 'topgear', contentType: 'Dungeon', scenario: 'asOffered' },
         { kind: 'upgradefinder', contentType: 'Dungeon', keyLevel: 2 },
         { kind: 'upgradefinder', contentType: 'Dungeon', keyLevel: 4 },
         { kind: 'upgradefinder', contentType: 'Dungeon', keyLevel: 6 },
         { kind: 'upgradefinder', contentType: 'Dungeon', keyLevel: 8 },
         { kind: 'upgradefinder', contentType: 'Dungeon', keyLevel: 10 },
-        { kind: 'topgear', contentType: 'Raid' },
+        { kind: 'topgear', contentType: 'Raid', scenario: 'asOffered' },
         // Not "none", which is what WKE-543 proposed: the Raid Upgrade Finder
         // export carries the same dungeon-sourced rows as the Dungeon one, all
         // stamped with the key index the selector held (measured on the
@@ -298,8 +298,8 @@ test('the level list is one question however it is typed', () => {
     // plan and - because the fingerprint hashes the same list - one question.
     assert.deepStrictEqual(loadWith([10, 2, 2, 10]).upgradeFinderKeyLevels, [2, 10]);
     assert.deepStrictEqual(
-        configLib.plannedDocuments(loadWith([10, 2, 2, 10])),
-        configLib.plannedDocuments(loadWith([2, 10]))
+        configLib.plannedDocuments(loadWith([10, 2, 2, 10]), { hasVaultGear: true }),
+        configLib.plannedDocuments(loadWith([2, 10]), { hasVaultGear: true })
     );
 });
 
@@ -325,6 +325,8 @@ test('a level list that is not a list of whole key levels is refused with the va
 
 // --- the document the addon reads -------------------------------------------
 
+const BOXES = { autoUpgradeVault: false, autoUpgradeAll: false, autoCatalyze: false };
+
 test('an Upgrade Finder document records the key level it was run at', () => {
     const text = luaWriter.render({
         writtenAt: '2026-09-08T00:00:00Z',
@@ -332,9 +334,9 @@ test('an Upgrade Finder document records the key level it was run at', () => {
         profileCapturedAt: '2026-09-05T13:33:25',
         qeSettings: { autoUpgradeVault: false, autoUpgradeAll: false },
         documents: [
-            { kind: 'topgear', contentType: 'Dungeon', json: '{}' },
-            { kind: 'upgradefinder', contentType: 'Dungeon', keyLevel: 2, json: '{}' },
-            { kind: 'upgradefinder', contentType: 'Dungeon', keyLevel: 10, json: '{}' },
+            { kind: 'topgear', contentType: 'Dungeon', scenario: 'asOffered', qeSettings: BOXES, json: '{}' },
+            { kind: 'upgradefinder', contentType: 'Dungeon', keyLevel: 2, qeSettings: BOXES, json: '{}' },
+            { kind: 'upgradefinder', contentType: 'Dungeon', keyLevel: 10, qeSettings: BOXES, json: '{}' },
         ],
     });
     assert.match(text, /contentType = "Dungeon",\n            keyLevel = 2,/);

@@ -132,6 +132,12 @@ end
 -- addon never infers a setting from a number it sees elsewhere.
 Companion.QE_SETTING_KEYS = { "autoUpgradeVault", "autoUpgradeAll" }
 
+-- The third box (C-6, WKE-540). Optional, because a file written before C-6 has
+-- only the pair above and half a stated setting is still not a setting: it is
+-- carried when it is really a boolean and left out otherwise, and a file that
+-- does not mention the Catalyst says nothing about it rather than "off".
+Companion.OPTIONAL_QE_SETTING_KEYS = { "autoCatalyze" }
+
 function Companion.Settings(raw)
     local safe, sawSecret = ns.Safe(raw)
     if sawSecret or type(safe) ~= "table" then
@@ -145,7 +151,23 @@ function Companion.Settings(raw)
         end
         settings[key] = value
     end
+    for _, key in ipairs(Companion.OPTIONAL_QE_SETTING_KEYS) do
+        local value, secret = ns.Safe(safe[key])
+        if not secret and type(value) == "boolean" then
+            settings[key] = value
+        end
+    end
     return settings
+end
+
+-- Which named scenario a Top Gear document answers (C-6, WKE-540). Optional in
+-- exactly the way the key level is: an Upgrade Finder document never carries
+-- one, and a file written before C-6 carries none at all. The name is passed
+-- through as the string the companion wrote and is never repaired here -
+-- ns.QEImport.ScenarioKey is the one place a name becomes a shelf, and a name it
+-- does not know gets a shelf of its own rather than the default's.
+local function safeScenario(value)
+    return safeString(value)
 end
 
 -- Validate(raw) -> { ok = true, writtenAt, writtenAtEpoch, companionVersion,
@@ -224,6 +246,12 @@ function Companion.Entry(raw, index)
         schema = schema,
         contentType = safeString(safe.contentType),
         keyLevel = safeKeyLevel(safe.keyLevel),
+        scenario = safeScenario(safe.scenario),
+        -- Per document since C-6: two Top Gear answers over the same gear
+        -- disagree precisely because they were asked with different boxes, so
+        -- each one says which. A document that does not carry the pair falls
+        -- back to the file's, which is every file written before C-6.
+        qeSettings = Companion.Settings(safe.qeSettings),
         json = json,
     }
 end
@@ -293,6 +321,11 @@ function Companion.ImportAll(raw, now)
                 -- clicked on QE Live's own key selector; nothing here derives
                 -- it from the export.
                 verdict.keyLevel = entry.keyLevel
+                -- Set before Existing for the same reason, and it is the same
+                -- failure: since C-6 a Top Gear verdict is identified by content
+                -- type AND scenario, so three answers over one content type read
+                -- as three repeats of the first and two would be thrown away.
+                verdict.scenario = entry.scenario
                 local contentType = importer.ContentTypeKey(verdict)
                 -- The counterpart of the SAME kind, never the other kind's:
                 -- a Top Gear import and an Upgrade Finder import for one
@@ -331,7 +364,7 @@ function Companion.ImportAll(raw, now)
                     -- the Vault panel reads it off whichever verdict is on
                     -- screen, which may have come back from SavedVariables
                     -- reloads after the file that wrote it was replaced.
-                    verdict.qeSettings = file.qeSettings
+                    verdict.qeSettings = entry.qeSettings or file.qeSettings
                     local stored = importer.Store(verdict)
                     if not stored.ok then
                         result.skipped[#result.skipped + 1] = { index = index, reason = stored.reason }
@@ -341,6 +374,7 @@ function Companion.ImportAll(raw, now)
                             schema = entry.schema,
                             contentType = contentType,
                             keyLevel = entry.keyLevel,
+                            scenario = entry.scenario,
                             spec = verdict.spec,
                             items = count,
                             noun = noun,
@@ -401,11 +435,12 @@ function Companion.Startup(now)
     end
     for _, entry in ipairs(result.imported) do
         ns.Log(
-            "companion import: %s, %s, %s%s, %d %s, written %s.",
+            "companion import: %s, %s, %s%s%s, %d %s, written %s.",
             ns.UI.KIND_LABEL[Companion.KIND_OF[entry.schema]] or entry.schema,
             entry.spec or "unknown spec",
             entry.contentType,
             entry.keyLevel and string.format(" +%d", entry.keyLevel) or "",
+            entry.scenario and string.format(" (%s)", entry.scenario) or "",
             entry.items,
             entry.noun or "items",
             ns.UI.AgeText(result.writtenAt, now)

@@ -53,10 +53,26 @@ function harness(savedVariables) {
     const log = logLib.make((line) => lines.push(line));
     const fork = {
         calls: [],
-        async run(runConfig, profileText) {
+        passes: [],
+        async run(runConfig, profileText, runLog, runOpts) {
             fork.calls.push(profileText);
+            fork.passes.push(((runOpts && runOpts.passes) || []).map((pass) => pass.scenario));
+            // The real driver answers the PASSES it was handed (C-6), so this
+            // double does too: a document carries the scenario it was run under
+            // and the three boxes that produced it, which is what the writer
+            // now insists on.
+            const passes = (runOpts && runOpts.passes) || [];
             return {
-                documents: [{ kind: 'topgear', contentType: 'Dungeon', json: '{"player":{"spec":"Guardian"}}' }],
+                documents: passes.flatMap((pass) =>
+                    pass.documents.map((doc) => ({
+                        kind: doc.kind,
+                        contentType: doc.contentType,
+                        keyLevel: doc.keyLevel,
+                        scenario: doc.scenario,
+                        qeSettings: pass.boxes,
+                        json: '{"player":{"spec":"Guardian"}}',
+                    }))
+                ),
                 timings: [],
                 // The real driver reads the boxes back off the page after
                 // clicking them (C-5); this double reports what it was asked
@@ -206,7 +222,8 @@ test('the state file names the hash, the stamp it wrote and the file it wrote', 
     assert.strictEqual(path.resolve(state.verdict), path.resolve(h.verdict));
     assert.strictEqual(
         state.hash,
-        fingerprintLib.fingerprint(h.fork.calls[0], configLib.qeSettings(h.config), h.config.upgradeFinderKeyLevels).hash
+        fingerprintLib.fingerprint(h.fork.calls[0], configLib.qeSettings(h.config), h.config.upgradeFinderKeyLevels, h.config.scenarios)
+            .hash
     );
     // The stamp the state file remembers is the one the addon reads out of the
     // chunk, so the skip line quotes a time the owner can check against it.
@@ -279,7 +296,7 @@ test('the same settings twice is still a skip', async () => {
 test('the run says which settings it asked QE Live for, and the file records them', async () => {
     const h = harness();
     await h.run();
-    assert.ok(h.said('QE Live import settings: autoUpgradeVault=false, autoUpgradeAll=false'), h.lines.join(' | '));
+    assert.ok(h.said('QE Live Upgrade Finder import settings: autoUpgradeVault=false, autoUpgradeAll=false'), h.lines.join(' | '));
     const written = fs.readFileSync(h.verdict, 'utf8');
     assert.ok(written.includes('autoUpgradeVault = false,'), written.slice(0, 600));
     assert.ok(written.includes('autoUpgradeAll = false,'), written.slice(0, 600));
@@ -365,4 +382,45 @@ test('the key levels are hashed as one canonical line, next to the import settin
     assert.strictEqual(fingerprintLib.keyLevelsLine([]), '# upgradeFinderKeyLevels none');
     assert.notStrictEqual(print.hash, fingerprintLib.fingerprint('druid="Hotornot"', settings, [2, 4]).hash);
     assert.strictEqual(print.hash, fingerprintLib.fingerprint('druid="Hotornot"', settings, [2, 10]).hash);
+});
+
+// --- C-6 (WKE-540): the two what-ifs are only asked when there is a vault -----
+
+// The committed transcript this harness runs on has no generated Great Vault
+// reward, so its profile carries no vault section (the run says so out loud:
+// "no generated Great Vault reward ... the profile has no vault section").
+// With nothing offered there is nothing to catalyze or upgrade that is not
+// already the character's, and two more imports would cost a browser minute for
+// an answer nobody asked for.
+test('with no vault gear only asOffered is asked, and the log says which were skipped', async () => {
+    const h = harness();
+    await h.run();
+    assert.deepStrictEqual(h.fork.passes, [['asOffered']]);
+    assert.ok(h.said('QE Live scenarios: asOffered (catalyzed, maxed skipped'), h.lines.join(' | '));
+    const written = fs.readFileSync(h.verdict, 'utf8');
+    assert.ok(written.includes('scenario = "asOffered",'), written.slice(0, 800));
+    assert.ok(!written.includes('scenario = "catalyzed"'), 'a scenario that was skipped must not appear in the file');
+});
+
+test('--force asks the what-ifs anyway', async () => {
+    const h = harness();
+    await h.run({ force: true });
+    assert.deepStrictEqual(h.fork.passes, [['asOffered', 'catalyzed', 'maxed']]);
+    const written = fs.readFileSync(h.verdict, 'utf8');
+    for (const name of ['asOffered', 'catalyzed', 'maxed']) {
+        assert.ok(written.includes('scenario = "' + name + '",'), name + ' is missing from the verdict file');
+    }
+});
+
+// The scenario list is half the question the fingerprint asks, so a run that
+// dropped a scenario must not be answered out of the state file.
+test('changing the scenario list costs a run even when the gear has not moved', async () => {
+    const h = harness();
+    await h.run({ force: true });
+    assert.strictEqual(h.fork.calls.length, 1);
+    await h.run();
+    assert.strictEqual(h.fork.calls.length, 1, 'nothing changed, so nothing is asked');
+    h.config.scenarios = ['asOffered'];
+    await h.run();
+    assert.strictEqual(h.fork.calls.length, 2, 'a shorter scenario list is a different question');
 });

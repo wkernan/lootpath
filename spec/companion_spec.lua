@@ -38,8 +38,18 @@ end
 local function verdictChunkSource(verdict)
     local parts = {}
     for _, export in ipairs(verdict.exports) do
+        local settings = ""
+        if export.qeSettings then
+            local written = {}
+            for _, key in ipairs({ "autoUpgradeVault", "autoUpgradeAll", "autoCatalyze" }) do
+                if export.qeSettings[key] ~= nil then
+                    written[#written + 1] = string.format("%s = %s", key, tostring(export.qeSettings[key]))
+                end
+            end
+            settings = string.format(" qeSettings = { %s },", table.concat(written, ", "))
+        end
         parts[#parts + 1] = string.format(
-            "        { schema = %q, contentType = %q,%s json = %q },\n",
+            "        { schema = %q, contentType = %q,%s%s%s json = %q },\n",
             export.schema,
             export.contentType or "",
             -- C-7 (WKE-543): an Upgrade Finder document says which Mythic+ key
@@ -47,6 +57,10 @@ local function verdictChunkSource(verdict)
             -- number, because that is what the companion writes and what the
             -- addon has to read back.
             export.keyLevel and string.format(" keyLevel = %d,", export.keyLevel) or "",
+            -- C-6 (WKE-540): a Top Gear document says which named scenario it
+            -- answers, and carries the three checkboxes that produced it.
+            export.scenario and string.format(" scenario = %q,", export.scenario) or "",
+            settings,
             export.json
         )
     end
@@ -861,5 +875,162 @@ describe("Companion.ImportAll with several key levels", function()
         assert.equal(1, #result.imported)
         assert.is_nil(result.imported[1].keyLevel)
         assert.is_true((select(2, ns.UFImport.StoredKeyLevels("Raid"))))
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- C-6 (WKE-540): one file, three answers about the same gear.
+--
+-- The three documents are real, and they are the point: same profile, same
+-- content type, three different questions put to QE Live through his three
+-- import checkboxes. Filed by content type alone they would look like three
+-- repeats of the first and two would be thrown away - the exact failure C-7 hit
+-- with key levels.
+
+local SCENARIO_FILES = {
+    asOffered = "spec/fixtures/qe/qe-droptimizer-Hotornot-hldibnbaajft.json",
+    catalyzed = "spec/fixtures/qe/qe-droptimizer-Hotornot-xrjevewtwqsw.json",
+    maxed = "spec/fixtures/qe/qe-droptimizer-Hotornot-qqrqsbudcszh.json",
+}
+
+describe("a companion file carrying the three named scenarios", function()
+    local ns
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function boxesFor(scenario)
+        return {
+            autoUpgradeVault = scenario == "maxed",
+            autoUpgradeAll = scenario == "maxed",
+            autoCatalyze = scenario ~= "asOffered",
+        }
+    end
+
+    local function threeScenarios(writtenAt)
+        local exports = {}
+        for _, scenario in ipairs({ "asOffered", "catalyzed", "maxed" }) do
+            exports[#exports + 1] = {
+                schema = "qe-live-droptimizer",
+                contentType = "Dungeon",
+                scenario = scenario,
+                qeSettings = boxesFor(scenario),
+                json = readFile(SCENARIO_FILES[scenario]),
+            }
+        end
+        return { writtenAt = writtenAt or "2026-09-09T01:15:53Z", companionVersion = "0.1.0", exports = exports }
+    end
+
+    -- The startup import is what the client really runs, so the result is read
+    -- from it rather than from a second ImportAll (which would be the same file
+    -- read again, and correctly report three unchanged documents).
+    it("imports all three and files each under its own scenario", function()
+        local world
+        ns, world = loadWithChunk(verdictChunkSource(threeScenarios()))
+        local result = ns.Companion.Startup()
+        assert.is_true(result.ok, result.reason)
+        assert.is_truthy(world.output():find("catalyzed", 1, true))
+        assert.equal(3, #result.unchanged, "the same file, read again, is three unchanged documents")
+        assert.same({}, result.skipped)
+        local shelves = ns.QEImport.Scenarios("Dungeon")
+        assert.equal(3, #shelves)
+        assert.equal(5544.654, shelves[1].verdict.topSet.score)
+        assert.equal(5724.919, shelves[2].verdict.topSet.score)
+        assert.equal(5853.843, shelves[3].verdict.topSet.score)
+    end)
+
+    -- Deliverable 2: Equip Now and the Upgrade Map read `asOffered` and never
+    -- anything else, whatever else the file carried.
+    it("leaves the verdict Equip Now reads as the asOffered one", function()
+        ns = loadWithChunk(verdictChunkSource(threeScenarios()))
+        assert.equal(5544.654, ns.QEImport.Current().topSet.score)
+        assert.equal(5544.654, ns.QEImport.ForContentType("Dungeon").topSet.score)
+        assert.equal(5544.654, (ns.UI.ActiveVerdict()).topSet.score)
+    end)
+
+    it("carries each document's own three checkboxes onto its verdict", function()
+        ns = loadWithChunk(verdictChunkSource(threeScenarios()))
+        local shelves = ns.QEImport.Scenarios("Dungeon")
+        assert.is_false(shelves[1].verdict.qeSettings.autoCatalyze)
+        assert.is_true(shelves[2].verdict.qeSettings.autoCatalyze)
+        assert.is_false(shelves[2].verdict.qeSettings.autoUpgradeAll)
+        assert.is_true(shelves[3].verdict.qeSettings.autoUpgradeAll)
+        assert.is_true(shelves[3].verdict.qeSettings.autoUpgradeVault)
+    end)
+
+    -- Everything written before C-6 - the committed placeholder, C-1's own
+    -- files, every paste - names no scenario, and every one of them IS the
+    -- character as it stands.
+    it("reads a document that names no scenario as asOffered", function()
+        ns = loadWithChunk(verdictChunkSource({
+            writtenAt = "2026-09-09T01:00:00Z",
+            companionVersion = "0.1.0",
+            exports = {
+                { schema = "qe-live-droptimizer", contentType = "Dungeon", json = readFile(SCENARIO_FILES.asOffered) },
+            },
+        }))
+        local shelves = ns.QEImport.Scenarios("Dungeon")
+        assert.equal(1, #shelves)
+        assert.equal("asOffered", shelves[1].scenario)
+        assert.equal(5544.654, ns.QEImport.Current().topSet.score)
+    end)
+
+    -- The file-level pair is C-2's contract and stays exactly two booleans. A
+    -- document that carries none falls back to it, which is every file written
+    -- before C-6.
+    it("falls back to the file's settings for a document that does not carry its own", function()
+        local source = verdictChunkSource({
+            writtenAt = "2026-09-09T01:00:00Z",
+            companionVersion = "0.1.0",
+            exports = {
+                { schema = "qe-live-droptimizer", contentType = "Dungeon", json = readFile(SCENARIO_FILES.asOffered) },
+            },
+        })
+        -- The file-level pair, written where C-5 puts it. `gsub` returns two
+        -- values, so the replacement is parenthesised before it goes anywhere.
+        source = (
+            source:gsub(
+                "ns%.companionVerdict = {",
+                "%0\n    qeSettings = { autoUpgradeVault = true, autoUpgradeAll = false },",
+                1
+            )
+        )
+        ns = loadWithChunk(source)
+        local stored = ns.QEImport.ForContentType("Dungeon")
+        assert.is_true(stored.qeSettings.autoUpgradeVault)
+        assert.is_false(stored.qeSettings.autoUpgradeAll)
+        assert.is_nil(stored.qeSettings.autoCatalyze, "a file that says nothing about the Catalyst claims nothing")
+    end)
+
+    it("says nothing new when the same file is read again on the next reload", function()
+        ns = loadWithChunk(verdictChunkSource(threeScenarios()))
+        local again = ns.Companion.ImportAll(ns.companionVerdict)
+        assert.is_true(again.ok)
+        assert.same({}, again.imported)
+        assert.equal(3, #again.unchanged)
+    end)
+
+    -- ns.Safe first, the standing client rule: a secret scenario name answers no
+    -- type honestly, so it is silence and the document is still imported - as
+    -- asOffered, which is what a document that does not say means.
+    it("passes a secret scenario through ns.Safe before it is believed", function()
+        local world
+        ns, world = H.load()
+        local result = ns.Companion.ImportAll({
+            writtenAt = "2026-09-09T01:00:00Z",
+            exports = {
+                {
+                    schema = "qe-live-droptimizer",
+                    contentType = "Dungeon",
+                    scenario = world.markSecret("catalyzed"),
+                    json = readFile(SCENARIO_FILES.catalyzed),
+                },
+            },
+        })
+        assert.is_true(result.ok)
+        assert.equal(1, #result.imported)
+        assert.is_nil(result.imported[1].scenario)
+        assert.equal("asOffered", ns.QEImport.Scenarios("Dungeon")[1].scenario)
     end)
 end)

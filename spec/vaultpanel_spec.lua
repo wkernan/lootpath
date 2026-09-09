@@ -304,11 +304,14 @@ describe("VaultPanel against the real reward shape (WKE-538)", function()
         assert.equal("+ Mythic Keystone", world2.extrasText)
         -- Name, level and the keystone are one unit, so C-6's scenario lines can
         -- grow underneath it (WKE-540) without moving any of the three.
+        -- Since C-6 the pick names the scenario it came from, and the verdict
+        -- line under it is that scenario's own line. This export names none, so
+        -- it is `asOffered` - what the character has now.
         assert.equal(
-            "Lightgrasp Worldroot (305; QE Live valued it at 321) + Mythic Keystone  <- QE Live's pick",
+            "Lightgrasp Worldroot (305; QE Live valued it at 321) + Mythic Keystone  <- QE Live's pick (as offered)",
             world2.rewards[1].text
         )
-        assert.same({ "QE Live: in your best set" }, world2.rewards[1].verdictLines)
+        assert.same({ "as offered: in your best set" }, world2.rewards[1].verdictLines)
 
         -- Nothing without a slot is ever a gear option, anywhere on the panel.
         for _, option in ipairs(m.options) do
@@ -668,5 +671,187 @@ describe("VaultPanel draws the pinned note once (WKE-530 finding 3)", function()
         frame:Refresh()
         assert.is_false(frame.model.ok)
         assert.equal(1, noteCount(frame))
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- C-6 (WKE-540): the vault what-ifs, as QE Live's own named scenarios.
+--
+-- The three documents are real: one companion run on 2026-09-09 01:15 UTC over
+-- the profile of the 2026-09-08 12:45 capture, asking QE Live the same gear
+-- three times through his three import checkboxes. Every number asserted below
+-- is his, read out of those files (spec/fixtures/qe/README.md).
+--
+-- The point of the feature is in one row. Under `asOffered` the vault's
+-- Scavenger's Spaulders are not in his answer at all; under `catalyzed` the
+-- tier shoulder he cloned from them is in the top set; under `maxed` the weapon
+-- wins instead. Three questions, three answers, none of them Lootpath's.
+
+describe("VaultPanel over the three named scenarios (WKE-540)", function()
+    local ns, world
+    local AFTER_RESET = "spec/fixtures/captures/Lootpath-20260908-124527.lua"
+    local SCENARIO_FILES = {
+        asOffered = "spec/fixtures/qe/qe-droptimizer-Hotornot-hldibnbaajft.json",
+        catalyzed = "spec/fixtures/qe/qe-droptimizer-Hotornot-xrjevewtwqsw.json",
+        maxed = "spec/fixtures/qe/qe-droptimizer-Hotornot-qqrqsbudcszh.json",
+    }
+    local WEAPON_KEY = "251935:6652:12841"
+    local SPAULDERS_KEY = "251146:6652:12699:12842:13440:13662"
+
+    before_each(function()
+        ns, world = H.load()
+        R.vault(world, R.snapshot("vault", 9, AFTER_RESET))
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function scenarios(names)
+        local out = {}
+        for _, name in ipairs(names or { "asOffered", "catalyzed", "maxed" }) do
+            local parsed = ns.QEImport.Parse(readFile(SCENARIO_FILES[name]))
+            assert(parsed.ok, parsed.reason)
+            parsed.verdict.scenario = name
+            -- What the companion records for each document: the three boxes the
+            -- run really used, read back off QE Live's own page.
+            parsed.verdict.qeSettings = {
+                autoUpgradeVault = name == "maxed",
+                autoUpgradeAll = name == "maxed",
+                autoCatalyze = name ~= "asOffered",
+            }
+            out[#out + 1] = { verdict = parsed.verdict, scenario = name }
+        end
+        return out
+    end
+
+    local function model(opts)
+        opts = opts or {}
+        local list = opts.scenarios or scenarios()
+        return ns.VaultPanel.Model({
+            vault = ns.Vault.Options(),
+            scenarios = list,
+            verdict = list[1] and list[1].verdict or nil,
+            highlightScenario = opts.highlightScenario,
+            now = 1788900000,
+        })
+    end
+
+    local function rewardByKey(m, key)
+        for _, option in ipairs(m.options) do
+            for _, reward in ipairs(option.rewards) do
+                if reward.key == key then
+                    return reward
+                end
+            end
+        end
+        return nil
+    end
+
+    it("shows one line per scenario that has something to say about the option", function()
+        local weapon = rewardByKey(model(), WEAPON_KEY)
+        assert.is_not_nil(weapon)
+        assert.same({
+            "as offered: worse by 0.57% (-1983.0 score)",
+            "catalyzed: worse by 1.07% (-3782.0 score) (the Catalyst run made no tier version of this item)",
+            "everything upgraded: in your best set",
+        }, weapon.verdictLines)
+    end)
+
+    -- The owner's whole question. His exact key is nowhere in the catalyzed
+    -- answer; his own clone of it is in the top set.
+    it("answers the Catalyst question with the tier piece QE Live made from the option", function()
+        local spaulders = rewardByKey(model(), SPAULDERS_KEY)
+        assert.is_not_nil(spaulders)
+        assert.same({
+            "catalyzed, as tier: in your best set",
+            "everything upgraded, as tier: worse by 1.72% (-5966.0 score)",
+        }, spaulders.verdictLines)
+        -- `asOffered` says nothing, because he ranked neither the shoulders nor
+        -- any copy of them when the box was off.
+        for _, line in ipairs(spaulders.verdictLines) do
+            assert.is_nil(line:find("as offered", 1, true), line)
+        end
+    end)
+
+    it("says nothing at all about an option no scenario ranked", function()
+        local m = model()
+        for _, option in ipairs(m.options) do
+            for _, reward in ipairs(option.rewards) do
+                if reward.key ~= WEAPON_KEY and reward.key ~= SPAULDERS_KEY then
+                    assert.same({}, reward.verdictLines, "an unranked option carried a line: " .. tostring(reward.key))
+                end
+            end
+        end
+    end)
+
+    -- The highlight follows the owner's setting, and the line says which
+    -- question the pick came from: under `catalyzed` it is the shoulders, under
+    -- `maxed` the weapon, and they are different items.
+    it("highlights by the scenario the owner asked for, and names it on the line", function()
+        local offered = model({ highlightScenario = "asOffered" })
+        assert.equal("asOffered", offered.highlightScenario)
+        assert.is_false(offered.highlightFellBack)
+        assert.equal(WEAPON_KEY, offered.best.key)
+        assert.is_truthy(offered.best.text:find("<- QE Live's pick (as offered)", 1, true))
+
+        local catalyzed = model({ highlightScenario = "catalyzed" })
+        assert.equal(SPAULDERS_KEY, catalyzed.best.key)
+        assert.is_true(catalyzed.best.qeViaCatalyst)
+        assert.equal("QE Live: in your best set", catalyzed.best.value)
+        assert.is_truthy(catalyzed.best.text:find("<- QE Live's pick (catalyzed)", 1, true))
+
+        local maxed = model({ highlightScenario = "maxed" })
+        assert.equal(WEAPON_KEY, maxed.best.key)
+        assert.is_truthy(maxed.best.text:find("<- QE Live's pick (everything upgraded)", 1, true))
+    end)
+
+    it("draws exactly one pick, whichever scenario it follows", function()
+        for _, name in ipairs({ "asOffered", "catalyzed", "maxed" }) do
+            local highlighted = 0
+            for _, line in ipairs(ns.VaultPanel.Lines(model({ highlightScenario = name }))) do
+                if line:find("<- QE Live's pick", 1, true) then
+                    highlighted = highlighted + 1
+                end
+            end
+            assert.equal(1, highlighted, name)
+        end
+    end)
+
+    it("says so when the scenario the owner asked for has no answer stored", function()
+        local m = model({ scenarios = scenarios({ "asOffered" }), highlightScenario = "maxed" })
+        assert.equal("asOffered", m.highlightScenario)
+        assert.is_true(m.highlightFellBack)
+        assert.equal(
+            "No everything upgraded answer is stored yet, so the pick below follows as offered.",
+            m.highlightNote
+        )
+        assert.is_truthy(m.highlightNote)
+        local found = false
+        for _, line in ipairs(ns.VaultPanel.Lines(m)) do
+            found = found or line == m.highlightNote
+        end
+        assert.is_true(found, "the fallback is said on screen, not only in the model")
+    end)
+
+    -- A paste, and every file written before C-6, name no scenario. Nothing
+    -- about the panel changes for them beyond the name on the line.
+    it("reads a single verdict that names no scenario as asOffered", function()
+        local parsed = ns.QEImport.Parse(readFile(SCENARIO_FILES.asOffered))
+        assert(parsed.ok, parsed.reason)
+        local m = ns.VaultPanel.Model({ vault = ns.Vault.Options(), verdict = parsed.verdict, now = 1788900000 })
+        assert.equal(1, m.counts.scenarios)
+        assert.equal("asOffered", m.highlightScenario)
+        assert.is_false(m.highlightFellBack)
+        assert.same({ "as offered: worse by 0.57% (-1983.0 score)" }, rewardByKey(m, WEAPON_KEY).verdictLines)
+    end)
+
+    -- The note only appears where his own settings say the box was on. A
+    -- document that does not say claims nothing either way.
+    it("only says the Catalyst made nothing when the file says the box was on", function()
+        local list = scenarios({ "catalyzed" })
+        list[1].verdict.qeSettings = nil
+        local weapon = rewardByKey(model({ scenarios = list }), WEAPON_KEY)
+        assert.same({ "catalyzed: worse by 1.07% (-3782.0 score)" }, weapon.verdictLines)
     end)
 end)
