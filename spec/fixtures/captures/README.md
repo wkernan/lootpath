@@ -46,3 +46,12 @@ with every loop rather than by request.
   `GetItemInfoInstant`). Gear offered: Preyhunter's Lantern 275547 (Offhand
   305), Lightgrasp Worldroot 251935 (2H Weapon 305), Scavenger's Spaulders
   251146 (Shoulder 308), Graft of the Domanaar 251234 (Neck 308). No secrets.
+- Lootpath-20260908-230426.lua - the `currencies` capture (M3-9, WKE-544's
+  human-required step, taken by `/lootpath refresh` at 23:02:37 and 23:04:26 on
+  2026-09-08; the second is the one the tests read). The client's currency list
+  is 18 entries: 10 headers (Midnight, Crests, Delves, Features, Professions,
+  Season 2, Zones, Dungeon and Raid, Miscellaneous, Legacy) and 8 currencies -
+  Voidlight Marl 3316 (37506), Tidal Spark Dust 3509 (5), Nebulous Voidcore
+  3418 (0), and under "Crests" the five Mistcrests: Adventurer 3442 (356),
+  Veteran 3443 (0), Champion 3444 (2), Hero 3445 (21), Myth 3446 (20). **No
+  entry is a Catalyst charge.** Every earlier snapshot repeats. No secrets.

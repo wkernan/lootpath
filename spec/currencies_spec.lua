@@ -13,6 +13,7 @@
 -- transcript fills them every read reports `crestsKnown = false` and no
 -- Catalyst count at all.
 local H = require("spec.helpers.addon")
+local R = require("spec.helpers.replay")
 
 local HEADER = { name = "Placeholder Group", currencyID = 0, isHeader = true, quantity = 0 }
 local CREST = { name = "Placeholder Crest", currencyID = 900001, isHeader = false, quantity = 42 }
@@ -31,17 +32,54 @@ describe("Currencies", function()
         H.unload()
     end)
 
-    -- The whole point of the module, and the reason it is allowed to exist at
-    -- all: it does not know what a crest is called and does not guess.
-    it("ships knowing no currency by name", function()
-        assert.same({}, ns.Currencies.CREST_NAMES)
-        assert.same({}, ns.Currencies.CATALYST_NAMES)
-        local read = ns.Currencies.Read()
+    -- The names are the client's, read from the 2026-09-08 23:04 transcript,
+    -- and the Catalyst charge is known NOT to be a currency there - so the
+    -- module reports "known, no count" for it rather than "unknown".
+    it(
+        "ships knowing the five Mistcrests by the client's names, and that the Catalyst charge is no currency",
+        function()
+            assert.same({
+                "Adventurer Mistcrest",
+                "Veteran Mistcrest",
+                "Champion Mistcrest",
+                "Hero Mistcrest",
+                "Myth Mistcrest",
+            }, ns.Currencies.CREST_NAMES)
+            assert.same({}, ns.Currencies.CATALYST_NAMES)
+            assert.is_true(ns.Currencies.CATALYST_NOT_A_CURRENCY)
+            local read = ns.Currencies.Read()
+            assert.is_true(read.ok)
+            assert.is_true(read.crestsKnown)
+            assert.is_true(read.catalystKnown)
+            assert.is_nil(read.catalystCharges)
+        end
+    )
+
+    it("reads the owner's transcript: five Mistcrests with their IDs and counts, no Catalyst currency", function()
+        local snapshot = R.snapshot("currencies", 2, "spec/fixtures/captures/Lootpath-20260908-230426.lua")
+        assert.equal("2026-09-08T23:04:26", snapshot.capturedAtLocal)
+        local read = ns.Currencies.Read({ snapshot = snapshot })
         assert.is_true(read.ok)
-        assert.is_false(read.crestsKnown)
-        assert.is_false(read.catalystKnown)
-        assert.same({}, read.crests)
+        assert.equal("capture", read.source)
+        assert.equal(18, #read.entries)
+        local headers = 0
+        for _, entry in ipairs(read.entries) do
+            if entry.isHeader then
+                headers = headers + 1
+            end
+            assert.is_nil(tostring(entry.name):find("Catalyst", 1, true))
+        end
+        assert.equal(10, headers)
+        assert.same({
+            { name = "Adventurer Mistcrest", currencyID = 3442, quantity = 356 },
+            { name = "Veteran Mistcrest", currencyID = 3443, quantity = 0 },
+            { name = "Champion Mistcrest", currencyID = 3444, quantity = 2 },
+            { name = "Hero Mistcrest", currencyID = 3445, quantity = 21 },
+            { name = "Myth Mistcrest", currencyID = 3446, quantity = 20 },
+        }, read.crests)
+        assert.is_true(read.catalystKnown)
         assert.is_nil(read.catalystCharges)
+        assert.equal(0, read.secretsSeen)
     end)
 
     it("reads the live list, headers and all", function()
