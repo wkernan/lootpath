@@ -141,6 +141,20 @@ Vault tab says both, beside the client's own charge count, and computes nothing.
 `spec/qeimport_spec.lua` and `spec/vaultpanel_spec.lua` read these two in their
 M3-13 blocks, joined to inventory snapshot 7 of the same capture.
 
+**What M3-14 (WKE-555) reads out of the same two files.** Each document holds
+thirteen sets QE Live scored - the top set and twelve differentials - and
+`ns.QEImport.OneChargeCandidates` keeps the ones that catalyze exactly ONE item
+the owner owns. Three qualify on each side: Dungeon differentials 7, 8, 9
+(1-based), best at `scorePercent 1.7291667240187969`; Raid differentials 9, 10,
+11, best at `1.6460891664886173`. Every one of them replaces the top set's
+catalyzed shoulder with the vault's own Scavenger's Spaulders (`isVault`, so
+never a charge) and leaves the charge on the Hide of Pestilence chest. The top
+set qualifies on neither side, because it spends two. Dungeon differentials 3,
+4, 5 and 12 do not qualify for a different reason worth naming: each carries a
+Head `271528` at bonus IDs `[42, 12838, 13662, 13696]`, which the same join
+reads as his clone of the owner's Miststalker's Cowl `272242 @308` - a second
+charge. See ARCHITECTURE.md §9.
+
 ## Upgrade Finder exports (`qe-live-upgradefinder` v1, the fork's schema)
 
 Produced headless by `tools/companion-spike/run-fork.js` (WKE-531) from the

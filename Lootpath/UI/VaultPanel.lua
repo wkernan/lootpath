@@ -203,6 +203,31 @@ Panel.CATALYZE_OWNED_TEXT = "your %s (%s) into the tier %s"
 Panel.CATALYZE_OWNED_UNKNOWN = "a %s you own (QE Live did not say which)"
 Panel.CATALYZE_OWNED_SLOT_UNKNOWN = "item"
 
+-- The fifth question (M3-14, WKE-555). The line above says his `thisWeek` best
+-- set catalyzes two of the owner's items; the owner holds one charge. So: with
+-- one charge, which single conversion does QE Live rate best?
+--
+-- Every word of the answer is read off the `thisWeek` document itself. A Top
+-- Gear export carries the top set plus up to twelve alternative sets HE built
+-- and HE scored; `ns.QEImport.OneChargeCandidates` keeps the ones that spend
+-- exactly one charge on an item the owner owns and orders them by his own
+-- `scorePercent`. This line prints the first of them. Lootpath does not choose
+-- the item, does not compare two of his answers and adds no number of its own:
+-- the percentage is his `scorePercent` for that set, printed at his magnitude.
+--
+-- When no set in the document qualifies, that IS the answer and it is said in
+-- those words, never filled in with the two-charge set from the line above.
+--
+-- The scenario whose document is read, named here rather than spelled inline:
+-- the fifth question is the fourth question's own leftover, so it is asked of
+-- the fourth question's document and of no other.
+Panel.ONE_CHARGE_SCENARIO = "thisWeek"
+Panel.ONE_CHARGE_LABEL = "one charge (this week, Catalyst used once)"
+Panel.ONE_CHARGE_LEAD = "catalyze "
+Panel.ONE_CHARGE_IN_BEST_SET = "in your best set"
+Panel.ONE_CHARGE_BEHIND = "%.2f%% behind"
+Panel.ONE_CHARGE_NONE = "not in QE Live's export - no set he ranked spends the charge just once"
+
 -- The client's count beside the assumption, or the honest absence of one.
 -- `/lootpath capture currencies` has to have run for there to be a number, and
 -- which currencies these are is read from that transcript by ID and never
@@ -650,6 +675,49 @@ function Panel.CatalyzeOwnedText(found)
     return Panel.CATALYZE_OWNED_LEAD .. table.concat(parts, " and ")
 end
 
+-- The one clone a candidate set spends its charge on, in CatalyzeOwnedText's own
+-- two shapes, so the fifth line and the fourth name an item the same way.
+local function oneChargeItemText(catalyzed)
+    local slot = type(catalyzed.slot) == "string" and catalyzed.slot:lower() or Panel.CATALYZE_OWNED_SLOT_UNKNOWN
+    local owned = catalyzed.owned
+    if type(owned) == "table" and type(owned.name) == "string" and owned.name ~= "" then
+        return string.format(Panel.CATALYZE_OWNED_TEXT, owned.name, tostring(owned.itemLevel), slot)
+    end
+    return string.format(Panel.CATALYZE_OWNED_UNKNOWN, slot)
+end
+
+-- The fifth headline line (M3-14, WKE-555): `candidates` is
+-- ns.QEImport.OneChargeCandidates' answer over the `thisWeek` document, best
+-- first. The first of them is the line; an empty list is the honest absence.
+--
+-- The magnitude is printed through math.abs and the direction word is the fixed
+-- phrase "behind", because every candidate here is a set QE Live ranked BELOW
+-- his top set by construction - the top set is the only one that can be level
+-- with itself, and it says "in your best set" instead. Nothing decides a
+-- direction by looking at the sign of his number; QEImport's own constant did
+-- that when it ordered the list.
+function Panel.OneChargeLine(candidates)
+    local best = type(candidates) == "table" and candidates[1] or nil
+    if not best then
+        return {
+            kind = "oneCharge",
+            text = Panel.ONE_CHARGE_LABEL .. ": " .. Panel.ONE_CHARGE_NONE,
+        }
+    end
+    local standing = best.where == "topSet" and Panel.ONE_CHARGE_IN_BEST_SET
+        or string.format(Panel.ONE_CHARGE_BEHIND, math.abs(tonumber(best.scorePercent) or 0))
+    return {
+        kind = "oneCharge",
+        candidate = best,
+        text = Panel.ONE_CHARGE_LABEL
+            .. ": "
+            .. Panel.ONE_CHARGE_LEAD
+            .. oneChargeItemText(best.catalyzed)
+            .. " - "
+            .. standing,
+    }
+end
+
 -- One line of the headline block: what QE Live picked under this scenario, and
 -- what that answer assumed. `pick` is { reward, coverage, viaCatalyst } - the
 -- best-ranked thing he said about any option in this vault under this scenario,
@@ -987,14 +1055,29 @@ function Panel.Model(opts)
             ),
             lines = {},
         }
+        local thisWeekVerdict
         for _, entry in ipairs(scenarios) do
-            model.headline.lines[#model.headline.lines + 1] = Panel.HeadlineLine(
-                entry.scenario,
-                bestByScenario[entry.scenario],
-                pick,
-                opts.currencies,
-                ns.QEImport.CatalyzedOwned(entry.verdict, opts.inventory)
-            )
+            local catalyzeOwned = ns.QEImport.CatalyzedOwned(entry.verdict, opts.inventory)
+            model.headline.lines[#model.headline.lines + 1] =
+                Panel.HeadlineLine(entry.scenario, bestByScenario[entry.scenario], pick, opts.currencies, catalyzeOwned)
+            -- The fifth line is about the fourth question's own document, and
+            -- only arises because that document's best set spends the charge on
+            -- items the owner owns. A `thisWeek` answer that catalyzes nothing
+            -- of his has no charge question hanging over it, so it gets no line
+            -- - not even the absence one, which would be a sentence about a
+            -- problem the owner does not have.
+            if entry.scenario == Panel.ONE_CHARGE_SCENARIO and #catalyzeOwned > 0 then
+                thisWeekVerdict = entry.verdict
+            end
+        end
+        -- With no such document stored, or with the Catalyst box off in the run
+        -- that produced it, or with no inventory scan to join to, the guards in
+        -- CatalyzedOwned above have already emptied that list, so the line is
+        -- left off rather than reporting an absence nobody looked for.
+        if thisWeekVerdict then
+            model.headline.oneCharge =
+                Panel.OneChargeLine(ns.QEImport.OneChargeCandidates(thisWeekVerdict, opts.inventory))
+            model.headline.lines[#model.headline.lines + 1] = model.headline.oneCharge
         end
     end
 
