@@ -39,6 +39,10 @@ const DEFAULTS = {
     // the branch this drives (MPLUS_KEY_REWARDS ends at "+10"); 10 is in it
     // because 10 is the level the journal walk previews.
     upgradeFinderKeyLevels: [2, 4, 6, 8, 10],
+    // Which of QE Live's named what-if scenarios Top Gear is run under (WKE-540,
+    // C-6). See SCENARIOS below; the names are fixed and the file, the addon and
+    // the Vault tab all use them verbatim.
+    scenarios: ['asOffered', 'catalyzed', 'maxed'],
     includeBank: true,
     // QE Live's own import checkboxes (SimCraftDialog.js lines 122-133), asked
     // for explicitly on every run rather than inherited (WKE-539, C-5).
@@ -62,6 +66,16 @@ const DEFAULTS = {
     // vault options and the vault box only decides anything while it is off.
     // Both are still set explicitly, because what is asked for should not
     // depend on reading the precedence right.
+    //
+    // SINCE C-6 (WKE-540) THESE TWO GOVERN THE UPGRADE FINDER ONLY. Top Gear is
+    // run once per named scenario and takes all three of its boxes from the
+    // scenario table below, because a vault option is what it can BECOME and
+    // that is a different question per scenario. The Upgrade Finder is not a
+    // scenario question - it ranks drops the character does not own - so it
+    // keeps being asked under the pair configured here. When the pair is both
+    // off (the default) those boxes are the `asOffered` boxes exactly, so the
+    // Upgrade Finder documents ride in the `asOffered` import and the run costs
+    // one import per scenario and no more.
     qeAutoUpgradeVault: false,
     qeAutoUpgradeAll: false,
     // Start `npm start` in forkPath when nothing answers forkUrl.
@@ -77,6 +91,37 @@ const DEFAULTS = {
 };
 
 const KNOWN = new Set(Object.keys(DEFAULTS));
+
+// The named what-if scenarios (WKE-540, C-6; decision 2026-09-08,
+// docs/ARCHITECTURE.md §7). The owner's point: a vault option is not the item as
+// it is offered. Put the 308 Scavenger's Spaulders through the Catalyst and they
+// are tier shoulders at 308 - the set bonus is kept and the item level does not
+// drop. Upgrade tracks do the same thing along the other axis.
+//
+// QE Live already models both, in his import dialog's three checkboxes
+// (SimCImportEngine.ts, read 2026-09-08): `autoCatalyze` adds a catalyzed clone
+// of every ACTIVE item his `Item.canBeCatalyzed()` accepts, and
+// `autoUpgradeAll` / `autoUpgradeVault` raise tracked items to his
+// `CONSTANTS.itemLevelCaps`. So Lootpath models neither. It asks him each
+// question by name and shows each answer by name.
+//
+// The names are fixed and are the contract: this table, the `scenario` field in
+// Data/QEVerdict.lua, `ns.QEImport.SCENARIOS` in the addon and the Vault tab's
+// labels all use these three strings verbatim.
+const SCENARIOS = {
+    asOffered: { autoUpgradeAll: false, autoUpgradeVault: false, autoCatalyze: false },
+    catalyzed: { autoUpgradeAll: false, autoUpgradeVault: false, autoCatalyze: true },
+    maxed: { autoUpgradeAll: true, autoUpgradeVault: true, autoCatalyze: true },
+};
+
+// The order they are asked in and shown in: what the character has now first,
+// then the two what-ifs in increasing distance from it.
+const SCENARIO_ORDER = ['asOffered', 'catalyzed', 'maxed'];
+
+// The one every other part of Lootpath reads. Equip Now and the Upgrade Map
+// answer `asOffered` and nothing else, and a document that names no scenario is
+// this one, so a file written before C-6 still loads (WKE-540 deliverable 2).
+const DEFAULT_SCENARIO = 'asOffered';
 
 class ConfigError extends Error {}
 
@@ -119,8 +164,47 @@ function merge(config, raw) {
     }
     if (!config.documents.length) throw new ConfigError('documents is empty, so there would be nothing to write');
     config.upgradeFinderKeyLevels = normaliseKeyLevels(config.upgradeFinderKeyLevels);
+    config.scenarios = normaliseScenarios(config.scenarios);
     config.warnings = warnings;
     return config;
+}
+
+// Deduplicated and put back into SCENARIO_ORDER, for the same reason the key
+// levels are sorted: `["maxed", "asOffered"]` and `["asOffered", "maxed"]` are
+// the same question and must not be two fingerprints.
+//
+// `asOffered` is not optional. It is the document Equip Now and the Upgrade Map
+// read, and a companion that stopped writing it would leave those two tabs with
+// nothing while the Vault tab answered a question nobody had asked first.
+function normaliseScenarios(raw) {
+    if (!Array.isArray(raw)) throw new ConfigError(`scenarios should be a list of scenario names, not ${JSON.stringify(raw)}`);
+    const seen = new Set();
+    for (const value of raw) {
+        if (typeof value !== 'string' || !(value in SCENARIOS)) {
+            throw new ConfigError(
+                `scenarios holds ${JSON.stringify(value)}; QE Live is asked ${SCENARIO_ORDER.join(', ')} and nothing else`
+            );
+        }
+        seen.add(value);
+    }
+    if (!seen.has(DEFAULT_SCENARIO)) {
+        throw new ConfigError(
+            `scenarios must include "${DEFAULT_SCENARIO}": Equip Now and the Upgrade Map read that document and no other`
+        );
+    }
+    return SCENARIO_ORDER.filter((name) => seen.has(name));
+}
+
+// The three checkboxes a scenario asks QE Live for. A copy, so no caller can
+// edit the table by editing what it was handed.
+function scenarioBoxes(name) {
+    const boxes = SCENARIOS[name];
+    if (!boxes) throw new ConfigError(`unknown scenario ${JSON.stringify(name)}`);
+    return { ...boxes };
+}
+
+function sameBoxes(a, b) {
+    return ['autoUpgradeAll', 'autoUpgradeVault', 'autoCatalyze'].every((key) => !!a[key] === !!b[key]);
 }
 
 // Sorted ascending and deduplicated, so `[10, 2, 2]` and `[2, 10]` are the same
@@ -143,9 +227,73 @@ function normaliseKeyLevels(raw) {
     return [...seen].sort((a, b) => a - b);
 }
 
-// The documents one run actually produces, in order. A dungeon Upgrade Finder
-// document is asked once per configured key level, because his engine values
-// dungeon drops at exactly one key; everything else is asked once.
+// Every Upgrade Finder document one configured entry expands into.
+function upgradeFinderDocuments(config, doc) {
+    const levels = config.upgradeFinderKeyLevels;
+    if (doc.contentType === 'Dungeon') {
+        return levels.map((keyLevel) => ({ kind: doc.kind, contentType: doc.contentType, keyLevel }));
+    }
+    return [{ kind: doc.kind, contentType: doc.contentType, keyLevel: levels[levels.length - 1] }];
+}
+
+// The PASSES one run makes over QE Live (WKE-540, C-6): an import with one set
+// of checkboxes, then every document that import can answer.
+//
+// A pass exists because the three boxes act AT IMPORT: `runSimC` is handed their
+// state (SimCraftDialog.js handleSubmit), and a box flipped afterwards changes
+// nothing. So each scenario means re-pasting the same profile with different
+// boxes and running Top Gear again over the player it built.
+//
+// `opts.hasVaultGear` / `opts.force` gate the two what-ifs. Without a vault
+// section there is nothing to catalyze or upgrade that the character does not
+// already have, and the two extra imports would cost around a minute a week for
+// two answers identical in spirit to the first; `asOffered` is always run.
+//
+// The Upgrade Finder is not a scenario question - scenarios are about the vault
+// options in front of you, and the Upgrade Finder ranks drops you do not own -
+// so its documents ride in whichever pass already asks for the configured
+// `qeAutoUpgradeAll` / `qeAutoUpgradeVault` pair with catalyze off. Under the
+// default (both off) that pass IS `asOffered` and no extra import happens; under
+// any other pair the Upgrade Finder gets a pass of its own, which is honest
+// rather than cheap: it is a different question and it is asked separately.
+function plannedPasses(config, opts) {
+    const options = opts || {};
+    const wanted = config.scenarios.filter(
+        (name) => name === DEFAULT_SCENARIO || options.hasVaultGear || options.force
+    );
+    const finderBoxes = {
+        autoUpgradeAll: !!config.qeAutoUpgradeAll,
+        autoUpgradeVault: !!config.qeAutoUpgradeVault,
+        autoCatalyze: false,
+    };
+    const finders = config.documents.filter((doc) => doc.kind === 'upgradefinder');
+    const host = finders.length ? wanted.find((name) => sameBoxes(SCENARIOS[name], finderBoxes)) || null : null;
+
+    const passes = wanted.map((name) => ({
+        scenario: name,
+        boxes: scenarioBoxes(name),
+        // config.documents order is kept inside a pass, so the content type
+        // switches as few times as the configured list allows.
+        documents: config.documents.flatMap((doc) => {
+            if (doc.kind === 'topgear') return [{ kind: doc.kind, contentType: doc.contentType, scenario: name }];
+            return name === host ? upgradeFinderDocuments(config, doc) : [];
+        }),
+    }));
+    if (finders.length && !host) {
+        passes.push({
+            scenario: null,
+            boxes: finderBoxes,
+            documents: finders.flatMap((doc) => upgradeFinderDocuments(config, doc)),
+        });
+    }
+    return passes;
+}
+
+// The documents one run actually produces, in order, flattened out of the
+// passes above. A dungeon Upgrade Finder document is asked once per configured
+// key level, because his engine values dungeon drops at exactly one key; a Top
+// Gear document is asked once per scenario, because his three boxes act at
+// import.
 //
 // A NON-dungeon Upgrade Finder document is asked once, at the HIGHEST
 // configured level, and records it. WKE-543 proposed recording nothing there,
@@ -155,19 +303,8 @@ function normaliseKeyLevels(raw) {
 // `dropDifficulty: 7` at 311/321/334 - the levels key index 7 gives. A document
 // whose rows were valued at a key is filed under that key, whichever content
 // type QE Live was set to when it was asked.
-function plannedDocuments(config) {
-    const levels = config.upgradeFinderKeyLevels;
-    const plan = [];
-    for (const doc of config.documents) {
-        if (doc.kind !== 'upgradefinder') {
-            plan.push({ kind: doc.kind, contentType: doc.contentType });
-        } else if (doc.contentType === 'Dungeon') {
-            for (const keyLevel of levels) plan.push({ kind: doc.kind, contentType: doc.contentType, keyLevel });
-        } else {
-            plan.push({ kind: doc.kind, contentType: doc.contentType, keyLevel: levels[levels.length - 1] });
-        }
-    }
-    return plan;
+function plannedDocuments(config, opts) {
+    return plannedPasses(config, opts).flatMap((pass) => pass.documents);
 }
 
 // The addon's own file inside the game folder. Nothing else is ever written
@@ -209,4 +346,19 @@ function maskAccount(file) {
     return String(file).replace(/([\\/]Account[\\/])[^\\/]+/i, '$1<account>');
 }
 
-module.exports = { DEFAULTS, load, plannedDocuments, qeSettings, verdictPath, findSavedVariables, maskAccount, ConfigError };
+module.exports = {
+    DEFAULTS,
+    SCENARIOS,
+    SCENARIO_ORDER,
+    DEFAULT_SCENARIO,
+    load,
+    plannedPasses,
+    plannedDocuments,
+    scenarioBoxes,
+    sameBoxes,
+    qeSettings,
+    verdictPath,
+    findSavedVariables,
+    maskAccount,
+    ConfigError,
+};

@@ -203,6 +203,39 @@ function UI.ActiveVerdict()
     return nil, wanted, false
 end
 
+-- Every named scenario stored for the content type on screen (C-6, WKE-540),
+-- chosen the way ActiveVerdict chooses one verdict: the setting's content type
+-- when this character has anything for it, otherwise whatever the most recent
+-- import was, said out loud.
+--
+-- It is its own function rather than a second return from ActiveVerdict for the
+-- reason ActiveUpgradeFinderDocuments is: `asOffered` is what Equip Now and the
+-- Upgrade Map read and the ONLY thing they read, and a caller that could get the
+-- whole set back from the same call is a caller that could show a `maxed` answer
+-- on a tab that promises what you own now.
+--
+-- Returns scenarios (a list of { verdict, scenario }, possibly empty, never
+-- nil), contentType, fellBack.
+function UI.ActiveVerdictScenarios()
+    local wanted = UI.Options and UI.Options.Get() or nil
+    if wanted then
+        local scenarios = ns.QEImport.Scenarios(wanted)
+        if #scenarios > 0 then
+            return scenarios, wanted, false
+        end
+    end
+    local current = ns.QEImport.Current()
+    if current then
+        local contentType = ns.QEImport.ContentTypeKey(current)
+        local scenarios = ns.QEImport.Scenarios(contentType)
+        if #scenarios > 0 then
+            return scenarios, contentType, true
+        end
+        return { { verdict = current, scenario = ns.QEImport.ScenarioKey(current) } }, contentType, true
+    end
+    return {}, wanted, false
+end
+
 -- The Upgrade Finder export the panels read, chosen exactly as ActiveVerdict
 -- chooses a Top Gear one. Kept as its own function rather than a flag on
 -- ActiveVerdict so a caller cannot get both verdicts back in one call and treat

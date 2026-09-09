@@ -1,0 +1,762 @@
+{
+  "schema": "qe-live-droptimizer",
+  "version": 1,
+  "exportedAt": "2026-09-09T01:15:36.676Z",
+  "player": {
+    "name": "Hotornot",
+    "realm": "Arthas",
+    "region": "US",
+    "spec": "Restoration Druid",
+    "gameType": "Retail"
+  },
+  "contentType": "Raid",
+  "reportId": "xacelnbtfevd",
+  "topSet": {
+    "score": 5757.608,
+    "stats": {
+      "intellect": 2828.1225000000004,
+      "haste": 1700.838882203791,
+      "crit": 800,
+      "mastery": 1189,
+      "versatility": 559,
+      "leech": 290,
+      "hps": 853.6712988193442,
+      "dps": 0,
+      "mana": 0,
+      "manaPerc": 1.04,
+      "allyStats": 0,
+      "bonusHPS": 0.0504
+    },
+    "items": [
+      {
+        "slot": "Head",
+        "id": 271528,
+        "level": 308,
+        "bonusIDs": [
+          6652,
+          13439,
+          13696,
+          12838,
+          13692,
+          13698,
+          1561
+        ],
+        "gems": [],
+        "enchant": "Empowered Hex of Leeching",
+        "tertiary": "",
+        "setId": 2057,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -1,
+          "encounterId": 1304
+        }
+      },
+      {
+        "slot": "Neck",
+        "id": 272228,
+        "level": 321,
+        "bonusIDs": [
+          6652,
+          13668,
+          12846
+        ],
+        "gems": [
+          240983
+        ],
+        "enchant": "",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -98,
+          "encounterId": -98
+        }
+      },
+      {
+        "slot": "Shoulder",
+        "id": 250022,
+        "level": 289,
+        "bonusIDs": [
+          12806,
+          6652,
+          13440,
+          13340,
+          13574,
+          3174
+        ],
+        "gems": [],
+        "enchant": "Silvermoon's Mending",
+        "tertiary": "",
+        "setId": 1980,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -87,
+          "encounterId": -87
+        }
+      },
+      {
+        "slot": "Back",
+        "id": 275522,
+        "level": 298,
+        "bonusIDs": [
+          41,
+          13662,
+          12835
+        ],
+        "gems": [],
+        "enchant": "",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -99,
+          "encounterId": -99
+        }
+      },
+      {
+        "slot": "Chest",
+        "id": 251216,
+        "level": 276,
+        "bonusIDs": [
+          13440,
+          6652,
+          13577,
+          12699,
+          12802
+        ],
+        "gems": [],
+        "enchant": "Mark of the Worldsoul",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": 1316,
+          "encounterId": 2815
+        }
+      },
+      {
+        "slot": "Wrist",
+        "id": 275512,
+        "level": 321,
+        "bonusIDs": [
+          6652,
+          13696,
+          13662,
+          12846
+        ],
+        "gems": [],
+        "enchant": "",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -99,
+          "encounterId": -99
+        }
+      },
+      {
+        "slot": "Hands",
+        "id": 250025,
+        "level": 276,
+        "bonusIDs": [
+          6652,
+          13337,
+          13574,
+          12798
+        ],
+        "gems": [],
+        "enchant": "",
+        "tertiary": "",
+        "setId": 1980,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -87,
+          "encounterId": -87
+        }
+      },
+      {
+        "slot": "Waist",
+        "id": 159301,
+        "level": 302,
+        "bonusIDs": [
+          12836,
+          13440,
+          6652,
+          13696,
+          13662,
+          12699
+        ],
+        "gems": [],
+        "enchant": "",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -1,
+          "encounterId": 1041
+        }
+      },
+      {
+        "slot": "Legs",
+        "id": 271527,
+        "level": 295,
+        "bonusIDs": [
+          13693,
+          13438,
+          6652,
+          13698,
+          12830
+        ],
+        "gems": [],
+        "enchant": "Arcanoweave Spellthread",
+        "tertiary": "",
+        "setId": 2057,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": 1320,
+          "encounterId": 2871
+        }
+      },
+      {
+        "slot": "Feet",
+        "id": 251153,
+        "level": 302,
+        "bonusIDs": [
+          13440,
+          6652,
+          13662,
+          12699,
+          12836
+        ],
+        "gems": [],
+        "enchant": "Shaladrassil's Roots",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -1,
+          "encounterId": 1311
+        }
+      },
+      {
+        "slot": "Finger",
+        "id": 259912,
+        "level": 263,
+        "bonusIDs": [
+          6652,
+          13668,
+          12790
+        ],
+        "gems": [
+          240892
+        ],
+        "enchant": "Silvermoon's Alacrity",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -93,
+          "encounterId": -93
+        }
+      },
+      {
+        "slot": "Finger",
+        "id": 251136,
+        "level": 282,
+        "bonusIDs": [
+          13438,
+          6652,
+          13668,
+          12698,
+          12822
+        ],
+        "gems": [
+          240892
+        ],
+        "enchant": "Silvermoon's Alacrity",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -1,
+          "encounterId": 1304
+        }
+      },
+      {
+        "slot": "Trinket",
+        "id": 250256,
+        "level": 282,
+        "bonusIDs": [
+          13440,
+          6652,
+          12699,
+          12804
+        ],
+        "gems": [],
+        "enchant": "",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": 1299,
+          "encounterId": 2658
+        }
+      },
+      {
+        "slot": "Trinket",
+        "id": 251792,
+        "level": 282,
+        "bonusIDs": [
+          6652,
+          12822
+        ],
+        "gems": [],
+        "enchant": "",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -98,
+          "encounterId": -98
+        }
+      },
+      {
+        "slot": "2H Weapon",
+        "id": 251935,
+        "level": 308,
+        "bonusIDs": [
+          6652,
+          12838
+        ],
+        "gems": [],
+        "enchant": "Berserker's Rage",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -98,
+          "encounterId": -98
+        }
+      }
+    ]
+  },
+  "differentials": [
+    {
+      "scorePercent": 0.07815745705508259,
+      "hpsDifference": -269,
+      "items": [
+        {
+          "slot": "Back",
+          "id": 275525,
+          "level": 298,
+          "bonusIDs": [
+            6652,
+            13662,
+            12835
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.13026242842513763,
+      "hpsDifference": -447,
+      "items": [
+        {
+          "slot": "Back",
+          "id": 279220,
+          "level": 295,
+          "bonusIDs": [
+            6652,
+            13662,
+            12830
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.49499722801552304,
+      "hpsDifference": -1763,
+      "items": [
+        {
+          "slot": "Chest",
+          "id": 251226,
+          "level": 302,
+          "bonusIDs": [
+            12836,
+            13440,
+            6652,
+            13662,
+            12699
+          ],
+          "gems": [],
+          "enchant": "Mark of the Worldsoul",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.5471021993855782,
+      "hpsDifference": -1905,
+      "items": [
+        {
+          "slot": "2H Weapon",
+          "id": 251935,
+          "level": 305,
+          "bonusIDs": [
+            6652,
+            12841
+          ],
+          "gems": [],
+          "enchant": "Berserker's Rage",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": true,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.5731546850706057,
+      "hpsDifference": -2033,
+      "items": [
+        {
+          "slot": "Back",
+          "id": 275525,
+          "level": 298,
+          "bonusIDs": [
+            6652,
+            13662,
+            12835
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Chest",
+          "id": 251226,
+          "level": 302,
+          "bonusIDs": [
+            12836,
+            13440,
+            6652,
+            13662,
+            12699
+          ],
+          "gems": [],
+          "enchant": "Mark of the Worldsoul",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.6252596564406607,
+      "hpsDifference": -2174,
+      "items": [
+        {
+          "slot": "Back",
+          "id": 275525,
+          "level": 298,
+          "bonusIDs": [
+            6652,
+            13662,
+            12835
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "2H Weapon",
+          "id": 251935,
+          "level": 305,
+          "bonusIDs": [
+            6652,
+            12841
+          ],
+          "gems": [],
+          "enchant": "Berserker's Rage",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": true,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.6252596564406607,
+      "hpsDifference": -2210,
+      "items": [
+        {
+          "slot": "Back",
+          "id": 279220,
+          "level": 295,
+          "bonusIDs": [
+            6652,
+            13662,
+            12830
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Chest",
+          "id": 251226,
+          "level": 302,
+          "bonusIDs": [
+            12836,
+            13440,
+            6652,
+            13662,
+            12699
+          ],
+          "gems": [],
+          "enchant": "Mark of the Worldsoul",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.6513121421256882,
+      "hpsDifference": -2256,
+      "items": [
+        {
+          "slot": "Waist",
+          "id": 251166,
+          "level": 263,
+          "bonusIDs": [
+            13439,
+            6652,
+            13534,
+            13577,
+            12699,
+            12790
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.6773646278107159,
+      "hpsDifference": -2352,
+      "items": [
+        {
+          "slot": "Back",
+          "id": 279220,
+          "level": 295,
+          "bonusIDs": [
+            6652,
+            13662,
+            12830
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "2H Weapon",
+          "id": 251935,
+          "level": 305,
+          "bonusIDs": [
+            6652,
+            12841
+          ],
+          "gems": [],
+          "enchant": "Berserker's Rage",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": true,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.7294695991807709,
+      "hpsDifference": -2530,
+      "items": [
+        {
+          "slot": "Back",
+          "id": 275525,
+          "level": 298,
+          "bonusIDs": [
+            6652,
+            13662,
+            12835
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Waist",
+          "id": 251166,
+          "level": 263,
+          "bonusIDs": [
+            13439,
+            6652,
+            13534,
+            13577,
+            12699,
+            12790
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.7815745705508259,
+      "hpsDifference": -2704,
+      "items": [
+        {
+          "slot": "Back",
+          "id": 279220,
+          "level": 295,
+          "bonusIDs": [
+            6652,
+            13662,
+            12830
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Waist",
+          "id": 251166,
+          "level": 263,
+          "bonusIDs": [
+            13439,
+            6652,
+            13534,
+            13577,
+            12699,
+            12790
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.9118369989759636,
+      "hpsDifference": -3151,
+      "items": [
+        {
+          "slot": "Neck",
+          "id": 272229,
+          "level": 308,
+          "bonusIDs": [
+            6652,
+            13668,
+            12838
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    }
+  ]
+}

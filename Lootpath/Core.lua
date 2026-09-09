@@ -209,6 +209,33 @@ function ns.ItemKey(itemID, bonusIDs)
     return tostring(id) .. ":" .. table.concat(sorted, ":")
 end
 
+-- The inverse of ItemKey: the sorted bonus IDs a key carries, as numbers, or an
+-- empty list when it carries none. It lives here, beside the one definition of
+-- the format, so nothing else has to know that a key is joined with colons.
+--
+-- The Vault panel needs it (C-6, WKE-540): a vault reward record carries the key
+-- and not the bonus IDs, and recognising QE Live's own catalyzed copy of an
+-- option means comparing the bonus IDs he copied onto it.
+function ns.BonusIDsFromKey(key)
+    local out = {}
+    if type(key) ~= "string" then
+        return out
+    end
+    local seenID = false
+    for part in key:gmatch("[^:]+") do
+        if not seenID then
+            seenID = true
+        else
+            local bonus = tonumber(part)
+            if not bonus then
+                return {}
+            end
+            out[#out + 1] = bonus
+        end
+    end
+    return out
+end
+
 -- Item link parser. Field layout after `item:` measured on the 2026-09-05
 -- transcript and identical to the SimulationCraft addon's offsets: itemID(1),
 -- enchantID(2), gems(3-6), suffixID(7), uniqueID(8), linkLevel(9), specID(10),
@@ -385,9 +412,9 @@ end
 -- It read "Mythic+" here until 2026-09-06 (M2-2), a string no export can carry;
 -- "Dungeon" is QE Live's name for the Mythic+ side.
 ns.DB_DEFAULTS = {
-    char = { qeImports = {}, ufImports = {} },
+    char = { qeImports = {}, qeImportsByScenario = {}, ufImports = {} },
     global = { journalCache = {}, captures = {} },
-    profile = { settings = { contentType = "Dungeon" } },
+    profile = { settings = { contentType = "Dungeon", vaultScenario = "asOffered" } },
 }
 
 local function onAddonLoaded()

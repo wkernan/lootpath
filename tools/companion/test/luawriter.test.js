@@ -45,16 +45,86 @@ test('refuses a number the client could not read back', () => {
     assert.throws(() => luaNumber(NaN), /non-finite/);
 });
 
+// Every Top Gear document says which named scenario it answers and which three
+// boxes produced it (C-6, WKE-540), so a document built for these tests carries
+// both. `asOffered` is the one Equip Now and the Upgrade Map read.
+const BOXES = { autoUpgradeVault: false, autoUpgradeAll: false, autoCatalyze: false };
+const CATALYZED_BOXES = { autoUpgradeVault: false, autoUpgradeAll: false, autoCatalyze: true };
+
+function topGear(extra) {
+    return { kind: 'topgear', contentType: 'Dungeon', scenario: 'asOffered', qeSettings: BOXES, json: '{}', ...extra };
+}
+
 test('refuses to render nothing, so a failed run never blanks a good verdict', () => {
     const settings = { autoUpgradeVault: false, autoUpgradeAll: false };
     assert.throws(() => render({ documents: [], qeSettings: settings }), /no documents/);
+    assert.throws(() => render({ documents: [topGear({ json: '' })], qeSettings: settings }), /no JSON text/);
+    assert.throws(() => render({ documents: [topGear({ kind: 'sideways' })], qeSettings: settings }), /unknown document kind/);
+});
+
+// The scenario is the shelf a Top Gear answer is filed on. A document with no
+// scenario means `asOffered` in the addon, which is the one reading a
+// `catalyzed` answer must never get, so the writer will not leave it out.
+test('every Top Gear document must name a scenario, and no other document may', () => {
+    const settings = { autoUpgradeVault: false, autoUpgradeAll: false };
     assert.throws(
-        () => render({ documents: [{ kind: 'topgear', contentType: 'Dungeon', json: '' }], qeSettings: settings }),
-        /no JSON text/
+        () => render({ documents: [topGear({ scenario: undefined })], qeSettings: settings }),
+        /carries no scenario/
     );
     assert.throws(
-        () => render({ documents: [{ kind: 'sideways', contentType: 'Dungeon', json: '{}' }], qeSettings: settings }),
-        /unknown document kind/
+        () => render({ documents: [topGear({ scenario: 'catalysed' })], qeSettings: settings }),
+        /not one of asOffered, catalyzed, maxed/
+    );
+    assert.throws(
+        () =>
+            render({
+                documents: [
+                    { kind: 'upgradefinder', contentType: 'Raid', scenario: 'maxed', qeSettings: BOXES, json: '{}' },
+                ],
+                qeSettings: settings,
+            }),
+        /only a Top Gear document answers one/
+    );
+});
+
+// The three boxes are per document, because two documents over the same gear
+// disagree exactly because they were asked different questions.
+test('every document records the three checkboxes that produced it', () => {
+    const settings = { autoUpgradeVault: false, autoUpgradeAll: false };
+    const text = render({
+        writtenAt: '2026-09-08T00:00:00Z',
+        companionVersion: '0.1.0',
+        qeSettings: settings,
+        documents: [topGear({ scenario: 'catalyzed', qeSettings: CATALYZED_BOXES })],
+    });
+    assert.ok(
+        text.includes(
+            [
+                '            scenario = "catalyzed",',
+                '            qeSettings = {',
+                '                autoUpgradeVault = false,',
+                '                autoUpgradeAll = false,',
+                '                autoCatalyze = true,',
+                '            },',
+            ].join('\n')
+        ),
+        text
+    );
+    assert.throws(
+        () => render({ ...{ qeSettings: settings }, documents: [topGear({ qeSettings: undefined })] }),
+        /does not say which QE Live import settings produced it/
+    );
+    assert.throws(
+        () => render({ qeSettings: settings, documents: [topGear({ qeSettings: { autoUpgradeVault: false } })] }),
+        /does not say what qeSettings.autoUpgradeAll was/
+    );
+    assert.throws(
+        () =>
+            render({
+                qeSettings: settings,
+                documents: [topGear({ qeSettings: { ...BOXES, autoCatalyze: 'true' } })],
+            }),
+        /qeSettings.autoCatalyze = "true", which is not a boolean/
     );
 });
 
@@ -68,7 +138,7 @@ test('writes the QE Live import settings the run asked for, as Lua booleans', ()
         companionVersion: '0.1.0',
         profileCapturedAt: '2026-09-05T13:33:25',
         qeSettings: { autoUpgradeVault: true, autoUpgradeAll: false },
-        documents: [{ kind: 'topgear', contentType: 'Dungeon', json: '{}' }],
+        documents: [topGear()],
     });
     assert.ok(
         text.includes(
@@ -86,7 +156,7 @@ test('refuses to write a verdict that does not say which settings produced it', 
     const payload = {
         writtenAt: '2026-09-08T00:00:00Z',
         companionVersion: '0.1.0',
-        documents: [{ kind: 'topgear', contentType: 'Dungeon', json: '{}' }],
+        documents: [topGear()],
     };
     assert.throws(() => render(payload), /which QE Live import settings/);
     assert.throws(() => render({ ...payload, qeSettings: { autoUpgradeVault: false } }), /autoUpgradeAll must be a boolean/);
@@ -107,7 +177,7 @@ test('the chunk declares one table and calls nothing', () => {
         companionVersion: '0.1.0',
         profileCapturedAt: '2026-09-05T13:33:25',
         qeSettings: { autoUpgradeVault: false, autoUpgradeAll: false },
-        documents: [{ kind: 'topgear', contentType: 'Dungeon', json: '{"schema":"qe-live-droptimizer"}' }],
+        documents: [topGear({ json: '{"schema":"qe-live-droptimizer"}' })],
     });
     const code = text
         .split('\n')
@@ -127,13 +197,16 @@ test('renders the committed golden byte for byte', () => {
         profileCapturedAt: '2026-09-05T13:33:25',
         qeSettings: { autoUpgradeVault: false, autoUpgradeAll: false },
         documents: [
-            { kind: 'topgear', contentType: 'Dungeon', json: '{"schema":"qe-live-droptimizer","version":1}' },
+            topGear({ json: '{"schema":"qe-live-droptimizer","version":1}' }),
+            // C-6 (WKE-540): the same gear asked a different question. The Lua
+            // spec proves the two land on two shelves rather than one.
+            topGear({ scenario: 'catalyzed', qeSettings: CATALYZED_BOXES, json: '{"schema":"qe-live-droptimizer","version":1,"catalyzed":true}' }),
             // C-7 (WKE-543): an Upgrade Finder document says which Mythic+ key
             // level QE Live ran it at, and spec/companionfile_spec.lua loads
             // this golden in a real Lua interpreter to prove the number comes
             // back as a number.
-            { kind: 'upgradefinder', contentType: 'Dungeon', keyLevel: 10, json: '{"schema":"qe-live-upgradefinder","version":1}' },
-            { kind: 'upgradefinder', contentType: 'Raid', json: HOSTILE },
+            { kind: 'upgradefinder', contentType: 'Dungeon', keyLevel: 10, qeSettings: BOXES, json: '{"schema":"qe-live-upgradefinder","version":1}' },
+            { kind: 'upgradefinder', contentType: 'Raid', qeSettings: BOXES, json: HOSTILE },
         ],
     });
     if (process.env.UPDATE_GOLDEN) fs.writeFileSync(GOLDEN, text);

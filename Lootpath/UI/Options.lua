@@ -37,9 +37,45 @@ Options.CHOICE_LABEL = {
     Raid = "Raid",
 }
 
+-- The second setting (C-6, WKE-540): which of QE Live's named scenarios the
+-- Vault tab's "QE Live's pick" follows. `asOffered` by default, because that is
+-- what the character has right now and it is what Equip Now and the Upgrade Map
+-- read; the owner can point the highlight at a what-if, and the tab says on the
+-- line which question the pick came from either way. It changes the HIGHLIGHT
+-- and nothing else - every stored scenario is shown on the option, whatever this
+-- is set to.
+Options.SCENARIO_VARIABLE = "LootpathVaultScenario"
+Options.SCENARIO_LABEL = "Vault highlight"
+Options.SCENARIO_TOOLTIP = "Which of QE Live's what-if answers the Vault tab's pick follows. "
+    .. "Every scenario the companion has run is listed on each option whatever this is set to; "
+    .. 'Equip Now and the Upgrade Map always read "as offered".'
+
+Options.SCENARIO_CHOICE_LABEL = {
+    asOffered = "As offered (what the vault gives you)",
+    catalyzed = "Catalyzed (through the Catalyst)",
+    maxed = "Everything upgraded (Catalyst and full upgrade tracks)",
+}
+
 function Options.Get()
     local settings = ns.db and ns.db.profile and ns.db.profile.settings
     return (settings and settings.contentType) or ns.DB_DEFAULTS.profile.settings.contentType
+end
+
+function Options.GetVaultScenario()
+    local settings = ns.db and ns.db.profile and ns.db.profile.settings
+    return (settings and settings.vaultScenario) or ns.DB_DEFAULTS.profile.settings.vaultScenario
+end
+
+function Options.SetVaultScenario(value)
+    if type(value) ~= "string" or value == "" then
+        return
+    end
+    if ns.db and ns.db.profile and ns.db.profile.settings then
+        ns.db.profile.settings.vaultScenario = value
+    end
+    if UI.Refresh then
+        UI.Refresh()
+    end
 end
 
 function Options.Set(value)
@@ -81,9 +117,26 @@ function Options.Register()
         end
         return container:GetData()
     end, Options.TOOLTIP)
+    local scenario = Settings.RegisterProxySetting(
+        category,
+        Options.SCENARIO_VARIABLE,
+        Settings.VarType.String,
+        Options.SCENARIO_LABEL,
+        ns.DB_DEFAULTS.profile.settings.vaultScenario,
+        Options.GetVaultScenario,
+        Options.SetVaultScenario
+    )
+    Settings.CreateDropdown(category, scenario, function()
+        local container = Settings.CreateControlTextContainer()
+        for _, value in ipairs(ns.QEImport.SCENARIOS) do
+            container:Add(value, Options.SCENARIO_CHOICE_LABEL[value] or value, Options.SCENARIO_TOOLTIP)
+        end
+        return container:GetData()
+    end, Options.SCENARIO_TOOLTIP)
     Settings.RegisterAddOnCategory(category)
     Options.category = category
     Options.setting = setting
+    Options.scenarioSetting = scenario
     return true
 end
 

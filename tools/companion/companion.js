@@ -7,7 +7,9 @@
 //   node companion.js --profile-only  build the SimC profile and print it
 //   node companion.js --config <file> use a different config file
 //   node companion.js --out <file>    write the chunk somewhere else (a dry run)
-//   node companion.js --force         run QE Live even if the profile is unchanged
+//   node companion.js --force         run QE Live even if the profile is
+//                                     unchanged, and ask the two vault what-if
+//                                     scenarios even with an empty vault
 //
 // The loop it makes possible: /reload, wait, /reload. No /simc, no browser, no
 // paste. It reads Lootpath's own SavedVariables, builds the SimulationCraft
@@ -120,7 +122,8 @@ async function once(config, log, args, deps) {
     const wanted = configLib.qeSettings(config);
     // C-7 (WKE-543). The key levels the Upgrade Finder is asked about are the
     // other half of the question, so they are the other half of the print.
-    const print = fingerprintLib.fingerprint(profile.text, wanted, config.upgradeFinderKeyLevels);
+    // C-6 (WKE-540). So are the named scenarios Top Gear is run under.
+    const print = fingerprintLib.fingerprint(profile.text, wanted, config.upgradeFinderKeyLevels, config.scenarios);
     if (!args.force) {
         const stored = fingerprintLib.readState(stateDir);
         if (!stored.ok && !stored.absent) {
@@ -135,13 +138,28 @@ async function once(config, log, args, deps) {
         }
     }
 
-    const plan = configLib.plannedDocuments(config);
+    // C-6 (WKE-540). The two what-if scenarios only mean something when there is
+    // a vault section to ask about: with nothing in the vault, "if I catalyzed
+    // what I was offered" has no offer behind it, and the two extra imports cost
+    // a browser minute for an answer nobody asked. `asOffered` is always run.
+    const hasVaultGear = profile.counts.vault > 0;
+    const passes = configLib.plannedPasses(config, { hasVaultGear, force: args.force });
+    const plan = passes.flatMap((pass) => pass.documents);
+    const ran = passes.map((pass) => pass.scenario).filter(Boolean);
+    const skipped = config.scenarios.filter((name) => !ran.includes(name));
     log.info(
         `Mythic+ key levels: ${config.upgradeFinderKeyLevels.map((level) => '+' + level).join(', ')}` +
-            ` - ${plan.length} documents, one Upgrade Finder run per key level (QE Live values dungeon drops at one key at a time)`
+            ` - one Upgrade Finder run per key level (QE Live values dungeon drops at one key at a time)`
     );
     log.info(
-        `QE Live import settings: autoUpgradeVault=${wanted.autoUpgradeVault}, autoUpgradeAll=${wanted.autoUpgradeAll}` +
+        `QE Live scenarios: ${ran.join(', ') || 'none'}` +
+            (skipped.length
+                ? ` (${skipped.join(', ')} skipped: the profile carries no vault gear, so there is nothing to catalyze or upgrade that is not already yours - --force asks anyway)`
+                : '') +
+            ` - ${passes.length} imports, ${plan.length} documents`
+    );
+    log.info(
+        `QE Live Upgrade Finder import settings: autoUpgradeVault=${wanted.autoUpgradeVault}, autoUpgradeAll=${wanted.autoUpgradeAll}` +
             (wanted.autoUpgradeVault === wanted.autoUpgradeAll
                 ? ''
                 : " - a mixed pair, which values vault options and owned gear at different points on their upgrade tracks")
@@ -153,6 +171,7 @@ async function once(config, log, args, deps) {
         run = await fork.run(config, profile.text, log, {
             stateDir,
             screenshotDir: stateDir,
+            passes,
         });
     } catch (e) {
         log.error(e.message);

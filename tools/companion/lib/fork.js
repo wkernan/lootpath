@@ -119,9 +119,11 @@ const CHECKBOX_LABELS = {
 // owner to take a 305 vault weapon they already wear at 308 (§9). Whatever the
 // configured pair is, it is set here rather than assumed.
 //
-// `autoCatalyze` is deliberately absent from `wanted`: the Catalyst is
-// WKE-540's scenarios, and a box nobody asked about is left exactly as QE Live
-// rendered it.
+// Since C-6 (WKE-540) `autoCatalyze` is asked for too, and by the same rule:
+// each named scenario states all three boxes and every one of them is set and
+// read back. The Catalyst is the whole point of the `catalyzed` scenario, and a
+// box left wherever his dialog put it would make the answer depend on his
+// default rather than on the question.
 async function setUpgradeCheckboxes(page, wanted, log) {
     const applied = {};
     for (const key of Object.keys(CHECKBOX_LABELS)) {
@@ -407,9 +409,12 @@ async function runUpgradeFinder(page, keyLevel, log) {
 // failure: nothing here writes a file.
 async function run(config, profileText, log, options) {
     const opts = options || {};
-    // The pair this run asks QE Live for. `autoCatalyze` is not in it, so it is
-    // left where his dialog put it.
-    const wanted = { autoUpgradeAll: !!config.qeAutoUpgradeAll, autoUpgradeVault: !!config.qeAutoUpgradeVault };
+    // The passes this run makes: one import per named scenario, each with its
+    // own three checkboxes, then the documents that import can answer (C-6,
+    // WKE-540). The caller owns the plan, because whether the two what-ifs are
+    // worth asking depends on the PROFILE - a vault section with gear in it -
+    // and this file has only the text.
+    const passes = opts.passes || configLib.plannedPasses(config, {});
     let chromium;
     try {
         ({ chromium } = require('playwright'));
@@ -444,28 +449,51 @@ async function run(config, profileText, log, options) {
         const welcomeNote = hadWelcome ? 'answered' : 'none, the browser profile remembered the character';
         timings.push([`welcome dialog: ${welcomeNote}`, done(welcomeNote)]);
 
-        done = log.stage('  profile import');
-        qeSettings = settingsFrom(await importProfile(page, profileText, wanted, log));
-        timings.push(['profile import', done()]);
-
-        let content = null;
-        // The PLAN, not the configured list: a dungeon Upgrade Finder document
-        // is one document per configured key level (WKE-543, C-7).
-        for (const planned of configLib.plannedDocuments(config)) {
-            const at = planned.keyLevel === undefined ? '' : ` +${planned.keyLevel}`;
-            if (planned.contentType !== content) {
-                done = log.stage(`  content ${planned.contentType}`);
-                await setContent(page, planned.contentType, log);
-                content = planned.contentType;
-                timings.push([`content ${planned.contentType}`, done()]);
+        for (const pass of passes) {
+            const asked = pass.scenario || 'the configured Upgrade Finder settings';
+            // Re-imported per pass, because the three boxes act at import:
+            // `runSimC` is handed their state, so a box flipped after Submit
+            // changes nothing and the same player would be scored again.
+            done = log.stage(`  profile import (${asked})`);
+            const settings = settingsFrom(await importProfile(page, profileText, pass.boxes, log));
+            timings.push([`profile import (${asked})`, done()]);
+            // The pair the FILE records stays the pair C-5 named, and it is the
+            // base pass's: the per-document settings below are what each answer
+            // was actually produced under.
+            if (!qeSettings || pass.scenario === configLib.DEFAULT_SCENARIO) {
+                qeSettings = { autoUpgradeAll: !!settings.autoUpgradeAll, autoUpgradeVault: !!settings.autoUpgradeVault };
             }
-            done = log.stage(`  ${planned.kind} ${planned.contentType}${at}`);
-            const json =
-                planned.kind === 'topgear'
-                    ? await runTopGear(page, log)
-                    : await runUpgradeFinder(page, planned.keyLevel, log);
-            timings.push([`${planned.kind} ${planned.contentType}${at} (${json.length} chars)`, done(`${json.length} chars`)]);
-            documents.push({ kind: planned.kind, contentType: planned.contentType, keyLevel: planned.keyLevel, json });
+
+            // The content select is re-read per pass rather than remembered
+            // across one: the import dialog rebuilds the player, and what the
+            // page showed before an import is not proof of what it shows after.
+            let content = null;
+            for (const planned of pass.documents) {
+                const at = planned.keyLevel === undefined ? '' : ` +${planned.keyLevel}`;
+                if (planned.contentType !== content) {
+                    done = log.stage(`  content ${planned.contentType}`);
+                    await setContent(page, planned.contentType, log);
+                    content = planned.contentType;
+                    timings.push([`content ${planned.contentType}`, done()]);
+                }
+                const label = `${planned.kind} ${planned.contentType}${at}${planned.scenario ? ` (${planned.scenario})` : ''}`;
+                done = log.stage(`  ${label}`);
+                const json =
+                    planned.kind === 'topgear'
+                        ? await runTopGear(page, log)
+                        : await runUpgradeFinder(page, planned.keyLevel, log);
+                timings.push([`${label} (${json.length} chars)`, done(`${json.length} chars`)]);
+                documents.push({
+                    kind: planned.kind,
+                    contentType: planned.contentType,
+                    keyLevel: planned.keyLevel,
+                    scenario: planned.scenario,
+                    // What the page reported after the click, not what the pass
+                    // asked for, so a document says how it was really produced.
+                    qeSettings: settings,
+                    json,
+                });
+            }
         }
     } catch (e) {
         if (opts.screenshotDir) {

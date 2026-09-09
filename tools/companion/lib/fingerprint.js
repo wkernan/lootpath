@@ -110,18 +110,35 @@ function keyLevelsLine(keyLevels) {
     return '# upgradeFinderKeyLevels ' + (canonical.length ? canonical.join(',') : 'none');
 }
 
-function fingerprint(profileText, qeSettings, keyLevels) {
+// The named scenarios Top Gear will be run under (WKE-540, C-6) are the third
+// half of the question, for exactly the reason the two above are the first two:
+// the same gear asked "what if I catalyzed it" and "what is it now" gets two
+// different Top Gear answers. Adding a scenario has to cost a run, and dropping
+// one has to cost a run too, or the verdict file would keep a document for a
+// question the owner stopped asking.
+//
+// Sorted and deduplicated here as well as in `lib/config.js`, so the hash cannot
+// move because a list was typed in a different order.
+function scenariosLine(scenarios) {
+    const names = Array.isArray(scenarios) ? scenarios : [];
+    const canonical = [...new Set(names)].sort();
+    return '# scenarios ' + (canonical.length ? canonical.join(',') : 'none');
+}
+
+function fingerprint(profileText, qeSettings, keyLevels, scenarios) {
     const { kept, dropped } = stripVolatile(profileText);
     const line = settingsLine(qeSettings);
     const levels = keyLevelsLine(keyLevels);
+    const named = scenariosLine(scenarios);
     return {
         hash: crypto
             .createHash('sha256')
-            .update(kept.concat([line, levels]).join('\n'), 'utf8')
+            .update(kept.concat([line, levels, named]).join('\n'), 'utf8')
             .digest('hex'),
         dropped,
         settingsLine: line,
         keyLevelsLine: levels,
+        scenariosLine: named,
     };
 }
 
@@ -182,4 +199,16 @@ function isCurrent(state, hash, target) {
     return { current: true, writtenAt: state.writtenAt };
 }
 
-module.exports = { fingerprint, settingsLine, keyLevelsLine, stripVolatile, readState, writeState, statePath, isCurrent, VOLATILE_LINES, STATE_FILE };
+module.exports = {
+    fingerprint,
+    settingsLine,
+    keyLevelsLine,
+    scenariosLine,
+    stripVolatile,
+    readState,
+    writeState,
+    statePath,
+    isCurrent,
+    VOLATILE_LINES,
+    STATE_FILE,
+};

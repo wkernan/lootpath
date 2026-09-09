@@ -51,6 +51,55 @@ branch `lootpath/upgrade-finder-export`, Export > Download JSON).
   auto-upgrade-vault setting). 15 items, 12 differentials each; scores
   5647.977 (Dungeon) and 5860.499 (Raid).
 
+## The three named scenarios (C-6, WKE-540)
+
+Six documents from **one companion run**, 2026-09-09 01:15 UTC, extracted
+unedited from the `Data/QEVerdict.lua` it wrote. Same gear, same profile
+(15 equipped / 32 bags / 0 bank / 4 vault, 158 lines), three questions - QE
+Live's three import checkboxes, set explicitly per scenario and read back off
+his page before every Submit. The four vault options behind them are the ones
+in the 2026-09-08 12:45 capture: Preyhunter's Lantern 275547 (Offhand 305),
+Lightgrasp Worldroot 251935 (2H Weapon 305), Scavenger's Spaulders 251146
+(Shoulder 308), Graft of the Domanaar 251234 (Neck 308).
+
+| file | content type | scenario | boxes (all / vault / catalyze) | top set score |
+|---|---|---|---|---|
+| `qe-droptimizer-Hotornot-hldibnbaajft.json` | Dungeon | `asOffered` | off / off / off | 5544.654 |
+| `qe-droptimizer-Hotornot-xacelnbtfevd.json` | Raid | `asOffered` | off / off / off | 5757.608 |
+| `qe-droptimizer-Hotornot-xrjevewtwqsw.json` | Dungeon | `catalyzed` | off / off / **on** | 5724.919 |
+| `qe-droptimizer-Hotornot-kqaeqimkpsfw.json` | Raid | `catalyzed` | off / off / **on** | 5928.158 |
+| `qe-droptimizer-Hotornot-qqrqsbudcszh.json` | Dungeon | `maxed` | **on / on / on** | 5853.843 |
+| `qe-droptimizer-Hotornot-ddveeejxcsvb.json` | Raid | `maxed` | **on / on / on** | 6055.955 |
+
+All six scores reproduce the 2026-09-08 ~13:20 spike exactly (ARCHITECTURE.md
+9), so the companion's scenario driver and `run-fork.js --scenario` agree.
+
+**What the catalyzed runs prove about the join.** `autoCatalyze` does not change
+an item: `SimCImportEngine.ts` keeps the original and ADDS a clone, and
+`Item.convertToTier` gives the clone the tier piece's item ID and set ID while
+keeping the slot, the level, the bonus IDs and the `vaultItem` flag. In these
+files the vault's Scavenger's Spaulders `251146` appear as
+`271526 @ 308, setId 2057, isVault, bonusIDs [12842, 13440, 6652, 13662, 12699]`
+- the Spaulders' own bonus IDs, on a different item ID - **in the top set** of
+both `catalyzed` documents. The exact-key join can never find that, which is why
+`ns.QEImport.CatalyzedCoverage` looks for his clone by the fields he copied. The
+exporter carries neither `catalyzedID` nor `isCatalystItem`, so those fields are
+all there is to recognise it by.
+
+**Measured over these six, option by option** (`ns.QEImport.Coverage` then
+`CatalyzedCoverage`, Dungeon figures; Raid in brackets):
+
+| option | `asOffered` | `catalyzed` | `maxed` |
+|---|---|---|---|
+| Lightgrasp Worldroot | 0.5681% behind (0.5471%) | 1.0743% behind (1.0627%) | **in the best set at 321** |
+| Scavenger's Spaulders | not ranked | **in the best set, as tier 271526 at 308** | 1.7168% behind as tier at 321 (1.6348%) |
+| Preyhunter's Lantern | not ranked | not ranked | not ranked |
+| Graft of the Domanaar | not ranked | not ranked | not ranked |
+
+So the answer changes with the question: catalyze and the shoulders win, upgrade
+everything and the weapon does. That is the whole of WKE-540, and none of it is
+computed here.
+
 `spec/qeimport_spec.lua` reads these files in its "genuine QE Live export" blocks.
 
 ## Upgrade Finder exports (`qe-live-upgradefinder` v1, the fork's schema)
