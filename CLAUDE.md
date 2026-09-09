@@ -49,8 +49,15 @@ already edited the shared checkout, move the work to a worktree first
 - Commits end with `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
   PR bodies end with the Claude Code attribution line and carry every section
   of `.github/pull_request_template.md`.
-- A PR that conflicts with `main` gets no CI run at all. Zero checks means
-  rebase, not broken CI.
+- **Rebase onto `origin/main` before opening the PR, and again before
+  merging** (`git fetch origin`, `git rebase origin/main` in your worktree,
+  resolve, re-run `tools\check.ps1`, `git push --force-with-lease`). `main`
+  moves several times a day and several PRs land beside yours; a PR that
+  conflicts with `main` gets no CI run at all. Zero checks means rebase, not
+  broken CI.
+- Every Linear issue an agent picks up carries both rules in its own text -
+  the worktree and the rebase - under "Working in this repo". An issue
+  without them is not ready; add them before handing it out.
 
 ## Evidence
 
