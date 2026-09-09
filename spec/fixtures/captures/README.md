@@ -55,3 +55,12 @@ with every loop rather than by request.
   3418 (0), and under "Crests" the five Mistcrests: Adventurer 3442 (356),
   Veteran 3443 (0), Champion 3444 (2), Hero 3445 (21), Myth 3446 (20). **No
   entry is a Catalyst charge.** Every earlier snapshot repeats. No secrets.
+- Lootpath-20260909-085940.lua - the owner's first `/lootpath refresh` after a
+  client restart, 2026-09-09 08:59:19 (this PR). Taken on the pre-546 build a
+  moment before the reload loaded 546, so its `currencies` snapshot (index 4)
+  has the list half only - crests 358 / 0 / 2 / 39 / 20, no `byID`. Its vault
+  snapshot (index 13) is the measured case behind WKE-547: four of five gear
+  rewards with `name = nil`, `itemLevel = nil` and an empty bracketed name in
+  the link (`|h[]|h`), keys intact; progress Dungeons 1/1 (level 8), 1/4, 1/8,
+  Concession 5/3; `hasAvailableRewards` true, `canClaimRewards` false. Every
+  earlier snapshot repeats. No secrets.
