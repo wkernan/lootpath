@@ -18,7 +18,11 @@ exclude_files = {
 -- FrameXML's list of frame NAMES that Escape closes (Blizzard_UIParentPanelManager
 -- iterates it); appending the main frame's name is how a panel opts in, so this
 -- one is mutated rather than only read.
+-- LootpathToggle is the AddOn Compartment's entry point: `## AddonCompartmentFunc`
+-- names a GLOBAL function, which Blizzard's AddonCompartmentMixin looks up in
+-- _G, so this global is defined rather than only read.
 globals = {
+    "LootpathToggle",
     "SLASH_LOOTPATH1",
     "SlashCmdList",
     "UISpecialFrames",
@@ -42,6 +46,10 @@ read_globals = {
     "C_Item",
     "C_MythicPlus",
     "C_Secrets",
+    -- Blizzard's replacement for the GetSpecialization/GetSpecializationInfo
+    -- pair, which its own annotations mark deprecated; MainFrame asks for this
+    -- first and the two globals second, so both are listed.
+    "C_SpecializationInfo",
     "C_Timer",
     "C_WeeklyRewards",
     "Enum",
@@ -53,6 +61,7 @@ read_globals = {
     "GetInventoryItemID",
     "GetInventoryItemLink",
     "GetLocale",
+    "GetCursorPosition",
     "GetRealmName",
     "GetSpecialization",
     "GetSpecializationInfo",
@@ -89,7 +98,12 @@ read_globals = {
     "EJ_SetLootFilter",
     -- FrameXML
     "BankFrame",
+    "CLASS_ICON_TCOORDS",
     "GameTooltip",
+    -- The minimap frame the launcher hangs off (M5-2); read through a nil check,
+    -- because a client without one is a client with no minimap button.
+    "Minimap",
+    "MinimalSliderWithSteppersMixin",
     "Settings",
     "UIParent",
     "DifficultyUtil",

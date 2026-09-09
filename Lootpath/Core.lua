@@ -420,7 +420,19 @@ ns.DB_DEFAULTS = {
     -- the vault poses - take one option, upgrade that one, spend the one
     -- Catalyst charge - and the tab falls back to `asOffered`, saying so, when
     -- no `thisWeek` answer has been stored yet.
-    profile = { settings = { contentType = "Dungeon", vaultScenario = "thisWeek" } },
+    -- The chrome settings are M5-2's (WKE-551): the window's own scale, the
+    -- compact row height M5-1's item line reads, and where on the minimap ring
+    -- the launcher sits (degrees counter-clockwise from east; 200 puts it at
+    -- the lower left, clear of Blizzard's own buttons).
+    profile = {
+        settings = {
+            contentType = "Dungeon",
+            vaultScenario = "thisWeek",
+            scale = 1.0,
+            compactRows = false,
+            minimapAngle = 200,
+        },
+    },
 }
 
 local function onAddonLoaded()

@@ -56,8 +56,6 @@ local IGNORED_REGION_METHODS = {
     "SetJustifyV",
     "SetFontObject",
     "SetFont",
-    "SetTexture",
-    "SetAtlas",
     "SetNonSpaceWrap",
     "SetDrawLayer",
 }
@@ -135,6 +133,41 @@ local function newRegion(kind, parent)
     function r:SetWordWrap(value)
         self.wordWrap = value and true or false
     end
+    -- WHICH texture a region was given is a decision the code makes - the spec
+    -- icon or the class sheet, the class sheet at which corner - and not a
+    -- pixel, so it is recorded like SetWordWrap rather than ignored. The real
+    -- widget has no getter for any of the three; nothing here is faked beyond
+    -- remembering what it was told (M5-2).
+    function r:SetTexture(value)
+        self.texture = value
+    end
+    function r:GetTexture()
+        return self.texture
+    end
+    function r:SetAtlas(value)
+        self.atlas = value
+    end
+    function r:SetTexCoord(...)
+        self.texCoord = { ... }
+    end
+    function r:SetScale(value)
+        self.scale = tonumber(value) or 1
+    end
+    function r:GetScale()
+        return self.scale or 1
+    end
+    function r:GetEffectiveScale()
+        return self.effectiveScale or self.scale or 1
+    end
+    -- The frame's centre in UI coordinates. Nothing here lays anything out, so
+    -- it is whatever a test set (used by the minimap drag, M5-2); 0, 0 unset.
+    function r:GetCenter()
+        local c = self.center
+        if not c then
+            return 0, 0
+        end
+        return c[1], c[2]
+    end
     for _, name in ipairs(IGNORED_REGION_METHODS) do
         r[name] = function() end
     end
@@ -152,6 +185,24 @@ local function attachTemplate(f, world, template)
     if template:find("BasicFrameTemplate", 1, true) then
         f.TitleText = f:CreateFontString()
         f.CloseButton = newFrame("Button", world, f)
+    end
+    -- PortraitFrameTemplate -> PortraitFrameTemplateNoCloseButton ->
+    -- PortraitFrameTexturedBaseTemplate -> PortraitFrameBaseTemplate, which is
+    -- where PortraitContainer (with the `portrait` texture), TitleContainer and
+    -- its TitleText come from; the CloseButton is PortraitFrameTemplate's own
+    -- (Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.xml:544-635).
+    if template:find("PortraitFrameTemplate", 1, true) then
+        local titleContainer = newFrame("Frame", world, f)
+        titleContainer.TitleText = titleContainer:CreateFontString()
+        f.TitleContainer = titleContainer
+        f.TitleText = titleContainer.TitleText
+        local portraitContainer = newFrame("Frame", world, f)
+        portraitContainer.portrait = portraitContainer:CreateTexture()
+        f.PortraitContainer = portraitContainer
+        f.NineSlice = newFrame("Frame", world, f)
+        if not template:find("NoCloseButton", 1, true) then
+            f.CloseButton = newFrame("Button", world, f)
+        end
     end
     -- PanelTabButtonTemplate declares parentArray="Tabs"
     -- (Blizzard_SharedXML/SharedUIPanelTemplates.xml line 905), so a tab built
@@ -382,6 +433,10 @@ function Stub.install()
             { name = "Simulationcraft", title = "SimulationCraft", loaded = false },
         },
         metadata = { Version = "0.0.0-test" },
+        -- The active specialization, or nil for a client that names none.
+        -- Placeholder in every particular except the shape (M2-2, M5-2).
+        spec = { index = 4, id = 105, name = "Restoration", icon = 136041, role = "HEALER" },
+        cursor = { 0, 0 },
         equipped = {}, -- [invSlot] = { link = , id = }
         bags = {}, -- [bagIndex] = { numSlots = , items = { [slot] = { info = , link = , id = } } }
         items = {}, -- [link] = { level = , info = {...}, instant = {...} }
@@ -562,14 +617,43 @@ function Stub.install()
     define("GetCurrentRegion", function()
         return world.regionID
     end)
+    -- The spec pair. `world.spec` is what a test drives: nil is a client that
+    -- names no specialization, which is what makes the portrait's class-icon
+    -- fallback reachable headlessly (M5-2). Blizzard's annotations deprecate
+    -- both globals in favour of C_SpecializationInfo, so the namespaced pair is
+    -- defined over the same model and the globals are kept beside it, which is
+    -- exactly the client the addon has to survive either half of.
     define("GetSpecialization", function()
-        return 4
+        return world.spec and world.spec.index or nil
     end)
     define("GetSpecializationInfo", function(index)
-        if index == 4 then
-            return 105, "Restoration", "placeholder", 136041, "HEALER", 4
+        local spec = world.spec
+        if not spec or index ~= spec.index then
+            return nil
         end
-        return nil
+        return spec.id, spec.name, "placeholder", spec.icon, spec.role, 4
+    end)
+    define("C_SpecializationInfo", {
+        GetSpecialization = function()
+            return world.spec and world.spec.index or nil
+        end,
+        GetSpecializationInfo = function(index)
+            return _G.GetSpecializationInfo(index)
+        end,
+    })
+    -- CLASS_ICON_TCOORDS: the four corners of each class's circle in the shared
+    -- UI-Classes-Circles sheet. Only the stub's own class (DRUID, from
+    -- UnitClass above) is modelled, and the four numbers are PLACEHOLDERS like
+    -- every other value here - what is tested is that the four the client gives
+    -- are the four the portrait is set to, never which four they are.
+    define("CLASS_ICON_TCOORDS", {
+        DRUID = { 0.75, 1, 0, 0.25 },
+    })
+    -- Where the mouse is, in UI coordinates before the frame's own scale. The
+    -- minimap drag divides by the minimap's effective scale, exactly as the
+    -- client's own buttons do.
+    define("GetCursorPosition", function()
+        return world.cursor[1], world.cursor[2]
     end)
     -- GetDifficultyInfo(difficultyID) -> name, instanceType, ... (Blizzard's
     -- exported InstanceDocumentation via Ketho). Names here are placeholders;
@@ -611,6 +695,14 @@ function Stub.install()
     define("SlashCmdList", {})
     define("UIParent", newFrame("Frame", world))
     define("UISpecialFrames", {})
+    -- The minimap, for the launcher to hang off (M5-2). 140 points across at
+    -- default scale, centred where a test puts it.
+    local minimap = newFrame("Frame", world)
+    minimap:SetSize(140, 140)
+    minimap.center = { 0, 0 }
+    minimap.shown = true
+    world.minimap = minimap
+    define("Minimap", minimap)
 
     -- The tab helpers from Blizzard_SharedXML/SharedUIPanelTemplates.lua, as
     -- far as a headless run can model them: which tab is selected is state, and
@@ -657,7 +749,14 @@ function Stub.install()
     -- The Settings API, from Blizzard's shipped Blizzard_Settings.lua (read
     -- 2026-09-06). Only the six calls the options page makes are modelled, and
     -- what was registered is recorded in world.settings.
-    world.settings = { categories = {}, settings = {}, dropdowns = {}, opened = {} }
+    world.settings = {
+        categories = {},
+        settings = {},
+        dropdowns = {},
+        sliders = {},
+        checkboxes = {},
+        opened = {},
+    }
     local nextCategoryID = 0
     define("Settings", {
         VarType = { Boolean = "boolean", String = "string", Number = "number" },
@@ -707,6 +806,34 @@ function Stub.install()
         OpenToCategory = function(categoryID)
             world.settings.opened[#world.settings.opened + 1] = categoryID
         end,
+        -- CreateSliderOptions' `steps` is (maxValue - minValue) / rate, and its
+        -- SetLabelFormatter takes a MinimalSliderWithSteppersMixin.Label value
+        -- (Blizzard_Settings.lua:307, MinimalSlider.lua:40).
+        CreateSliderOptions = function(minValue, maxValue, rate)
+            local options = {
+                minValue = minValue or 0,
+                maxValue = maxValue or 1,
+                steps = rate and ((maxValue - minValue) / rate) or 100,
+            }
+            function options:SetLabelFormatter(labelType, formatter)
+                self.formatters = self.formatters or {}
+                self.formatters[labelType] = formatter
+            end
+            return options
+        end,
+        CreateSlider = function(category, setting, options, tooltipText)
+            local entry = { category = category, setting = setting, options = options, tooltip = tooltipText }
+            world.settings.sliders[#world.settings.sliders + 1] = entry
+            return entry
+        end,
+        CreateCheckbox = function(category, setting, tooltipText)
+            local entry = { category = category, setting = setting, tooltip = tooltipText }
+            world.settings.checkboxes[#world.settings.checkboxes + 1] = entry
+            return entry
+        end,
+    })
+    define("MinimalSliderWithSteppersMixin", {
+        Label = { Left = 1, Right = 2, Top = 3, Min = 4, Max = 5 },
     })
 
     -- FrameXML constants (Blizzard_FrameXMLBase/Constants.lua via Ketho).
