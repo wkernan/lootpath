@@ -209,31 +209,35 @@ end
 -- them as one thing: they are different schemas with opposite sign conventions.
 --
 -- Since C-7 (WKE-543) there can be SEVERAL Upgrade Finder exports for one
--- content type, one per Mythic+ key level the companion asked QE Live about, so
--- this takes the level the caller wants - the loot map passes the level the
--- journal walk previewed. UFImport.PickForLevel settles which one answers and
--- why; `how` and `keyLevel` come back so the panel can say which key level is
--- on screen instead of showing a +2 answer under a +10 heading.
+-- content type, one per Mythic+ key level the companion asked QE Live about,
+-- and since M3-10 (WKE-545) the loot map reads ALL of them: a drop is valued by
+-- whichever document carries it at the item level the client lists, because his
+-- +10 dungeon rows (311) and the client's keystone-10 preview (305) disagree by
+-- six item levels and neither side is Lootpath's to adjust. So this hands back
+-- the whole set for the content type rather than one pick of it, and the panel
+-- says which documents they are.
 --
--- Returns verdict, contentType, fellBack, keyLevel, how.
-function UI.ActiveUpgradeFinder(keyLevel)
+-- Returns documents (possibly empty, never nil), contentType, fellBack.
+function UI.ActiveUpgradeFinderDocuments()
     local wanted = UI.Options and UI.Options.Get() or nil
     if wanted then
-        local verdict, level, how = ns.UFImport.PickForLevel(wanted, keyLevel)
-        if verdict then
-            return verdict, wanted, false, level, how
+        local documents = ns.UFImport.Documents(wanted)
+        if #documents > 0 then
+            return documents, wanted, false
         end
     end
     local current = ns.UFImport.Current()
     if current then
         local contentType = ns.UFImport.ContentTypeKey(current)
-        local verdict, level, how = ns.UFImport.PickForLevel(contentType, keyLevel)
-        if verdict then
-            return verdict, contentType, true, level, how
+        local documents = ns.UFImport.Documents(contentType)
+        if #documents > 0 then
+            return documents, contentType, true
         end
-        return current, contentType, true, ns.UFImport.KeyLevelOf(current), ns.UFImport.PICK_UNRECORDED
+        -- Stored, but on neither shelf UFImport.Documents reads: it is still an
+        -- answer, and it is shown as the one document it is.
+        return { { verdict = current, keyLevel = ns.UFImport.KeyLevelOf(current) } }, contentType, true
     end
-    return nil, wanted, false
+    return {}, wanted, false
 end
 
 -- Which import is on screen and where it came from - "pasted", or "companion,

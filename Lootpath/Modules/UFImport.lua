@@ -395,10 +395,17 @@ function UFImport.KeyLevelKey(keyLevel)
     return level
 end
 
--- Why the verdict on screen is the one on screen, for the line the panel draws.
-UFImport.PICK_WANTED = "wanted"
-UFImport.PICK_HIGHEST = "highest"
-UFImport.PICK_UNRECORDED = "unrecorded"
+-- The label a key level is shown under, and the ONLY place a number becomes a
+-- word. `+%d` and nothing else: the companion stamps the level QE Live's own
+-- selector was set to, and dressing 6 up as anything but "+6" would be this
+-- module having an opinion about his table.
+function UFImport.KeyLabel(keyLevel)
+    local level = tonumber(keyLevel)
+    if not level or level < 0 or level % 1 ~= 0 then
+        return nil
+    end
+    return string.format("+%d", level)
+end
 
 function UFImport.Store(verdict)
     if type(verdict) ~= "table" then
@@ -473,65 +480,202 @@ function UFImport.StoredKeyLevels(contentType)
     return levels, unrecorded
 end
 
--- Which stored Upgrade Finder verdict answers for `wantedLevel`.
---   the one at that exact key level, when it is stored;
---   else the highest key level stored, because a higher key is the answer the
---   owner is most likely to have asked for and never a level made up here;
---   else a verdict that does not say its level at all - a paste, or a file
---   written before C-7.
--- Returns verdict, keyLevel (nil when it does not say), how.
-function UFImport.PickForLevel(contentType, wantedLevel)
-    local want = tonumber(wantedLevel)
-    if want then
-        local exact = UFImport.ForContentTypeAndLevel(contentType, want)
-        if exact then
-            return exact, UFImport.KeyLevelOf(exact) or want, UFImport.PICK_WANTED
-        end
-    end
+-- ---------------------------------------------------------------------------
+-- The cross-level join (M3-10, WKE-545).
+--
+-- C-7 picked ONE document - the one run at the key level the walk previewed -
+-- and asked it about every row. Measured on 2026-09-08 that answered nothing
+-- about dungeons: QE Live's +10 document values a dungeon drop at 311 while the
+-- client's own keystone-10 preview lists it at 305, so the exact `itemID@level`
+-- key missed on every dungeon row and each one read "no drop rated by QE Live
+-- yet". Which of the two is right about +10 is not Lootpath's to decide, and
+-- adjusting either number would be Lootpath inventing a healer value.
+--
+-- What both sources DO say without being touched: the client says at what item
+-- level a drop drops, and QE Live says what that item is worth at each level he
+-- modelled. So the join runs over EVERY stored document for the content type
+-- and keeps the exact `itemID@itemLevel` match wherever it is found - the +6
+-- document, as it happens, because his +6 dungeon rows come back at 305. No
+-- neighbouring level, no interpolation, no key level inferred from an item
+-- level: a row still shows a number only where one of his own documents carries
+-- that exact item at that exact level, and the row says which document it was.
+--
+-- Why the tie-break exists: two documents really can carry one drop at one
+-- level (his +6 and +7 buttons both end at 305, and every dungeon document
+-- carries the same raid rows), and they can disagree, because a level that is a
+-- `drop` in one run is an `Upgraded` or `Bonus Roll` listing in another. His
+-- own `dropType` settles it; the lowest key level settles what that cannot.
+
+-- QE Live's own word for the item level a run's end-of-dungeon chest gives, as
+-- opposed to the upgraded (`max`) and bonus-roll (`bonus`) listings of the same
+-- item. Read from the exports, never chosen here.
+UFImport.DROP_TYPE_DROP = "drop"
+
+-- Why a matched entry is the matched one, for the row that has to say so.
+UFImport.MATCH_ONLY = "only"
+UFImport.MATCH_DROP = "drop"
+UFImport.MATCH_LOWEST = "lowest"
+
+-- Every stored Upgrade Finder document for a content type, as
+-- `{ verdict = <verdict>, keyLevel = <number or nil> }`, ascending by key level
+-- with a document that does not name its level last. This is the one place the
+-- database is read; every function below is pure over the list it returns, so a
+-- panel can be handed documents in a test without a database at all.
+function UFImport.Documents(contentType)
+    local documents = {}
     local levels, unrecorded = UFImport.StoredKeyLevels(contentType)
-    if #levels > 0 then
-        local highest = levels[#levels]
-        local verdict = UFImport.ForContentTypeAndLevel(contentType, highest)
+    for _, level in ipairs(levels) do
+        local verdict = UFImport.ForContentTypeAndLevel(contentType, level)
         if verdict then
-            return verdict, highest, UFImport.PICK_HIGHEST
+            documents[#documents + 1] = { verdict = verdict, keyLevel = level }
         end
     end
     if unrecorded then
         local verdict = UFImport.ForContentTypeAndLevel(contentType, nil)
         if verdict then
-            return verdict, nil, UFImport.PICK_UNRECORDED
+            documents[#documents + 1] = { verdict = verdict, keyLevel = nil }
         end
     end
-    -- SavedVariables written before the by-level shelf existed: the verdict is
-    -- there, it simply never said which key it was run at.
-    local legacy = UFImport.ForContentType(contentType)
-    if legacy then
-        return legacy, UFImport.KeyLevelOf(legacy), UFImport.PICK_UNRECORDED
+    if #documents == 0 then
+        -- SavedVariables written before the by-level shelf existed: the verdict
+        -- is there, it simply never said which key it was run at.
+        local legacy = UFImport.ForContentType(contentType)
+        if legacy then
+            documents[#documents + 1] = { verdict = legacy, keyLevel = UFImport.KeyLevelOf(legacy) }
+        end
     end
-    return nil
+    return documents
 end
 
--- The sentence the panel puts under its header, so a reader is never shown a
--- +2 answer while thinking about their +10 key. One place, because the Upgrade
--- Map and the window's own note have to say the same thing.
-function UFImport.KeyLevelNote(keyLevel, how, wantedLevel)
-    if how == UFImport.PICK_WANTED then
-        return string.format("QE Live ran these numbers on a +%d key, the level the loot map previews.", keyLevel)
+-- Does QE Live call this entry a `drop` at its level? The entry keeps the
+-- dropType of the first listing that produced it and the rest as `sources`
+-- (one item can be listed as drop, max and bonus), so both are read: the
+-- question is what he says about the item at that level, not which of his
+-- listings happened to be parsed first.
+function UFImport.IsDropAtLevel(entry)
+    if type(entry) ~= "table" then
+        return false
     end
-    if how == UFImport.PICK_HIGHEST then
-        if tonumber(wantedLevel) then
-            return string.format(
-                "QE Live has no +%d run stored, so these numbers are its +%d run - the highest key it was asked about.",
-                wantedLevel,
-                keyLevel
-            )
+    if entry.dropType == UFImport.DROP_TYPE_DROP then
+        return true
+    end
+    for _, source in ipairs(entry.sources or {}) do
+        if source.dropType == UFImport.DROP_TYPE_DROP then
+            return true
         end
-        return string.format("QE Live ran these numbers on a +%d key, the highest it was asked about.", keyLevel)
     end
-    if how == UFImport.PICK_UNRECORDED then
-        return "This Upgrade Finder export does not say which Mythic+ key level QE Live ran it on."
+    return false
+end
+
+-- The entry any of these documents carries for `itemID` AT `level`, or nil.
+--
+-- Exact on both keys in every document, and never anything else. When more than
+-- one document carries it, the one QE Live's own `dropType` calls a `drop` at
+-- that level wins, and the lowest key level wins when none of them does - the
+-- documents arrive in ascending order, so "first" is "lowest".
+--
+-- Returns entry, keyLevel (nil when that document does not name one), how
+-- (MATCH_ONLY / MATCH_DROP / MATCH_LOWEST) and the number of documents that
+-- carried it.
+function UFImport.LookupAcrossLevels(documents, itemID, level)
+    if type(documents) ~= "table" then
+        return nil
     end
-    return nil
+    local key = UFImport.Key(itemID, level)
+    if not key then
+        return nil
+    end
+    local found, drop = nil, nil
+    local count = 0
+    for _, document in ipairs(documents) do
+        local verdict = type(document) == "table" and document.verdict or nil
+        local entry = type(verdict) == "table" and type(verdict.items) == "table" and verdict.items[key] or nil
+        if entry then
+            count = count + 1
+            found = found or { entry = entry, keyLevel = document.keyLevel }
+            if not drop and UFImport.IsDropAtLevel(entry) then
+                drop = { entry = entry, keyLevel = document.keyLevel }
+            end
+        end
+    end
+    -- `found` is nil exactly when count is 0, and saying it this way is what
+    -- lets both this reader and LuaLS see that the returns below are safe.
+    if not found then
+        return nil
+    end
+    if count == 1 then
+        return found.entry, found.keyLevel, UFImport.MATCH_ONLY, count
+    end
+    if drop then
+        return drop.entry, drop.keyLevel, UFImport.MATCH_DROP, count
+    end
+    return found.entry, found.keyLevel, UFImport.MATCH_LOWEST, count
+end
+
+-- Every item level any of these documents carries for an itemID, ascending, or
+-- nil when none of them mentions the item at all. This is how a caller tells
+-- "QE Live has never seen this drop" from "QE Live valued it, but never at the
+-- level the client lists" - which is a fact worth counting and never a reason
+-- to show a number.
+function UFImport.LevelsAcrossLevels(documents, itemID)
+    if type(documents) ~= "table" then
+        return nil
+    end
+    local seen, levels = {}, {}
+    for _, document in ipairs(documents) do
+        local verdict = type(document) == "table" and document.verdict or nil
+        for _, level in ipairs(UFImport.LevelsFor(verdict, itemID) or {}) do
+            if not seen[level] then
+                seen[level] = true
+                levels[#levels + 1] = level
+            end
+        end
+    end
+    if #levels == 0 then
+        return nil
+    end
+    table.sort(levels)
+    return levels
+end
+
+-- The sentence the panel puts under its header: which documents are being
+-- joined, so a reader knows the numbers on the rows came from several runs of
+-- QE Live's Upgrade Finder and which ones. It replaces C-7's "these numbers are
+-- its +8 run" line, because no single run is what is on screen any more.
+UFImport.DOCUMENTS_NOTE = "QE Live's Upgrade Finder at %s (%d document%s)."
+UFImport.DOCUMENTS_NOTE_UNNAMED = "QE Live's Upgrade Finder, with no Mythic+ key level named (%d document%s)."
+UFImport.DOCUMENTS_NOTE_MIXED = "QE Live's Upgrade Finder at %s, and %d that name no key level (%d documents)."
+UFImport.DOCUMENTS_JOIN_SENTENCE =
+    " A drop takes its number from whichever of them values it at the item level the loot map lists."
+
+function UFImport.DocumentsNote(documents)
+    local labels, unnamed = {}, 0
+    for _, document in ipairs(documents or {}) do
+        local label = type(document) == "table" and UFImport.KeyLabel(document.keyLevel) or nil
+        if label then
+            labels[#labels + 1] = label
+        else
+            unnamed = unnamed + 1
+        end
+    end
+    local count = #labels + unnamed
+    if count == 0 then
+        return nil
+    end
+    local plural = count == 1 and "" or "s"
+    local note
+    if #labels == 0 then
+        note = string.format(UFImport.DOCUMENTS_NOTE_UNNAMED, count, plural)
+    elseif unnamed == 0 then
+        note = string.format(UFImport.DOCUMENTS_NOTE, table.concat(labels, ", "), count, plural)
+    else
+        note = string.format(UFImport.DOCUMENTS_NOTE_MIXED, table.concat(labels, ", "), unnamed, count)
+    end
+    -- Only worth saying when there is a choice to explain.
+    if count > 1 then
+        note = note .. UFImport.DOCUMENTS_JOIN_SENTENCE
+    end
+    return note
 end
 
 -- The stored verdict this one would replace: the same content type AND the same

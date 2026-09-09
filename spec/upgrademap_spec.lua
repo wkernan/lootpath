@@ -1549,131 +1549,315 @@ describe("UpgradeMapPanel view toggle on the frames", function()
 end)
 
 -- ---------------------------------------------------------------------------
--- C-7 (WKE-543): the panel reads the Upgrade Finder export for the key level
--- the walk previewed.
+-- M3-10 (WKE-545): the panel joins each drop to whichever key-level document
+-- values it at the item level the client lists.
 --
--- Since the companion asks QE Live once per key level, "the Upgrade Finder
--- export" is no longer one thing. The slot view asks for the level its own rows
--- are about - the walk's preview level - and says on the panel which level it
--- actually got, because a +2 answer under a +10 heading is a wrong number that
--- looks right.
-describe("UpgradeMapPanel and the Mythic+ key level QE Live was run at", function()
-    local ns
+-- C-7 asked ONE document - the one run at the level the walk previewed - about
+-- every row, and on real data that answered nothing about dungeons: QE Live's
+-- +10 dungeon rows come back at 311 while the client's own keystone-10 preview
+-- lists them at 305, so every dungeon run read "no drop rated by QE Live yet".
+-- Which of the two is right about +10 is not Lootpath's to decide; what both
+-- sources say without being touched is joined instead.
+--
+-- The five documents are one companion run (2026-09-08 22:47), committed
+-- unedited. Every figure below was read from them by
+-- tools/measure-cross-level.lua before it was written down.
+local UF_BY_KEY_LEVEL = {
+    [2] = "spec/fixtures/qe/qe-upgradefinder-Hotornot-lrxljklscrjr.json",
+    [4] = "spec/fixtures/qe/qe-upgradefinder-Hotornot-jnjnmzftoppb.json",
+    [6] = "spec/fixtures/qe/qe-upgradefinder-Hotornot-zmtnpejwfewe.json",
+    [8] = "spec/fixtures/qe/qe-upgradefinder-Hotornot-lttldhvkiqlr.json",
+    [10] = "spec/fixtures/qe/qe-upgradefinder-Hotornot-wyharestkdyr.json",
+}
+local UF_KEY_LEVELS = { 2, 4, 6, 8, 10 }
+local UF_RAID_KEY_10 = "spec/fixtures/qe/qe-upgradefinder-Hotornot-ynfzbppepnzw.json"
 
-    -- One stored Upgrade Finder verdict per key level, filed the way
-    -- ns.Companion files them. Every level here carries the SAME committed
-    -- export - what is under test is which shelf is read, not what is on it.
-    local function storeAt(level, path)
-        local parsed = ns.UFImport.Parse(readFile(path or UF_DUNGEON))
-        assert(parsed.ok, parsed.reason)
-        parsed.verdict.keyLevel = level
-        assert(ns.UFImport.Store(parsed.verdict).ok)
-        return parsed.verdict
+describe("UpgradeMapPanel joined across every stored key level", function()
+    local ns, sources, summary
+
+    -- The documents stored the way the client really gets them: through
+    -- ns.Companion, out of one file, each carrying the key level the companion
+    -- stamped on it. Nothing here edits QE Live's JSON or invents a level.
+    local function storeCompanionRun(levels, contentType, pathByLevel)
+        local exports = {}
+        for _, level in ipairs(levels) do
+            exports[#exports + 1] = {
+                schema = "qe-live-upgradefinder",
+                contentType = contentType or "Dungeon",
+                keyLevel = level,
+                json = readFile((pathByLevel or UF_BY_KEY_LEVEL)[level]),
+            }
+        end
+        local result = ns.Companion.ImportAll({ writtenAt = "2026-09-08T22:47:59Z", exports = exports })
+        assert(result.ok, result.reason)
+        assert(#result.skipped == 0, result.skipped[1] and result.skipped[1].reason)
+        return ns.UFImport.Documents(contentType or "Dungeon")
+    end
+
+    local function rowFor(model, itemID, itemLevel)
+        for _, section in ipairs(model.slots) do
+            for _, row in ipairs(section.candidates) do
+                if row.itemID == itemID and (itemLevel == nil or row.itemLevel == itemLevel) then
+                    return row
+                end
+            end
+        end
+        return nil
     end
 
     before_each(function()
         ns = H.load()
         ns.UI.Options.Set("Dungeon")
+        sources, summary = coldWalk(ns)
+        assert.equal(10, summary.previewMythicPlusLevel, "the committed walk previews keystone 10")
     end)
 
     after_each(function()
         H.unload()
     end)
 
-    it("reads the export run at the level the walk previewed", function()
-        storeAt(2)
-        local wanted = storeAt(10)
-        local sources, summary = coldWalk(ns)
-        assert.equal(10, summary.previewMythicPlusLevel, "the committed walk previews +10")
-        -- End to end, the way the panel does it: the walk in the database
-        -- decides the level, and Gather comes back with the export QE Live ran
-        -- at exactly that key.
-        ns.db.global.captures = { journal = { R.snapshot("journal", R.JOURNAL_TWO_READ_COLD, R.JOURNAL_TWO_READ) } }
-        local gathered = ns.UpgradeMapPanel.Gather({ db = ns.db })
-        assert.equal(wanted, gathered.upgrades)
-        assert.equal(10, gathered.upgradeKeyLevel)
-        assert.equal(ns.UFImport.PICK_WANTED, gathered.upgradeKeyPick)
+    it("values a Mythic Keystone drop the walk lists at 305 from the +6 document, and says so on the row", function()
+        local documents = storeCompanionRun(UF_KEY_LEVELS)
+        local model = ns.UpgradeMapPanel.Model({ sources = sources, summary = summary, upgradeDocuments = documents })
+        -- Sickening Signet of Atroxus, a keystone drop of the 2026-09-06 walk.
+        local row = rowFor(model, 252258, 305)
+        assert.is_not_nil(row)
+        assert.equal(6, row.upgradeKeyLevel)
+        assert.equal(ns.UFImport.MATCH_ONLY, row.upgradeKeyPick)
+        assert.equal("QE Live: better by 1.83% (at +6)", row.upgradeValue)
+        -- Proven red the only way that matters: with C-7's single document -
+        -- the one run at the level the walk previews - this row has no number
+        -- at all, which is exactly what the owner saw in game.
+        local only10 = ns.UpgradeMapPanel.Model({
+            sources = sources,
+            summary = summary,
+            upgradeDocuments = { { verdict = ns.UFImport.ForContentTypeAndLevel("Dungeon", 10), keyLevel = 10 } },
+        })
+        local same = rowFor(only10, 252258, 305)
+        assert.is_not_nil(same)
+        assert.is_nil(same.upgrade)
+        assert.is_nil(same.upgradeValue)
+        assert.same({ 311, 321, 334 }, same.rankedAtAnotherLevel)
+    end)
 
-        local model = ns.UpgradeMapPanel.Model(gathered)
-        assert.equal(sources ~= nil, true)
-        assert.equal(10, model.upgradeKeyLevel)
-        assert.matches("ran these numbers on a %+10 key", model.upgradeKeyNote)
+    it("ranks 84 of the walk's 478 drops, where any one document ranks 30", function()
+        local documents = storeCompanionRun(UF_KEY_LEVELS)
+        local model = ns.UpgradeMapPanel.Model({ sources = sources, summary = summary, upgradeDocuments = documents })
+        assert.equal(478, model.counts.candidates)
+        assert.equal(84, model.counts.ranked)
+        assert.equal(164, model.counts.rankedAtAnotherLevel)
+        assert.equal(5, model.counts.upgradeDocuments)
+        -- The four documents whose dungeon drops sit at 295, 298, 308 and 311
+        -- carry no keystone row of this walk at all: 30 raid rows each, and the
+        -- 54 dungeon rows come from the +6 document alone.
+        for _, level in ipairs({ 2, 4, 8, 10 }) do
+            local alone = ns.UpgradeMapPanel.Model({
+                sources = sources,
+                summary = summary,
+                upgradeDocuments = {
+                    { verdict = ns.UFImport.ForContentTypeAndLevel("Dungeon", level), keyLevel = level },
+                },
+            })
+            assert.equal(30, alone.counts.ranked, "the +" .. level .. " document alone")
+            assert.equal(218, alone.counts.rankedAtAnotherLevel)
+        end
+    end)
+
+    it("still refuses a level no document carries, and counts it instead", function()
+        local documents = storeCompanionRun(UF_KEY_LEVELS)
+        local model = ns.UpgradeMapPanel.Model({ sources = sources, summary = summary, upgradeDocuments = documents })
+        -- A Heroic dungeon row at 276: QE Live values this item at seven levels
+        -- and 276 is not one of them, so it is counted, never estimated.
+        local row = rowFor(model, 252258, 276)
+        assert.is_not_nil(row)
+        assert.is_nil(row.upgrade)
+        assert.is_nil(row.upgradeValue)
+        assert.same({ 295, 298, 305, 308, 311, 321, 334 }, row.rankedAtAnotherLevel)
+        assert.matches("^164 drops are ranked by QE Live at another item level", model.levelMismatchNote)
+    end)
+
+    it("names the documents on the panel instead of naming one pick", function()
+        local documents = storeCompanionRun(UF_KEY_LEVELS)
+        local model = ns.UpgradeMapPanel.Model({ sources = sources, summary = summary, upgradeDocuments = documents })
+        assert.equal(
+            "QE Live's Upgrade Finder at +2, +4, +6, +8, +10 (5 documents)."
+                .. " A drop takes its number from whichever of them values it at the item level the loot map lists.",
+            model.upgradeDocumentsNote
+        )
         local said = false
         for _, line in ipairs(ns.UpgradeMapPanel.Lines(model)) do
-            said = said or line == model.upgradeKeyNote
+            said = said or line == model.upgradeDocumentsNote
         end
-        assert.is_true(said, "the panel has to say which key level it is showing")
+        assert.is_true(said, "the panel has to say which documents these numbers came from")
     end)
 
-    it("falls back to the highest key QE Live was asked about, and says so", function()
-        storeAt(2)
-        local highest = storeAt(8)
-        -- verdict, contentType, fellBack, keyLevel, how
-        local verdict, _, _, level, how = ns.UI.ActiveUpgradeFinder(10)
-        assert.equal(highest, verdict)
-        assert.equal(8, level)
-        assert.equal(ns.UFImport.PICK_HIGHEST, how)
-        local model = ns.UpgradeMapPanel.Model({
-            sources = select(1, coldWalk(ns)),
-            summary = select(2, coldWalk(ns)),
-            upgrades = verdict,
-            upgradeKeyLevel = level,
-            upgradeKeyPick = how,
-        })
-        assert.matches("no %+10 run stored", model.upgradeKeyNote)
-        assert.matches("its %+8 run", model.upgradeKeyNote)
+    it("reads every stored document end to end, from the walk in the database", function()
+        storeCompanionRun(UF_KEY_LEVELS)
+        ns.db.global.captures = { journal = { R.snapshot("journal", R.JOURNAL_TWO_READ_COLD, R.JOURNAL_TWO_READ) } }
+        local gathered = ns.UpgradeMapPanel.Gather({ db = ns.db })
+        assert.equal(5, #gathered.upgradeDocuments)
+        local model = ns.UpgradeMapPanel.Model(gathered)
+        assert.equal(84, model.counts.ranked)
+        local documents, contentType, fellBack = ns.UI.ActiveUpgradeFinderDocuments()
+        assert.equal(5, #documents)
+        assert.equal("Dungeon", contentType)
+        assert.is_false(fellBack)
     end)
 
-    it("says nothing about a key level when there is no export at all", function()
-        local sources, summary = coldWalk(ns)
+    it("says nothing about documents when nothing has been imported", function()
         local model = ns.UpgradeMapPanel.Model({ sources = sources, summary = summary })
         assert.is_false(model.hasUpgrades)
-        assert.is_nil(model.upgradeKeyNote)
-        for _, line in ipairs(ns.UpgradeMapPanel.Lines(model)) do
-            assert.is_nil(line:find("key", 1, true) and line:find("QE Live ran", 1, true))
+        assert.equal(0, model.counts.upgradeDocuments)
+        assert.is_nil(model.upgradeDocumentsNote)
+        assert.same({}, (ns.UI.ActiveUpgradeFinderDocuments()))
+    end)
+
+    it("says a pasted export names no key level, rather than inventing one", function()
+        assert.is_true(ns.UFImport.Import(readFile(UF_DUNGEON)).ok)
+        local documents = ns.UI.ActiveUpgradeFinderDocuments()
+        assert.equal(1, #documents)
+        assert.is_nil(documents[1].keyLevel)
+        local model = ns.UpgradeMapPanel.Model({ sources = sources, summary = summary, upgradeDocuments = documents })
+        assert.equal(
+            "QE Live's Upgrade Finder, with no Mythic+ key level named (1 document).",
+            model.upgradeDocumentsNote
+        )
+        -- And a row it does value carries no key label, because there is none
+        -- to carry: 30 rows rank, all of them raid drops at the levels his raid
+        -- setting assumes.
+        assert.equal(30, model.counts.ranked)
+        local row = rowFor(model, 271875, 344)
+        assert.is_not_nil(row)
+        assert.equal("QE Live: better by 3.00%", row.upgradeValue)
+    end)
+
+    it("still joins a raid drop at the level the walk previews, and names the raid document", function()
+        local documents = storeCompanionRun({ 10 }, "Raid", { [10] = UF_RAID_KEY_10 })
+        ns.UI.Options.Set("Raid")
+        local model = ns.UpgradeMapPanel.Model({ sources = sources, summary = summary, upgradeDocuments = documents })
+        assert.equal(30, model.counts.ranked)
+        assert.equal("QE Live's Upgrade Finder at +10 (1 document).", model.upgradeDocumentsNote)
+        local row = rowFor(model, 271875, 344)
+        assert.is_not_nil(row)
+        assert.equal(10, row.upgradeKeyLevel)
+        assert.equal("QE Live: better by 3.41% (at +10)", row.upgradeValue)
+    end)
+end)
+
+-- The by-run view over the same join: this is the deliverable the owner asked
+-- for, because until it every dungeon run sorted last with "no drop rated by QE
+-- Live yet" on it.
+describe("UpgradeMapPanel by-run view across key levels", function()
+    local ns, sources, summary, documents
+
+    before_each(function()
+        ns = H.load()
+        ns.UI.Options.Set("Dungeon")
+        sources, summary = coldWalk(ns)
+        local exports = {}
+        for _, level in ipairs(UF_KEY_LEVELS) do
+            exports[#exports + 1] = {
+                schema = "qe-live-upgradefinder",
+                contentType = "Dungeon",
+                keyLevel = level,
+                json = readFile(UF_BY_KEY_LEVEL[level]),
+            }
+        end
+        local result = ns.Companion.ImportAll({ writtenAt = "2026-09-08T22:47:59Z", exports = exports })
+        assert(result.ok, result.reason)
+        documents = ns.UFImport.Documents("Dungeon")
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function runModel(sort)
+        return ns.UpgradeMapPanel.RunModel({
+            sources = sources,
+            summary = summary,
+            upgradeDocuments = documents,
+            runSort = sort,
+        })
+    end
+
+    local function firstDungeonRun(model)
+        for _, run in ipairs(model.runs) do
+            if not run.isRaid then
+                return run
+            end
+        end
+        return nil
+    end
+
+    it("ranks dungeon runs at last, over the journal's own denominator", function()
+        local model = runModel(ns.UpgradeMapPanel.SORT_BEST)
+        assert.equal(48, model.counts.runs)
+        assert.equal(478, model.counts.drops)
+        assert.equal(16, model.counts.ratedRuns)
+        assert.equal(46, model.counts.rated)
+        local dungeon = firstDungeonRun(model)
+        assert.equal("Voidscar Arena - Mythic+ 10", dungeon.label)
+        assert.equal(
+            "Voidscar Arena - Mythic+ 10: best +1.83% (Sickening Signet of Atroxus, Finger);"
+                .. " 4 of 6 drops rated upgrades",
+            dungeon.text
+        )
+        -- The denominator is the journal's, not the number of rated drops.
+        local drops = journalDropsPerRun(ns, sources, summary.previewMythicPlusLevel)
+        assert.equal(drops[dungeon.key], dungeon.drops)
+        -- Proven red against C-7's single document: with only the +10 document
+        -- every dungeon run reads "no drop rated by QE Live yet" and none of
+        -- them is rated at all.
+        local only10 = ns.UpgradeMapPanel.RunModel({
+            sources = sources,
+            summary = summary,
+            upgradeDocuments = { { verdict = ns.UFImport.ForContentTypeAndLevel("Dungeon", 10), keyLevel = 10 } },
+            runSort = ns.UpgradeMapPanel.SORT_BEST,
+        })
+        for _, run in ipairs(only10.runs) do
+            if not run.isRaid then
+                assert.is_nil(run.best)
+                assert.matches("no drop rated by QE Live yet", run.text)
+            end
         end
     end)
 
-    it("says a pasted export does not name its key level, rather than inventing one", function()
-        assert.is_true(ns.UFImport.Import(readFile(UF_DUNGEON)).ok)
-        local verdict, _, _, level, how = ns.UI.ActiveUpgradeFinder(10)
-        assert.is_not_nil(verdict)
-        assert.is_nil(level)
-        assert.equal(ns.UFImport.PICK_UNRECORDED, how)
-        local sources, summary = coldWalk(ns)
-        local model = ns.UpgradeMapPanel.Model({
-            sources = sources,
-            summary = summary,
-            upgrades = verdict,
-            upgradeKeyLevel = level,
-            upgradeKeyPick = how,
-        })
-        assert.matches("does not say which Mythic%+ key level", model.upgradeKeyNote)
+    it("puts a different dungeon on top under the other sort order", function()
+        local model = runModel(ns.UpgradeMapPanel.SORT_COUNT)
+        local dungeon = firstDungeonRun(model)
+        assert.equal("Temple of Sethraliss - Mythic+ 10", dungeon.label)
+        assert.equal("6 of 8 drops rated upgrades", dungeon.countText)
+        assert.equal(
+            "Best run right now (by most upgrades): Temple of Sethraliss, Mythic+ 10 - 6 of 8 drops rated upgrades.",
+            model.headline
+        )
     end)
 
-    -- The by-run view has the walk's own key level line already (M3-8); the two
-    -- are different facts and both are said, in that order.
-    it("puts QE Live's key level beside the walk's, never instead of it", function()
-        storeAt(10)
-        local sources, summary = coldWalk(ns)
-        local model = ns.UpgradeMapPanel.RunModel({
-            sources = sources,
-            summary = summary,
-            upgrades = ns.UFImport.ForContentTypeAndLevel("Dungeon", 10),
-            upgradeKeyLevel = 10,
-            upgradeKeyPick = ns.UFImport.PICK_WANTED,
-        })
+    it("keeps the walk's key level on the run and QE Live's on the drop line", function()
+        local model = runModel(ns.UpgradeMapPanel.SORT_BEST)
+        local dungeon = firstDungeonRun(model)
+        -- The run is the walk's keystone 10 - the level the Adventure Guide
+        -- previewed - while the number on its drop came from his +6 document.
+        assert.equal(10, dungeon.keyLevel)
+        assert.equal("Mythic+ 10", dungeon.difficultyLabel)
+        assert.equal(6, dungeon.best.upgradeKeyLevel)
+        assert.matches("%(at %+6%)$", dungeon.best.upgradeValue)
         local lines = ns.UpgradeMapPanel.RunLines(model)
-        local walkAt, qeAt
+        local walkAt, documentsAt, dropAt
         for index, line in ipairs(lines) do
             if line == model.keyLevelNote then
                 walkAt = index
-            elseif line == model.upgradeKeyNote then
-                qeAt = index
+            elseif line == model.upgradeDocumentsNote then
+                documentsAt = index
+            elseif line:match("^  ") and line:find("Sickening Signet of Atroxus", 1, true) then
+                -- The indented line under the run, not the run's own summary.
+                dropAt = dropAt or index
             end
         end
         assert.is_number(walkAt)
-        assert.is_number(qeAt)
-        assert.is_true(walkAt < qeAt)
+        assert.is_number(documentsAt)
+        assert.is_true(walkAt < documentsAt)
+        assert.matches("%(at %+6%)$", lines[dropAt])
     end)
 end)

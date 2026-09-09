@@ -11,6 +11,13 @@
 --                   IDs). That is the vault and the gear you own.
 --   `row.upgradeValue` - an Upgrade Finder export (M3-6, WKE-535) ranks this
 --                   itemID AT THIS ITEM LEVEL. That is the drop you do not own.
+--                   Since M3-10 (WKE-545) "an export" is EVERY Upgrade Finder
+--                   document stored for the content type, because the companion
+--                   writes one per Mythic+ key level: the row takes its number
+--                   from whichever document carries this exact itemID at this
+--                   exact item level, and says which one that was. Still exact
+--                   on both keys inside one document - nothing is interpolated
+--                   between two of them, and no key level is inferred here.
 -- `row.value` is nil unless `row.qe` is, `row.upgradeValue` is nil unless
 -- `row.upgrade` is, and there is no third path. A row QE Live ranked at ANOTHER
 -- item level gets no number at all - it is counted, not estimated. If a gap
@@ -43,12 +50,13 @@ Panel.PENDING_NOTE = "%d drops are not identified yet: their item data had not a
 
 Panel.EMPTY_NOTE = "No loot map yet. Run /lootpath capture journal out of combat to walk the Adventure Guide."
 
--- An Upgrade Finder export values a drop at the item level ITS OWN settings
--- assume - key level 7 in the 2026-09-07 export, 311/321/334 - while the walk
--- lists whatever level the Adventure Guide previews. When those disagree the
--- row keeps its level and shows no number, and this line says how often that
--- happened, so the owner can see the disagreement rather than wonder why an
--- import changed nothing (ARCHITECTURE.md 11).
+-- An Upgrade Finder document values a drop at the item level ITS OWN settings
+-- assume - his +10 dungeon rows come back at 311/321/334 - while the walk lists
+-- whatever level the Adventure Guide previews (305 at keystone 10). Since
+-- M3-10 every stored document is asked, so this counts the rows NO document
+-- carries at the walk's level, which is a narrower and more honest figure than
+-- it was: the owner can see the remaining disagreement rather than wonder why
+-- an import changed nothing (ARCHITECTURE.md 11).
 Panel.LEVEL_MISMATCH_NOTE = "%d drops are ranked by QE Live at another item level, so they show no value."
 
 -- The Adventure Guide lists cosmetic and quest drops beside real loot, and
@@ -219,22 +227,45 @@ end
 -- ARCHITECTURE.md 9 for what hpsGain actually is - unlike Top Gear's
 -- TopGearEngineShared arithmetic, UpgradeFinderEngine DOES scale it by the
 -- player's modelled HPS - and it is the owner's call whether it reaches a row.
-function Panel.UpgradeText(entry)
+-- `keyLevel` is the Mythic+ key of the DOCUMENT the number came from, and it is
+-- part of the sentence rather than a footnote: since M3-10 the rows on one
+-- screen can be valued by different documents, and a percentage whose run is
+-- not named is a number the reader cannot check.
+function Panel.UpgradeText(entry, keyLevel)
     if type(entry) ~= "table" then
         return nil
     end
+    local label = ns.UFImport.KeyLabel(keyLevel)
+    local at = label and string.format(" (at %s)", label) or ""
     local percent = tonumber(entry.upgradePercent)
     if not percent then
-        return "QE Live: ranked, no value given"
+        return "QE Live: ranked, no value given" .. at
     end
     if percent == 0 then
         -- 94 of the 357 drops in the 2026-09-07 Dungeon export sit here. "No
         -- change" is what his zero says; "worse by 0.00%" would be this panel
         -- inventing a direction he did not give.
-        return "QE Live: no change"
+        return "QE Live: no change" .. at
     end
     local direction = ns.UFImport.IsUpgrade(entry) and "better" or "worse"
-    return string.format("QE Live: %s by %.2f%%", direction, math.abs(percent))
+    return string.format("QE Live: %s by %.2f%%%s", direction, math.abs(percent), at)
+end
+
+-- The Upgrade Finder documents a model was handed, always as a list, so there
+-- is ONE join below rather than a single-document path beside a several-document
+-- one. A paste really is one document, and one that does not name its key level
+-- at that; the companion writes one per level. `opts.upgrades` is that single
+-- document, kept because a caller with one verdict in hand should not have to
+-- wrap it to ask a question about it.
+function Panel.UpgradeDocuments(opts)
+    local documents = opts.upgradeDocuments
+    if type(documents) == "table" and #documents > 0 then
+        return documents
+    end
+    if opts.upgrades then
+        return { { verdict = opts.upgrades, keyLevel = ns.UFImport.KeyLevelOf(opts.upgrades) } }
+    end
+    return {}
 end
 
 local function sourceLabel(entry)
@@ -368,14 +399,15 @@ end
 -- opts.summary     its summary (previewMythicPlusLevel is read from here)
 -- opts.inventory   ns.Inventory.Scan's result
 -- opts.verdict     ns.QEImport.Current()      (Top Gear)
--- opts.upgrades    ns.UFImport.Current()       (Upgrade Finder, M3-6)
+-- opts.upgradeDocuments  ns.UFImport.Documents(contentType)  (M3-10, WKE-545)
+-- opts.upgrades    one Upgrade Finder verdict, when that is all the caller has
 -- opts.difficultyIDs  show only these difficulties (nil or empty = all)
 function Panel.Model(opts)
     opts = opts or {}
     local sources = opts.sources or {}
     local summary = opts.summary or {}
     local verdict = opts.verdict
-    local upgrades = opts.upgrades
+    local documents = Panel.UpgradeDocuments(opts)
     local previewLevel = opts.previewMythicPlusLevel or summary.previewMythicPlusLevel
 
     local wanted
@@ -397,13 +429,11 @@ function Panel.Model(opts)
         -- (WKE-530 finding 3).
         note = Panel.NOTE,
         previewMythicPlusLevel = previewLevel,
-        upgradeKeyLevel = opts.upgradeKeyLevel,
-        upgradeKeyPick = opts.upgradeKeyPick,
-        upgradeKeyNote = upgrades and ns.UFImport.KeyLevelNote(opts.upgradeKeyLevel, opts.upgradeKeyPick, previewLevel)
-            or nil,
+        upgradeDocuments = documents,
+        upgradeDocumentsNote = ns.UFImport.DocumentsNote(documents),
         hasMap = false,
         hasVerdict = verdict ~= nil,
-        hasUpgrades = upgrades ~= nil,
+        hasUpgrades = #documents > 0,
         slots = {},
         difficulties = {},
         pending = { count = 0, rows = pendingRows },
@@ -416,6 +446,7 @@ function Panel.Model(opts)
             hiddenLevelOne = 0,
             ranked = 0,
             rankedAtAnotherLevel = 0,
+            upgradeDocuments = #documents,
         },
     }
 
@@ -445,18 +476,20 @@ function Panel.Model(opts)
                 row.qe = entry.itemKey and ns.QEImport.Coverage(verdict, entry.itemKey) or nil
                 row.value = row.qe and Panel.ValueText(row.qe) or nil
                 -- The second path, and the only one that reaches a drop the
-                -- character does not own: the Upgrade Finder export ranks this
-                -- itemID AT THIS ITEM LEVEL. A row with no item level (pending)
-                -- is never joined, because there is nothing to join on - the
-                -- level is unknown, not wrong.
-                if upgrades and row.itemLevel then
-                    local ranked = ns.UFImport.Lookup(upgrades, row.itemID, row.itemLevel)
+                -- character does not own: one of QE Live's Upgrade Finder
+                -- documents ranks this itemID AT THIS ITEM LEVEL. A row with no
+                -- item level (pending) is never joined, because there is
+                -- nothing to join on - the level is unknown, not wrong.
+                if #documents > 0 and row.itemLevel then
+                    local ranked, keyLevel, pick = ns.UFImport.LookupAcrossLevels(documents, row.itemID, row.itemLevel)
                     if ranked then
                         row.upgrade = ranked
-                        row.upgradeValue = Panel.UpgradeText(ranked)
+                        row.upgradeKeyLevel = keyLevel
+                        row.upgradeKeyPick = pick
+                        row.upgradeValue = Panel.UpgradeText(ranked, keyLevel)
                         model.counts.ranked = model.counts.ranked + 1
                     else
-                        local levels = ns.UFImport.LevelsFor(upgrades, row.itemID)
+                        local levels = ns.UFImport.LevelsAcrossLevels(documents, row.itemID)
                         if levels and #levels > 0 then
                             row.rankedAtAnotherLevel = levels
                             model.counts.rankedAtAnotherLevel = model.counts.rankedAtAnotherLevel + 1
@@ -557,10 +590,11 @@ function Panel.Lines(model)
     if not model.hasVerdict then
         add("No QE Live import yet, so no drop carries a value. Paste a Top Gear export to change that.")
     end
-    -- Which Mythic+ key the Upgrade Finder numbers on these rows were run at
-    -- (C-7). Above the rows, never on them: it is true of every one of them.
-    if model.upgradeKeyNote then
-        add(model.upgradeKeyNote)
+    -- Which Upgrade Finder documents these rows were joined against (M3-10).
+    -- Above the rows, because it is true of all of them; which document a
+    -- particular row's number came from is on the row itself.
+    if model.upgradeDocumentsNote then
+        add(model.upgradeDocumentsNote)
     end
     for _, section in ipairs(model.slots) do
         add(section.slot)
@@ -657,12 +691,12 @@ Panel.RUN_HEADLINE_BEST = "Best run right now (by best upgrade): %s - %+.2f%% fo
 Panel.RUN_HEADLINE_COUNT = "Best run right now (by most upgrades): %s - %s."
 Panel.RUN_HEADLINE_NONE = "No run in this map has a drop QE Live rates as an upgrade."
 
--- One key level exists today: the one the walk previewed. QE Live's Upgrade
--- Finder values a dungeon drop at ITS OWN key setting (key 7 in the committed
--- export: 311/321/334), so "the lowest key level that still gives an upgrade"
--- needs an Upgrade Finder document per key level, and a walk that previewed
--- each of them - that is WKE-543. Until it lands the view says which level it
--- is showing rather than inventing item levels for the others.
+-- One key level exists today: the one the walk previewed. The companion now
+-- asks QE Live at several of them (C-7) and each drop is valued by whichever
+-- document carries it at the level the walk lists (M3-10), but the WALK is
+-- still a single preview level, so a Mythic Keystone run is still shown at that
+-- one level. This line says which, rather than inventing item levels for the
+-- others; a walk per key level is its own question (ARCHITECTURE.md 11).
 Panel.KEY_LEVEL_NOTE = "Mythic Keystone runs are shown at key %s, which is what the walk previewed. "
     .. "A key level with no walk and no QE Live export of its own is not shown."
 
@@ -779,7 +813,7 @@ function Panel.RunModel(opts)
     opts = opts or {}
     local sources = opts.sources or {}
     local summary = opts.summary or {}
-    local upgrades = opts.upgrades
+    local documents = Panel.UpgradeDocuments(opts)
     local previewLevel = opts.previewMythicPlusLevel or summary.previewMythicPlusLevel
     local sort = (opts.runSort == Panel.SORT_COUNT) and Panel.SORT_COUNT or Panel.SORT_BEST
 
@@ -797,17 +831,15 @@ function Panel.RunModel(opts)
         sort = sort,
         sortLabel = Panel.SORT_LABEL[sort],
         previewMythicPlusLevel = previewLevel,
-        upgradeKeyLevel = opts.upgradeKeyLevel,
-        upgradeKeyPick = opts.upgradeKeyPick,
-        upgradeKeyNote = upgrades and ns.UFImport.KeyLevelNote(opts.upgradeKeyLevel, opts.upgradeKeyPick, previewLevel)
-            or nil,
+        upgradeDocuments = documents,
+        upgradeDocumentsNote = ns.UFImport.DocumentsNote(documents),
         hasMap = false,
         hasVerdict = opts.verdict ~= nil,
-        hasUpgrades = upgrades ~= nil,
+        hasUpgrades = #documents > 0,
         runs = {},
         difficulties = {},
         keyLevels = {},
-        counts = { runs = 0, ratedRuns = 0, drops = 0, rated = 0, keyLevels = 0 },
+        counts = { runs = 0, ratedRuns = 0, drops = 0, rated = 0, keyLevels = 0, upgradeDocuments = #documents },
     }
 
     local itemIDs = {}
@@ -864,14 +896,20 @@ function Panel.RunModel(opts)
                     run.pendingDrops = run.pendingDrops + 1
                 end
                 -- The one path to a number here, and it is the slot view's own:
-                -- QE Live ranked THIS itemID AT THIS item level, and his own
-                -- IsUpgrade says the number means better. Nothing else counts.
-                local ranked = (upgrades and entry.itemLevel) and ns.UFImport.Lookup(upgrades, itemID, entry.itemLevel)
-                    or nil
+                -- one of QE Live's documents ranked THIS itemID AT THIS item
+                -- level, and his own IsUpgrade says the number means better.
+                -- Nothing else counts.
+                local ranked, upgradeKeyLevel, upgradePick
+                if #documents > 0 and entry.itemLevel then
+                    ranked, upgradeKeyLevel, upgradePick =
+                        ns.UFImport.LookupAcrossLevels(documents, itemID, entry.itemLevel)
+                end
                 if ranked and ns.UFImport.IsUpgrade(ranked) then
                     local row = candidateRow(itemID, entry, owned, difficultyLabels, previewLevel)
                     row.upgrade = ranked
-                    row.upgradeValue = Panel.UpgradeText(ranked)
+                    row.upgradeKeyLevel = upgradeKeyLevel
+                    row.upgradeKeyPick = upgradePick
+                    row.upgradeValue = Panel.UpgradeText(ranked, upgradeKeyLevel)
                     run.rated = run.rated + 1
                     run.upgrades[#run.upgrades + 1] = row
                     model.counts.rated = model.counts.rated + 1
@@ -954,12 +992,12 @@ function Panel.RunLines(model)
     if model.keyLevelNote then
         add(model.keyLevelNote)
     end
-    -- The walk's key level is one thing; the key QE LIVE was run at is another,
-    -- and since C-7 they can differ (the addon files an Upgrade Finder verdict
-    -- per key level and picks the closest it has). Both are said, in that
-    -- order, rather than one standing for the other.
-    if model.upgradeKeyNote then
-        add(model.upgradeKeyNote)
+    -- The walk's key level is one thing; the keys QE LIVE was run at are
+    -- another, and they differ (M3-10: his +10 dungeon rows are 311, the walk's
+    -- keystone-10 rows are 305, so it is his +6 document that values them).
+    -- Both are said, in that order, rather than one standing for the other.
+    if model.upgradeDocumentsNote then
+        add(model.upgradeDocumentsNote)
     end
     for _, run in ipairs(model.runs) do
         add(run.text)
@@ -1015,18 +1053,15 @@ end
 -- saying so. The direct call is the fallback for a panel built without the
 -- window around it, exactly as activeVerdict above.
 --
--- `keyLevel` is the Mythic+ level the loot map previews. Since C-7 (WKE-543)
--- the companion asks QE Live about several key levels and the addon files one
--- verdict per level, so the panel asks for the level its own rows are about;
--- ns.UI.ActiveUpgradeFinder answers with the level it actually found and why,
--- and Model turns that into the line under the header.
-local function activeUpgrades(keyLevel)
-    if ns.UI and ns.UI.ActiveUpgradeFinder then
-        local verdict, _, _, level, how = ns.UI.ActiveUpgradeFinder(keyLevel)
-        return verdict, level, how
+-- Since C-7 (WKE-543) the companion asks QE Live about several key levels and
+-- the addon files one verdict per level; since M3-10 (WKE-545) the panel reads
+-- ALL of them and joins each row to whichever one values it at the level the
+-- walk lists, so what the panel asks for is the whole set rather than one pick.
+local function activeUpgradeDocuments()
+    if ns.UI and ns.UI.ActiveUpgradeFinderDocuments then
+        return (ns.UI.ActiveUpgradeFinderDocuments())
     end
-    local contentType = ns.UFImport.ContentTypeKey(ns.UFImport.Current())
-    return ns.UFImport.PickForLevel(contentType, keyLevel)
+    return ns.UFImport.Documents(ns.UFImport.ContentTypeKey(ns.UFImport.Current()))
 end
 
 -- The newest journal walk the addon has stored. `capture journal` is the only
@@ -1055,21 +1090,12 @@ function Panel.Gather(opts)
         sources, summary = ns.Journal:Build({ snapshot = snapshot, db = opts.db })
     end
     local inventory = ns.Inventory.Scan()
-    -- The walk's own preview level decides WHICH Upgrade Finder verdict is
-    -- read (C-7): a map whose Mythic+ rows are previewed at +10 asks QE Live's
-    -- +10 run about them. The level is the walk's, never one invented here, so
-    -- a walk that recorded none asks for none and takes the fallback.
-    local previewLevel = opts.previewMythicPlusLevel
-        or (type(summary) == "table" and summary.ok and summary.previewMythicPlusLevel or nil)
-    local upgrades, upgradeKeyLevel, upgradeKeyPick = activeUpgrades(previewLevel)
     return {
         sources = sources,
         summary = type(summary) == "table" and summary.ok and summary or nil,
         inventory = inventory.ok and inventory or nil,
         verdict = activeVerdict(),
-        upgrades = upgrades,
-        upgradeKeyLevel = upgradeKeyLevel,
-        upgradeKeyPick = upgradeKeyPick,
+        upgradeDocuments = activeUpgradeDocuments(),
         difficultyIDs = opts.difficultyIDs,
         inCombat = inventory.ok ~= true and inventory.reason == "combat" or nil,
     }
