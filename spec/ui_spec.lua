@@ -1257,3 +1257,417 @@ describe("UI.ActiveVerdictScenarios", function()
         assert.equal(1, #scenarios)
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- M5-2 (WKE-551): the chrome. The portrait ring, the status strip, the import
+-- dialog, the tabs on the bottom edge, the launcher and the two new settings.
+-- Everything here is the stub's widget model again: WHERE a thing is anchored
+-- and WHAT it was told to draw are decisions this code makes and a test can
+-- hold; what any of it looks like is the owner's eye test (M5-5, WKE-554).
+
+local DUNGEON_EXPORT = "spec/fixtures/qe/qe-droptimizer-Hotornot-hldibnbaajft.json"
+
+describe("the window's chrome (M5-2)", function()
+    local ns, world, frame
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        frame = ns.UI.Frame()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("is a PortraitFrameTemplate with the template's own four keys", function()
+        assert.equal("PortraitFrameTemplate", frame.template)
+        assert.is_table(frame.TitleContainer)
+        assert.equal(frame.TitleContainer.TitleText, frame.TitleText)
+        assert.is_table(frame.CloseButton)
+        assert.is_table(frame.PortraitContainer)
+        assert.equal("Lootpath " .. ns.VERSION, frame.TitleText:GetText())
+    end)
+
+    it("still closes on Escape, still drags and still clamps", function()
+        assert.equal("LootpathMainFrame", frame.frameName)
+        local names = {}
+        for _, name in ipairs(_G.UISpecialFrames) do
+            names[name] = true
+        end
+        assert.is_true(names["LootpathMainFrame"])
+        assert.is_true(frame.movable)
+        assert.is_true(frame.clamped)
+        assert.equal(frame.StartMoving, frame:GetScript("OnDragStart"))
+    end)
+
+    it("puts the player's spec icon in the ring", function()
+        assert.equal("spec", ns.UI.ApplyPortrait(frame))
+        assert.equal(world.spec.icon, frame.PortraitContainer.portrait:GetTexture())
+        assert.same({ 0, 1, 0, 1 }, frame.PortraitContainer.portrait.texCoord)
+    end)
+
+    it("reads the spec through C_SpecializationInfo, and through the globals when it is gone", function()
+        assert.equal(world.spec.icon, ns.UI.SpecIcon())
+        local saved = _G.C_SpecializationInfo
+        _G.C_SpecializationInfo = nil
+        assert.equal(world.spec.icon, ns.UI.SpecIcon())
+        _G.C_SpecializationInfo = saved
+    end)
+
+    it("falls back to the class icon when the client names no spec", function()
+        world.spec = nil
+        assert.is_nil(ns.UI.SpecIcon())
+        assert.equal("class", ns.UI.ApplyPortrait(frame))
+        assert.equal(ns.UI.CLASS_ICON_FILE, frame.PortraitContainer.portrait:GetTexture())
+        assert.same(_G.CLASS_ICON_TCOORDS.DRUID, frame.PortraitContainer.portrait.texCoord)
+    end)
+
+    it("leaves the ring empty rather than guessing when the client names neither", function()
+        world.spec = nil
+        local coords = _G.CLASS_ICON_TCOORDS
+        _G.CLASS_ICON_TCOORDS = nil
+        assert.is_nil(ns.UI.ApplyPortrait(frame))
+        _G.CLASS_ICON_TCOORDS = coords
+    end)
+
+    it("redraws the ring when the player changes specialization", function()
+        world.spec = { index = 2, id = 103, name = "Feral", icon = 132115, role = "DAMAGER" }
+        world.fireEvent("PLAYER_SPECIALIZATION_CHANGED", "player")
+        assert.equal(132115, frame.PortraitContainer.portrait:GetTexture())
+        assert.equal(132115, ns.UI.minimapButton.icon:GetTexture())
+    end)
+
+    it("hangs the tabs off the frame's bottom edge", function()
+        local point = frame.tabs[1].points[1]
+        assert.equal("TOPLEFT", point[1])
+        assert.equal(frame, point[2])
+        assert.equal("BOTTOMLEFT", point[3])
+        -- the other two still hang off the one before them
+        assert.equal("LEFT", frame.tabs[2].points[1][1])
+        assert.equal(frame.tabs[1], frame.tabs[2].points[1][2])
+    end)
+
+    it("runs each panel from under the strip to the frame's own bottom", function()
+        for _, tab in ipairs(ns.UI.TABS) do
+            local panel = frame[tab.key]
+            assert.equal(frame.statusStrip, panel.points[1][2])
+            assert.equal("BOTTOMLEFT", panel.points[1][3])
+            assert.equal(frame, panel.points[2][2])
+        end
+    end)
+end)
+
+describe("the status strip (M5-2)", function()
+    local ns, world, frame
+
+    local function importDungeon()
+        frame.pasteBox:SetText(readFile(DUNGEON_EXPORT))
+        frame.importButton:Click()
+        return ns.QEImport.Current()
+    end
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        frame = ns.UI.Frame()
+        frame:Show()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("says there is nothing yet before anything is imported", function()
+        assert.equal(ns.UI.NO_VERDICT_STRIP, ns.UI.RefreshStrip(frame).text)
+        assert.equal(ns.UI.NO_VERDICT_STRIP, frame.stripText:GetText())
+    end)
+
+    it("names QE Live, the spec, the export and the scenario over a pasted one", function()
+        importDungeon()
+        local model = ns.UI.RefreshStrip(frame)
+        assert.is_false(model.stale)
+        local parts = {}
+        for part in (model.text .. ns.UI.SEPARATOR):gmatch("(.-)\194\183") do
+            parts[#parts + 1] = (part:gsub("^%s+", ""):gsub("%s+$", ""))
+        end
+        assert.equal(5, #parts)
+        assert.equal("QE Live", parts[1])
+        assert.equal("Restoration Druid", parts[2])
+        assert.equal("Dungeon Top Gear", parts[3])
+        assert.is_truthy(parts[4]:find("^pasted, exported "))
+        -- the default highlight is M3-13's `thisWeek` (WKE-548)
+        assert.equal(ns.UI.SCENARIO_TAG[ns.QEImport.DEFAULT_SCENARIO], "vault pick: as offered")
+        assert.equal("vault pick: this week", parts[5])
+    end)
+
+    it("says the companion wrote it, and how long ago", function()
+        local verdict = importDungeon()
+        verdict.source = ns.Companion.SOURCE_COMPANION
+        verdict.companionWrittenAt = "2026-09-09T12:00:00.000Z"
+        local now = ns.EpochFromISO("2026-09-09T12:04:00.000Z")
+        local model = ns.UI.StatusStripModel(now)
+        assert.is_truthy(model.text:find("companion, written 4 minute(s) ago", 1, true))
+        -- and not the exported age as well: the source says one age, not two
+        assert.is_nil(model.text:find("exported", 1, true))
+    end)
+
+    it("turns the age amber when the export predates the client's own weekly reset", function()
+        local verdict = importDungeon()
+        local now = ns.EpochFromISO("2026-09-09T12:00:00.000Z")
+        world.secondsUntilReset = 3600
+        verdict.exportedAt = "2026-08-20T12:00:00.000Z"
+        local model = ns.UI.StatusStripModel(now)
+        assert.is_true(model.stale)
+        assert.is_truthy(model.text:find("|cffffd43b", 1, true))
+        assert.same(ns.UI.STALE_STRIP_TOOLTIP, model.tooltip[2])
+
+        -- and an export made since that reset is not amber
+        verdict.exportedAt = "2026-09-08T12:00:00.000Z"
+        local fresh = ns.UI.StatusStripModel(now)
+        assert.is_false(fresh.stale)
+        assert.is_nil(fresh.text:find("|cffffd43b", 1, true))
+    end)
+
+    it("says nothing about staleness when the client will not say when the reset is", function()
+        local verdict = importDungeon()
+        verdict.exportedAt = "2026-08-20T12:00:00.000Z"
+        world.secondsUntilReset = nil
+        local model = ns.UI.StatusStripModel(ns.EpochFromISO("2026-09-09T12:00:00.000Z"))
+        assert.is_nil(model.stale)
+        assert.is_nil(model.text:find("|cffffd43b", 1, true))
+    end)
+
+    it("puts the other stored export in the strip's tooltip, not on the line", function()
+        importDungeon()
+        frame.pasteBox:SetText(readFile(UF_DUNGEON_EXPORT))
+        frame.importButton:Click()
+        local model = ns.UI.RefreshStrip(frame)
+        assert.is_nil(model.text:find("Upgrade Finder", 1, true))
+        local joined = table.concat(model.tooltip, "\n")
+        assert.is_truthy(joined:find("Also stored:", 1, true))
+        assert.is_truthy(joined:find("Upgrade Finder", 1, true))
+
+        frame.statusStrip:GetScript("OnEnter")(frame.statusStrip)
+        assert.is_truthy(world.tooltip:Text():find("Also stored:", 1, true))
+    end)
+
+    it("follows the vault scenario setting", function()
+        importDungeon()
+        assert.is_truthy(ns.UI.RefreshStrip(frame).text:find("vault pick: this week", 1, true))
+        ns.UI.Options.SetVaultScenario("catalyzed")
+        assert.is_truthy(ns.UI.RefreshStrip(frame).text:find("vault pick: catalyzed", 1, true))
+    end)
+end)
+
+describe("the import dialog (M5-2)", function()
+    local ns, world, frame
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        frame = ns.UI.Frame()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("is built with the window, hidden, and opened by the strip's button", function()
+        assert.is_table(frame.importDialog)
+        assert.is_false(frame.importDialog:IsShown())
+        frame.openImportButton:Click()
+        assert.is_true(frame.importDialog:IsShown())
+        frame.openImportButton:Click()
+        assert.is_false(frame.importDialog:IsShown())
+    end)
+
+    it("closes with the window, rather than floating on with nothing behind it", function()
+        frame:Show()
+        frame.openImportButton:Click()
+        assert.is_true(frame.importDialog:IsShown())
+        frame:Hide()
+        frame:GetScript("OnHide")(frame)
+        assert.is_false(frame.importDialog:IsShown())
+    end)
+
+    it("closes on Escape like the window does", function()
+        local names = {}
+        for _, name in ipairs(_G.UISpecialFrames) do
+            names[name] = true
+        end
+        assert.is_true(names["LootpathImportDialog"])
+    end)
+
+    it("carries the paste box, the buttons and the import status line", function()
+        local dialog = frame.importDialog
+        assert.equal(dialog, dialog.pasteBox:GetParent():GetParent())
+        assert.equal(dialog, dialog.importButton:GetParent())
+        assert.equal(dialog, dialog.clearButton:GetParent())
+        assert.equal(dialog, dialog.status:GetParent())
+        assert.equal(ns.UI.PASTE_INSTRUCTIONS, dialog.pasteLabel:GetText())
+        -- and the window's own keys still name them, so UI.Import is untouched
+        assert.equal(dialog.pasteBox, frame.pasteBox)
+        assert.equal(dialog.status, frame.status)
+    end)
+
+    it("round-trips a paste through UI.Import and answers inside the dialog", function()
+        frame.openImportButton:Click()
+        frame.pasteBox:SetText(readFile(DUNGEON_EXPORT))
+        frame.importButton:Click()
+        local status = frame.importDialog.status:GetText()
+        assert.is_truthy(status:find("Imported", 1, true))
+        assert.is_truthy(status:find("Restoration Druid", 1, true))
+        assert.is_table(ns.QEImport.Current())
+        -- and the strip behind it now names the same import
+        assert.is_truthy(ns.UI.RefreshStrip(frame).text:find("Dungeon Top Gear", 1, true))
+
+        frame.clearButton:Click()
+        assert.equal("", frame.pasteBox:GetText())
+        assert.equal("", frame.importDialog.status:GetText())
+    end)
+end)
+
+describe("the launcher (M5-2)", function()
+    local ns, world, frame
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        frame = ns.UI.Frame()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("names a global AddOn Compartment function in the .toc, and it toggles the window", function()
+        local names = {}
+        for line in io.lines(H.TOC) do
+            local key, value = line:match("^##%s*([%w_]+):%s*(.-)%s*$")
+            if key then
+                names[key] = value
+            end
+        end
+        assert.equal("LootpathToggle", names.AddonCompartmentFunc)
+        assert.is_function(_G[names.AddonCompartmentFunc])
+        assert.is_false(frame:IsShown())
+        _G.LootpathToggle("Lootpath", "LeftButton")
+        assert.is_true(frame:IsShown())
+        _G.LootpathToggle("Lootpath", "LeftButton")
+        assert.is_false(frame:IsShown())
+    end)
+
+    it("puts a button on the minimap at the saved angle, and toggles from it", function()
+        local button = ns.UI.minimapButton
+        assert.is_table(button)
+        assert.equal(_G.Minimap, button:GetParent())
+        assert.equal("LootpathMinimapButton", button.frameName)
+        local x, y = ns.UI.MinimapButtonOffset(ns.DB_DEFAULTS.profile.settings.minimapAngle)
+        assert.same({ "CENTER", _G.Minimap, "CENTER", x, y }, button.points[1])
+        button:Click("LeftButton")
+        assert.is_true(frame:IsShown())
+        button:Click("LeftButton")
+        assert.is_false(frame:IsShown())
+    end)
+
+    it("opens the options page on a right-click", function()
+        ns.UI.minimapButton:Click("RightButton")
+        assert.equal(1, #world.settings.opened)
+        assert.is_false(frame:IsShown())
+    end)
+
+    it("places a button by its angle, and reads an angle back off a position", function()
+        local x, y = ns.UI.MinimapButtonOffset(0)
+        assert.equal(ns.UI.MINIMAP_RADIUS, x)
+        assert.is_true(math.abs(y) < 1e-9)
+        x, y = ns.UI.MinimapButtonOffset(90)
+        assert.is_true(math.abs(x) < 1e-9)
+        assert.equal(ns.UI.MINIMAP_RADIUS, y)
+        -- and back again, for every quarter of the ring
+        for _, angle in ipairs({ 0, 45, 90, 180, 270, 315 }) do
+            local ox, oy = ns.UI.MinimapButtonOffset(angle)
+            assert.is_true(math.abs(ns.UI.MinimapAngleFrom(0, 0, ox, oy) - angle) < 1e-9)
+        end
+    end)
+
+    it("saves where the button was dragged to, in the profile", function()
+        local button = ns.UI.minimapButton
+        _G.Minimap.center = { 500, 400 }
+        _G.Minimap.effectiveScale = 2
+        -- the cursor is in pre-scale coordinates, so this is (580, 400) on the
+        -- UI: due east of the minimap's centre, which is angle 0.
+        world.cursor = { 1160, 800 }
+        button:GetScript("OnDragStart")(button)
+        button:GetScript("OnUpdate")(button)
+        assert.equal(0, ns.db.profile.settings.minimapAngle)
+        assert.equal(ns.UI.MINIMAP_RADIUS, button.points[#button.points][4])
+        button:GetScript("OnDragStop")(button)
+        assert.is_nil(button:GetScript("OnUpdate"))
+    end)
+
+    it("survives a client with no minimap at all", function()
+        H.unload()
+        local saved = _G.Minimap
+        local other = H.load({
+            beforeLoad = function()
+                _G.Minimap = nil
+            end,
+        })
+        assert.is_nil(other.UI.minimapButton)
+        assert.is_nil(other.UI.MinimapButton())
+        _G.Minimap = saved
+    end)
+end)
+
+describe("the scale and compact-rows settings (M5-2)", function()
+    local ns, world, frame
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        frame = ns.UI.Frame()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("registers a scale slider over the addon's own bounds", function()
+        assert.equal(1, #world.settings.sliders)
+        local slider = world.settings.sliders[1]
+        local Options = ns.UI.Options
+        assert.equal("LootpathScale", slider.setting.variable)
+        assert.equal("number", slider.setting.variableType)
+        assert.equal(Options.SCALE_MIN, slider.options.minValue)
+        assert.equal(Options.SCALE_MAX, slider.options.maxValue)
+        assert.equal((Options.SCALE_MAX - Options.SCALE_MIN) / Options.SCALE_STEP, slider.options.steps)
+    end)
+
+    it("applies the scale to the window and remembers it", function()
+        assert.equal(1.0, frame:GetScale())
+        world.settings.settings["LootpathScale"].SetValue(1.25)
+        assert.equal(1.25, frame:GetScale())
+        assert.equal(1.25, ns.db.profile.settings.scale)
+        assert.equal(1.25, ns.UI.Options.GetScale())
+    end)
+
+    it("clamps a scale that would put the window off the screen, reading and writing", function()
+        assert.equal(ns.UI.Options.SCALE_MAX, ns.UI.Options.SetScale(4))
+        assert.equal(ns.UI.Options.SCALE_MIN, ns.UI.Options.SetScale(0.1))
+        assert.is_nil(ns.UI.Options.SetScale("enormous"))
+        ns.db.profile.settings.scale = 9
+        assert.equal(ns.UI.Options.SCALE_MAX, ns.UI.Options.GetScale())
+    end)
+
+    it("registers a compact-rows checkbox and stores what it is set to", function()
+        assert.equal(1, #world.settings.checkboxes)
+        local checkbox = world.settings.checkboxes[1]
+        assert.equal("LootpathCompactRows", checkbox.setting.variable)
+        assert.equal("boolean", checkbox.setting.variableType)
+        assert.is_false(ns.UI.Options.GetCompactRows())
+        world.settings.settings["LootpathCompactRows"].SetValue(true)
+        assert.is_true(ns.UI.Options.GetCompactRows())
+        assert.is_true(ns.db.profile.settings.compactRows)
+    end)
+end)

@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+### M5-2 (WKE-551) - the chrome: a portrait ring, a status strip, and the paste box behind a dialog
+
+- **The window wears Blizzard's portrait frame, and the ring says whose answer
+  this is.** `PortraitFrameTemplate` in place of `BasicFrameTemplateWithInset`,
+  with the player's current specialization icon in the ring - the class icon
+  when the client names no spec, and an empty ring rather than a guess when it
+  names neither. It is redrawn when the player changes specialization. Escape
+  still closes the window, and it still drags and clamps.
+- **The tabs moved to the frame's bottom edge**, where the Encounter Journal
+  puts them, so the body above them is one uninterrupted rectangle.
+- **One status strip in place of the paste box.** `QE Live - Restoration Druid
+  - Dungeon Top Gear - companion, written 4 minute(s) ago - vault pick: as
+  offered`, on one line under the title. The age turns amber when the export
+  is older than the client's own weekly reset, which is what a dead companion
+  watcher looks like. The sentence the window used to keep under the status
+  line, the other stored export and the reason an age is amber are all in the
+  strip's tooltip.
+- **The paste box is now an Import dialog** behind the strip's `Import...`
+  button, with the editbox, Import, Clear and the import status line inside it.
+  Nothing about importing changed: the same routing, the same parsers, the same
+  refusals shown verbatim. Options is still one click from the strip.
+- **A launcher.** An AddOn Compartment entry (`## AddonCompartmentFunc` in the
+  `.toc`, no library) and a minimap button drawn natively: left-click toggles
+  the window, right-click opens the options page, and dragging moves it around
+  the ring with the angle saved in the profile.
+- **Two settings**: a window scale slider (0.7 to 1.3, applied with
+  `SetScale` on the window alone) and a "compact rows" checkbox, which is
+  stored for the item line M5-1 draws and changes nothing on screen yet.
+- The Import dialog closes with the window, so a paste box never floats on
+  with nothing behind it.
+- The window size is unchanged at 620 x 640: WKE-549 has not answered the
+  size question.
+
 ### M3-12 (WKE-547) - vault rewards read before their item data is cached
 
 - **No more `[] (nil)` on the Vault tab after a client restart.** Right after

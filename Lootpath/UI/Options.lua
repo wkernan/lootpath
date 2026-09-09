@@ -18,6 +18,12 @@
 --   Settings.CreateDropdown(category, setting, options, tooltip)
 --   Settings.RegisterAddOnCategory(category)
 --   Settings.OpenToCategory(categoryID)
+-- and, added in M5-2 (WKE-551, read under .luals on 2026-09-09):
+--   Settings.CreateSliderOptions(minValue, maxValue, rate) -> options, whose
+--     `steps` is (maxValue - minValue) / rate and whose SetLabelFormatter takes
+--     a MinimalSliderWithSteppersMixin.Label value
+--   Settings.CreateSlider(category, setting, options, tooltip)
+--   Settings.CreateCheckbox(category, setting, tooltip)
 
 local _, ns = ...
 
@@ -65,9 +71,74 @@ Options.SCENARIO_CHOICE_LABEL = {
     maxed = "Everything upgraded (Catalyst and full upgrade tracks)",
 }
 
+-- The two chrome settings (M5-2, WKE-551). The scale is applied with
+-- `frame:SetScale` on the window and nothing else, so it never fights the
+-- player's own UI scale; "compact rows" is stored here and read by the item
+-- line M5-1 builds, which is why it changes nothing on screen in this issue.
+--
+-- The slider's bounds are Lootpath's own and deliberately narrow: this is a
+-- window, not a HUD, and a scale that makes the verdict unreadable or pushes
+-- the frame off the edge is not a setting worth offering. The step is 0.05.
+Options.SCALE_VARIABLE = "LootpathScale"
+Options.SCALE_LABEL = "Window scale"
+Options.SCALE_TOOLTIP = "How large the Lootpath window is drawn, on top of your own UI scale."
+Options.SCALE_MIN = 0.7
+Options.SCALE_MAX = 1.3
+Options.SCALE_STEP = 0.05
+
+Options.COMPACT_VARIABLE = "LootpathCompactRows"
+Options.COMPACT_LABEL = "Compact rows"
+Options.COMPACT_TOOLTIP = "Draw the item rows in a shorter line, so more of them fit without scrolling."
+
 function Options.Get()
     local settings = ns.db and ns.db.profile and ns.db.profile.settings
     return (settings and settings.contentType) or ns.DB_DEFAULTS.profile.settings.contentType
+end
+
+-- Clamped on the way out as well as on the way in: a SavedVariables file edited
+-- by hand, or written by a build with different bounds, must not be able to
+-- scale the window off the screen.
+function Options.GetScale()
+    local settings = ns.db and ns.db.profile and ns.db.profile.settings
+    local scale = settings and tonumber(settings.scale)
+    if not scale then
+        return ns.DB_DEFAULTS.profile.settings.scale
+    end
+    return math.min(Options.SCALE_MAX, math.max(Options.SCALE_MIN, scale))
+end
+
+function Options.SetScale(value)
+    value = tonumber(value)
+    if not value then
+        return nil
+    end
+    value = math.min(Options.SCALE_MAX, math.max(Options.SCALE_MIN, value))
+    if ns.db and ns.db.profile and ns.db.profile.settings then
+        ns.db.profile.settings.scale = value
+    end
+    if UI.frame then
+        UI.frame:SetScale(value)
+    end
+    return value
+end
+
+function Options.GetCompactRows()
+    local settings = ns.db and ns.db.profile and ns.db.profile.settings
+    if settings and settings.compactRows ~= nil then
+        return settings.compactRows and true or false
+    end
+    return ns.DB_DEFAULTS.profile.settings.compactRows
+end
+
+function Options.SetCompactRows(value)
+    value = value and true or false
+    if ns.db and ns.db.profile and ns.db.profile.settings then
+        ns.db.profile.settings.compactRows = value
+    end
+    if UI.Refresh then
+        UI.Refresh()
+    end
+    return value
 end
 
 function Options.GetVaultScenario()
@@ -142,6 +213,46 @@ function Options.Register()
         end
         return container:GetData()
     end, Options.SCENARIO_TOOLTIP)
+    -- The chrome pair (M5-2). Both are guarded on the control builders rather
+    -- than on the category: a client that has RegisterProxySetting but not
+    -- CreateSlider keeps the dropdowns and loses only the slider.
+    if Settings.CreateSlider and Settings.CreateSliderOptions then
+        local scaleSetting = Settings.RegisterProxySetting(
+            category,
+            Options.SCALE_VARIABLE,
+            Settings.VarType.Number,
+            Options.SCALE_LABEL,
+            ns.DB_DEFAULTS.profile.settings.scale,
+            Options.GetScale,
+            Options.SetScale
+        )
+        local sliderOptions = Settings.CreateSliderOptions(Options.SCALE_MIN, Options.SCALE_MAX, Options.SCALE_STEP)
+        -- The number beside the slider is a percentage, which is how every
+        -- other scale in the game is written. MinimalSliderWithSteppersMixin's
+        -- Label enum and SetLabelFormatter come from
+        -- Blizzard_SharedXML/Shared/Slider/MinimalSlider.lua; both are guarded,
+        -- because a slider with no label is still a slider.
+        if sliderOptions.SetLabelFormatter and _G.MinimalSliderWithSteppersMixin then
+            sliderOptions:SetLabelFormatter(_G.MinimalSliderWithSteppersMixin.Label.Right, function(value)
+                return string.format("%d%%", math.floor(value * 100 + 0.5))
+            end)
+        end
+        Settings.CreateSlider(category, scaleSetting, sliderOptions, Options.SCALE_TOOLTIP)
+        Options.scaleSetting = scaleSetting
+    end
+    if Settings.CreateCheckbox then
+        local compactSetting = Settings.RegisterProxySetting(
+            category,
+            Options.COMPACT_VARIABLE,
+            Settings.VarType.Boolean,
+            Options.COMPACT_LABEL,
+            ns.DB_DEFAULTS.profile.settings.compactRows,
+            Options.GetCompactRows,
+            Options.SetCompactRows
+        )
+        Settings.CreateCheckbox(category, compactSetting, Options.COMPACT_TOOLTIP)
+        Options.compactSetting = compactSetting
+    end
     Settings.RegisterAddOnCategory(category)
     Options.category = category
     Options.setting = setting

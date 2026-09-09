@@ -1,25 +1,47 @@
--- Lootpath/UI/MainFrame.lua (M2-2, WKE-520; the three tabs added in M3-3, WKE-524)
--- The one window: the paste editbox that QE Live's answer arrives through, the
--- import status line, and one tab per promise - Equip Now, the Upgrade Map and
--- the Vault. Native frames and Blizzard's own templates only (decision
+-- Lootpath/UI/MainFrame.lua (M2-2, WKE-520; the three tabs added in M3-3,
+-- WKE-524; the chrome rebuilt in M5-2, WKE-551)
+-- The one window: a portrait frame whose ring carries the spec the verdict is
+-- for, a one-line status strip saying whose numbers these are and how old, the
+-- paste editbox demoted to a dialog behind that strip's Import... button, and
+-- one tab per promise on the frame's bottom edge - Equip Now, the Upgrade Map
+-- and the Vault. Native frames and Blizzard's own templates only (decision
 -- 2026-09-05: Ace3 is AceDB, nothing else).
 --
--- Templates used, each read from Blizzard's shipped XML under .luals on
--- 2026-09-06 rather than remembered:
---   BasicFrameTemplateWithInset (Blizzard_UIPanelTemplates/UIPanelTemplates.xml)
---     inherits BasicFrameTemplate -> BaseBasicFrameTemplate, which is where
---     `TitleText` and `CloseButton` come from.
+-- Templates used, each read from Blizzard's shipped XML under .luals rather
+-- than remembered (BasicFrameTemplateWithInset and InputScrollFrameTemplate on
+-- 2026-09-06; the rest on 2026-09-09):
+--   PortraitFrameTemplate (Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.xml:631)
+--     inherits PortraitFrameTemplateNoCloseButton -> PortraitFrameTexturedBaseTemplate
+--     -> PortraitFrameBaseTemplate, which is where `PortraitContainer` (with the
+--     `portrait` texture at 62 x 62 and a circular mask), `TitleContainer` and
+--     its `TitleText` come from; the close button is the one thing
+--     PortraitFrameTemplate itself adds, at parentKey `CloseButton`. It carries
+--     NO inset frame - BasicFrameTemplateWithInset's `InsetBg` has no
+--     counterpart here - so the panels anchor to the frame's own edges.
 --   InputScrollFrameTemplate (Blizzard_SharedXML/SecureUIPanelTemplates.xml)
 --     a ScrollFrame whose scroll child is a multiLine EditBox at parentKey
 --     `EditBox`, with `maxLetters` defaulting to 0 and a `CharCount` label.
 --     Its OnTextChanged writes `GetMaxLetters() - GetNumLetters()` into that
 --     label, which is meaningless at maxLetters 0, so the label is hidden.
---   PanelTabButtonTemplate (Blizzard_SharedXML/SharedUIPanelTemplates.xml:905)
+--   PanelTabButtonTemplate (Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.xml:905)
 --     carries `parentArray="Tabs"`, so each tab appends itself to `frame.Tabs`.
 --     WHICH tab is selected is Lootpath's own state (`UI.SelectTab`), because
 --     that is what decides which panel is on screen; `PanelTemplates_SetTab`
 --     and `PanelTemplates_SetNumTabs` are called for the selected/deselected
 --     ARTWORK only, guarded, because a client without them must still tab.
+--   BasicFrameTemplateWithInset (Blizzard_UIPanelTemplates/UIPanelTemplates.xml)
+--     the import dialog's frame, and what the main window was until M5-2.
+--
+-- The portrait is filled by this file rather than by PortraitFrameMixin's own
+-- `SetPortraitToSpecIcon` (Blizzard_SharedXML/PortraitFrame.lua:78), which does
+-- the same two steps - the spec's icon, the class icon when there is no spec -
+-- so that both paths are one guarded piece of code a headless test can drive.
+-- Blizzard's annotations mark `GetSpecialization` and `GetSpecializationInfo`
+-- deprecated in favour of `C_SpecializationInfo` (Blizzard_Deprecated/
+-- Deprecated_Specialization_Standard.lua), so the namespaced pair is tried
+-- first and the globals are the fallback; a client that answers neither gets
+-- the class icon, and one that answers nothing at all gets no portrait and no
+-- error.
 --
 -- Nothing here reads the client in combat: the scan behind the panel is
 -- ns.Inventory.Scan, which refuses in combat, and the refusal is what shows.
@@ -30,8 +52,14 @@ ns.UI = ns.UI or {}
 local UI = ns.UI
 
 UI.FRAME_NAME = "LootpathMainFrame"
+UI.DIALOG_NAME = "LootpathImportDialog"
+UI.MINIMAP_BUTTON_NAME = "LootpathMinimapButton"
+-- M5-0 (WKE-549) has not answered the window-size question, so the size is the
+-- one the window has had since M2-2; the mockups are drawn at 760.
 UI.WIDTH = 620
 UI.HEIGHT = 640
+UI.DIALOG_WIDTH = 520
+UI.DIALOG_HEIGHT = 260
 UI.PASTE_INSTRUCTIONS = "Paste your QE Live Top Gear or Upgrade Finder JSON here"
 
 -- One tab per promise, in the order the product states them (ARCHITECTURE.md
@@ -294,6 +322,161 @@ function UI.VerdictNoteText(now)
     return string.format("Showing the %s export (%s).", contentType, source)
 end
 
+-- ---------------------------------------------------------------------------
+-- M5-2 (WKE-551): the status strip.
+
+-- The separator between the strip's facts. One glyph rather than a dash so the
+-- five facts read as five; whether it renders on the owner's screen is an eye
+-- test (M5-5, WKE-554), not something this file can claim.
+UI.SEPARATOR = " \194\183 "
+UI.NO_VERDICT_STRIP = "QE Live \194\183 no export on this character yet \194\183 Import... to paste one"
+UI.STALE_STRIP_TOOLTIP =
+    "This export was made before the last weekly reset. If the companion is running it should be newer than that."
+
+-- Which of QE Live's named scenarios the Vault tab's pick follows, in the
+-- strip's words. The setting is C-6's (WKE-540); the strip only says it.
+UI.SCENARIO_TAG = {
+    asOffered = "vault pick: as offered",
+    catalyzed = "vault pick: catalyzed",
+    thisWeek = "vault pick: this week",
+    maxed = "vault pick: everything upgraded",
+}
+
+-- The client's own seconds-to-weekly-reset, or nil when it does not answer.
+-- Guarded and passed through ns.Safe like every other client read: a secret
+-- value here would otherwise reach tonumber.
+function UI.SecondsUntilWeeklyReset()
+    local fn = C_DateAndTime and C_DateAndTime.GetSecondsUntilWeeklyReset
+    if type(fn) ~= "function" then
+        return nil
+    end
+    local ok, seconds = pcall(fn)
+    if not ok then
+        return nil
+    end
+    return tonumber((ns.Safe(seconds)))
+end
+
+-- The one line under the title: what is on screen, whose it is and how old.
+-- `QE Live | spec | content type kind | source, age | scenario tag`, from the
+-- same facts UI.VerdictNoteText states in a sentence and ns.Companion.SourceText
+-- names the source with. Returns a model rather than a string so the age can be
+-- toned amber without the tests reading colour codes: { text, stale, tooltip }.
+--
+-- `stale` is VaultPanel.IsVerdictStale over the client's own reset boundary -
+-- an export older than the last weekly reset, which is the tell ARCHITECTURE.md
+-- 11 names for a
+-- companion watcher that has died. nil (not false) when the client does not say
+-- when the reset is; only a true makes the age amber.
+function UI.StatusStripModel(now)
+    local verdict, contentType, fellBack = UI.ActiveVerdict()
+    local tooltip = { UI.VerdictNoteText(now) }
+    if not verdict then
+        return { text = UI.NO_VERDICT_STRIP, tooltip = tooltip }
+    end
+    local kind = UI.KIND_LABEL[UI.KIND_TOP_GEAR]
+    local source = ns.Companion.SourceText(verdict, now) or "imported"
+    if not source:find("written", 1, true) then
+        source = source .. ", exported " .. UI.AgeText(verdict.exportedAt, now)
+    end
+    local stale = ns.VaultPanel.IsVerdictStale(verdict.exportedAt, now or time(), UI.SecondsUntilWeeklyReset())
+    if stale then
+        source = "|cffffd43b" .. source .. "|r"
+        tooltip[#tooltip + 1] = UI.STALE_STRIP_TOOLTIP
+    end
+    local scenario = ns.UI.Options.GetVaultScenario()
+    local parts = {
+        "QE Live",
+        verdict.spec or "unknown spec",
+        string.format("%s %s", contentType or "unknown content type", kind),
+        source,
+        UI.SCENARIO_TAG[scenario] or ("vault pick: " .. tostring(scenario)),
+    }
+    local other = UI.OtherImportLine(UI.KIND_TOP_GEAR, verdict, now)
+    if other then
+        tooltip[#tooltip + 1] = other
+    end
+    return {
+        text = table.concat(parts, UI.SEPARATOR),
+        stale = stale,
+        fellBack = fellBack,
+        tooltip = tooltip,
+    }
+end
+
+-- ---------------------------------------------------------------------------
+-- M5-2 (WKE-551): the portrait ring.
+
+-- The player's current specialization icon, or nil when the client does not
+-- name one. C_SpecializationInfo is what Blizzard's own annotations deprecate
+-- the two globals in favour of, so it is asked first and the globals answer for
+-- a client that has not got it.
+function UI.SpecIcon()
+    local index, info
+    if C_SpecializationInfo and type(C_SpecializationInfo.GetSpecialization) == "function" then
+        index = C_SpecializationInfo.GetSpecialization()
+        info = C_SpecializationInfo.GetSpecializationInfo
+    end
+    if index == nil and type(_G.GetSpecialization) == "function" then
+        index = GetSpecialization()
+        info = _G.GetSpecializationInfo
+    end
+    if index == nil or type(info) ~= "function" then
+        return nil
+    end
+    local icon = select(4, info(index))
+    icon = (ns.Safe(icon))
+    if type(icon) ~= "number" and type(icon) ~= "string" then
+        return nil
+    end
+    return icon
+end
+
+-- The class icon's file and its four texture coordinates in the shared
+-- UI-Classes-Circles sheet, exactly as PortraitFrameMixin:SetPortraitToClassIcon
+-- reads them (Blizzard_SharedXML/PortraitFrame.lua:72). nil when the client
+-- names no class or has no coordinate table.
+UI.CLASS_ICON_FILE = "Interface/TargetingFrame/UI-Classes-Circles"
+
+function UI.ClassIconCoords()
+    local coords = _G.CLASS_ICON_TCOORDS
+    if type(_G.UnitClass) ~= "function" or type(coords) ~= "table" then
+        return nil
+    end
+    local fileName = select(2, UnitClass("player"))
+    fileName = (ns.Safe(fileName))
+    if type(fileName) ~= "string" then
+        return nil
+    end
+    return coords[fileName:upper()]
+end
+
+-- Fills the frame's portrait ring with the spec the verdict is for, so the
+-- window says whose answer this is before a word is read. Returns "spec",
+-- "class" or nil - nil being a client that named neither, which leaves the ring
+-- empty rather than guessing at one.
+function UI.ApplyPortrait(frame)
+    frame = frame or UI.frame
+    local container = frame and frame.PortraitContainer
+    local portrait = container and container.portrait
+    if not portrait then
+        return nil
+    end
+    local icon = UI.SpecIcon()
+    if icon then
+        portrait:SetTexCoord(0, 1, 0, 1)
+        portrait:SetTexture(icon)
+        return "spec"
+    end
+    local coords = UI.ClassIconCoords()
+    if coords then
+        portrait:SetTexture(UI.CLASS_ICON_FILE)
+        portrait:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
+        return "class"
+    end
+    return nil
+end
+
 function UI.Import(text)
     local result = UI.ImportAny(text)
     if UI.frame then
@@ -337,7 +520,7 @@ function UI.Refresh()
     if not frame then
         return nil
     end
-    frame.verdictNote:SetText(UI.VerdictNoteText())
+    UI.RefreshStrip(frame)
     local selected = frame.selectedTab or 1
     if selected == 2 then
         ns.UpgradeMapPanel.Refresh(frame.upgradeMapPanel)
@@ -400,22 +583,47 @@ function UI.SelectTab(frame, id)
     return wanted
 end
 
-local function buildImportSection(frame)
-    local label = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    label:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -32)
-    label:SetText(UI.PASTE_INSTRUCTIONS)
-    frame.pasteLabel = label
+-- The Import dialog (M5-2). Everything the top third of every tab used to
+-- carry - the instructions, the editbox, Import, Clear and the import status
+-- line - moved here whole: UI.Import and UI.ImportAny are untouched, and the
+-- status line they write is the same font string it always was, now inside the
+-- dialog instead of behind three tabs.
+--
+-- Built with the window rather than on first click so that `frame.pasteBox`,
+-- `frame.importButton`, `frame.clearButton` and `frame.status` mean exactly what
+-- they meant before this issue: the keys are aliases onto the dialog's widgets,
+-- which is what lets UI.Import keep writing to `UI.frame.status`.
+local function buildImportDialog(frame)
+    local dialog = CreateFrame("Frame", UI.DIALOG_NAME, UIParent, "BasicFrameTemplateWithInset")
+    dialog:SetSize(UI.DIALOG_WIDTH, UI.DIALOG_HEIGHT)
+    dialog:SetPoint("CENTER")
+    dialog:SetFrameStrata("DIALOG")
+    dialog:SetToplevel(true)
+    dialog:SetClampedToScreen(true)
+    dialog:SetMovable(true)
+    dialog:EnableMouse(true)
+    dialog:RegisterForDrag("LeftButton")
+    dialog:SetScript("OnDragStart", dialog.StartMoving)
+    dialog:SetScript("OnDragStop", dialog.StopMovingOrSizing)
+    if dialog.TitleText then
+        dialog.TitleText:SetText("Import a QE Live export")
+    end
 
-    local scroll = CreateFrame("ScrollFrame", nil, frame, "InputScrollFrameTemplate")
+    local label = dialog:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    label:SetPoint("TOPLEFT", dialog, "TOPLEFT", 14, -32)
+    label:SetText(UI.PASTE_INSTRUCTIONS)
+    dialog.pasteLabel = label
+
+    local scroll = CreateFrame("ScrollFrame", nil, dialog, "InputScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 4, -8)
-    scroll:SetSize(UI.WIDTH - 40, 90)
+    scroll:SetSize(UI.DIALOG_WIDTH - 40, 90)
     -- InputScrollFrame_OnTextChanged writes `maxLetters - numLetters` into
     -- CharCount, which is a large negative number once maxLetters is 0.
     scroll.hideCharCount = true
     if scroll.CharCount then
         scroll.CharCount:Hide()
     end
-    frame.pasteScroll = scroll
+    dialog.pasteScroll = scroll
 
     local editBox = scroll.EditBox
     editBox:SetAutoFocus(false)
@@ -426,51 +634,148 @@ local function buildImportSection(frame)
     editBox:SetScript("OnEscapePressed", function(box)
         box:ClearFocus()
     end)
-    frame.pasteBox = editBox
+    dialog.pasteBox = editBox
 
-    local importButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    local importButton = CreateFrame("Button", nil, dialog, "UIPanelButtonTemplate")
     importButton:SetSize(90, 22)
     importButton:SetPoint("TOPLEFT", scroll, "BOTTOMLEFT", -4, -10)
     importButton:SetText("Import")
     importButton:SetScript("OnClick", function()
         UI.Import(editBox:GetText())
     end)
-    frame.importButton = importButton
+    dialog.importButton = importButton
 
-    local clearButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    local clearButton = CreateFrame("Button", nil, dialog, "UIPanelButtonTemplate")
     clearButton:SetSize(90, 22)
     clearButton:SetPoint("LEFT", importButton, "RIGHT", 8, 0)
     clearButton:SetText("Clear")
     clearButton:SetScript("OnClick", function()
         editBox:SetText("")
-        frame.status:SetText("")
+        dialog.status:SetText("")
     end)
-    frame.clearButton = clearButton
+    dialog.clearButton = clearButton
 
-    local optionsButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    optionsButton:SetSize(90, 22)
-    optionsButton:SetPoint("LEFT", clearButton, "RIGHT", 8, 0)
+    local closeButton = CreateFrame("Button", nil, dialog, "UIPanelButtonTemplate")
+    closeButton:SetSize(90, 22)
+    closeButton:SetPoint("LEFT", clearButton, "RIGHT", 8, 0)
+    closeButton:SetText("Close")
+    closeButton:SetScript("OnClick", function()
+        dialog:Hide()
+    end)
+    dialog.closeDialogButton = closeButton
+
+    local status = dialog:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    status:SetPoint("TOPLEFT", importButton, "BOTTOMLEFT", 4, -10)
+    status:SetPoint("RIGHT", dialog, "RIGHT", -14, 0)
+    status:SetJustifyH("LEFT")
+    status:SetWordWrap(true)
+    status:SetText("")
+    dialog.status = status
+
+    -- Escape closes it, as it does the window; UISpecialFrames keys on the
+    -- global name, which is why this frame has one too.
+    if type(UISpecialFrames) == "table" then
+        UISpecialFrames[#UISpecialFrames + 1] = UI.DIALOG_NAME
+    end
+    dialog:Hide()
+
+    frame.importDialog = dialog
+    frame.pasteLabel = dialog.pasteLabel
+    frame.pasteScroll = scroll
+    frame.pasteBox = editBox
+    frame.importButton = importButton
+    frame.clearButton = clearButton
+    frame.status = status
+    UI.dialog = dialog
+    return dialog
+end
+
+function UI.ToggleImportDialog()
+    local frame = UI.Frame()
+    local dialog = frame.importDialog
+    if not dialog then
+        return false
+    end
+    if dialog:IsShown() then
+        dialog:Hide()
+        return false
+    end
+    dialog:Show()
+    return true
+end
+
+-- The status strip: one line of facts under the title, and the two buttons that
+-- used to sit under the paste box. The strip itself takes the mouse so the
+-- facts that do not fit on one line - the sentence UI.VerdictNoteText states,
+-- the other stored export, why an amber age is amber - are one hover away.
+local function buildStatusStrip(frame)
+    local strip = CreateFrame("Frame", nil, frame)
+    strip:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, -30)
+    strip:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -12, -30)
+    strip:SetHeight(22)
+    strip:EnableMouse(true)
+    frame.statusStrip = strip
+
+    local optionsButton = CreateFrame("Button", nil, strip, "UIPanelButtonTemplate")
+    optionsButton:SetSize(74, 20)
+    optionsButton:SetPoint("RIGHT", strip, "RIGHT", 0, 0)
     optionsButton:SetText("Options")
     optionsButton:SetScript("OnClick", function()
         UI.OpenOptions()
     end)
     frame.optionsButton = optionsButton
 
-    local status = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    status:SetPoint("TOPLEFT", importButton, "BOTTOMLEFT", 4, -10)
-    status:SetPoint("RIGHT", frame, "RIGHT", -14, 0)
-    status:SetJustifyH("LEFT")
-    status:SetText("")
-    frame.status = status
+    local importButton = CreateFrame("Button", nil, strip, "UIPanelButtonTemplate")
+    importButton:SetSize(80, 20)
+    importButton:SetPoint("RIGHT", optionsButton, "LEFT", -6, 0)
+    importButton:SetText("Import...")
+    importButton:SetScript("OnClick", function()
+        UI.ToggleImportDialog()
+    end)
+    frame.openImportButton = importButton
 
-    local note = frame:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-    note:SetPoint("TOPLEFT", status, "BOTTOMLEFT", 0, -6)
-    note:SetJustifyH("LEFT")
-    frame.verdictNote = note
+    local text = strip:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    text:SetPoint("LEFT", strip, "LEFT", 2, 0)
+    text:SetPoint("RIGHT", importButton, "LEFT", -8, 0)
+    text:SetJustifyH("LEFT")
+    text:SetWordWrap(false)
+    frame.stripText = text
+
+    strip:SetScript("OnEnter", function(self)
+        if not (GameTooltip and frame.stripModel) then
+            return
+        end
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+        for _, line in ipairs(frame.stripModel.tooltip or {}) do
+            GameTooltip:AddLine(line)
+        end
+        GameTooltip:Show()
+    end)
+    strip:SetScript("OnLeave", function()
+        if GameTooltip then
+            GameTooltip:Hide()
+        end
+    end)
 end
 
--- One tab per promise. The button art is Blizzard's; which panel it shows is
--- UI.SelectTab's.
+-- Redraws the strip from the facts as they are now. Its own function because
+-- UI.Refresh calls it on every redraw and the launcher's toggle does not.
+function UI.RefreshStrip(frame)
+    frame = frame or UI.frame
+    if not frame or not frame.stripText then
+        return nil
+    end
+    local model = UI.StatusStripModel()
+    frame.stripModel = model
+    frame.stripText:SetText(model.text)
+    return model
+end
+
+-- One tab per promise, on the frame's BOTTOM edge (M5-2), the way the Encounter
+-- Journal and every Blizzard panel with tabs place them: the first tab's TOPLEFT
+-- sits on the frame's BOTTOMLEFT, so the tabs hang below the window and the body
+-- above them is one uninterrupted rectangle. The button art is Blizzard's; which
+-- panel it shows is UI.SelectTab's.
 local function buildTabs(frame)
     frame.tabs = {}
     for index, tab in ipairs(UI.TABS) do
@@ -479,7 +784,7 @@ local function buildTabs(frame)
         button:SetText(tab.label)
         button:SetSize(110, 24)
         if index == 1 then
-            button:SetPoint("TOPLEFT", frame.verdictNote, "BOTTOMLEFT", 0, -10)
+            button:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 11, 2)
         else
             button:SetPoint("LEFT", frame.tabs[index - 1], "RIGHT", 3, 0)
         end
@@ -493,7 +798,167 @@ local function buildTabs(frame)
     end
 end
 
-local function onEvent(frame)
+-- ---------------------------------------------------------------------------
+-- M5-2 (WKE-551): the launcher. A minimap button drawn natively and an AddOn
+-- Compartment entry, both of which do nothing but UI.Toggle. No library: an
+-- addon with one user does not need LibDBIcon vendored and licence-recorded to
+-- put a 31-point button on a circle.
+
+-- How far from the minimap's centre the button sits, and where it starts. The
+-- radius is the one every minimap button uses: the minimap is 140 points across
+-- at default scale, so 80 puts the button just outside its edge. The angle is
+-- degrees counter-clockwise from east, which is the convention LibDBIcon's
+-- saved variables use and the one a dragged position is measured back into.
+UI.MINIMAP_RADIUS = 80
+UI.MINIMAP_BUTTON_SIZE = 31
+
+-- Where a button at this angle goes, relative to the minimap's centre. Pure, so
+-- the placement is a test and not a screenshot.
+function UI.MinimapButtonOffset(angle)
+    local radians = math.rad(tonumber(angle) or 0)
+    return UI.MINIMAP_RADIUS * math.cos(radians), UI.MINIMAP_RADIUS * math.sin(radians)
+end
+
+-- The angle a cursor at (x, y) makes with a minimap centred at (cx, cy),
+-- normalised into [0, 360). The inverse of MinimapButtonOffset, and the whole
+-- of what dragging the button computes.
+function UI.MinimapAngleFrom(cx, cy, x, y)
+    local angle = math.deg(math.atan2((y or 0) - (cy or 0), (x or 0) - (cx or 0)))
+    return angle % 360
+end
+
+function UI.GetMinimapAngle()
+    local settings = ns.db and ns.db.profile and ns.db.profile.settings
+    local angle = settings and tonumber(settings.minimapAngle)
+    return angle or ns.DB_DEFAULTS.profile.settings.minimapAngle
+end
+
+-- Saves the angle and moves the button to it. The saved value is what survives a
+-- reload; the placement is what the eye sees, and they are set together so they
+-- can never disagree.
+function UI.SetMinimapAngle(angle)
+    angle = tonumber(angle)
+    if not angle then
+        return nil
+    end
+    angle = angle % 360
+    local settings = ns.db and ns.db.profile and ns.db.profile.settings
+    if settings then
+        settings.minimapAngle = angle
+    end
+    local button = UI.minimapButton
+    if button then
+        local x, y = UI.MinimapButtonOffset(angle)
+        button:ClearAllPoints()
+        button:SetPoint("CENTER", Minimap, "CENTER", x, y)
+    end
+    return angle
+end
+
+-- Follows the cursor while the button is held. The minimap's own centre and
+-- effective scale are read every frame rather than cached: the player can move
+-- or rescale the minimap between drags.
+local function minimapDragUpdate()
+    local button = UI.minimapButton
+    if not (button and Minimap and type(_G.GetCursorPosition) == "function") then
+        return
+    end
+    local cx, cy = Minimap:GetCenter()
+    if not cx then
+        return
+    end
+    local scale = Minimap:GetEffectiveScale()
+    if not scale or scale == 0 then
+        scale = 1
+    end
+    local x, y = GetCursorPosition()
+    UI.SetMinimapAngle(UI.MinimapAngleFrom(cx, cy, x / scale, y / scale))
+end
+
+-- The minimap button itself. Returns nil on a client with no Minimap, which is
+-- not an error: the window still opens from the slash command and the AddOn
+-- Compartment.
+function UI.MinimapButton()
+    if UI.minimapButton then
+        return UI.minimapButton
+    end
+    if not Minimap then
+        return nil
+    end
+    local button = CreateFrame("Button", UI.MINIMAP_BUTTON_NAME, Minimap)
+    UI.minimapButton = button
+    button:SetSize(UI.MINIMAP_BUTTON_SIZE, UI.MINIMAP_BUTTON_SIZE)
+    button:SetFrameStrata("MEDIUM")
+    button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    button:RegisterForDrag("LeftButton")
+    button:SetMovable(true)
+
+    local icon = button:CreateTexture(nil, "BACKGROUND")
+    icon:SetSize(20, 20)
+    icon:SetPoint("CENTER", button, "CENTER", 0, 1)
+    -- The spec the verdict is for, the same fact the portrait ring carries; the
+    -- question mark until the client names one.
+    icon:SetTexture(UI.SpecIcon() or "Interface/Icons/INV_Misc_QuestionMark")
+    button.icon = icon
+
+    local border = button:CreateTexture(nil, "OVERLAY")
+    border:SetSize(53, 53)
+    border:SetPoint("TOPLEFT", button, "TOPLEFT", 0, 0)
+    border:SetTexture("Interface/Minimap/MiniMap-TrackingBorder")
+    button.border = border
+
+    button:SetScript("OnClick", function(_, mouseButton)
+        if mouseButton == "RightButton" then
+            UI.OpenOptions()
+            return
+        end
+        UI.Toggle()
+    end)
+    button:SetScript("OnDragStart", function(self)
+        self.dragging = true
+        self:SetScript("OnUpdate", minimapDragUpdate)
+    end)
+    button:SetScript("OnDragStop", function(self)
+        self.dragging = false
+        self:SetScript("OnUpdate", nil)
+    end)
+    button:SetScript("OnEnter", function(self)
+        if not GameTooltip then
+            return
+        end
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:AddLine("Lootpath")
+        GameTooltip:AddLine(UI.StatusStripModel().text)
+        GameTooltip:AddLine("Left-click to open, right-click for options, drag to move.")
+        GameTooltip:Show()
+    end)
+    button:SetScript("OnLeave", function()
+        if GameTooltip then
+            GameTooltip:Hide()
+        end
+    end)
+
+    UI.SetMinimapAngle(UI.GetMinimapAngle())
+    return button
+end
+
+-- The AddOn Compartment's entry point. `## AddonCompartmentFunc: LootpathToggle`
+-- in the .toc names a GLOBAL function, which Blizzard's AddonCompartmentMixin
+-- looks up in _G and calls as `_G[func](addonName, buttonName)`
+-- (Blizzard_Minimap/Mainline/AddonCompartment.lua:81-105), so this is the one
+-- global Lootpath defines and it takes the client's two arguments and ignores
+-- them.
+function _G.LootpathToggle()
+    UI.Toggle()
+end
+
+local function onEvent(frame, event)
+    if event == "PLAYER_SPECIALIZATION_CHANGED" then
+        UI.ApplyPortrait(frame)
+        if UI.minimapButton and UI.minimapButton.icon then
+            UI.minimapButton.icon:SetTexture(UI.SpecIcon() or "Interface/Icons/INV_Misc_QuestionMark")
+        end
+    end
     if frame:IsShown() then
         UI.Refresh()
     end
@@ -503,7 +968,7 @@ function UI.Frame()
     if UI.frame then
         return UI.frame
     end
-    local frame = CreateFrame("Frame", UI.FRAME_NAME, UIParent, "BasicFrameTemplateWithInset")
+    local frame = CreateFrame("Frame", UI.FRAME_NAME, UIParent, "PortraitFrameTemplate")
     UI.frame = frame
     frame:SetSize(UI.WIDTH, UI.HEIGHT)
     frame:SetPoint("CENTER")
@@ -528,11 +993,25 @@ function UI.Frame()
             GameTooltip:Hide()
         end
     end)
+    -- The dialog is parented to UIParent rather than to the window, so that its
+    -- own scale and strata are Blizzard's; that means closing the window would
+    -- otherwise leave a paste box floating with nothing behind it.
+    frame:SetScript("OnHide", function()
+        if frame.importDialog then
+            frame.importDialog:Hide()
+        end
+    end)
+    -- PortraitFrameTemplate's title is centred in a TitleContainer that starts
+    -- 58 points in, clear of the portrait ring; TitleText is the font string
+    -- inside it. Both are guarded: a client without them is a window with no
+    -- title, not a broken addon.
     if frame.TitleText then
         frame.TitleText:SetText("Lootpath " .. ns.VERSION)
     end
+    UI.ApplyPortrait(frame)
 
-    buildImportSection(frame)
+    buildImportDialog(frame)
+    buildStatusStrip(frame)
     buildTabs(frame)
 
     local panel = UI.EquipPanel.Create(frame)
@@ -541,17 +1020,24 @@ function UI.Frame()
     frame.upgradeMapPanel = ns.UpgradeMapPanel.Create(frame)
     frame.vaultPanel = ns.VaultPanel.Create(frame)
     -- Every tab's panel fills the same rectangle; only one is shown at a time.
+    -- The tabs are on the frame's bottom edge now (M5-2), so the body runs from
+    -- under the status strip to the frame's own bottom border: PortraitFrame
+    -- has no inset frame to sit inside.
     for _, tab in ipairs(UI.TABS) do
         local tabPanel = frame[tab.key]
-        tabPanel:SetPoint("TOPLEFT", frame.tabs[1], "BOTTOMLEFT", 4, -8)
-        tabPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 14)
+        tabPanel:SetPoint("TOPLEFT", frame.statusStrip, "BOTTOMLEFT", 2, -6)
+        tabPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -12, 12)
     end
     UI.ShowTab(frame, 1)
+    -- The scale the owner chose (M5-2). Applied to the window only: the dialog
+    -- and the minimap button are Blizzard-sized and are not part of it.
+    frame:SetScale(UI.Options.GetScale())
 
     frame:RegisterEvent("PLAYER_REGEN_DISABLED")
     frame:RegisterEvent("PLAYER_REGEN_ENABLED")
     frame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
     frame:RegisterEvent("BAG_UPDATE_DELAYED")
+    frame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
     frame:SetScript("OnEvent", onEvent)
 
     -- Escape closes it, the way every Blizzard panel does. UISpecialFrames keys
@@ -577,4 +1063,9 @@ end
 
 ns.onReady[#ns.onReady + 1] = function()
     UI.Options.Register()
+    -- The launcher is built at load, not on first open: a button that only
+    -- appears once you have already found the window is not a launcher. It
+    -- costs one frame and reads the saved angle out of the DB, which is why it
+    -- runs here rather than at file scope.
+    UI.MinimapButton()
 end

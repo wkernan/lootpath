@@ -6,6 +6,7 @@
 ## SavedVariables: LootpathDB
 ## X-License: MIT
 ## X-Website: https://github.com/wkernan/lootpath
+## AddonCompartmentFunc: LootpathToggle
 
 Libs\LibStub\LibStub.lua
 Libs\CallbackHandler-1.0\CallbackHandler-1.0.xml
