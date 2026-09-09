@@ -385,6 +385,12 @@ function Stub.install()
         equipped = {}, -- [invSlot] = { link = , id = }
         bags = {}, -- [bagIndex] = { numSlots = , items = { [slot] = { info = , link = , id = } } }
         items = {}, -- [link] = { level = , info = {...}, instant = {...} }
+        -- Every itemID C_Item.RequestLoadItemDataByID was asked for, in order.
+        -- The stub never answers by itself: a test that wants the data to
+        -- arrive registers the item and fires ITEM_DATA_LOAD_RESULT (or
+        -- GET_ITEM_INFO_RECEIVED) itself, which is how "the client answered
+        -- late" and "the client never answered" are both drivable (M3-12).
+        itemDataRequests = {},
         bankOpen = false,
         vaultOpen = false,
         reloads = 0,
@@ -847,6 +853,12 @@ function Stub.install()
         end,
         EquipItemByName = function(itemInfo, dstSlot)
             world.equipCalls[#world.equipCalls + 1] = { itemInfo, dstSlot }
+        end,
+        -- Blizzard's exported C_Item.RequestLoadItemDataByID(itemInfo): asks
+        -- the client to load an item's data; answered by ITEM_DATA_LOAD_RESULT
+        -- (itemID, success). Recorded, never answered here.
+        RequestLoadItemDataByID = function(itemID)
+            world.itemDataRequests[#world.itemDataRequests + 1] = itemID
         end,
     })
 

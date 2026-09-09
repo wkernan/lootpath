@@ -44,6 +44,7 @@ UI.TABS = {
     { id = 2, key = "upgradeMapPanel", label = "Upgrade Map" },
     { id = 3, key = "vaultPanel", label = "Vault" },
 }
+UI.VAULT_TAB = 3
 
 -- ISO 8601 in UTC, which is what QE Live's exportedAt is
 -- ("2026-09-06T21:14:24.465Z", read from the committed export). Returns the
@@ -347,6 +348,20 @@ function UI.Refresh()
         return nil
     end
     return UI.RefreshEquip(frame)
+end
+
+-- Where the Vault module's second read lands (M3-12, WKE-547): a reward whose
+-- item data arrived after the tab was drawn. Redraws the Vault tab if, and
+-- only if, the window is open on it - the same "only the visible tab redraws"
+-- rule as UI.Refresh, without touching the other two tabs at all. Returns
+-- whether it drew.
+function UI.RefreshVault()
+    local frame = UI.frame
+    if not frame or not frame:IsShown() or (frame.selectedTab or 1) ~= UI.VAULT_TAB then
+        return false
+    end
+    ns.VaultPanel.Refresh(frame.vaultPanel)
+    return true
 end
 
 -- Shows one tab's panel and hides the other two. `frame.selectedTab` is

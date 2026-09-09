@@ -231,7 +231,17 @@ describe("ns.Vault guards", function()
             "C_WeeklyRewards.GetActivities",
             "C_WeeklyRewards.GetItemHyperlink",
             "C_DateAndTime.GetSecondsUntilWeeklyReset",
+            "C_Item.GetDetailedItemLevelInfo",
+            "C_Item.GetItemInfoInstant",
+            "C_Item.GetItemInfo",
+            "C_Item.RequestLoadItemDataByID",
         }, ns.Vault.FUNCTION_NAMES)
+        -- Every name resolves on the stub; the literal call sites are the only
+        -- callers, and nothing in the file is reached through this list.
+        for _, name in ipairs(ns.Vault.FUNCTION_NAMES) do
+            local namespace, member = name:match("^(C_[%w_]+)%.([%w_]+)$")
+            assert.is_function(_G[namespace][member], name)
+        end
     end)
 end)
 
@@ -344,5 +354,266 @@ describe("ns.Vault over the after-reset transcript (generated rewards)", functio
             end
         end
         assert.equal(5, keystones)
+    end)
+
+    -- M3-12 must not change what this snapshot says: every item was cached
+    -- when it was taken, so nothing is pending and the client is not asked.
+    it("has nothing pending and asks the client for nothing", function()
+        local result = ns.Vault.Options()
+        assert.equal(0, result.pendingRewards)
+        assert.equal(0, result.requestedItems)
+        assert.equal(0, #world.itemDataRequests)
+        assert.equal(0, ns.Vault.PendingCount())
+        for _, option in ipairs(result.options) do
+            for _, reward in ipairs(option.rewards) do
+                assert.is_false(reward.pending)
+            end
+        end
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- M3-12 (WKE-547): the 2026-09-09 08:59:19 snapshot, taken by `/lootpath
+-- refresh` right after a full client restart. Measured in that transcript
+-- (docs/ARCHITECTURE.md §9, "Checked 2026-09-09 mid-morning"): four of the
+-- five rewards come back with a link whose bracketed name is EMPTY
+-- (`|h[]|h`), GetItemInfo and GetDetailedItemLevelInfo answer nothing, and
+-- GetItemInfoInstant still names the slot; only the Lightgrasp Worldroot - a
+-- copy of which the owner wears - resolved. The itemIDs, bonus IDs and keys
+-- are intact. Every figure below was read from that snapshot; the "late
+-- answer" is the 2026-09-08 23:26:17 snapshot of the SAME itemDBIDs, which
+-- carries every name and level, replayed over the nameless one.
+describe("ns.Vault over the fresh-login transcript (M3-12, WKE-547)", function()
+    local ns, world
+    local FRESH_LOGIN = "spec/fixtures/captures/Lootpath-20260909-085940.lua"
+    local NAMELESS = 13 -- 2026-09-09T08:59:19, right after the client restart
+    local NAMED = 12 -- 2026-09-08T23:26:17, the same rewards with every name
+    local PENDING_IDS = { 251146, 251234, 269862, 275547 }
+
+    before_each(function()
+        ns, world = H.load()
+        R.vault(world, R.snapshot("vault", NAMELESS, FRESH_LOGIN))
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function rewardsByItemID(result)
+        local map = {}
+        for _, option in ipairs(result.options) do
+            for _, reward in ipairs(option.rewards) do
+                map[reward.itemID] = reward
+            end
+        end
+        return map
+    end
+
+    local function sortedRequests()
+        local out = {}
+        for _, id in ipairs(world.itemDataRequests) do
+            out[#out + 1] = id
+        end
+        table.sort(out)
+        return out
+    end
+
+    -- The client's later answer: the named snapshot's links and item probes
+    -- laid over the world, then the load event for each item, the way the
+    -- client fires ITEM_DATA_LOAD_RESULT(itemID, true) once it has the data.
+    local function clientAnswers(event, ids)
+        R.vaultLinks(world, R.snapshot("vault", NAMED, FRESH_LOGIN))
+        for _, id in ipairs(ids or PENDING_IDS) do
+            world.fireEvent(event or "ITEM_DATA_LOAD_RESULT", id, true)
+        end
+    end
+
+    local function listenerEvents()
+        for _, frame in ipairs(world.frames) do
+            if frame.events["ITEM_DATA_LOAD_RESULT"] or frame.events["GET_ITEM_INFO_RECEIVED"] then
+                return frame.events
+            end
+        end
+        return nil
+    end
+
+    it("reads a nameless link as pending, with the key intact and nothing invented", function()
+        local result = ns.Vault.Options()
+        assert.is_true(result.ok)
+        assert.equal(0, result.secretsSeen)
+        assert.equal(4, result.pendingRewards)
+        local rewards = rewardsByItemID(result)
+        -- The three gear rewards: pending, keyed, slotted, no name, no level.
+        local lantern = rewards[275547]
+        assert.is_true(lantern.pending)
+        assert.equal("275547:6652:12841", lantern.key)
+        assert.equal("Offhand", lantern.slot)
+        assert.equal("INVTYPE_HOLDABLE", lantern.equipLoc)
+        assert.is_nil(lantern.name)
+        assert.is_nil(lantern.itemLevel)
+        assert.equal("0x4000000E5E0736EB", lantern.itemDBID)
+        assert.equal("251146:6652:12699:12842:13440:13662", rewards[251146].key)
+        assert.is_true(rewards[251146].pending)
+        assert.equal("Shoulder", rewards[251146].slot)
+        assert.equal("251234:6652:12699:12842:13440:13668", rewards[251234].key)
+        assert.is_true(rewards[251234].pending)
+        assert.equal("Neck", rewards[251234].slot)
+        -- The Concession token: pending too, and the client's static data
+        -- still says it is not gear.
+        assert.is_true(rewards[269862].pending)
+        assert.is_nil(rewards[269862].slot)
+        assert.equal("INVTYPE_NON_EQUIP_IGNORE", rewards[269862].equipLoc)
+        assert.equal("269862", rewards[269862].key)
+        -- The one that resolved: the owner wears a copy of it.
+        local weapon = rewards[251935]
+        assert.is_false(weapon.pending)
+        assert.equal("Lightgrasp Worldroot", weapon.name)
+        assert.equal(305, weapon.itemLevel)
+        assert.equal("251935:6652:12841", weapon.key)
+    end)
+
+    it("reads the empty brackets the client really sent as no name", function()
+        assert.is_nil(ns.Vault.LinkName("|cnIQ1:|Hitem:275547::::::::90:105::108:2:6652:12841::::::|h[]|h|r"))
+        assert.equal(
+            "Lightgrasp Worldroot",
+            ns.Vault.LinkName("|cnIQ4:|Hitem:251935::::::::90:105::55:2:6652:12841::::::|h[Lightgrasp Worldroot]|h|r")
+        )
+        assert.is_nil(ns.Vault.LinkName(nil))
+        -- A record with no link at all is not pending: there is nothing to
+        -- wait for (the M3-3 "link never arrives" case keeps its own meaning).
+        assert.is_false(ns.Vault.RewardIsPending({ itemDBID = "no-link" }))
+    end)
+
+    it("asks the client to load each pending item once, and never the resolved one", function()
+        local result = ns.Vault.Options()
+        assert.equal(4, result.requestedItems)
+        assert.same(PENDING_IDS, sortedRequests())
+        assert.equal(4, ns.Vault.PendingCount())
+        local events = listenerEvents()
+        assert.is_not_nil(events)
+        assert.is_true(events["ITEM_DATA_LOAD_RESULT"])
+        assert.is_true(events["GET_ITEM_INFO_RECEIVED"])
+        -- A second look while the items are still pending re-uses the episode.
+        local again = ns.Vault.Options()
+        assert.equal(4, again.pendingRewards)
+        assert.equal(0, again.requestedItems)
+        assert.equal(4, #world.itemDataRequests)
+    end)
+
+    it("does not ask when told not to", function()
+        local result = ns.Vault.Options({ request = false })
+        assert.equal(4, result.pendingRewards)
+        assert.equal(0, result.requestedItems)
+        assert.equal(0, #world.itemDataRequests)
+        assert.equal(0, ns.Vault.PendingCount())
+    end)
+
+    it("fills the pending records on the client's load event and redraws the Vault tab once", function()
+        local redraws = 0
+        ns.UI.RefreshVault = function()
+            redraws = redraws + 1
+            return true
+        end
+        local result = ns.Vault.Options()
+        local rewards = rewardsByItemID(result)
+        clientAnswers("ITEM_DATA_LOAD_RESULT")
+        -- The records the panel was handed are filled in place: the second
+        -- read is the same code as the first, over the client's later answer.
+        assert.is_false(rewards[275547].pending)
+        assert.equal("Preyhunter's Lantern", rewards[275547].name)
+        assert.equal(305, rewards[275547].itemLevel)
+        assert.equal("275547:6652:12841", rewards[275547].key)
+        assert.equal("Scavenger's Spaulders", rewards[251146].name)
+        assert.equal(308, rewards[251146].itemLevel)
+        assert.equal("Graft of the Domanaar", rewards[251234].name)
+        assert.equal(308, rewards[251234].itemLevel)
+        assert.is_false(rewards[269862].pending)
+        assert.equal(0, ns.Vault.PendingCount())
+        -- Four events, one redraw: coalesced onto the next frame.
+        assert.equal(0, redraws)
+        world.runTimers(0)
+        assert.equal(1, redraws)
+        world.runTimers(ns.Vault.ITEM_DATA_WAIT_SECONDS * ns.Vault.ITEM_DATA_MAX_ATTEMPTS + 1)
+        assert.equal(1, redraws)
+        -- Nothing left to wait for, so the listener stops listening.
+        assert.is_nil(listenerEvents())
+    end)
+
+    it("takes GET_ITEM_INFO_RECEIVED as the same answer", function()
+        local result = ns.Vault.Options()
+        local rewards = rewardsByItemID(result)
+        clientAnswers("GET_ITEM_INFO_RECEIVED", { 275547 })
+        assert.is_false(rewards[275547].pending)
+        assert.equal("Preyhunter's Lantern", rewards[275547].name)
+        assert.is_true(rewards[251146].pending)
+        assert.equal(3, ns.Vault.PendingCount())
+    end)
+
+    it("fills the records on the bounded re-read when no event comes", function()
+        local redraws = 0
+        ns.UI.RefreshVault = function()
+            redraws = redraws + 1
+        end
+        local result = ns.Vault.Options()
+        local rewards = rewardsByItemID(result)
+        -- The data arrives, but the client fires nothing.
+        R.vaultLinks(world, R.snapshot("vault", NAMED, FRESH_LOGIN))
+        assert.is_true(rewards[275547].pending)
+        world.runTimers(ns.Vault.ITEM_DATA_WAIT_SECONDS)
+        assert.is_false(rewards[275547].pending)
+        assert.equal("Preyhunter's Lantern", rewards[275547].name)
+        assert.equal(0, ns.Vault.PendingCount())
+        assert.equal(1, redraws)
+    end)
+
+    it("leaves a record the client never describes pending, in words, and asks again on the next look", function()
+        local redraws = 0
+        ns.UI.RefreshVault = function()
+            redraws = redraws + 1
+        end
+        local result = ns.Vault.Options()
+        local rewards = rewardsByItemID(result)
+        world.runTimers(ns.Vault.ITEM_DATA_WAIT_SECONDS * ns.Vault.ITEM_DATA_MAX_ATTEMPTS + 1)
+        -- Forgotten by the module, still pending on the record, nothing drawn.
+        assert.equal(0, ns.Vault.PendingCount())
+        assert.is_true(rewards[275547].pending)
+        assert.is_nil(rewards[275547].name)
+        assert.is_nil(rewards[275547].itemLevel)
+        assert.equal("275547:6652:12841", rewards[275547].key)
+        assert.equal(0, redraws)
+        assert.equal(4, #world.itemDataRequests)
+        -- The next Options() is a new episode: the client is asked again.
+        local again = ns.Vault.Options()
+        assert.equal(4, again.pendingRewards)
+        assert.equal(4, again.requestedItems)
+        assert.equal(8, #world.itemDataRequests)
+    end)
+
+    it("does not guess at an item whose load the client says failed", function()
+        local result = ns.Vault.Options()
+        local rewards = rewardsByItemID(result)
+        world.fireEvent("ITEM_DATA_LOAD_RESULT", 275547, false)
+        assert.is_true(rewards[275547].pending)
+        assert.is_nil(rewards[275547].name)
+        assert.equal(3, ns.Vault.PendingCount())
+    end)
+
+    it("reads nothing in combat, and resolves once combat ends", function()
+        local result = ns.Vault.Options()
+        local rewards = rewardsByItemID(result)
+        world.inCombat = true
+        clientAnswers("ITEM_DATA_LOAD_RESULT")
+        assert.is_true(rewards[275547].pending)
+        assert.equal(4, ns.Vault.PendingCount())
+        world.inCombat = false
+        clientAnswers("ITEM_DATA_LOAD_RESULT")
+        assert.is_false(rewards[275547].pending)
+        assert.equal(0, ns.Vault.PendingCount())
+    end)
+
+    it("ignores load events for items it is not waiting for", function()
+        ns.Vault.Options()
+        assert.is_false(ns.Vault.OnItemData("ITEM_DATA_LOAD_RESULT", 180653, true))
+        assert.equal(4, ns.Vault.PendingCount())
     end)
 end)
