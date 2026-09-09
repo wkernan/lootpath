@@ -121,6 +121,10 @@ Panel.PICK_TEXT = "  <- QE Live's pick (%s)"
 Panel.HEADLINE_TEXT = "QE Live's pick this week (%s): %s"
 Panel.HEADLINE_WHERE = " (%s)"
 Panel.HEADLINE_NO_PICK = "QE Live's pick this week (%s): no option in this vault is in his answer"
+-- When the best he said about any option under the highlighted scenario is
+-- still "worse than your set", it is not a pick, and the first line must not
+-- call it one on the same screen that says nothing beats the set.
+Panel.HEADLINE_CLOSEST = "QE Live's pick this week (%s): none - nothing in the vault beats your set; closest: %s"
 
 -- What one scenario's own pick is, said in his terms. "In your best set" is the
 -- top-set case; anything else is an alternative, and an alternative in a Top
@@ -500,14 +504,17 @@ end
 
 -- The block's first line: QE Live's pick under the scenario the owner asked
 -- for, and which row of the Great Vault screen it is sitting on.
-function Panel.HeadlineText(scenario, pick)
+function Panel.HeadlineText(scenario, pick, coverage)
     local label = Panel.ScenarioLabel(scenario)
     if not pick then
         return string.format(Panel.HEADLINE_NO_PICK, label)
     end
     local where = pickWhere(pick)
-    return string.format(Panel.HEADLINE_TEXT, label, rewardName(pick))
-        .. (where and string.format(Panel.HEADLINE_WHERE, where) or "")
+    local suffix = where and string.format(Panel.HEADLINE_WHERE, where) or ""
+    if type(coverage) == "table" and coverage.where ~= "topSet" and coverage.isBetter ~= true then
+        return string.format(Panel.HEADLINE_CLOSEST, label, rewardName(pick)) .. suffix
+    end
+    return string.format(Panel.HEADLINE_TEXT, label, rewardName(pick)) .. suffix
 end
 
 -- Model(opts) -> the panel as plain data.
@@ -732,7 +739,11 @@ function Panel.Model(opts)
         model.headline = {
             scenario = highlight,
             pick = pick,
-            text = Panel.HeadlineText(highlight, pick),
+            text = Panel.HeadlineText(
+                highlight,
+                pick,
+                bestByScenario[highlight] and bestByScenario[highlight].coverage
+            ),
             lines = {},
         }
         for _, entry in ipairs(scenarios) do

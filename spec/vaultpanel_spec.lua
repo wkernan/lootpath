@@ -964,7 +964,8 @@ describe("VaultPanel's headline block (WKE-544)", function()
     -- three sentences, two different items - all of them his answers.
     it("leads with whichever scenario the owner asked for", function()
         assert.equal(
-            "QE Live's pick this week (as offered): Lightgrasp Worldroot (World 2)",
+            "QE Live's pick this week (as offered): none - nothing in the vault beats your set; "
+                .. "closest: Lightgrasp Worldroot (World 2)",
             model({ highlightScenario = "asOffered", currencies = knownCurrencies() }).headline.text
         )
         assert.equal(
@@ -995,6 +996,11 @@ describe("VaultPanel's headline block (WKE-544)", function()
     end)
 
     it("says unknown while the addon has been told no currency's name", function()
+        -- The shipped tables carry the 2026-09-08 names; this test is about the
+        -- state before any transcript, so it empties them explicitly.
+        ns.Currencies.CREST_NAMES = {}
+        ns.Currencies.CATALYST_NAMES = {}
+        ns.Currencies.CATALYST_NOT_A_CURRENCY = false
         world.currencies = {
             { name = "Placeholder Crest", currencyID = 900001, isHeader = false, quantity = 42 },
         }
@@ -1006,6 +1012,30 @@ describe("VaultPanel's headline block (WKE-544)", function()
 
     -- The transcript may show the Catalyst charge is not a currency at all. Then
     -- the line says that, in those words, and never a 0.
+    it(
+        "shows the owner's real crest counts and the Catalyst as not readable, from the 2026-09-08 transcript",
+        function()
+            local snapshot = R.snapshot("currencies", 2, "spec/fixtures/captures/Lootpath-20260908-230426.lua")
+            ns.Currencies.CREST_NAMES = {
+                "Adventurer Mistcrest",
+                "Veteran Mistcrest",
+                "Champion Mistcrest",
+                "Hero Mistcrest",
+                "Myth Mistcrest",
+            }
+            ns.Currencies.CATALYST_NAMES = {}
+            ns.Currencies.CATALYST_NOT_A_CURRENCY = true
+            local m =
+                model({ highlightScenario = "catalyzed", currencies = ns.Currencies.Read({ snapshot = snapshot }) })
+            assert.is_truthy(m.headline.lines[2].text:find("(Catalyst charges: not readable)", 1, true))
+            local crests = m.headline.lines[3].text
+            assert.is_truthy(crests:find("Adventurer Mistcrest 356", 1, true))
+            assert.is_truthy(crests:find("Hero Mistcrest 21", 1, true))
+            assert.is_truthy(crests:find("Myth Mistcrest 20", 1, true))
+            assert.is_nil(crests:find("unknown", 1, true))
+        end
+    )
+
     it("says the Catalyst charge is not readable when the client carries no such currency", function()
         knownCurrencies()
         ns.Currencies.CATALYST_NAMES = { "Placeholder Charge The Client Does Not Have" }

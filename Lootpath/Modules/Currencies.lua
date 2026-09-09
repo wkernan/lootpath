@@ -43,18 +43,29 @@ Currencies.FUNCTION_NAMES = {
 Currencies.CAPTURE = "currencies"
 
 -- The season's upgrade crests, by the name the client prints for them, in the
--- order they should be shown. **Empty until the transcript lands** - the owner
--- runs `/lootpath capture currencies` once, the transcript names them, and they
--- are written here with their IDs recorded in docs/ARCHITECTURE.md 9. An empty
--- table is not a bug and is not a gap to fill with a guess: it is this module
--- reporting `crestsKnown = false`, and the Vault tab saying so in words.
-Currencies.CREST_NAMES = {}
+-- order they should be shown. Read from the owner's transcript of 2026-09-08
+-- 23:04:26 (`spec/fixtures/captures/Lootpath-20260908-230426.lua`, the
+-- `currencies` capture `/lootpath refresh` took): the "Crests" header groups
+-- five Mistcrests, currencyIDs 3442-3446, in this order. Names, not IDs, are
+-- the key because the list is what the client prints; the IDs are recorded in
+-- docs/ARCHITECTURE.md 9 as the measured fact behind each name.
+Currencies.CREST_NAMES = {
+    "Adventurer Mistcrest", -- 3442
+    "Veteran Mistcrest", -- 3443
+    "Champion Mistcrest", -- 3444
+    "Hero Mistcrest", -- 3445
+    "Myth Mistcrest", -- 3446
+}
 
 -- The Catalyst charge, the same way, as a list because the client may not call
--- it what the community does - or may not carry it as a currency at all. When
--- the transcript shows it is not a currency this list stays empty and the tab
--- says "Catalyst charges: not readable" rather than inventing a count.
+-- it what the community does - or may not carry it as a currency at all. The
+-- 2026-09-08 transcript shows the latter: the 12.1.0 client's currency list is
+-- eighteen entries - ten headers and eight currencies - and none of them is a
+-- Catalyst charge. So the list stays empty on measurement, not by default, and
+-- CATALYST_NOT_A_CURRENCY makes `catalystKnown` true with no count, which the
+-- Vault tab renders as "Catalyst charges: not readable" rather than "unknown".
 Currencies.CATALYST_NAMES = {}
+Currencies.CATALYST_NOT_A_CURRENCY = true
 
 -- Secret-guarded read, the shape Vault.lua uses: a secret is dropped and counted.
 local function guarded(counter, value)
@@ -227,7 +238,7 @@ function Currencies.Read(opts)
         entries = entries,
         crests = crests,
         crestsKnown = #Currencies.CREST_NAMES > 0,
-        catalystKnown = #Currencies.CATALYST_NAMES > 0,
+        catalystKnown = #Currencies.CATALYST_NAMES > 0 or Currencies.CATALYST_NOT_A_CURRENCY == true,
         catalystCharges = catalystCharges,
         secretsSeen = counter.secretsSeen,
     }
