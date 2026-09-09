@@ -108,6 +108,25 @@ function R.vault(world, snapshot)
     return world
 end
 
+-- The link-and-item half of a vault snapshot only, laid over whatever the
+-- world already holds: the activities and the reset clock stay as they are.
+-- This is how a test says "the client has now loaded these items" with the
+-- client's own later answer (M3-12, WKE-547): the 2026-09-09 08:59 snapshot's
+-- rewards are nameless, and the 2026-09-08 snapshots of the SAME itemDBIDs
+-- carry every name and level, so the late answer is replayed rather than
+-- invented.
+function R.vaultLinks(world, snapshot)
+    local data = snapshot.data
+    for _, entry in ipairs(data.rewardLinks or {}) do
+        local link = entry.link and entry.link[1]
+        if entry.itemDBID ~= nil and type(link) == "string" then
+            world.vault.links[entry.itemDBID] = link
+            registerItem(world, link, entry.item)
+        end
+    end
+    return world
+end
+
 -- Every item link the snapshot carries, deduplicated, with the raw probes.
 function R.links(snapshot)
     local seen, out = {}, {}

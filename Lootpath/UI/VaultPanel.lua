@@ -164,6 +164,26 @@ Panel.CRESTS_NONE = " (you have none of them)"
 -- highlight fell back. Said rather than silently substituted.
 Panel.HIGHLIGHT_FALLBACK_NOTE = "No %s answer is stored yet, so the pick below follows %s."
 
+-- A reward the client has not loaded the item data for yet (M3-12, WKE-547).
+-- The owner's screenshot of 2026-09-09, right after a client restart, read
+-- `[] (nil)` on four of five options and `[] instead - in your best set` in the
+-- headline: the link's brackets were empty and GetItemInfo answered nil. The
+-- key was intact, so every verdict line under those rows was right. A pending
+-- reward is therefore counted, valued and eligible for the pick like any
+-- other; only its words change - "name pending (item 275547) - level
+-- pending", in the panel's note colour, never `[]` and never `nil`. When the
+-- newest stored vault snapshot carries a name for the same itemDBID, that name
+-- is shown instead, labelled: it is a fact the client stated in an earlier
+-- session, not a guess, and it is what the client will say again once the
+-- item is loaded. The level is never taken from a snapshot: the row would then
+-- read as the client's current answer.
+Panel.NOTE_COLOR = "|cff909296"
+Panel.PENDING_NAME_TEXT = "name pending (item %s)"
+Panel.PENDING_LEVEL_TEXT = "level pending"
+Panel.FROM_CAPTURE_TEXT = "%s (from the last capture)"
+Panel.PENDING_NOTE = "%d reward(s) are waiting for the client to load their item data. "
+    .. "Lootpath has asked for it; this tab redraws when it arrives."
+
 Panel.NO_REWARDS_NOTE =
     "The vault has not generated this week's rewards yet. Progress is shown so you can see what is still unearned."
 Panel.NO_VERDICT_NOTE = "No QE Live import yet, so no option carries a value. Paste a Top Gear export to change that."
@@ -282,10 +302,19 @@ end
 
 -- What goes in the brackets after a gear option's name: the client's item level,
 -- and QE Live's beside it whenever the two disagree. Nothing is computed from
--- the pair - no difference, no preference, no "real" level.
-function Panel.LevelText(clientLevel, qeLevel, qeSettings)
-    local text = tostring(clientLevel)
-    if type(clientLevel) ~= "number" or type(qeLevel) ~= "number" or qeLevel == clientLevel then
+-- the pair - no difference, no preference, no "real" level. A pending reward
+-- has no client level yet and says so; QE Live's own level for the exact key
+-- is still his fact and is still shown beside it.
+function Panel.LevelText(clientLevel, qeLevel, qeSettings, pending)
+    local text
+    if type(clientLevel) == "number" then
+        text = tostring(clientLevel)
+    elseif pending then
+        text = Panel.PENDING_LEVEL_TEXT
+    else
+        text = "level unknown"
+    end
+    if type(qeLevel) ~= "number" or qeLevel == clientLevel then
         return text
     end
     local phrase = Panel.SettingsPhrase(qeSettings)
@@ -296,8 +325,67 @@ function Panel.LevelText(clientLevel, qeLevel, qeSettings)
     return text
 end
 
+-- The newest stored vault snapshot's name for an itemDBID, or nil. Walks
+-- `db.global.captures.vault` newest first and takes the first snapshot whose
+-- probe of that itemDBID's link carried a name (`item.info[1]`, GetItemInfo's
+-- first return, as Captures.lua recorded it). The itemDBID is the vault's own
+-- identity for the reward and is what the same reward carries all week, so a
+-- match is the same reward and not the same item ID on another week's vault.
+function Panel.NameFromCaptures(itemDBID, captures)
+    if itemDBID == nil then
+        return nil
+    end
+    if captures == nil then
+        local db = ns.db
+        captures = db and db.global and db.global.captures and db.global.captures.vault or nil
+    end
+    if type(captures) ~= "table" then
+        return nil
+    end
+    for index = #captures, 1, -1 do
+        local snapshot = captures[index]
+        local data = type(snapshot) == "table" and snapshot.data or nil
+        for _, entry in ipairs(data and data.rewardLinks or {}) do
+            if entry.itemDBID == itemDBID then
+                local info = type(entry.item) == "table" and entry.item.info or nil
+                local name = type(info) == "table" and info[1] or nil
+                if type(name) == "string" and name ~= "" then
+                    return name, snapshot.capturedAtLocal or snapshot.capturedAt
+                end
+            end
+        end
+    end
+    return nil
+end
+
+-- The words a reward is shown under. A resolved reward is its client name; a
+-- pending one is the last capture's name for it, labelled, or "name pending
+-- (item N)". Never the link - a pending link prints as `[]` - and never nil.
+function Panel.RewardName(reward, captures)
+    if type(reward) ~= "table" then
+        return "item ?"
+    end
+    if reward.pending then
+        local fromCapture = reward.nameFromCapture
+        if fromCapture == nil and captures ~= false then
+            fromCapture = Panel.NameFromCaptures(reward.itemDBID, captures)
+        end
+        if type(fromCapture) == "string" and fromCapture ~= "" then
+            return string.format(Panel.FROM_CAPTURE_TEXT, fromCapture)
+        end
+        return string.format(Panel.PENDING_NAME_TEXT, tostring(reward.itemID or "?"))
+    end
+    if type(reward.name) == "string" and reward.name ~= "" then
+        return reward.name
+    end
+    if ns.Vault and ns.Vault.LinkName and ns.Vault.LinkName(reward.link) then
+        return reward.link
+    end
+    return "item " .. tostring(reward.itemID)
+end
+
 local function rewardName(reward)
-    return reward.name or reward.link or ("item " .. tostring(reward.itemID))
+    return reward.displayName or Panel.RewardName(reward)
 end
 
 -- Lower sorts better, and every number in it is QE Live's. Ranks are only ever
@@ -538,6 +626,9 @@ end
 -- opts.currencies  ns.Currencies.Read()'s result; only the headline block reads
 --                  it, and only to say how many of a thing the player has
 -- opts.now         epoch second (default time()); only used for the stale note
+-- opts.captures    the stored vault snapshots a pending reward's name may be
+--                  read from (default: db.global.captures.vault; `false` reads
+--                  nothing) - M3-12
 --
 -- A rewarded row is split in two on the way in. `rewards` are the gear options
 -- - the things this panel is for - and only they are counted, valued and
@@ -581,8 +672,11 @@ function Panel.Model(opts)
         highlightScenario = highlight,
         highlightFellBack = highlightFellBack == true,
         options = {},
-        counts = { options = 0, rewards = 0, extras = 0, covered = 0, scenarios = #scenarios },
+        counts = { options = 0, rewards = 0, extras = 0, covered = 0, pending = 0, scenarios = #scenarios },
     }
+    -- `false` means "do not read the database": a headless caller hands the
+    -- snapshots in, and a panel with no database shows "name pending".
+    local captures = opts.captures
     if highlightFellBack then
         model.highlightNote = string.format(
             Panel.HIGHLIGHT_FALLBACK_NOTE,
@@ -595,7 +689,18 @@ function Panel.Model(opts)
     for _, option in ipairs(vault.options or {}) do
         local rewards, extras = {}, {}
         for _, reward in ipairs(option.rewards or {}) do
-            if reward.slot == nil then
+            -- A pending reward is not known yet, and "not known yet" is never
+            -- "not gear": the slot GetItemInfoInstant gives (static data, it
+            -- answered on every pending reward measured 2026-09-09) decides
+            -- as usual, and a pending reward the client has said nothing about
+            -- at all stays with the gear rather than vanishing into the
+            -- extras, because its key is known and may be valued.
+            local isGear = reward.slot ~= nil or (reward.pending == true and reward.equipLoc == nil)
+            if reward.pending then
+                model.counts.pending = model.counts.pending + 1
+            end
+            local displayName = Panel.RewardName(reward, captures)
+            if not isGear then
                 -- Not gear: no equippable slot, so no item level worth showing
                 -- and nothing QE Live could have ranked. A reward whose link
                 -- never arrived lands here too, and is named by whatever it has.
@@ -604,8 +709,10 @@ function Panel.Model(opts)
                     itemDBID = reward.itemDBID,
                     link = reward.link,
                     name = reward.name,
+                    pending = reward.pending == true,
+                    displayName = displayName,
                 }
-                extra.text = "+ " .. rewardName(reward)
+                extra.text = "+ " .. displayName
                 extras[#extras + 1] = extra
                 model.counts.extras = model.counts.extras + 1
             else
@@ -623,6 +730,8 @@ function Panel.Model(opts)
                     key = reward.key,
                     link = reward.link,
                     name = reward.name,
+                    pending = reward.pending == true,
+                    displayName = displayName,
                     itemLevel = reward.itemLevel,
                     slot = reward.slot,
                     -- QE Live's own assumed level for this exact item, carried
@@ -634,7 +743,7 @@ function Panel.Model(opts)
                     qeViaCatalyst = viaCatalyst,
                     value = coverage and ns.UpgradeMapPanel.ValueText(coverage) or nil,
                 }
-                row.levelText = Panel.LevelText(row.itemLevel, row.qeLevel, qeSettings)
+                row.levelText = Panel.LevelText(row.itemLevel, row.qeLevel, qeSettings, row.pending)
                 rewards[#rewards + 1] = row
                 model.counts.rewards = model.counts.rewards + 1
                 if coverage then
@@ -700,7 +809,15 @@ function Panel.Model(opts)
             -- back up to the option.
             reward.rowLabel = option.rowLabel
             reward.rowIndex = option.index
-            local text = string.format("%s (%s)", rewardName(reward), reward.levelText)
+            local text
+            if reward.pending then
+                -- "name pending (item 275547) - level pending", in the note
+                -- colour, so an option the client has not described yet reads
+                -- as waiting rather than as a nameless thing at no level.
+                text = Panel.NOTE_COLOR .. rewardName(reward) .. " - " .. reward.levelText .. "|r"
+            else
+                text = string.format("%s (%s)", rewardName(reward), reward.levelText)
+            end
             if index == 1 and option.extrasText then
                 text = text .. " " .. option.extrasText
             end
@@ -769,6 +886,9 @@ function Panel.Model(opts)
     if model.counts.rewards == 0 and model.counts.extras == 0 then
         model.rewardsNote = Panel.NO_REWARDS_NOTE
     end
+    if model.counts.pending > 0 then
+        model.pendingNote = string.format(Panel.PENDING_NOTE, model.counts.pending)
+    end
     if not model.hasVerdict then
         model.verdictNote = Panel.NO_VERDICT_NOTE
     else
@@ -805,6 +925,9 @@ function Panel.Lines(model)
     end
     if model.rewardsNote then
         add(model.rewardsNote)
+    end
+    if model.pendingNote then
+        add(Panel.NOTE_COLOR .. model.pendingNote .. "|r")
     end
     -- The answer first, the evidence under it (M3-9). The option list below is
     -- unchanged; this block is what the owner reads before scrolling.

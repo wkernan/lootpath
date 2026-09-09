@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### M3-12 (WKE-547) - vault rewards read before their item data is cached
+
+- **No more `[] (nil)` on the Vault tab after a client restart.** Right after
+  logging in, the client hands over a reward's link with an empty name and
+  answers nothing for its item level; the tab printed both. A reward like that
+  is now `pending`: its row reads `name pending (item 275547) - level pending`
+  in the panel's grey - or `Preyhunter's Lantern (from the last capture) -
+  level pending` when an earlier vault snapshot named the same reward - and the
+  headline uses the same words. Its key is intact, so every QE Live line under
+  it, the counts and the pick are exactly what they were.
+- **Lootpath asks the client for the item and reads it again.** One
+  `C_Item.RequestLoadItemDataByID` per pending item, a second read on the
+  client's load event (or on a bounded timer, 8 x 0.25 s, like the journal's),
+  and one redraw of the Vault tab when it is the tab on screen. A reward the
+  client never describes stays pending in words and is asked for again on the
+  next look; nothing is guessed.
+
 ### M2-4 (WKE-541) - Equip Now says plainly when the best set is in the vault
 
 - **A Great Vault option in QE Live's best set is not a "not owned" swap.** The

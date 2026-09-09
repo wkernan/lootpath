@@ -1159,3 +1159,252 @@ describe("VaultPanel's headline block (WKE-544)", function()
         assert.is_true(seen)
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- M3-12 (WKE-547): the owner's screenshot of 2026-09-09 morning, right after a
+-- client restart, read `[] (nil)` on four of the five options and `[] instead
+-- - in your best set` in the headline. The transcript that refresh took
+-- (`Lootpath-20260909-085940.lua`, vault snapshot 13) is what these tests
+-- replay; snapshot 12 of the same file (2026-09-08 23:26) names the same
+-- itemDBIDs and is the client's late answer.
+
+describe("VaultPanel over the fresh-login vault (M3-12, WKE-547)", function()
+    local ns, world
+    local FRESH_LOGIN = "spec/fixtures/captures/Lootpath-20260909-085940.lua"
+    local NAMELESS = 13
+    local NAMED = 12
+    local SCENARIO_FILES = {
+        asOffered = "spec/fixtures/qe/qe-droptimizer-Hotornot-hldibnbaajft.json",
+        catalyzed = "spec/fixtures/qe/qe-droptimizer-Hotornot-xrjevewtwqsw.json",
+        maxed = "spec/fixtures/qe/qe-droptimizer-Hotornot-qqrqsbudcszh.json",
+    }
+    local PENDING_IDS = { 251146, 251234, 269862, 275547 }
+    local NOTE = "|cff909296" -- ns.VaultPanel.NOTE_COLOR, pinned in the first test
+
+    before_each(function()
+        ns, world = H.load()
+        R.vault(world, R.snapshot("vault", NAMELESS, FRESH_LOGIN))
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function scenarios()
+        local out = {}
+        for _, name in ipairs({ "asOffered", "catalyzed", "maxed" }) do
+            local parsed = ns.QEImport.Parse(readFile(SCENARIO_FILES[name]))
+            assert(parsed.ok, parsed.reason)
+            parsed.verdict.scenario = name
+            parsed.verdict.qeSettings = {
+                autoUpgradeVault = name == "maxed",
+                autoUpgradeAll = name == "maxed",
+                autoCatalyze = name ~= "asOffered",
+            }
+            out[#out + 1] = { verdict = parsed.verdict, scenario = name }
+        end
+        return out
+    end
+
+    local function rewardsByItemID(model)
+        local map = {}
+        for _, option in ipairs(model.options) do
+            for _, reward in ipairs(option.rewards) do
+                map[reward.itemID] = reward
+            end
+        end
+        return map
+    end
+
+    local function assertNoBracketsOrNil(lines)
+        for _, line in ipairs(lines) do
+            assert.is_nil(line:find("[]", 1, true), "empty brackets on screen: " .. line)
+            assert.is_nil(line:find("nil", 1, true), "nil on screen: " .. line)
+        end
+    end
+
+    local function contains(lines, needle)
+        for _, line in ipairs(lines) do
+            if line:find(needle, 1, true) then
+                return line
+            end
+        end
+        return nil
+    end
+
+    it("prints no [] and no nil, and says pending in words", function()
+        assert.equal(NOTE, ns.VaultPanel.NOTE_COLOR)
+        assert.equal(ns.UI.EquipPanel.NOTE_COLOR, ns.VaultPanel.NOTE_COLOR)
+        local model = ns.VaultPanel.Model({ vault = ns.Vault.Options(), captures = false })
+        assert.equal(4, model.counts.pending)
+        assert.equal(4, model.counts.rewards)
+        assert.equal(1, model.counts.extras)
+        local lines = ns.VaultPanel.Lines(model)
+        assertNoBracketsOrNil(lines)
+        assert.is_not_nil(contains(lines, NOTE .. "name pending (item 275547) - level pending|r"))
+        assert.is_not_nil(contains(lines, NOTE .. "name pending (item 251146) - level pending|r"))
+        assert.is_not_nil(contains(lines, NOTE .. "name pending (item 251234) - level pending|r"))
+        -- The Concession token is still not gear: named in words on its row.
+        assert.is_not_nil(contains(lines, "+ name pending (item 269862)"))
+        -- The resolved one reads as it always did.
+        assert.is_not_nil(contains(lines, "Lightgrasp Worldroot (305)"))
+        assert.equal(string.format(ns.VaultPanel.PENDING_NOTE, 4), model.pendingNote)
+        assert.is_not_nil(contains(lines, model.pendingNote))
+    end)
+
+    it("counts, values and picks a pending reward like any other - its key is known", function()
+        local model = ns.VaultPanel.Model({
+            vault = ns.Vault.Options(),
+            scenarios = scenarios(),
+            highlightScenario = "catalyzed",
+            captures = false,
+            now = 1789000000,
+        })
+        local rewards = rewardsByItemID(model)
+        local spaulders = rewards[251146]
+        assert.is_true(spaulders.pending)
+        assert.is_not_nil(spaulders.qe)
+        assert.equal("topSet", spaulders.qe.where)
+        assert.is_true(spaulders.qeViaCatalyst)
+        assert.is_true(spaulders.best)
+        assert.equal(spaulders, model.best)
+        -- Two lines, not three: "not ranked" as offered (§9's table), in the
+        -- best set as tier catalyzed, an alternative as tier maxed.
+        assert.equal(2, #spaulders.scenarioLines)
+        -- QE Live's own level for the exact key is still his fact, and it is
+        -- shown beside the pending client level, not instead of it.
+        assert.equal(308, spaulders.qeLevel)
+        assert.is_truthy(spaulders.levelText:find("^level pending; QE Live valued it at 308", 1))
+        -- The headline uses the same words as the row.
+        -- Measured: activity 213 is `index = 1` of the Dungeons row in snapshot 13.
+        assert.equal(
+            "QE Live's pick this week (catalyzed): name pending (item 251146) (Dungeons 1)",
+            model.headline.text
+        )
+        local lines = ns.VaultPanel.Lines(model)
+        assertNoBracketsOrNil(lines)
+        -- And the "instead" naming in the other scenarios' lines, too.
+        local other = ns.VaultPanel.Model({
+            vault = ns.Vault.Options(),
+            scenarios = scenarios(),
+            highlightScenario = "asOffered",
+            captures = false,
+            now = 1789000000,
+        })
+        local catalyzedLine
+        for _, line in ipairs(other.headline.lines) do
+            if line.scenario == "catalyzed" then
+                catalyzedLine = line.text
+            end
+        end
+        assert.is_truthy(catalyzedLine:find("name pending (item 251146) instead - in your best set", 1, true))
+        assertNoBracketsOrNil(ns.VaultPanel.Lines(other))
+    end)
+
+    -- Every pending reward measured still had its slot from GetItemInfoInstant.
+    -- Should one ever come back with nothing at all, "not known yet" must not
+    -- become "not gear": the row stays with the gear, keyed and valued, rather
+    -- than sliding into the extras where nothing is counted or ranked.
+    it("keeps a pending reward the client said nothing about with the gear", function()
+        local link = world.vault.links["0x4000000E5E0736EB"]
+        world.items[link].instant = nil
+        local model = ns.VaultPanel.Model({
+            vault = ns.Vault.Options(),
+            scenarios = scenarios(),
+            highlightScenario = "asOffered",
+            captures = false,
+            now = 1789000000,
+        })
+        local lantern = rewardsByItemID(model)[275547]
+        assert.is_not_nil(lantern)
+        assert.is_true(lantern.pending)
+        assert.is_nil(lantern.slot)
+        assert.equal("275547:6652:12841", lantern.key)
+        assert.equal(4, model.counts.rewards)
+        assert.equal(1, model.counts.extras)
+        assertNoBracketsOrNil(ns.VaultPanel.Lines(model))
+    end)
+
+    it("says the level is pending rather than 0, nil or a snapshot's level", function()
+        assert.equal("level pending", ns.VaultPanel.LevelText(nil, nil, nil, true))
+        -- QE Live's level is his fact about the exact key and is still shown.
+        assert.equal("level pending; QE Live valued it at 305", ns.VaultPanel.LevelText(nil, 305, nil, true))
+        assert.equal("305", ns.VaultPanel.LevelText(305, 305, nil, false))
+        assert.equal("level unknown", ns.VaultPanel.LevelText(nil, nil, nil, false))
+        assert.equal(
+            "level pending; QE Live valued it at 321 with vault and all upgrades assumed",
+            ns.VaultPanel.LevelText(nil, 321, { autoUpgradeVault = true, autoUpgradeAll = true }, true)
+        )
+    end)
+
+    it("shows the last capture's name, labelled, when a stored snapshot carries it", function()
+        local all = R.captures(FRESH_LOGIN).vault
+        assert.equal(13, #all)
+        local name, when = ns.VaultPanel.NameFromCaptures("0x4000000E5E0736EB", all)
+        assert.equal("Preyhunter's Lantern", name)
+        assert.equal("2026-09-08T23:26:17", when)
+        -- The newest snapshot that CARRIES the name, not merely the newest:
+        -- snapshot 13 is the nameless one.
+        assert.is_nil(ns.VaultPanel.NameFromCaptures("0x4000000E5E0736EB", { all[NAMELESS] }))
+        assert.is_nil(ns.VaultPanel.NameFromCaptures("not-a-reward", all))
+
+        local model = ns.VaultPanel.Model({ vault = ns.Vault.Options(), captures = all })
+        local lines = ns.VaultPanel.Lines(model)
+        assertNoBracketsOrNil(lines)
+        assert.is_not_nil(contains(lines, NOTE .. "Preyhunter's Lantern (from the last capture) - level pending|r"))
+        assert.is_not_nil(contains(lines, NOTE .. "Scavenger's Spaulders (from the last capture) - level pending|r"))
+        assert.is_not_nil(contains(lines, "+ Thalassian Token of Merit (from the last capture)"))
+        -- Still pending: the level is never taken from a snapshot.
+        assert.is_true(rewardsByItemID(model)[275547].pending)
+        assert.is_nil(rewardsByItemID(model)[275547].itemLevel)
+    end)
+
+    it("reads the stored snapshots from the database when none are handed in", function()
+        assert.is_not_nil(
+            contains(
+                ns.VaultPanel.Lines(ns.VaultPanel.Model({ vault = ns.Vault.Options() })),
+                "name pending (item 275547)"
+            )
+        )
+        ns.db.global.captures.vault = R.captures(FRESH_LOGIN).vault
+        assert.is_not_nil(
+            contains(
+                ns.VaultPanel.Lines(ns.VaultPanel.Model({ vault = ns.Vault.Options() })),
+                "Preyhunter's Lantern (from the last capture)"
+            )
+        )
+    end)
+
+    it("redraws the tab when the client's data lands, and only when the tab is on screen", function()
+        assert.is_true(ns.UI.Toggle())
+        local frame = ns.UI.frame
+        ns.UI.SelectTab(frame, ns.UI.VAULT_TAB)
+        local panel = frame.vaultPanel
+        assert.is_not_nil(contains(panel.lines, "name pending (item 275547)"))
+        assert.equal(4, ns.Vault.PendingCount())
+
+        -- The client answers; four events, one redraw, the names on screen.
+        R.vaultLinks(world, R.snapshot("vault", NAMED, FRESH_LOGIN))
+        for _, id in ipairs(PENDING_IDS) do
+            world.fireEvent("ITEM_DATA_LOAD_RESULT", id, true)
+        end
+        assert.is_not_nil(contains(panel.lines, "name pending (item 275547)"))
+        world.runTimers(0)
+        assert.is_nil(contains(panel.lines, "name pending"))
+        assert.is_not_nil(contains(panel.lines, "Preyhunter's Lantern (305)"))
+        assert.is_not_nil(contains(panel.lines, "Scavenger's Spaulders (308)"))
+        assert.is_not_nil(contains(panel.lines, "+ Thalassian Token of Merit"))
+        assertNoBracketsOrNil(panel.lines)
+        assert.equal(0, ns.Vault.PendingCount())
+
+        -- On another tab the Vault panel is left alone (M3-3's rule).
+        ns.UI.SelectTab(frame, 1)
+        local before = panel.lines
+        assert.is_false(ns.UI.RefreshVault())
+        assert.equal(before, panel.lines)
+        -- And with the window closed.
+        ns.UI.SelectTab(frame, ns.UI.VAULT_TAB)
+        frame:Hide()
+        assert.is_false(ns.UI.RefreshVault())
+    end)
+end)
