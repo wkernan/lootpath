@@ -1165,7 +1165,7 @@ describe("the vault highlight scenario setting", function()
         H.unload()
     end)
 
-    it("registers a second dropdown offering the three named scenarios", function()
+    it("registers a second dropdown offering the four named scenarios", function()
         assert.equal(2, #world.settings.dropdowns)
         local dropdown = world.settings.dropdowns[2]
         assert.equal("Lootpath", dropdown.category.name)
@@ -1173,13 +1173,18 @@ describe("the vault highlight scenario setting", function()
         for _, entry in ipairs(dropdown.options()) do
             values[#values + 1] = entry.value
         end
-        assert.same({ "asOffered", "catalyzed", "maxed" }, values)
+        assert.same({ "asOffered", "catalyzed", "thisWeek", "maxed" }, values)
         assert.same(ns.QEImport.SCENARIOS, values)
     end)
 
-    it("defaults to asOffered, which is what the other two tabs read", function()
-        assert.equal("asOffered", ns.UI.Options.GetVaultScenario())
-        assert.equal("asOffered", ns.DB_DEFAULTS.profile.settings.vaultScenario)
+    -- M3-13 (WKE-548): the highlight defaults to the question the vault poses -
+    -- take one option, upgrade that one, spend the one Catalyst charge. Equip
+    -- Now and the Upgrade Map are unmoved by it and still read `asOffered`,
+    -- which the two assertions below the default pin.
+    it("defaults to thisWeek, the question the vault poses", function()
+        assert.equal("thisWeek", ns.UI.Options.GetVaultScenario())
+        assert.equal("thisWeek", ns.DB_DEFAULTS.profile.settings.vaultScenario)
+        assert.equal("asOffered", ns.QEImport.DEFAULT_SCENARIO)
     end)
 
     it("remembers what it is set to, and ignores what is not a name", function()

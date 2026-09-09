@@ -1035,3 +1035,76 @@ describe("a companion file carrying the three named scenarios", function()
         assert.equal("asOffered", ns.QEImport.Scenarios("Dungeon")[1].scenario)
     end)
 end)
+
+-- M3-13 (WKE-548): the fourth document is filed like the other three, under its
+-- own name, and Equip Now still reads `asOffered` and nothing else. The file's
+-- `thisWeek` export is the Dungeon document of the 2026-09-09 19:22 run,
+-- committed unedited.
+describe("a companion file carrying the fourth named scenario", function()
+    local ns
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local FOURTH = "spec/fixtures/qe/qe-droptimizer-Hotornot-hdaldwpeakpb.json"
+
+    local function fourScenarios()
+        local files = {
+            asOffered = SCENARIO_FILES.asOffered,
+            catalyzed = SCENARIO_FILES.catalyzed,
+            thisWeek = FOURTH,
+            maxed = SCENARIO_FILES.maxed,
+        }
+        local exports = {}
+        for _, scenario in ipairs({ "asOffered", "catalyzed", "thisWeek", "maxed" }) do
+            exports[#exports + 1] = {
+                schema = "qe-live-droptimizer",
+                contentType = "Dungeon",
+                scenario = scenario,
+                qeSettings = {
+                    autoUpgradeVault = scenario == "maxed" or scenario == "thisWeek",
+                    autoUpgradeAll = scenario == "maxed",
+                    autoCatalyze = scenario ~= "asOffered",
+                },
+                json = readFile(files[scenario]),
+            }
+        end
+        return { writtenAt = "2026-09-09T19:23:00Z", companionVersion = "0.1.0", exports = exports }
+    end
+
+    it("files all four, in the order they are asked, with the fourth third", function()
+        ns = loadWithChunk(verdictChunkSource(fourScenarios()))
+        local shelves = ns.QEImport.Scenarios("Dungeon")
+        assert.equal(4, #shelves)
+        assert.same(
+            { "asOffered", "catalyzed", "thisWeek", "maxed" },
+            { shelves[1].scenario, shelves[2].scenario, shelves[3].scenario, shelves[4].scenario }
+        )
+        -- His own scores, read off the four committed documents.
+        assert.equal(5544.654, shelves[1].verdict.topSet.score)
+        assert.equal(5724.919, shelves[2].verdict.topSet.score)
+        assert.equal(5812.048, shelves[3].verdict.topSet.score)
+        assert.equal(5853.843, shelves[4].verdict.topSet.score)
+        assert.equal(5812.048, ns.QEImport.ForContentTypeAndScenario("Dungeon", "thisWeek").topSet.score)
+    end)
+
+    -- The fourth answer is the Vault tab's default highlight and STILL not the
+    -- one Equip Now or the Upgrade Map reads: those two are `asOffered` only.
+    it("leaves Equip Now reading the asOffered document", function()
+        ns = loadWithChunk(verdictChunkSource(fourScenarios()))
+        assert.equal(5544.654, ns.QEImport.Current().topSet.score)
+        assert.equal(5544.654, ns.QEImport.ForContentType("Dungeon").topSet.score)
+        assert.equal("thisWeek", ns.UI.Options.GetVaultScenario())
+    end)
+
+    -- Its own three boxes ride with it, which is what the owned-item catalyze
+    -- sentence is gated on.
+    it("carries the fourth document's own three checkboxes", function()
+        ns = loadWithChunk(verdictChunkSource(fourScenarios()))
+        local fourth = ns.QEImport.ForContentTypeAndScenario("Dungeon", "thisWeek")
+        assert.is_true(fourth.qeSettings.autoCatalyze)
+        assert.is_true(fourth.qeSettings.autoUpgradeVault)
+        assert.is_false(fourth.qeSettings.autoUpgradeAll)
+    end)
+end)

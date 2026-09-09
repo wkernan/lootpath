@@ -73,7 +73,7 @@ test('every Top Gear document must name a scenario, and no other document may', 
     );
     assert.throws(
         () => render({ documents: [topGear({ scenario: 'catalysed' })], qeSettings: settings }),
-        /not one of asOffered, catalyzed, maxed/
+        /not one of asOffered, catalyzed, thisWeek, maxed/
     );
     assert.throws(
         () =>

@@ -47,9 +47,16 @@ QEImport.UNKNOWN_CONTENT_TYPE = "Unknown"
 -- three checkboxes, so Lootpath models neither: the companion asks him each
 -- question by name and this module files each answer by name.
 --
+-- `thisWeek` (M3-13, WKE-548) is the fourth, and the one the vault actually
+-- poses: take ONE thing out of it, upgrade THAT one thing, spend the one
+-- Catalyst charge, change nothing else. `catalyzed` assumes the charge and no
+-- upgrade; `maxed` assumes every item the character owns is at its cap, which
+-- nobody reaches in a week. His boxes for it are `autoUpgradeVault` on,
+-- `autoUpgradeAll` off, `autoCatalyze` on.
+--
 -- The strings are the companion's verbatim (`tools/companion/lib/config.js`,
 -- `SCENARIOS`), because they are what lands in Data/QEVerdict.lua.
-QEImport.SCENARIOS = { "asOffered", "catalyzed", "maxed" }
+QEImport.SCENARIOS = { "asOffered", "catalyzed", "thisWeek", "maxed" }
 
 -- What a document that names no scenario is. Everything written before C-6 -
 -- the committed placeholder, every paste, the two exports of 2026-09-07 - says
@@ -252,6 +259,90 @@ function QEImport.CatalyzedCoverage(verdict, option)
         end
         return false
     end)
+    return found
+end
+
+-- CatalyzedOwned(verdict, inventory) -> every piece in QE Live's BEST SET that
+-- is his catalyzed clone of an item the owner already owns, in his own top-set
+-- order, as a list of `{ item, slot, owned }` (`owned` nil when nothing in the
+-- scan matches his clone). Always a list; empty when there are none.
+--
+-- Why this exists (M3-13, WKE-548). CatalyzedCoverage above points the same join
+-- at a VAULT option: "if I catalyze this thing the vault is offering me, what
+-- does he say". But the answer to the fourth question is not always about a
+-- vault option at all. Measured 2026-09-09 on the owner's own profile: under
+-- `thisWeek` his top set takes the vault's Lightgrasp Worldroot at 321 AND
+-- catalyzes the Venom-Cursed Lynx's Spaulders the owner was already carrying in
+-- a bag - not the vault Spaulders, because his `ItemSet.ts:205` allows one vault
+-- option per set and the weapon won it. A headline that named only the vault
+-- option would leave out half of what he told the owner to do.
+--
+-- It is the same join by the same fields as CatalyzedCoverage, pointed at the
+-- inventory instead of the vault: `Item.convertToTier` gives the clone the tier
+-- piece's item ID and set ID and keeps the original's slot and bonus IDs, so a
+-- top-set item carrying a set ID whose slot and bonus IDs are an owned item's -
+-- at a different item ID, which the already-owned guard below makes certain - is
+-- his clone of that owned item. The LEVEL is not
+-- part of the join, for the same reason it is not part of CatalyzedCoverage's:
+-- his upgrade boxes move `level` without touching a bonus ID, so under `maxed`
+-- the clone of a 302 chest is a 302 chest at 308 and matching on the number
+-- would lose it. The level the sentence shows is the client's, off the owned
+-- record. Nothing here knows what can be catalyzed or what a tier piece is.
+--
+-- Three guards, each of them the difference between a fact and a guess:
+--   * only when the run's own `qeSettings.autoCatalyze` was true. A set ID in a
+--     run with the box off is a tier piece the character wears, not a clone -
+--     measured over the committed `asOffered` export, whose top set carries four
+--     of them and no clone at all.
+--   * an item whose exact key is in the scan is a piece already owned, so there
+--     is nothing to catalyze into it and it is passed over.
+--   * with no scan to read, nothing is claimed at all: the caller gets an empty
+--     list rather than a sentence about an item nobody looked for.
+-- A clone no owned item matches is still listed, with `owned` nil, because the
+-- caller has to say that he catalyzed SOMETHING in that slot without naming
+-- what.
+function QEImport.CatalyzedOwned(verdict, inventory)
+    local found = {}
+    if type(verdict) ~= "table" then
+        return found
+    end
+    local settings = type(verdict.qeSettings) == "table" and verdict.qeSettings or nil
+    if not settings or settings.autoCatalyze ~= true then
+        return found
+    end
+    local records = type(inventory) == "table" and (inventory.records or inventory) or nil
+    if type(records) ~= "table" or #records == 0 then
+        return found
+    end
+    local owned, ownedKeys = {}, {}
+    for _, record in ipairs(records) do
+        if type(record) == "table" then
+            if record.key then
+                ownedKeys[record.key] = true
+            end
+            owned[#owned + 1] = record
+        end
+    end
+    local topSet = type(verdict.topSet) == "table" and verdict.topSet or {}
+    local items = type(topSet.items) == "table" and topSet.items or {}
+    for _, key in ipairs(topSet.order or {}) do
+        local item = items[key]
+        if item and item.isVault ~= true and (tonumber(item.setId) or 0) ~= 0 and not ownedKeys[key] then
+            local match
+            for _, record in ipairs(owned) do
+                -- The item ID is deliberately NOT compared. It cannot be equal
+                -- here: an owned record with this item ID AND these bonus IDs
+                -- would carry this exact key, and the guard above already passed
+                -- over every key in the scan. A check for it could not be proven
+                -- red, so it is not written.
+                if record.slot == item.slot and sameBonusIDs(record.bonusIDs, item.bonusIDs) then
+                    match = record
+                    break
+                end
+            end
+            found[#found + 1] = { item = item, slot = item.slot, owned = match }
+        end
+    end
     return found
 end
 

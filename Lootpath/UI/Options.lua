@@ -38,12 +38,20 @@ Options.CHOICE_LABEL = {
 }
 
 -- The second setting (C-6, WKE-540): which of QE Live's named scenarios the
--- Vault tab's "QE Live's pick" follows. `asOffered` by default, because that is
--- what the character has right now and it is what Equip Now and the Upgrade Map
--- read; the owner can point the highlight at a what-if, and the tab says on the
--- line which question the pick came from either way. It changes the HIGHLIGHT
--- and nothing else - every stored scenario is shown on the option, whatever this
--- is set to.
+-- Vault tab's "QE Live's pick" follows. The owner can point the highlight at any
+-- of them, and the tab says on the line which question the pick came from
+-- whichever it is. It changes the HIGHLIGHT and nothing else - every stored
+-- scenario is shown on the option, whatever this is set to, and `asOffered`
+-- stays first in that list so "nothing beats your set as offered" is never
+-- hidden.
+--
+-- `thisWeek` by DEFAULT since M3-13 (WKE-548; decision 2026-09-09, §7), because
+-- it is the question the vault poses: one option taken, that option upgraded,
+-- the one Catalyst charge spent. `asOffered` was the default under C-6 and is
+-- still what Equip Now and the Upgrade Map read - but on the Vault tab it
+-- answers "what if I take this and change nothing", and nobody with a charge and
+-- a pile of crests is asking that. When no `thisWeek` answer is stored the
+-- highlight falls back to `asOffered` and says so on its own line.
 Options.SCENARIO_VARIABLE = "LootpathVaultScenario"
 Options.SCENARIO_LABEL = "Vault highlight"
 Options.SCENARIO_TOOLTIP = "Which of QE Live's what-if answers the Vault tab's pick follows. "
@@ -53,6 +61,7 @@ Options.SCENARIO_TOOLTIP = "Which of QE Live's what-if answers the Vault tab's p
 Options.SCENARIO_CHOICE_LABEL = {
     asOffered = "As offered (what the vault gives you)",
     catalyzed = "Catalyzed (through the Catalyst)",
+    thisWeek = "This week (take one option, upgrade it, use the charge once)",
     maxed = "Everything upgraded (Catalyst and full upgrade tracks)",
 }
 

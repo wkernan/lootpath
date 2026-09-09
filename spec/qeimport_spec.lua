@@ -6,6 +6,8 @@
 -- exporter field for field but no number in it came from QE Live. The last
 -- block reads the genuine export WKE-519 committed.
 local H = require("spec.helpers.addon")
+-- M3-13 (WKE-548) joins an export to a replayed inventory snapshot.
+local R = require("spec.helpers.replay")
 
 local SAMPLE_PATH = "spec/fixtures/qe/sample-handbuilt-v1.json"
 
@@ -609,7 +611,7 @@ describe("QEImport and the named scenarios", function()
     end
 
     it("reads a missing scenario as asOffered and an unknown one as its own shelf", function()
-        assert.same({ "asOffered", "catalyzed", "maxed" }, ns.QEImport.SCENARIOS)
+        assert.same({ "asOffered", "catalyzed", "thisWeek", "maxed" }, ns.QEImport.SCENARIOS)
         assert.equal("asOffered", ns.QEImport.DEFAULT_SCENARIO)
         assert.equal("asOffered", ns.QEImport.ScenarioKey({}))
         assert.equal("asOffered", ns.QEImport.ScenarioKey(nil))
@@ -811,5 +813,131 @@ describe("QEImport.CatalyzedCoverage over QE Live's own catalyzed run", function
         assert.is_nil(ns.QEImport.CatalyzedCoverage(verdictOf("catalyzed"), nil))
         assert.is_nil(ns.QEImport.CatalyzedCoverage(verdictOf("catalyzed"), { itemID = nil, slot = "Shoulder" }))
         assert.is_nil(ns.QEImport.CatalyzedCoverage(verdictOf("catalyzed"), { itemID = 251146, slot = nil }))
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- M3-13 (WKE-548): the fourth question, and the item it catalyzes out of the
+-- owner's own bags.
+--
+-- Every figure below is read from `qe-droptimizer-Hotornot-hdaldwpeakpb.json` -
+-- the `thisWeek` Dungeon document of the 2026-09-09 19:22 run, committed
+-- unedited - joined to inventory snapshot 7 of the 2026-09-08 12:45 capture,
+-- which is the capture that run's profile was built from.
+
+local THIS_WEEK_EXPORT = "spec/fixtures/qe/qe-droptimizer-Hotornot-hdaldwpeakpb.json"
+local AFTER_RESET_CAPTURE = "spec/fixtures/captures/Lootpath-20260908-124527.lua"
+-- The snapshot the companion's profile of that run was built from: 15 equipped,
+-- 32 in bags, 0 in the bank, 4 vault, 158 lines.
+local PROFILE_SNAPSHOT = 7
+
+describe("QEImport.CatalyzedOwned over the fourth question (WKE-548)", function()
+    local ns, world
+
+    before_each(function()
+        ns, world = H.load()
+        R.inventory(world, R.snapshot("inventory", PROFILE_SNAPSHOT, AFTER_RESET_CAPTURE))
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function thisWeek(boxes)
+        local parsed = ns.QEImport.Parse(readFile(THIS_WEEK_EXPORT))
+        assert.is_true(parsed.ok, parsed.reason)
+        parsed.verdict.scenario = "thisWeek"
+        parsed.verdict.qeSettings = boxes or { autoUpgradeVault = true, autoUpgradeAll = false, autoCatalyze = true }
+        return parsed.verdict
+    end
+
+    local function scan()
+        local result = ns.Inventory.Scan()
+        assert.is_true(result.ok, result.reason)
+        return result
+    end
+
+    -- The measurement this whole issue exists for. His `thisWeek` top set takes
+    -- the vault's weapon at 321 and catalyzes TWO pieces the owner already had:
+    -- the Venom-Cursed Lynx's Spaulders sitting in a bag at 295, and the Hide of
+    -- Pestilence at 302. Neither is a vault option; neither can be found by the
+    -- exact key, because his clone carries the tier piece's item ID.
+    it("names the owned items his best set catalyzed, in his own order", function()
+        local found = ns.QEImport.CatalyzedOwned(thisWeek(), scan())
+        assert.equal(2, #found)
+        assert.equal("Shoulder", found[1].slot)
+        assert.equal(271526, found[1].item.itemID)
+        assert.equal(295, found[1].item.level)
+        assert.equal(2057, found[1].item.setId)
+        assert.equal(277782, found[1].owned.itemID)
+        assert.equal("Venom-Cursed Lynx's Spaulders", found[1].owned.name)
+        assert.equal(295, found[1].owned.itemLevel)
+        assert.equal("Chest", found[2].slot)
+        assert.equal(271531, found[2].item.itemID)
+        assert.equal(251226, found[2].owned.itemID)
+        assert.equal("Hide of Pestilence", found[2].owned.name)
+        assert.equal(302, found[2].owned.itemLevel)
+    end)
+
+    -- The clone keeps the original's bonus IDs on a different item ID, which is
+    -- the whole join. Read off both sides rather than restated.
+    it("joins on the fields his convertToTier copied, not on the item ID", function()
+        local found = ns.QEImport.CatalyzedOwned(thisWeek(), scan())
+        assert.same({ 6652, 12830, 13662 }, found[1].item.bonusIDs)
+        assert.same({ 6652, 12830, 13662 }, found[1].owned.bonusIDs)
+        assert.are_not.equal(found[1].item.itemID, found[1].owned.itemID)
+    end)
+
+    -- The four tier pieces the owner WEARS are in the same top set with the same
+    -- kind of set ID. They are passed over because their exact key is in the
+    -- scan: there is nothing to catalyze into a piece already owned.
+    it("passes over the tier pieces the owner already wears", function()
+        local found = ns.QEImport.CatalyzedOwned(thisWeek(), scan())
+        for _, entry in ipairs(found) do
+            assert.are_not.equal(271528, entry.item.itemID)
+            assert.are_not.equal(271527, entry.item.itemID)
+            assert.are_not.equal(250025, entry.item.itemID)
+        end
+    end)
+
+    -- A set ID in a run whose Catalyst box was OFF is a tier piece the character
+    -- wears, not a clone. Read off the boxes the companion recorded, never
+    -- inferred from the scenario's name.
+    it("says nothing at all when the run did not ask QE Live to catalyze", function()
+        local off = thisWeek({ autoUpgradeVault = true, autoUpgradeAll = false, autoCatalyze = false })
+        assert.same({}, ns.QEImport.CatalyzedOwned(off, scan()))
+        local silent = thisWeek()
+        silent.qeSettings = nil
+        assert.same({}, ns.QEImport.CatalyzedOwned(silent, scan()))
+    end)
+
+    -- With nothing scanned there is no owned item to have looked for, so there
+    -- is no sentence to say - not even the "he did not say which" one.
+    it("claims nothing when there is no scan to read", function()
+        assert.same({}, ns.QEImport.CatalyzedOwned(thisWeek(), nil))
+        assert.same({}, ns.QEImport.CatalyzedOwned(thisWeek(), { ok = false, reason = "combat" }))
+        assert.same({}, ns.QEImport.CatalyzedOwned(thisWeek(), { records = {} }))
+    end)
+
+    -- His clone is in the set and nothing owned matches it: the entry still
+    -- comes back, with no owned item on it, so the caller says he catalyzed
+    -- something in that slot without naming what.
+    it("reports a clone nothing owned matches, with no item named", function()
+        local records = {}
+        for _, record in ipairs(scan().records) do
+            if record.itemID ~= 277782 and record.itemID ~= 251226 then
+                records[#records + 1] = record
+            end
+        end
+        local found = ns.QEImport.CatalyzedOwned(thisWeek(), { ok = true, records = records })
+        assert.equal(2, #found)
+        assert.is_nil(found[1].owned)
+        assert.equal("Shoulder", found[1].slot)
+        assert.is_nil(found[2].owned)
+    end)
+
+    it("refuses anything that is not a verdict", function()
+        assert.same({}, ns.QEImport.CatalyzedOwned(nil, scan()))
+        assert.same({}, ns.QEImport.CatalyzedOwned("thisWeek", scan()))
     end)
 end)
