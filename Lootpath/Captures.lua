@@ -284,11 +284,23 @@ ns.RegisterCapture(
 --
 -- The Vault tab wants to say "you have 1 Catalyst charge" and "you have 42
 -- Runed Mistcrests" beside the scenarios that assumed them. **Which currency
--- IDs those are is not known and is not guessed**: this capture writes down
--- what the client calls everything the player has, the owner commits the
--- transcript, and Modules/Currencies.lua reads the season's crests and the
--- Catalyst charge BY THE NAMES THE TRANSCRIPT SHOWS. Until that has happened
--- the tab says "unknown - run /lootpath refresh" rather than a number.
+-- IDs those are is not guessed**: this capture writes down what the client
+-- calls everything, the owner commits the transcript, and
+-- Modules/Currencies.lua reads the season's crests and the Catalyst charge from
+-- it. Until that has happened the tab says "unknown - run /lootpath refresh"
+-- rather than a number.
+--
+-- **The list half of this capture is the currency TAB, and the tab lists only
+-- the rows of expanded headers** (M3-11, WKE-546): the 2026-09-08 23:04
+-- transcript recorded `isHeaderExpanded = false` on 8 of its 10 headers, and
+-- the eight currencies it listed were simply the ones under the two that were
+-- open - which is how "the Catalyst charge is not a currency" got written down
+-- from a scroll state. So the capture ALSO probes `GetCurrencyInfo(id)` for
+-- every ID in `Currencies.KNOWN_IDS` and stores the answers under `data.byID`,
+-- where a currency under a collapsed header still shows up. `isHeaderExpanded`
+-- keeps being recorded because it is the field that proved this.
+-- `ExpandCurrencyList` would open the headers and is NOT called: captures only
+-- read, with the one recorded journal exception.
 --
 -- The headers are kept because they are how the client groups the list, and the
 -- grouping is the evidence for which entries are the season's upgrade
@@ -325,10 +337,21 @@ ns.RegisterCapture("currencies", "the currency list with its headers, and the fu
             end
         end
     end
+    -- The by-ID half. `Currencies.KNOWN_IDS` is read at capture time, not at
+    -- load time, because Modules/Currencies.lua loads after this file.
+    local byID = {}
+    local known = ns.Currencies and ns.Currencies.AllKnownIDs and ns.Currencies.AllKnownIDs() or {}
+    if C and C.GetCurrencyInfo then
+        for _, currencyID in ipairs(known) do
+            byID[currencyID] = ns.Probe(C.GetCurrencyInfo, currencyID)
+        end
+    end
     return {
         namespaceKeys = sortedKeys(C),
         listSize = size,
         list = list,
         info = info,
+        probedIDs = known,
+        byID = byID,
     }
 end)

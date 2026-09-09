@@ -396,6 +396,13 @@ function Stub.install()
         -- `/lootpath capture currencies` transcript exists yet, so no name or
         -- ID here is claimed to be a real one (WKE-544).
         currencies = {},
+        -- What `GetCurrencyInfo(id)` answers, keyed by currencyID, for a
+        -- currency the LIST does not show. The real client's currency tab lists
+        -- only the rows of expanded headers while `GetCurrencyInfo` answers for
+        -- any ID (WKE-546), and this is how a test says so. Entries left out of
+        -- it still resolve out of `world.currencies` by ID, as the client's own
+        -- two calls agree about anything the tab is showing.
+        currencyByID = {},
         secondsUntilReset = 3600,
         difficultyNames = {},
         printed = {},
@@ -947,6 +954,13 @@ function Stub.install()
             return deepcopy(entry)
         end,
         GetCurrencyInfo = function(currencyID)
+            local hidden = world.currencyByID[currencyID]
+            if hidden then
+                if world.secrets[hidden] then
+                    return hidden
+                end
+                return deepcopy(hidden)
+            end
             for _, entry in ipairs(world.currencies) do
                 if entry.currencyID == currencyID then
                     return deepcopy(entry)

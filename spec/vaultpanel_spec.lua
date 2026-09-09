@@ -998,9 +998,9 @@ describe("VaultPanel's headline block (WKE-544)", function()
     it("says unknown while the addon has been told no currency's name", function()
         -- The shipped tables carry the 2026-09-08 names; this test is about the
         -- state before any transcript, so it empties them explicitly.
+        ns.Currencies.KNOWN_IDS = { crests = {}, catalyst = {} }
         ns.Currencies.CREST_NAMES = {}
         ns.Currencies.CATALYST_NAMES = {}
-        ns.Currencies.CATALYST_NOT_A_CURRENCY = false
         world.currencies = {
             { name = "Placeholder Crest", currencyID = 900001, isHeader = false, quantity = 42 },
         }
@@ -1024,7 +1024,6 @@ describe("VaultPanel's headline block (WKE-544)", function()
                 "Myth Mistcrest",
             }
             ns.Currencies.CATALYST_NAMES = {}
-            ns.Currencies.CATALYST_NOT_A_CURRENCY = true
             local m =
                 model({ highlightScenario = "catalyzed", currencies = ns.Currencies.Read({ snapshot = snapshot }) })
             assert.is_truthy(m.headline.lines[2].text:find("(Catalyst charges: not readable)", 1, true))
@@ -1036,8 +1035,50 @@ describe("VaultPanel's headline block (WKE-544)", function()
         end
     )
 
-    it("says the Catalyst charge is not readable when the client carries no such currency", function()
+    -- M3-11: the Catalyst charge IS a currency (Venomblight Manaflux, 3465),
+    -- readable by ID even when the currency tab's headers hide it, and the
+    -- client gives a maximum for it. Both numbers are the client's; nothing on
+    -- this line is computed from them.
+    it("puts the client's own maximum beside the charge count: you have 1 of 8", function()
+        world.currencies = {
+            {
+                name = "Placeholder Collapsed Group",
+                currencyID = 0,
+                isHeader = true,
+                isHeaderExpanded = false,
+                quantity = 0,
+            },
+        }
+        world.currencyByID = {
+            [3465] = {
+                name = "Venomblight Manaflux",
+                currencyID = 3465,
+                isHeader = false,
+                quantity = 1,
+                maxQuantity = 8,
+            },
+        }
+        local read = ns.Currencies.Read()
+        assert.equal(1, read.catalystCharges)
+        assert.equal(8, read.catalystMax)
+        local m = model({ highlightScenario = "catalyzed", currencies = read })
+        assert.equal(
+            "catalyzed, as tier: in your best set - needs a Catalyst charge (you have 1 of 8)",
+            m.headline.lines[2].text
+        )
+    end)
+
+    -- A client that gives a count and no maximum still gets a line, without an
+    -- invented ceiling after it.
+    it("says only the count when the client gives no maximum", function()
+        local m = model({ highlightScenario = "catalyzed", currencies = knownCurrencies() })
+        assert.is_truthy(m.headline.lines[2].text:find("needs a Catalyst charge (you have 1)", 1, true))
+        assert.is_nil(m.headline.lines[2].text:find(" of ", 1, true))
+    end)
+
+    it("says the Catalyst charge is not readable when the client answers nothing for its ID", function()
         knownCurrencies()
+        ns.Currencies.KNOWN_IDS = { crests = ns.Currencies.KNOWN_IDS.crests, catalyst = {} }
         ns.Currencies.CATALYST_NAMES = { "Placeholder Charge The Client Does Not Have" }
         local m = model({ highlightScenario = "catalyzed", currencies = ns.Currencies.Read() })
         assert.is_truthy(m.headline.lines[2].text:find("(Catalyst charges: not readable)", 1, true))
@@ -1046,6 +1087,7 @@ describe("VaultPanel's headline block (WKE-544)", function()
 
     it("says the player has none of the named crests rather than nothing at all", function()
         knownCurrencies()
+        ns.Currencies.KNOWN_IDS = { crests = {}, catalyst = ns.Currencies.KNOWN_IDS.catalyst }
         ns.Currencies.CREST_NAMES = { "Placeholder Crest Nobody Has" }
         local m = model({ highlightScenario = "catalyzed", currencies = ns.Currencies.Read() })
         assert.is_truthy(m.headline.lines[3].text:find("needs crests (you have none of them)", 1, true))
