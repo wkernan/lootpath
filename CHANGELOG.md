@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### M3-15 (WKE-556) - a catalyzed vault reward costs a charge
+
+- **The "one charge" line counted a converted Great Vault reward as free.** The
+  Catalyst spends one charge per item it converts, and it does not care whether
+  the item came out of a bag or out of the vault. M3-14 counted only the
+  owner's own items, so a set that converts his chest AND the vault's shoulders
+  was shown as spending the charge once.
+- **Every conversion is counted now, the vault's included.** A tier item the
+  export flags as a vault option is a charge unless the vault is offering that
+  very item ID - a reward that arrives as a tier piece already converts
+  nothing. With no vault snapshot to compare against, a vault tier item counts
+  as a charge: calling a conversion free is the one mistake worth avoiding.
+- **On the owner's own week the honest answer is an absence.** All three sets
+  the old count offered also convert the vault's Scavenger's Spaulders, so the
+  line now reads "not in QE Live's export - no set he ranked spends the charge
+  just once" on both the Dungeon and the Raid document.
+- **The scenario lines say when a vault reward is converted**, in the same
+  sentence as the owner's own conversions - "and catalyze your Hide of
+  Pestilence (302) into the tier chest and the vault's Scavenger's Spaulders
+  (308) into the tier shoulder" - so the count of charges on screen no longer
+  understates what QE Live told the owner to do. That half is said even with no
+  bags read: the vault snapshot alone is enough to name it.
+
 ### M5-1 (WKE-550) - Equip Now, drawn as items
 
 - **Every row is the item, not a sentence about it.** A row now shows the

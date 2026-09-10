@@ -957,13 +957,19 @@ end)
 -- data does not happen to contain.
 
 local THIS_WEEK_RAID_EXPORT = "spec/fixtures/qe/qe-droptimizer-Hotornot-rrwofzsbrbou.json"
+-- The `catalyzed` document of the same run, whose best set converts the vault's
+-- own Spaulders, and the vault snapshot of the same capture the inventory above
+-- comes from: five rewards, three of them gear.
+local CATALYZED_EXPORT = "spec/fixtures/qe/qe-droptimizer-Hotornot-xrjevewtwqsw.json"
+local VAULT_SNAPSHOT = 9
 
-describe("QEImport.OneChargeCandidates over the real thisWeek documents (WKE-555)", function()
+describe("QEImport.OneChargeCandidates over the real thisWeek documents (WKE-555, WKE-556)", function()
     local ns, world
 
     before_each(function()
         ns, world = H.load()
         R.inventory(world, R.snapshot("inventory", PROFILE_SNAPSHOT, AFTER_RESET_CAPTURE))
+        R.vault(world, R.snapshot("vault", VAULT_SNAPSHOT, AFTER_RESET_CAPTURE))
     end)
 
     after_each(function()
@@ -986,54 +992,69 @@ describe("QEImport.OneChargeCandidates over the real thisWeek documents (WKE-555
         return result
     end
 
-    -- The measurement this issue exists for, Dungeon side. His top set spends
-    -- TWO charges (M3-13); three of his twelve alternatives spend exactly one,
-    -- and the best of them by his own scorePercent is differential 7 - "take the
-    -- vault Spaulders instead, catalyzed and upgraded to 321, and keep the 308
-    -- weapon you wear" - which leaves the charge on the Hide of Pestilence.
-    -- Every figure below is read off the committed file.
-    it("finds three one-charge sets in the Dungeon document, best at 1.7292%", function()
-        local candidates = ns.QEImport.OneChargeCandidates(document(THIS_WEEK_EXPORT), scan())
-        assert.equal(3, #candidates)
-        local best = candidates[1]
-        assert.equal("alternative", best.where)
-        assert.equal(7, best.index)
-        assert.equal(1.7291667240187969, best.scorePercent)
-        assert.equal(-6009, best.hpsDifference)
-        assert.equal("Chest", best.catalyzed.slot)
-        assert.equal(271531, best.catalyzed.item.itemID)
-        assert.equal(251226, best.catalyzed.owned.itemID)
-        assert.equal("Hide of Pestilence", best.catalyzed.owned.name)
-        assert.equal(302, best.catalyzed.owned.itemLevel)
-        -- His order, worst last, and the two behind it are the same conversion
-        -- in a set that also swaps the back.
-        assert.same({ 8, 9 }, { candidates[2].index, candidates[3].index })
-        assert.equal(2.0646766853955785, candidates[2].scorePercent)
-        assert.equal(2.0646766853955785, candidates[3].scorePercent)
+    local function vault()
+        local result = ns.Vault.Options()
+        assert.is_true(result.ok, result.reason)
+        return result
+    end
+
+    -- The measurement M3-15 exists for, Dungeon side. 555 read three one-charge
+    -- sets out of this document - differentials 7, 8 and 9, best at 1.7292% -
+    -- because it counted only the conversions of items the owner OWNS. All three
+    -- also take the vault's Scavenger's Spaulders and convert them into the tier
+    -- shoulder, and the Catalyst spends a charge on that too. So on his own week
+    -- there is no one-charge set at all, and that absence IS the answer.
+    it("finds no one-charge set in either thisWeek document", function()
+        assert.same({}, ns.QEImport.OneChargeCandidates(document(THIS_WEEK_EXPORT), scan(), vault()))
+        assert.same({}, ns.QEImport.OneChargeCandidates(document(THIS_WEEK_RAID_EXPORT), scan(), vault()))
     end)
 
-    -- The Raid document of the same run, same profile, same two-charge top set,
-    -- a different best alternative and a different number.
-    it("finds three in the Raid document, best at 1.6461%", function()
-        local candidates = ns.QEImport.OneChargeCandidates(document(THIS_WEEK_RAID_EXPORT), scan())
-        assert.equal(3, #candidates)
-        assert.equal(9, candidates[1].index)
-        assert.equal(1.6460891664886173, candidates[1].scorePercent)
-        assert.equal(-5732, candidates[1].hpsDifference)
-        assert.equal(251226, candidates[1].catalyzed.owned.itemID)
-        assert.same({ 10, 11 }, { candidates[2].index, candidates[3].index })
-    end)
-
-    -- The top set itself is never a candidate on this profile, and that is the
-    -- fact the whole issue rests on: it spends two.
-    it("leaves his two-charge top set out of the list", function()
-        for _, path in ipairs({ THIS_WEEK_EXPORT, THIS_WEEK_RAID_EXPORT }) do
-            local verdict = document(path)
-            assert.equal(2, #ns.QEImport.CatalyzedOwned(verdict, scan()))
-            for _, candidate in ipairs(ns.QEImport.OneChargeCandidates(verdict, scan())) do
-                assert.are_not.equal("topSet", candidate.where)
+    -- The two halves of that measurement, read off both sides rather than
+    -- asserted by an absence alone: differential 7's shoulder is a tier item
+    -- flagged isVault whose item ID the vault is NOT offering, and the reward it
+    -- was cloned from is the one the vault IS offering at the same slot and the
+    -- same bonus IDs.
+    it("reads the second charge off the vault snapshot and his differential", function()
+        local shoulder
+        for _, entry in ipairs(document(THIS_WEEK_EXPORT).alternatives[7].items) do
+            if entry.slot == "Shoulder" then
+                shoulder = entry
             end
         end
+        assert.is_not_nil(shoulder)
+        assert.is_true(shoulder.isVault)
+        assert.equal(271526, shoulder.itemID)
+        assert.equal(2057, shoulder.setId)
+        assert.same({ 6652, 12699, 12842, 13440, 13662 }, shoulder.bonusIDs)
+        local offered = {}
+        for _, option in ipairs(vault().options) do
+            for _, reward in ipairs(option.rewards) do
+                offered[reward.itemID] = reward
+            end
+        end
+        assert.is_nil(offered[271526])
+        local spaulders = offered[251146]
+        assert.is_not_nil(spaulders)
+        assert.equal("Scavenger's Spaulders", spaulders.name)
+        assert.equal("Shoulder", spaulders.slot)
+        assert.same(shoulder.bonusIDs, spaulders.bonusIDs)
+    end)
+
+    -- 555's own measurement, unchanged and still true, because CatalyzedOwned
+    -- answers a different question: which of the OWNER'S items his best set
+    -- converts. Its two conversions are why the fifth question is asked at all.
+    it("still reads two owned conversions in his top set", function()
+        for _, path in ipairs({ THIS_WEEK_EXPORT, THIS_WEEK_RAID_EXPORT }) do
+            assert.equal(2, #ns.QEImport.CatalyzedOwned(document(path), scan()))
+        end
+    end)
+
+    -- With no vault snapshot to read, a vault clone still counts. Nothing can be
+    -- named without one, but calling the conversion free would be the one
+    -- mistake worth avoiding, so the three sets 555 offered stay out.
+    it("counts a vault clone as a charge with no vault snapshot at all", function()
+        assert.same({}, ns.QEImport.OneChargeCandidates(document(THIS_WEEK_EXPORT), scan(), nil))
+        assert.same({}, ns.QEImport.OneChargeCandidates(document(THIS_WEEK_EXPORT), scan(), { ok = false }))
     end)
 
     -- The sets his alternatives 3, 4, 5 and 12 build catalyze the owner's
@@ -1078,6 +1099,42 @@ describe("QEImport.OneChargeCandidates over the real thisWeek documents (WKE-555
         assert.same({}, ns.QEImport.OneChargeCandidates(document(THIS_WEEK_EXPORT), { records = {} }))
         assert.same({}, ns.QEImport.OneChargeCandidates(nil, scan()))
         assert.same({}, ns.QEImport.OneChargeCandidates("thisWeek", scan()))
+    end)
+
+    -- CatalyzedVault over the same week: the `catalyzed` document's best set
+    -- takes the vault's Spaulders as the tier shoulder, and that conversion is a
+    -- charge the fourth line would otherwise never mention (M3-15). The
+    -- `thisWeek` document's own top set takes the vault WEAPON, which carries no
+    -- set ID and is therefore no conversion at all.
+    it("names the vault reward his catalyzed best set converts", function()
+        local catalyzed = document(CATALYZED_EXPORT, {
+            autoUpgradeVault = false,
+            autoUpgradeAll = false,
+            autoCatalyze = true,
+        })
+        local found = ns.QEImport.CatalyzedVault(catalyzed, vault())
+        assert.equal(1, #found)
+        assert.is_true(found[1].fromVault)
+        assert.equal("Shoulder", found[1].slot)
+        assert.equal(271526, found[1].item.itemID)
+        assert.equal(251146, found[1].owned.itemID)
+        assert.equal("Scavenger's Spaulders", found[1].owned.name)
+        assert.equal(308, found[1].owned.itemLevel)
+        assert.same({}, ns.QEImport.CatalyzedVault(document(THIS_WEEK_EXPORT), vault()))
+    end)
+
+    -- CatalyzedOwned's guards minus the one that is not its own: no scan is
+    -- read here, so no scan can be missing, and a run that never catalyzed
+    -- cannot convert a reward.
+    it("says nothing about the vault when the run did not catalyze", function()
+        local off = document(CATALYZED_EXPORT, {
+            autoUpgradeVault = false,
+            autoUpgradeAll = false,
+            autoCatalyze = false,
+        })
+        assert.same({}, ns.QEImport.CatalyzedVault(off, vault()))
+        assert.same({}, ns.QEImport.CatalyzedVault(nil, vault()))
+        assert.same({}, ns.QEImport.CatalyzedVault("catalyzed", vault()))
     end)
 end)
 
@@ -1289,5 +1346,167 @@ describe("QEImport.OneChargeCandidates over hand-built shapes (WKE-555)", functi
         assert.equal(1, #candidates)
         assert.equal("Chest", candidates[1].catalyzed.slot)
         assert.is_nil(candidates[1].catalyzed.owned)
+    end)
+
+    -- -----------------------------------------------------------------------
+    -- M3-15 (WKE-556): the charge a vault reward costs.
+    --
+    -- The shapes the owner's own week does not contain, on the same hand-built
+    -- documents: a set that spends its ONE charge on a vault reward, a vault
+    -- reward that arrives as a tier piece already and costs nothing, and a
+    -- vault snapshot that was never taken.
+    local function vaultItem(slot, id, bonusIDs, setId)
+        local entry = item(slot, id, bonusIDs, setId)
+        entry.isVault = true
+        return entry
+    end
+
+    local function vaultOf(rewards)
+        local records = {}
+        for _, reward in ipairs(rewards) do
+            records[#records + 1] = {
+                itemID = reward.id,
+                slot = reward.slot,
+                bonusIDs = reward.bonusIDs,
+                name = reward.name,
+                itemLevel = reward.level or 308,
+            }
+        end
+        return { ok = true, options = { { rewards = records } } }
+    end
+
+    -- The vault is offering Scavenger's Spaulders; his set carries the tier
+    -- shoulder at the same slot and the same bonus IDs, at an item ID the vault
+    -- is not offering. That is his clone, and it costs the charge - so this is a
+    -- one-charge set, and the item it names is the vault's.
+    it("counts a set that converts only a vault reward, and names the reward", function()
+        local verdict = document({
+            vaultItem("Shoulder", 271526, { 3, 4 }, 2057),
+            item("Head", 500, { 3 }, 0),
+        })
+        local candidates = ns.QEImport.OneChargeCandidates(
+            verdict,
+            owned({ { id = 700, slot = "Waist", bonusIDs = { 42 }, name = "Something Else" } }),
+            vaultOf({
+                { id = 251146, slot = "Shoulder", bonusIDs = { 3, 4 }, name = "Scavenger's Spaulders", level = 308 },
+            })
+        )
+        assert.equal(1, #candidates)
+        assert.equal("topSet", candidates[1].where)
+        assert.is_true(candidates[1].catalyzed.fromVault)
+        assert.equal("Shoulder", candidates[1].catalyzed.slot)
+        assert.equal(271526, candidates[1].catalyzed.item.itemID)
+        assert.equal("Scavenger's Spaulders", candidates[1].catalyzed.owned.name)
+        assert.equal(308, candidates[1].catalyzed.owned.itemLevel)
+    end)
+
+    -- The vault is offering the tier shoulder ITSELF. Taking it converts
+    -- nothing, so it costs no charge - and the set is a one-charge set on the
+    -- strength of the chest it catalyzes out of a bag, not two.
+    it("counts no charge for a vault reward that is already the tier piece", function()
+        local verdict = document({
+            vaultItem("Shoulder", 271526, { 3, 4 }, 2057),
+            item("Chest", 271531, { 1, 2 }, 2057),
+        })
+        local candidates = ns.QEImport.OneChargeCandidates(
+            verdict,
+            owned({ { id = 251226, slot = "Chest", bonusIDs = { 1, 2 }, name = "Hide of Pestilence" } }),
+            vaultOf({
+                { id = 271526, slot = "Shoulder", bonusIDs = { 3, 4 }, name = "Lynx's Tier Spaulders", level = 308 },
+            })
+        )
+        assert.equal(1, #candidates)
+        assert.is_false(candidates[1].catalyzed.fromVault)
+        assert.equal("Hide of Pestilence", candidates[1].catalyzed.owned.name)
+        -- The same document with the vault offering something else instead: now
+        -- the shoulder IS a clone, the set spends two charges and drops out.
+        assert.same(
+            {},
+            ns.QEImport.OneChargeCandidates(
+                verdict,
+                owned({ { id = 251226, slot = "Chest", bonusIDs = { 1, 2 }, name = "Hide of Pestilence" } }),
+                vaultOf({
+                    { id = 251146, slot = "Shoulder", bonusIDs = { 3, 4 }, name = "Scavenger's Spaulders" },
+                })
+            )
+        )
+    end)
+
+    -- The vault join is the same slot-and-bonus-IDs join CatalyzedCoverage uses,
+    -- and both halves of it decide something. The vault here offers a NECK
+    -- carrying the clone's own bonus IDs before it offers the shoulders: the
+    -- charge is named off the shoulders, because the slot is compared.
+    it("names the reward at the clone's own slot, not the first with its bonus IDs", function()
+        local verdict = document({
+            vaultItem("Shoulder", 271526, { 3, 4 }, 2057),
+            item("Head", 500, { 3 }, 0),
+        })
+        local candidates = ns.QEImport.OneChargeCandidates(
+            verdict,
+            owned({ { id = 700, slot = "Waist", bonusIDs = { 42 }, name = "Something Else" } }),
+            vaultOf({
+                { id = 251234, slot = "Neck", bonusIDs = { 3, 4 }, name = "Graft of the Domanaar" },
+                { id = 251146, slot = "Shoulder", bonusIDs = { 3, 4 }, name = "Scavenger's Spaulders" },
+            })
+        )
+        assert.equal(1, #candidates)
+        assert.equal("Scavenger's Spaulders", candidates[1].catalyzed.owned.name)
+    end)
+
+    -- And the other half: two shoulders in the vault, only one of them carrying
+    -- the clone's bonus IDs. The bonus IDs are what say which reward he cloned.
+    it("names the reward whose bonus IDs are the clone's, not the first at its slot", function()
+        local verdict = document({
+            vaultItem("Shoulder", 271526, { 3, 4 }, 2057),
+            item("Head", 500, { 3 }, 0),
+        })
+        local candidates = ns.QEImport.OneChargeCandidates(
+            verdict,
+            owned({ { id = 700, slot = "Waist", bonusIDs = { 42 }, name = "Something Else" } }),
+            vaultOf({
+                { id = 250022, slot = "Shoulder", bonusIDs = { 9, 10 }, name = "Some Other Shoulders" },
+                { id = 251146, slot = "Shoulder", bonusIDs = { 3, 4 }, name = "Scavenger's Spaulders" },
+            })
+        )
+        assert.equal(1, #candidates)
+        assert.equal("Scavenger's Spaulders", candidates[1].catalyzed.owned.name)
+    end)
+
+    -- No snapshot at all: the clone still costs its charge, and nothing is
+    -- named, because nobody looked at the vault.
+    it("counts an unnamed charge for a vault clone with no snapshot", function()
+        local verdict = document({
+            vaultItem("Shoulder", 271526, { 3, 4 }, 2057),
+            item("Head", 500, { 3 }, 0),
+        })
+        local candidates = ns.QEImport.OneChargeCandidates(
+            verdict,
+            owned({ { id = 700, slot = "Waist", bonusIDs = { 42 }, name = "Something Else" } })
+        )
+        assert.equal(1, #candidates)
+        assert.is_true(candidates[1].catalyzed.fromVault)
+        assert.is_nil(candidates[1].catalyzed.owned)
+    end)
+
+    -- CatalyzedOwned never counts a vault clone, before this change or after
+    -- it: the fourth line is about the owner's own items by design, and the
+    -- vault half of the same set is CatalyzedVault's answer beside it.
+    it("keeps the vault side out of CatalyzedOwned and the owned side out of CatalyzedVault", function()
+        local verdict = document({
+            vaultItem("Shoulder", 271526, { 3, 4 }, 2057),
+            item("Chest", 271531, { 1, 2 }, 2057),
+        })
+        local scan = owned({ { id = 251226, slot = "Chest", bonusIDs = { 1, 2 }, name = "Hide of Pestilence" } })
+        local vault = vaultOf({
+            { id = 251146, slot = "Shoulder", bonusIDs = { 3, 4 }, name = "Scavenger's Spaulders" },
+        })
+        local ownedFound = ns.QEImport.CatalyzedOwned(verdict, scan)
+        assert.equal(1, #ownedFound)
+        assert.equal("Chest", ownedFound[1].slot)
+        assert.is_false(ownedFound[1].fromVault)
+        local vaultFound = ns.QEImport.CatalyzedVault(verdict, vault)
+        assert.equal(1, #vaultFound)
+        assert.equal("Shoulder", vaultFound[1].slot)
+        assert.is_true(vaultFound[1].fromVault)
     end)
 end)

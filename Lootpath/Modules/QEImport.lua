@@ -303,9 +303,9 @@ end
 -- what.
 --
 -- The scan is indexed once by `ownedIndex` below and the join itself is
--- `catalyzedOwnedIn`, because OneChargeCandidates asks the same question of
--- thirteen sets and re-walking the bags for each of them would be the same
--- answer computed thirteen times.
+-- `conversionOf` / `catalyzedIn`, because OneChargeCandidates asks the same
+-- question of thirteen sets and re-walking the bags for each of them would be
+-- the same answer computed thirteen times.
 local function ownedIndex(inventory)
     local records = type(inventory) == "table" and (inventory.records or inventory) or nil
     if type(records) ~= "table" or #records == 0 then
@@ -323,24 +323,103 @@ local function ownedIndex(inventory)
     return { records = owned, keys = ownedKeys }
 end
 
--- The join itself, over any list of set items in the order they are given.
-local function catalyzedOwnedIn(items, index)
-    local found = {}
-    for _, item in ipairs(items) do
-        if item and item.isVault ~= true and (tonumber(item.setId) or 0) ~= 0 and not index.keys[item.key] then
-            local match
-            for _, record in ipairs(index.records) do
-                -- The item ID is deliberately NOT compared. It cannot be equal
-                -- here: an owned record with this item ID AND these bonus IDs
-                -- would carry this exact key, and the guard above already passed
-                -- over every key in the scan. A check for it could not be proven
-                -- red, so it is not written.
-                if record.slot == item.slot and sameBonusIDs(record.bonusIDs, item.bonusIDs) then
-                    match = record
+-- The vault snapshot indexed for the same join: every gear reward the vault is
+-- offering, plus the set of item IDs it offers, so a tier piece the vault hands
+-- over AS a tier piece can be told from a clone of one of its other rewards.
+-- `vaultOptions` is ns.Vault.Options()' whole answer or its `options` list.
+-- Returns nil when there is no snapshot to read, and nil is NOT "no vault
+-- charges": see conversionOf below. A snapshot that was read and holds no gear
+-- is not told from a missing one, because it cannot be: an index with no
+-- rewards vouches for no item ID and matches no clone, which is exactly what
+-- nil already means there. Writing that branch could not be proven red.
+local function vaultIndex(vaultOptions)
+    local options = type(vaultOptions) == "table" and (vaultOptions.options or vaultOptions) or nil
+    if type(options) ~= "table" then
+        return nil
+    end
+    local itemIDs, records = {}, {}
+    for _, option in ipairs(options) do
+        for _, reward in ipairs(type(option) == "table" and option.rewards or {}) do
+            if type(reward) == "table" then
+                local itemID = tonumber(reward.itemID)
+                if itemID then
+                    itemIDs[itemID] = true
+                end
+                records[#records + 1] = reward
+            end
+        end
+    end
+    return { itemIDs = itemIDs, records = records }
+end
+
+-- One set item weighed as a Catalyst charge, or nil when it is not a conversion
+-- at all. Returns `{ item, slot, owned, fromVault }`: `owned` is the item the
+-- clone was made FROM when something the caller could see matches it, nil when
+-- nothing did, and `fromVault` says which side it came from so the caller words
+-- the sentence "your X" or "the vault's X".
+--
+-- The two indexes are three-state on purpose, because the two callers ask
+-- different questions of the same walk:
+--   * `index` false/nil - owned clones are not counted at all (a caller with no
+--     scan, or one that only wants the vault side).
+--   * `vaultIndex` false - vault clones are not counted at all. That is
+--     CatalyzedOwned's contract and only its own: it lists owned conversions by
+--     design.
+--   * `vaultIndex` nil - there is no vault snapshot, so every vault tier clone
+--     counts as a charge and none of them can be named. That is the
+--     conservative reading and it is deliberate: the Catalyst spends a charge on
+--     ANY item, a Great Vault reward included (M3-15, WKE-556), so the only
+--     mistake worth avoiding here is calling a conversion free.
+--   * `vaultIndex` a table - a vault tier item whose item ID is one the vault is
+--     actually offering is the tier piece AS OFFERED, and costs no charge. Any
+--     other vault tier item is his clone of one of the rewards, found by the
+--     same slot-and-bonus-IDs join CatalyzedCoverage uses.
+local function conversionOf(item, index, vault)
+    if type(item) ~= "table" or (tonumber(item.setId) or 0) == 0 then
+        return nil
+    end
+    if item.isVault == true then
+        if vault == false then
+            return nil
+        end
+        local match
+        if vault then
+            if vault.itemIDs[tonumber(item.itemID) or -1] then
+                return nil
+            end
+            for _, reward in ipairs(vault.records) do
+                if reward.slot == item.slot and sameBonusIDs(reward.bonusIDs, item.bonusIDs) then
+                    match = reward
                     break
                 end
             end
-            found[#found + 1] = { item = item, slot = item.slot, owned = match }
+        end
+        return { item = item, slot = item.slot, owned = match, fromVault = true }
+    end
+    if not index or index.keys[item.key] then
+        return nil
+    end
+    local match
+    for _, record in ipairs(index.records) do
+        -- The item ID is deliberately NOT compared. It cannot be equal here: an
+        -- owned record with this item ID AND these bonus IDs would carry this
+        -- exact key, and the guard above already passed over every key in the
+        -- scan. A check for it could not be proven red, so it is not written.
+        if record.slot == item.slot and sameBonusIDs(record.bonusIDs, item.bonusIDs) then
+            match = record
+            break
+        end
+    end
+    return { item = item, slot = item.slot, owned = match, fromVault = false }
+end
+
+-- The join itself, over any list of set items in the order they are given.
+local function catalyzedIn(items, index, vault)
+    local found = {}
+    for _, item in ipairs(items) do
+        local conversion = conversionOf(item, index, vault)
+        if conversion then
+            found[#found + 1] = conversion
         end
     end
     return found
@@ -373,16 +452,46 @@ function QEImport.CatalyzedOwned(verdict, inventory)
     if not index then
         return {}
     end
-    return catalyzedOwnedIn(topSetItems(verdict), index)
+    -- `false` for the vault side: this function answers the fourth question,
+    -- which is about the owner's OWN items, and the vault conversions of the
+    -- same set are CatalyzedVault's answer beside it.
+    return catalyzedIn(topSetItems(verdict), index, false)
 end
 
--- OneChargeCandidates(verdict, inventory) -> the sets in THIS document that
--- spend exactly one Catalyst charge on an item the owner owns, best first by QE
--- Live's own ordering, as a list of
+-- CatalyzedVault(verdict, vaultOptions) -> every piece in QE Live's BEST SET
+-- that is his catalyzed clone of a reward this vault is offering, in his own
+-- top-set order, in CatalyzedOwned's shape with `fromVault = true`. Always a
+-- list; empty when there are none.
+--
+-- Why this exists (M3-15, WKE-556). The Catalyst spends a charge on any item, a
+-- Great Vault reward included, so a headline that counted only the owner's own
+-- conversions understated what his best set costs. Measured 2026-09-09 on the
+-- owner's own `thisWeek` documents: four of his twelve differentials take the
+-- vault's Scavenger's Spaulders and convert them into the tier shoulder, which
+-- is a second charge beside the chest he catalyzes out of a bag.
+--
+-- The one guard that is NOT CatalyzedOwned's: a missing vault snapshot does not
+-- empty the list. Nothing can be NAMED without one, but a tier clone flagged
+-- `isVault` is still a charge and is still counted, because the alternative is
+-- telling the owner a conversion is free.
+function QEImport.CatalyzedVault(verdict, vaultOptions)
+    if type(verdict) ~= "table" then
+        return {}
+    end
+    local settings = type(verdict.qeSettings) == "table" and verdict.qeSettings or nil
+    if not settings or settings.autoCatalyze ~= true then
+        return {}
+    end
+    return catalyzedIn(topSetItems(verdict), false, vaultIndex(vaultOptions))
+end
+
+-- OneChargeCandidates(verdict, inventory, vaultOptions) -> the sets in THIS
+-- document that spend exactly one Catalyst charge, best first by QE Live's own
+-- ordering, as a list of
 --
 --   { where = "topSet"|"alternative", index (its 1-based place in
 --     `verdict.alternatives`, nil for the top set), scorePercent,
---     hpsDifference, catalyzed = { item, slot, owned } }
+--     hpsDifference, catalyzed = { item, slot, owned, fromVault } }
 --
 -- Always a list; empty when no set in the document qualifies, which is an
 -- answer and not a failure.
@@ -410,12 +519,24 @@ end
 -- every other slot keeps the top set's. Nothing is interleaved and nothing has
 -- to be guessed at.
 --
+-- **Every clone is a charge, the vault's included** (M3-15, WKE-556). 555 built
+-- this counting only the owner's own items, on a premise the brain wrote and
+-- the code inherited: that a Great Vault reward converted into tier was free.
+-- It is not - the Catalyst spends a charge on any item. Measured over the
+-- committed `thisWeek` documents with the 2026-09-08 vault snapshot: the three
+-- Dungeon sets 555 offered as one-charge sets each ALSO convert the vault's
+-- Scavenger's Spaulders, so on the owner's own week the honest answer is that
+-- no set of his spends the charge just once. `conversionOf` above is where a
+-- vault reward offered AS a tier piece is told from a clone of one.
+--
 -- The guards are CatalyzedOwned's, for the same reasons: the run's own
--- `autoCatalyze` must have been on, and with no scan to read nothing is claimed.
--- A qualifying set whose one clone matched nothing in the scan is still
--- returned, with `owned` nil, so the caller says he spends the charge in that
--- slot without naming an item he never named.
-function QEImport.OneChargeCandidates(verdict, inventory)
+-- `autoCatalyze` must have been on, and with no scan to read nothing is claimed
+-- about the owner's bags. The vault snapshot is NOT guarded that way - without
+-- one a vault clone still counts, it just cannot be named.
+-- A qualifying set whose one clone matched nothing the caller could see is
+-- still returned, with `owned` nil, so the caller says he spends the charge in
+-- that slot without naming an item he never named.
+function QEImport.OneChargeCandidates(verdict, inventory, vaultOptions)
     local candidates = {}
     if type(verdict) ~= "table" then
         return candidates
@@ -428,10 +549,11 @@ function QEImport.OneChargeCandidates(verdict, inventory)
     if not index then
         return candidates
     end
+    local vault = vaultIndex(vaultOptions)
 
     local top = topSetItems(verdict)
     local function consider(items, where, alternativeIndex, alternative)
-        local found = catalyzedOwnedIn(items, index)
+        local found = catalyzedIn(items, index, vault)
         if #found ~= 1 then
             return
         end

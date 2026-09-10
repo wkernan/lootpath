@@ -941,12 +941,18 @@ describe("VaultPanel's headline block (WKE-544)", function()
     -- The owner's own example, on his own vault, in his own words: the pick, the
     -- shoulders, the Catalyst charge he has, and the crests the other answer
     -- would need. Every number in it is QE Live's or the client's.
+    --
+    -- The `catalyzed` line says what the charge is spent ON since M3-15
+    -- (WKE-556), and it says it with no bags read at all: converting a vault
+    -- reward costs a charge like any other conversion, and the vault snapshot
+    -- alone is enough to name it.
     it("leads with the pick under the owner's scenario and answers every question under it", function()
         local m = model({ highlightScenario = "catalyzed", currencies = knownCurrencies() })
         assert.same({
             "QE Live's pick this week (catalyzed): Scavenger's Spaulders (Dungeons 1)",
             "  as offered: nothing in the vault beats your set",
-            "  catalyzed, as tier: in your best set - needs a Catalyst charge (you have 1)",
+            "  catalyzed, as tier: in your best set - needs a Catalyst charge (you have 1)"
+                .. " - and catalyze the vault's Scavenger's Spaulders (308) into the tier shoulder",
             "  everything upgraded: Lightgrasp Worldroot instead - in your best set"
                 .. " - needs a Catalyst charge (you have 1) and crests (you have Placeholder Crest 42)",
         }, headlineLines(m))
@@ -1063,7 +1069,8 @@ describe("VaultPanel's headline block (WKE-544)", function()
         assert.equal(8, read.catalystMax)
         local m = model({ highlightScenario = "catalyzed", currencies = read })
         assert.equal(
-            "catalyzed, as tier: in your best set - needs a Catalyst charge (you have 1 of 8)",
+            "catalyzed, as tier: in your best set - needs a Catalyst charge (you have 1 of 8)"
+                .. " - and catalyze the vault's Scavenger's Spaulders (308) into the tier shoulder",
             m.headline.lines[2].text
         )
     end)
@@ -1510,13 +1517,20 @@ describe("VaultPanel over the fourth scenario (M3-13, WKE-548)", function()
     -- The whole answer on one screen, in his words and the client's. The pick is
     -- the vault weapon; the step beside it is the Catalyst charge spent on a
     -- pair of shoulders the owner already had.
+    --
+    -- Two lines changed in M3-15 (WKE-556), both for the one reason: converting
+    -- a vault reward costs a charge. The `catalyzed` set spends two and now says
+    -- so; the fifth line, which 555 read as one charge on the Hide of
+    -- Pestilence, is the absence sentence, because the three sets it was reading
+    -- also convert the vault's Spaulders.
     it("leads with the fourth question and says both halves of his answer", function()
         assert.same({
             "QE Live's pick this week (vault upgraded, Catalyst used): Lightgrasp Worldroot (World 2)",
             "  as offered: nothing in the vault beats your set",
             "  catalyzed, as tier: Scavenger's Spaulders instead - in your best set"
                 .. " - needs a Catalyst charge (you have 1)"
-                .. " - and catalyze your Hide of Pestilence (302) into the tier chest",
+                .. " - and catalyze your Hide of Pestilence (302) into the tier chest"
+                .. " and the vault's Scavenger's Spaulders (308) into the tier shoulder",
             "  this week (vault upgraded, Catalyst used): in your best set"
                 .. " - needs a Catalyst charge (you have 1) and crests (you have Placeholder Crest 42)"
                 .. " - and catalyze your Venom-Cursed Lynx's Spaulders (295) into the tier shoulder"
@@ -1526,7 +1540,7 @@ describe("VaultPanel over the fourth scenario (M3-13, WKE-548)", function()
                 .. " - and catalyze your Venom-Cursed Lynx's Spaulders (295) into the tier shoulder"
                 .. " and your Hide of Pestilence (302) into the tier chest",
             "  one charge (this week, Catalyst used once):"
-                .. " catalyze your Hide of Pestilence (302) into the tier chest - 1.73% behind",
+                .. " not in QE Live's export - no set he ranked spends the charge just once",
         }, headlineLines(model({ currencies = currencies() })))
     end)
 
@@ -1710,17 +1724,24 @@ describe("VaultPanel's fifth line, one charge (M3-14, WKE-555)", function()
         return m.headline.oneCharge and m.headline.oneCharge.text or nil
     end
 
-    -- The measured answer on the owner's own week, Dungeon side: of his thirteen
-    -- sets, three spend the charge once, and the best of them by his own
-    -- scorePercent is 1.7292% behind his top set and spends it on the Hide of
-    -- Pestilence. The panel prints his percentage at his magnitude.
+    -- The measured answer on the owner's own week, Dungeon side, RE-MEASURED
+    -- under M3-15 (WKE-556). 555 read three one-charge sets here and printed the
+    -- best of them - "catalyze your Hide of Pestilence (302) into the tier chest
+    -- - 1.73% behind". All three ALSO convert the vault's Scavenger's Spaulders
+    -- into the tier shoulder, which is a second charge, so no set of his
+    -- thirteen spends it once and the absence sentence is the honest line. The
+    -- second charge is read off both sides in spec/qeimport_spec.lua; here what
+    -- is pinned is the line on screen.
     it("reads the Dungeon answer off his own alternatives", function()
         local m = model()
         assert.equal(
             "one charge (this week, Catalyst used once):"
-                .. " catalyze your Hide of Pestilence (302) into the tier chest - 1.73% behind",
+                .. " not in QE Live's export - no set he ranked spends the charge just once",
             oneChargeText(m)
         )
+        -- The absence carries no figure at all, which is the strongest form of
+        -- "no number here is not his".
+        assert.is_nil(oneChargeText(m):find("%d"))
         -- It is the last line of the headline block, after the four scenarios,
         -- and it lives in the model rather than in the drawing (M5-4 redraws
         -- this tab).
@@ -1730,26 +1751,72 @@ describe("VaultPanel's fifth line, one charge (M3-14, WKE-555)", function()
         assert.is_true(hasLine(ns.VaultPanel.Lines(m), "  " .. oneChargeText(m)))
     end)
 
-    -- The Raid document of the same run: a different set of his wins, at a
-    -- different number, on the same conversion.
+    -- The Raid document of the same run, and the same answer for the same
+    -- reason: its three one-charge-on-his-own-items sets convert the vault's
+    -- Spaulders too.
     it("reads the Raid answer off the Raid document", function()
         assert.equal(
             "one charge (this week, Catalyst used once):"
-                .. " catalyze your Hide of Pestilence (302) into the tier chest - 1.65% behind",
+                .. " not in QE Live's export - no set he ranked spends the charge just once",
             oneChargeText(model({ thisWeekFile = THIS_WEEK_RAID }))
         )
     end)
 
     -- The line never carries a number that is not his: the only figures in it
-    -- are the client's item level for the owned item and his own scorePercent.
+    -- are the client's item level for the converted item and his own
+    -- scorePercent. The candidate is hand-built at his own measured figures,
+    -- because his own week no longer produces one.
     it("shows his scorePercent and the client's level, and nothing else", function()
-        local candidates = ns.QEImport.OneChargeCandidates(scenarios()[3].verdict, ns.Inventory.Scan())
-        assert.equal(1.7291667240187969, candidates[1].scorePercent)
-        assert.equal(302, candidates[1].catalyzed.owned.itemLevel)
-        local text = ns.VaultPanel.OneChargeLine(candidates).text
+        local text = ns.VaultPanel.OneChargeLine({
+            {
+                where = "alternative",
+                index = 7,
+                scorePercent = 1.7291667240187969,
+                hpsDifference = -6009,
+                catalyzed = {
+                    slot = "Chest",
+                    item = { itemID = 271531 },
+                    owned = { name = "Hide of Pestilence", itemLevel = 302 },
+                    fromVault = false,
+                },
+            },
+        }).text
         for number in text:gmatch("%d+%.?%d*") do
             assert.is_true(number == "302" or number == "1.73", "unexpected number on the one-charge line: " .. number)
         end
+    end)
+
+    -- The vault's own wording on the fifth line (M3-15, WKE-556): a set whose
+    -- one charge goes on a reward the vault is offering names it as the vault's,
+    -- and one whose vault clone matched no reward says the slot and the absence.
+    -- Hand-built candidates, because the owner's own week has no one-charge set.
+    it("names a vault reward as the vault's on the fifth line", function()
+        local function line(catalyzed)
+            return ns.VaultPanel.OneChargeLine({
+                {
+                    where = "alternative",
+                    index = 4,
+                    scorePercent = 0.9,
+                    hpsDifference = -300,
+                    catalyzed = catalyzed,
+                },
+            }).text
+        end
+        assert.equal(
+            "one charge (this week, Catalyst used once):"
+                .. " catalyze the vault's Scavenger's Spaulders (308) into the tier shoulder - 0.90% behind",
+            line({
+                slot = "Shoulder",
+                item = { itemID = 271526 },
+                owned = { name = "Scavenger's Spaulders", itemLevel = 308 },
+                fromVault = true,
+            })
+        )
+        assert.equal(
+            "one charge (this week, Catalyst used once):"
+                .. " catalyze a shoulder the vault is offering (QE Live did not say which) - 0.90% behind",
+            line({ slot = "Shoulder", item = { itemID = 271526 }, fromVault = true })
+        )
     end)
 
     -- When his top set is itself the one-charge answer there is no percentage to
@@ -1804,6 +1871,78 @@ describe("VaultPanel's fifth line, one charge (M3-14, WKE-555)", function()
             "one charge (this week, Catalyst used once):"
                 .. " catalyze a shoulder you own (QE Live did not say which) - 0.34% behind",
             line.text
+        )
+    end)
+
+    -- The vault half, end to end through the model (M3-15, WKE-556). A
+    -- hand-built `thisWeek` document whose top set converts NOTHING the owner
+    -- owns and one thing the vault is offering - the Scavenger's Spaulders of
+    -- the replayed snapshot, tier shoulder 271526 at their own bonus IDs.
+    --
+    -- Two things are pinned at once and no other test pins them: the line is
+    -- asked for at all, on a `thisWeek` set that converts none of the owner's
+    -- own items, and the vault snapshot reaches QEImport - without it the
+    -- charge would still be counted but the reward could not be named.
+    --
+    -- The bags ARE read here, and the no-scan guard is not weakened by any of
+    -- this: without a scan a tier item that is NOT a vault option cannot be told
+    -- from a piece the character already wears, so a two-charge set could still
+    -- read as one. No scan, no claim, exactly as in M3-14.
+    local function vaultOnlyThisWeek()
+        local payload = {
+            schema = "qe-live-droptimizer",
+            version = 1,
+            exportedAt = "2026-09-09T19:22:00Z",
+            reportId = "handbuilt-556",
+            contentType = "Dungeon",
+            player = {
+                name = "Hotornot",
+                realm = "Test",
+                region = "US",
+                spec = "Restoration Druid",
+                gameType = "Retail",
+            },
+            topSet = {
+                score = 1000,
+                stats = {},
+                items = {
+                    {
+                        slot = "Shoulder",
+                        id = 271526,
+                        level = 321,
+                        bonusIDs = { 6652, 12699, 12842, 13440, 13662 },
+                        gems = {},
+                        enchant = "",
+                        tertiary = "",
+                        setId = 2057,
+                        isVault = true,
+                        isExclusive = false,
+                        source = {},
+                    },
+                },
+            },
+            differentials = {},
+        }
+        local parsed = ns.QEImport.Parse(ns.json.encode(payload))
+        assert.is_true(parsed.ok, parsed.reason)
+        parsed.verdict.scenario = "thisWeek"
+        parsed.verdict.qeSettings = BOXES.thisWeek
+        return { { verdict = parsed.verdict, scenario = "thisWeek" } }
+    end
+
+    it("asks the question, and names the reward, for a set that converts only the vault's", function()
+        local m = model({ scenarios = vaultOnlyThisWeek() })
+        assert.equal(
+            "one charge (this week, Catalyst used once):"
+                .. " catalyze the vault's Scavenger's Spaulders (308) into the tier shoulder - in your best set",
+            oneChargeText(m)
+        )
+        assert.equal(
+            "this week (vault upgraded, Catalyst used), as tier: in your best set"
+                .. " - needs a Catalyst charge (unknown - run /lootpath refresh) and crests"
+                .. " (unknown - run /lootpath refresh)"
+                .. " - and catalyze the vault's Scavenger's Spaulders (308) into the tier shoulder",
+            m.headline.lines[1].text
         )
     end)
 

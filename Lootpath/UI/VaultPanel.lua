@@ -203,6 +203,14 @@ Panel.CATALYZE_OWNED_TEXT = "your %s (%s) into the tier %s"
 Panel.CATALYZE_OWNED_UNKNOWN = "a %s you own (QE Live did not say which)"
 Panel.CATALYZE_OWNED_SLOT_UNKNOWN = "item"
 
+-- The same sentence for the other side of the same charge (M3-15, WKE-556). The
+-- Catalyst spends a charge on ANY item, a Great Vault reward included, so a best
+-- set that converts a reward is spending a charge the line above would otherwise
+-- never mention - and the count of charges on screen would understate what he
+-- told the owner to do. The words differ only in whose item it is.
+Panel.CATALYZE_VAULT_TEXT = "the vault's %s (%s) into the tier %s"
+Panel.CATALYZE_VAULT_UNKNOWN = "a %s the vault is offering (QE Live did not say which)"
+
 -- The fifth question (M3-14, WKE-555). The line above says his `thisWeek` best
 -- set catalyzes two of the owner's items; the owner holds one charge. So: with
 -- one charge, which single conversion does QE Live rate best?
@@ -652,38 +660,55 @@ function Panel.NeedsText(scenario, currencies)
     return table.concat(out, " and ")
 end
 
--- The words for ns.QEImport.CatalyzedOwned's list, or nil when it is empty. Two
--- shapes per clone and no third: the owned item named with the level the client
--- reports for it, or the slot alone when his clone matched nothing in the scan.
--- A best set that catalyzed two owned items says both - it is one sentence
--- because it is one set, and dropping the second would be reporting half of
--- what he said.
-function Panel.CatalyzeOwnedText(found)
-    if type(found) ~= "table" or #found == 0 then
-        return nil
-    end
-    local parts = {}
-    for _, entry in ipairs(found) do
-        local slot = type(entry.slot) == "string" and entry.slot:lower() or Panel.CATALYZE_OWNED_SLOT_UNKNOWN
-        local owned = entry.owned
-        if type(owned) == "table" and type(owned.name) == "string" and owned.name ~= "" then
-            parts[#parts + 1] = string.format(Panel.CATALYZE_OWNED_TEXT, owned.name, tostring(owned.itemLevel), slot)
-        else
-            parts[#parts + 1] = string.format(Panel.CATALYZE_OWNED_UNKNOWN, slot)
+-- One conversion said in words. Four shapes and no fifth: the item his clone was
+-- made FROM, named with the level the client reports for it, or the slot alone
+-- when nothing the panel could see matched the clone - each of those for an item
+-- the owner owns and for one the vault is offering. `entry` is the shape
+-- ns.QEImport.CatalyzedOwned, CatalyzedVault and OneChargeCandidates all carry:
+-- `{ item, slot, owned, fromVault }`.
+--
+-- It is never filled in with a guess at which of the owner's shoulders he meant:
+-- he did not say, so neither does this.
+local function conversionText(entry)
+    local slot = type(entry.slot) == "string" and entry.slot:lower() or Panel.CATALYZE_OWNED_SLOT_UNKNOWN
+    local from = entry.owned
+    local named = type(from) == "table" and type(from.name) == "string" and from.name ~= ""
+    if entry.fromVault == true then
+        if named then
+            return string.format(Panel.CATALYZE_VAULT_TEXT, from.name, tostring(from.itemLevel), slot)
         end
+        return string.format(Panel.CATALYZE_VAULT_UNKNOWN, slot)
+    end
+    if named then
+        return string.format(Panel.CATALYZE_OWNED_TEXT, from.name, tostring(from.itemLevel), slot)
+    end
+    return string.format(Panel.CATALYZE_OWNED_UNKNOWN, slot)
+end
+
+-- The words for the conversions a scenario's best set spends its charges on, or
+-- nil when there are none. `found` is ns.QEImport.CatalyzedOwned's list and
+-- `vaultFound` ns.QEImport.CatalyzedVault's, said in that order and in one
+-- sentence because they are one set: a best set that catalyzes two things says
+-- both, and dropping either would be reporting half of what he said - leaving
+-- the vault half out would let one sentence describe a two-charge set as though
+-- it cost one charge (M3-15, WKE-556).
+function Panel.CatalyzeText(found, vaultFound)
+    local parts = {}
+    for _, list in ipairs({ found or {}, vaultFound or {} }) do
+        for _, entry in ipairs(type(list) == "table" and list or {}) do
+            parts[#parts + 1] = conversionText(entry)
+        end
+    end
+    if #parts == 0 then
+        return nil
     end
     return Panel.CATALYZE_OWNED_LEAD .. table.concat(parts, " and ")
 end
 
--- The one clone a candidate set spends its charge on, in CatalyzeOwnedText's own
--- two shapes, so the fifth line and the fourth name an item the same way.
+-- The one clone a candidate set spends its charge on, in the same four shapes,
+-- so the fifth line and the fourth name an item the same way.
 local function oneChargeItemText(catalyzed)
-    local slot = type(catalyzed.slot) == "string" and catalyzed.slot:lower() or Panel.CATALYZE_OWNED_SLOT_UNKNOWN
-    local owned = catalyzed.owned
-    if type(owned) == "table" and type(owned.name) == "string" and owned.name ~= "" then
-        return string.format(Panel.CATALYZE_OWNED_TEXT, owned.name, tostring(owned.itemLevel), slot)
-    end
-    return string.format(Panel.CATALYZE_OWNED_UNKNOWN, slot)
+    return conversionText(catalyzed)
 end
 
 -- The fifth headline line (M3-14, WKE-555): `candidates` is
@@ -724,15 +749,18 @@ end
 -- by his own ordering - and `headlinePick` is the reward the block leads with,
 -- so the item is named only when the two differ. `catalyzeOwned` is
 -- ns.QEImport.CatalyzedOwned's answer for this scenario's own document, said as
--- a step after the assumption it belongs to.
-function Panel.HeadlineLine(scenario, pick, headlinePick, currencies, catalyzeOwned)
+-- a step after the assumption it belongs to, and `catalyzeVault` is
+-- ns.QEImport.CatalyzedVault's answer for the same set: the rewards this vault
+-- is offering that his set converts, which cost a charge each (M3-15, WKE-556).
+function Panel.HeadlineLine(scenario, pick, headlinePick, currencies, catalyzeOwned, catalyzeVault)
     local label = Panel.ScenarioLabel(scenario) .. ((pick and pick.viaCatalyst) and Panel.CATALYZED_SUFFIX or "")
-    local owned = Panel.CatalyzeOwnedText(catalyzeOwned)
+    local owned = Panel.CatalyzeText(catalyzeOwned, catalyzeVault)
     local ownedSuffix = owned and (" - " .. owned) or ""
     if not pick then
         return {
             scenario = scenario,
             catalyzeOwned = catalyzeOwned,
+            catalyzeVault = catalyzeVault,
             text = label .. ": " .. Panel.SCENARIO_SILENT .. ownedSuffix,
         }
     end
@@ -760,6 +788,7 @@ function Panel.HeadlineLine(scenario, pick, headlinePick, currencies, catalyzeOw
         coverage = coverage,
         viaCatalyst = pick.viaCatalyst,
         catalyzeOwned = catalyzeOwned,
+        catalyzeVault = catalyzeVault,
         text = label .. ": " .. prefix .. answer .. (needs and (" - " .. needs) or "") .. ownedSuffix,
     }
 end
@@ -1058,15 +1087,23 @@ function Panel.Model(opts)
         local thisWeekVerdict
         for _, entry in ipairs(scenarios) do
             local catalyzeOwned = ns.QEImport.CatalyzedOwned(entry.verdict, opts.inventory)
-            model.headline.lines[#model.headline.lines + 1] =
-                Panel.HeadlineLine(entry.scenario, bestByScenario[entry.scenario], pick, opts.currencies, catalyzeOwned)
+            local catalyzeVault = ns.QEImport.CatalyzedVault(entry.verdict, vault)
+            model.headline.lines[#model.headline.lines + 1] = Panel.HeadlineLine(
+                entry.scenario,
+                bestByScenario[entry.scenario],
+                pick,
+                opts.currencies,
+                catalyzeOwned,
+                catalyzeVault
+            )
             -- The fifth line is about the fourth question's own document, and
-            -- only arises because that document's best set spends the charge on
-            -- items the owner owns. A `thisWeek` answer that catalyzes nothing
-            -- of his has no charge question hanging over it, so it gets no line
-            -- - not even the absence one, which would be a sentence about a
-            -- problem the owner does not have.
-            if entry.scenario == Panel.ONE_CHARGE_SCENARIO and #catalyzeOwned > 0 then
+            -- only arises because that document's best set spends MORE THAN ONE
+            -- charge - on the owner's items, on the vault's, or on both, because
+            -- the Catalyst does not care whose an item is (M3-15, WKE-556). A
+            -- `thisWeek` answer that catalyzes nothing has no charge question
+            -- hanging over it, so it gets no line - not even the absence one,
+            -- which would be a sentence about a problem the owner does not have.
+            if entry.scenario == Panel.ONE_CHARGE_SCENARIO and #catalyzeOwned + #catalyzeVault > 0 then
                 thisWeekVerdict = entry.verdict
             end
         end
@@ -1076,7 +1113,7 @@ function Panel.Model(opts)
         -- left off rather than reporting an absence nobody looked for.
         if thisWeekVerdict then
             model.headline.oneCharge =
-                Panel.OneChargeLine(ns.QEImport.OneChargeCandidates(thisWeekVerdict, opts.inventory))
+                Panel.OneChargeLine(ns.QEImport.OneChargeCandidates(thisWeekVerdict, opts.inventory, vault))
             model.headline.lines[#model.headline.lines + 1] = model.headline.oneCharge
         end
     end
