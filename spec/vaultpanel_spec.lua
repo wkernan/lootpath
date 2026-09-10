@@ -2658,3 +2658,66 @@ describe("VaultPanel's grid, drawn (WKE-553)", function()
         assert.is_true(cellFor(model, SPAULDERS_KEY).selectedTexture:IsShown())
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- C-8 (WKE-558): the Vault tab says when the answer it draws was produced over
+-- a subset of what the character owns.
+--
+-- The failure this guards is the one the owner hit on 2026-09-09: QE Live's
+-- Top Gear took thirty items, the Catalyst clones were not among them, and the
+-- `catalyzed` grid was the `asOffered` grid with nothing on screen saying why.
+describe("VaultPanel and the items QE Live never saw", function()
+    local ns, world
+
+    before_each(function()
+        ns, world = H.load()
+        R.vault(world, R.snapshot("vault", WITH_PROGRESS, R.JOURNAL))
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local EXCLUDED = {
+        { slot = "Shoulder", name = "Lynx Spaulders", level = 691, catalyst = true },
+        { slot = "Finger", name = "Band of Whatever", level = 678 },
+    }
+
+    it("prints the line under the notes, in the aside grey, and never without a verdict", function()
+        local verdict = realVerdict(ns)
+        verdict.excluded = EXCLUDED
+        ns.QEImport.Store(verdict)
+        local model =
+            ns.VaultPanel.Model({ vault = ns.Vault.Options(), verdict = verdict, now = 1788700000, captures = false })
+        assert.equal(ns.Companion.ExcludedText(EXCLUDED), model.excludedNote)
+        local notes = ns.VaultPanel.NoteLines(model)
+        local last = notes[#notes]
+        assert.equal(ns.VaultPanel.NOTE_COLOR .. model.excludedNote .. "|r", last)
+        assert.is_truthy(last:find("Lynx Spaulders", 1, true))
+    end)
+
+    it("says nothing when the run saw everything", function()
+        local verdict = realVerdict(ns)
+        ns.QEImport.Store(verdict)
+        local model =
+            ns.VaultPanel.Model({ vault = ns.Vault.Options(), verdict = verdict, now = 1788700000, captures = false })
+        assert.is_nil(model.excluded)
+        assert.is_nil(model.excludedNote)
+        for _, line in ipairs(ns.VaultPanel.NoteLines(model)) do
+            assert.is_nil(line:find("did not consider", 1, true))
+        end
+    end)
+
+    it("draws the line as one of the panel's own rows", function()
+        local verdict = realVerdict(ns)
+        verdict.excluded = EXCLUDED
+        ns.QEImport.Store(verdict)
+        local frame = ns.VaultPanel.Create()
+        local model = frame:Refresh()
+        local notes = ns.VaultPanel.NoteLines(model)
+        for i, line in ipairs(notes) do
+            assert.equal(line, frame.rows[i]:GetText())
+        end
+        assert.is_truthy(containsText(drawnTexts(frame), "did not consider"))
+    end)
+end)

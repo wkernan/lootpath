@@ -1108,3 +1108,174 @@ describe("a companion file carrying the fourth named scenario", function()
         assert.is_false(fourth.qeSettings.autoUpgradeAll)
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- C-8 (WKE-558): the items QE Live's Top Gear was never shown.
+--
+-- His Top Gear takes thirty items for a non-patron (TopGear.tsx) and the
+-- character owns more, so every Top Gear answer is an answer about a subset and
+-- the file says which items were left out of it. What this pins is that the
+-- names survive the chunk, that a document's own list beats the file's, that an
+-- Upgrade Finder verdict never claims one, and that a malformed or secret list
+-- is silence rather than a guess.
+describe("Companion excluded items", function()
+    local ns
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local BAG = { { slot = "Finger", name = "Band of Whatever", level = 678 } }
+    local CLONES = {
+        { slot = "Finger", name = "Band of Whatever", level = 678 },
+        { slot = "Shoulder", name = "Lynx Spaulders", level = 691, catalyst = true },
+    }
+
+    local function fileWith(excluded, docExcluded)
+        return {
+            writtenAt = "2026-09-10T02:00:00Z",
+            companionVersion = "0.1.0",
+            qeSettings = { autoUpgradeVault = false, autoUpgradeAll = false },
+            excluded = excluded,
+            exports = {
+                {
+                    schema = "qe-live-droptimizer",
+                    contentType = "Raid",
+                    excluded = docExcluded,
+                    json = readFile(RAID_EXPORT),
+                },
+                { schema = "qe-live-upgradefinder", contentType = "Raid", json = readFile(UPGRADE_FINDER_EXPORT) },
+            },
+        }
+    end
+
+    it("carries the file's list onto a Top Gear verdict and never onto an Upgrade Finder one", function()
+        ns = H.load()
+        local result = ns.Companion.ImportAll(fileWith(BAG))
+        assert.is_true(result.ok)
+        assert.equal(2, #result.imported)
+        assert.equal(1, #result.excluded)
+        local stored = ns.QEImport.ForContentType("Raid").excluded
+        assert.equal(1, #stored)
+        assert.equal("Band of Whatever", stored[1].name)
+        assert.equal(678, stored[1].level)
+        -- An Upgrade Finder document is about drops and chose no pool, so it
+        -- must not inherit a sentence about a Top Gear run.
+        assert.is_nil(ns.UFImport.ForContentType("Raid").excluded)
+    end)
+
+    it("prefers the document's own list, because each pass chooses its own pool", function()
+        ns = H.load()
+        ns.Companion.ImportAll(fileWith(BAG, CLONES))
+        local stored = ns.QEImport.ForContentType("Raid").excluded
+        assert.equal(2, #stored)
+        assert.equal("Lynx Spaulders", stored[2].name)
+        assert.is_true(stored[2].catalyst)
+        assert.is_nil(stored[1].catalyst, "a bag item does not claim to be a clone")
+    end)
+
+    it("imports a file that says nothing, and stores nothing for it", function()
+        -- Every file written before C-8, and the committed placeholder.
+        ns = H.load()
+        local result = ns.Companion.ImportAll(fileWith(nil))
+        assert.is_true(result.ok)
+        assert.equal(2, #result.imported)
+        assert.equal(0, #result.skipped)
+        assert.is_nil(result.excluded)
+        assert.is_nil(ns.QEImport.ForContentType("Raid").excluded)
+    end)
+
+    it("drops an entry it cannot read rather than repairing it", function()
+        ns = H.load()
+        ns.Companion.ImportAll(fileWith({
+            { slot = "Finger", name = "Band of Whatever", level = 678 },
+            { slot = "Head", level = 700 },
+            "a ring",
+            { slot = "Neck", name = "Chain of Something", level = 678.5 },
+        }))
+        local stored = ns.QEImport.ForContentType("Raid").excluded
+        assert.equal(2, #stored, "the nameless entry and the string are dropped")
+        assert.equal("Chain of Something", stored[2].name)
+        assert.is_nil(stored[2].level, "half an item level is not an item level")
+    end)
+
+    it("stores nothing for a list that is not a list, and nothing secret", function()
+        local world
+        ns, world = H.load()
+        assert.is_nil(ns.Companion.Excluded("Band of Whatever"))
+        assert.is_nil(ns.Companion.Excluded(42))
+        assert.is_nil(ns.Companion.Excluded({}))
+        assert.is_nil(ns.Companion.Excluded(world.markSecret({ { name = "Band of Whatever" } })))
+        -- A secret name inside an otherwise good list is dropped with its entry.
+        local mixed = ns.Companion.Excluded({
+            { slot = "Finger", name = world.markSecret("Band of Whatever") },
+            { slot = "Head", name = "Helm of Something" },
+        })
+        assert.equal(1, #mixed)
+        assert.equal("Helm of Something", mixed[1].name)
+    end)
+
+    it("stops at MAX_EXCLUDED so a broken writer cannot fill the panel", function()
+        ns = H.load()
+        local many = {}
+        for index = 1, ns.Companion.MAX_EXCLUDED + 25 do
+            many[index] = { slot = "Finger", name = "ring " .. index, level = 600 }
+        end
+        assert.equal(ns.Companion.MAX_EXCLUDED, #ns.Companion.Excluded(many))
+    end)
+
+    it("reads the list out of a real companion chunk", function()
+        local source = string.format(
+            [[
+local _, ns = ...
+ns.companionVerdict = {
+    writtenAt = "2026-09-10T02:00:00Z",
+    companionVersion = "0.1.0",
+    excluded = {
+        { slot = "Finger", name = "Band of the \"Quoted\" Name", level = 678 },
+    },
+    exports = {
+        { schema = "qe-live-droptimizer", contentType = "Raid", json = %q },
+    },
+}
+]],
+            readFile(RAID_EXPORT)
+        )
+        ns = loadWithChunk(source)
+        local stored = ns.QEImport.ForContentType("Raid").excluded
+        assert.equal(1, #stored)
+        assert.equal('Band of the "Quoted" Name', stored[1].name)
+    end)
+
+    -- The wording, in one place, because the Equip Now tab and the Vault tab
+    -- both print it and neither may say something the other does not.
+    it("says the count first and then the names", function()
+        ns = H.load()
+        assert.is_nil(ns.Companion.ExcludedText(nil))
+        assert.is_nil(ns.Companion.ExcludedText({}))
+        assert.equal(
+            "QE Live did not consider 1 of your items: Band of Whatever (Finger, 678).",
+            ns.Companion.ExcludedText(BAG)
+        )
+        assert.equal(
+            "QE Live did not consider 2 of your items: Band of Whatever (Finger, 678),"
+                .. " Lynx Spaulders (Shoulder, 691, Catalyst).",
+            ns.Companion.ExcludedText(CLONES)
+        )
+    end)
+
+    it("names three and counts the rest", function()
+        ns = H.load()
+        local many = {}
+        for index = 1, 27 do
+            many[index] = { slot = "Finger", name = "ring " .. index }
+        end
+        local text = ns.Companion.ExcludedText(many)
+        assert.equal(
+            "QE Live did not consider 27 of your items: ring 1 (Finger), ring 2 (Finger), ring 3 (Finger) and 24 more.",
+            text
+        )
+        -- And the tooltip gets every one of them.
+        assert.equal(27, #ns.Companion.ExcludedLines(many))
+    end)
+end)

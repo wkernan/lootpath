@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### C-8 (WKE-558) - QE Live is asked about the right thirty items, and says which it was not
+
+- **The companion no longer fills QE Live's Top Gear in page order.** His Top
+  Gear takes 30 items for a non-patron and the character owns more, so the
+  driver now reads every card first, keeps everything the import made active
+  (the equipped set, the Great Vault options and their clones), and spends the
+  room on Great Vault items, then every Catalyst clone, then bag items one slot
+  at a time. Page order was his slot list, so the weapons and every Catalyst
+  clone used to fall off the end: on 2026-09-09 the `catalyzed` scenario scored
+  identically to `asOffered` because not one clone was in the pool.
+- **Nothing that arrived selected is ever deselected.** A card that is active at
+  import is equipped gear, a vault option, or a clone of one - never a bag item.
+- **The Equip Now and Vault tabs say what was left out**: `QE Live did not
+  consider 27 of your items: ...`, in one shared wording, with every name
+  available to the tab that wants to show them all. A verdict that omits items
+  says so on screen.
+- `Data/QEVerdict.lua` carries an `excluded` list beside `qeSettings` and on
+  every Top Gear document. A file written without one reads exactly as before.
+- **The cap itself is untouched.** It is QE Live's own patron rule and the fork
+  is read and driven, never changed in what it decides.
+
 ### Fixes (2026-09-09, the owner's first look at the M5 window)
 
 - **The Upgrade Map tab no longer errors on open.** Its difficulty dropdown

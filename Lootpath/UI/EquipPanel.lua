@@ -407,7 +407,36 @@ function EquipPanel.NoteText(match)
     if match.bankAvailable == false then
         parts[#parts + 1] = "|cff909296(bank closed - open it to include bank items)|r"
     end
+    -- C-8 (WKE-558): his Top Gear takes thirty items for a non-patron and the
+    -- character owns more, so the set above can be an answer about a subset.
+    -- The panel says so in the companion's own words - one wording, shared with
+    -- the Vault tab - because a verdict that omits items must say so on screen.
+    local excluded = EquipPanel.ExcludedText(match)
+    if excluded then
+        parts[#parts + 1] = EquipPanel.NOTE_COLOR .. excluded .. "|r"
+    end
     return table.concat(parts, "  ")
+end
+
+-- The C-8 line for a match, or nil. Pure, and kept out of NoteText so the drawn
+-- panel can hang the full list off it as a tooltip (WKE-553's style) without
+-- rebuilding the wording.
+function EquipPanel.ExcludedText(match)
+    if type(match) ~= "table" or not match.ok then
+        return nil
+    end
+    if not (ns.Companion and ns.Companion.ExcludedText) then
+        return nil
+    end
+    return ns.Companion.ExcludedText(match.excluded)
+end
+
+-- Every left-out item, for that tooltip. Empty when there is nothing to say.
+function EquipPanel.ExcludedLines(match)
+    if type(match) ~= "table" or not (ns.Companion and ns.Companion.ExcludedLines) then
+        return {}
+    end
+    return ns.Companion.ExcludedLines(match.excluded)
 end
 
 local function tooltipFor(button, text)

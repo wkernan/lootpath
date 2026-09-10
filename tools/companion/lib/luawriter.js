@@ -125,6 +125,56 @@ function documentSettings(doc) {
     return out;
 }
 
+// The items QE Live's Top Gear was never shown (WKE-558, C-8).
+//
+// A non-patron's Top Gear takes thirty items, and the character owns more than
+// thirty; the driver decides which thirty and this is the rest. It is written
+// because a verdict that omits items must say so on screen: the addon prints
+// the count and the names on the Equip Now and Vault tabs, so a set that never
+// mentions the ring in the bags says why rather than looking like an answer
+// about everything the character owns.
+//
+// Names come off QE Live's own cards, so they are HIS strings and go through
+// the same escaper every other string here does. `level` is his item level and
+// is optional; a card whose level could not be read is still named.
+const MAX_EXCLUDED = 200;
+
+function excludedList(value, where) {
+    if (value === undefined || value === null) return null;
+    if (!Array.isArray(value)) {
+        throw new Error(`${where} carries an excluded list that is ${JSON.stringify(value)}, not an array`);
+    }
+    return value.slice(0, MAX_EXCLUDED).map((card) => {
+        if (!card || typeof card !== 'object') {
+            throw new Error(`${where} carries an excluded entry that is ${JSON.stringify(card)}, not a table`);
+        }
+        const name = card.name === undefined || card.name === null ? '' : String(card.name);
+        const slot = card.slot === undefined || card.slot === null ? '' : String(card.slot);
+        const level = card.level === undefined || card.level === null ? null : Number(card.level);
+        if (level !== null && !Number.isFinite(level)) {
+            throw new Error(`${where} carries an excluded entry whose level is ${JSON.stringify(card.level)}`);
+        }
+        return { slot, name, level, vault: !!card.vault, catalyst: !!card.catalyst };
+    });
+}
+
+// The Lua lines for one such list, at the given indent. Written as an array of
+// tables so the addon can name each one; nothing here is computed and nothing
+// here is a healer value.
+function excludedLines(list, indent) {
+    const pad = ' '.repeat(indent);
+    const lines = [`${pad}excluded = {`];
+    for (const card of list) {
+        const fields = [`slot = ${luaString(card.slot)}`, `name = ${luaString(card.name)}`];
+        if (card.level !== null) fields.push(`level = ${luaNumber(card.level)}`);
+        if (card.vault) fields.push('vault = true');
+        if (card.catalyst) fields.push('catalyst = true');
+        lines.push(`${pad}    { ${fields.join(', ')} },`);
+    }
+    lines.push(`${pad}},`);
+    return lines;
+}
+
 // The Mythic+ key level an Upgrade Finder document was run at (WKE-543, C-7),
 // written as the number a player says out loud rather than QE Live's
 // `settings.dungeon`, which is an index into his own table. The addon files
@@ -146,7 +196,7 @@ function keyLevelOf(doc) {
 }
 
 function render(payload) {
-    const { writtenAt, companionVersion, profileCapturedAt, documents, qeSettings } = payload;
+    const { writtenAt, companionVersion, profileCapturedAt, documents, qeSettings, excluded } = payload;
     if (!Array.isArray(documents) || !documents.length) {
         throw new Error('refusing to write a verdict file with no documents');
     }
@@ -175,8 +225,10 @@ function render(payload) {
         '    qeSettings = {',
         ...QE_SETTING_KEYS.map((key) => `        ${key} = ${luaBoolean(qeSettings[key])},`),
         '    },',
-        '    exports = {',
     ];
+    const fileExcluded = excludedList(excluded, 'the file');
+    if (fileExcluded) lines.push(...excludedLines(fileExcluded, 4));
+    lines.push('    exports = {');
     for (const doc of documents) {
         if (!KINDS.has(doc.kind)) throw new Error(`unknown document kind: ${doc.kind}`);
         if (typeof doc.json !== 'string' || !doc.json.length) {
@@ -190,6 +242,15 @@ function render(payload) {
         lines.push('            qeSettings = {');
         for (const [key, value] of documentSettings(doc)) lines.push(`                ${key} = ${luaBoolean(value)},`);
         lines.push('            },');
+        const docExcluded = excludedList(doc.excluded, `document ${doc.kind}/${doc.contentType}`);
+        if (docExcluded) {
+            if (doc.kind !== 'topgear') {
+                throw new Error(
+                    `document ${doc.kind}/${doc.contentType} carries an excluded list, and only a Top Gear document chooses a pool`
+                );
+            }
+            lines.push(...excludedLines(docExcluded, 12));
+        }
         lines.push(
             `            bytes = ${luaNumber(Buffer.byteLength(doc.json, 'utf8'))},`,
             `            json = ${luaString(doc.json)},`,
@@ -208,6 +269,9 @@ module.exports = {
     keyLevelOf,
     scenarioOf,
     documentSettings,
+    excludedList,
+    excludedLines,
+    MAX_EXCLUDED,
     KINDS,
     SCHEMA_BY_KIND,
     QE_SETTING_KEYS,

@@ -231,10 +231,177 @@ async function setContent(page, contentType, log) {
     await page.waitForTimeout(250);
 }
 
-// TopGear/MiniItemCard.tsx: cards are .MuiCardActionArea-root and an active
-// card's parent class contains "selected". topGearCap is 30 for a non-patron
-// (TopGear.tsx), so "everything in the bags" means the first 30.
-async function selectItems(page) {
+// -------------------------------------------------------------------------
+// Which items QE Live is allowed to see (WKE-558, C-8).
+//
+// TopGear.tsx line 177: `topGearCap = patronCaps[patronStatus] || 30`, and
+// line 739 lets a card become active only while `selectedItemCount <
+// topGearCap`. So a non-patron's Top Gear answers a question about THIRTY
+// items, and which thirty is the driver's to decide. Until C-8 it was page
+// order - his slot list, Head first - so with 45+ candidates the late slots
+// and every Catalyst clone were never in his set builder's pool, and nothing
+// in the export said so (2026-09-09 22:48: 57 cards, 30 selected, `catalyzed`
+// scoring identically to `asOffered`).
+//
+// Nothing here is a healer value. This file never scores an item and never
+// orders two items by what they are worth; it decides which items QE Live is
+// ASKED about, and then says out loud which ones it was not.
+//
+// The issue that asked for this (WKE-558) expected the vault items to be
+// outside the 30 and asked for active bag items to be deselected to make room.
+// Both are refuted by his own import engine, read 2026-09-10:
+//
+//   * `SimCImportEngine.ts` line 712, `item.active = protoItem.itemEquipped ||
+//     item.vaultItem` - a vault item is ACTIVE from the moment it is imported,
+//     so it was never the cap that kept the Spaulders out of the answer;
+//   * `Item.ts` line 174, `clonedItem.active = this.active` - an auto-Catalyst
+//     clone (`SimCImportEngine.ts` lines 253-263, cloned out of every
+//     catalysable item) inherits its source's flag, which is why the Catalyst
+//     passes opened with twenty active cards where `asOffered` opened with
+//     nineteen (15 equipped + 4 vault, plus one clone of an active source).
+//
+// So no card that is active at import is a bag item, and deselecting one would
+// drop the character's own gear - or a vault option - out of the pool to make
+// room for something from his bags. Nothing here ever deselects. What the cap
+// really costs is the clones and the bag items, and that is what the order
+// below spends the room on.
+const CARD = '.MuiCardActionArea-root';
+
+// Everything the decision needs about one card, read out of the page in one
+// pass rather than one locator call at a time (57 cards x three round trips is
+// a second of browser on every one of the four imports a run makes).
+//
+// Read from MiniItemCard.tsx, 2026-09-10:
+//   * the Card's own class is `classes[className]` (line 224), one of root /
+//     selected / vault / selectedVault / exclusive / selectedExclusive /
+//     offspec - so "selected" in the class means active and "vault" in it means
+//     a Great Vault item. `classes.catalyst` is declared and never reached by
+//     that ternary, so a clone CANNOT be recognised by its class;
+//   * every card wraps its icon in `WowheadTooltip` (line 296), which renders
+//     `<a data-wowhead="item=<id>&ilvl=<level>&bonus=...&original-item=<id>">`
+//     (WHTooltips.tsx line 33). `original-item` is `item.catalyzedID`, which
+//     `convertToTier` sets to the pre-Catalyst id (Item.ts line 268) - so it is
+//     on a clone and on nothing else;
+//   * the slot is not on the card at all. TopGear.tsx line 791 renders one
+//     `Typography h6` per slot above that slot's grid of cards, so the slot is
+//     the nearest heading above the card, found by walking up.
+async function readCards(page) {
+    return page.evaluate((selector) => {
+        const areas = Array.prototype.slice.call(document.querySelectorAll(selector));
+        return areas.map((area, index) => {
+            const card = area.parentElement;
+            const cls = (card && card.getAttribute('class')) || '';
+            let slot = '';
+            let node = card;
+            while (node && node !== document.body) {
+                const heading = node.querySelector(':scope > .MuiTypography-h6');
+                if (heading) {
+                    slot = (heading.textContent || '').trim();
+                    break;
+                }
+                node = node.parentElement;
+            }
+            const link = area.querySelector('a[data-wowhead]');
+            const data = (link && link.getAttribute('data-wowhead')) || '';
+            const id = /(?:^|[?&])item=(\d+)/.exec(data);
+            const ilvl = /[?&]ilvl=(\d+)/.exec(data);
+            const text = (area.innerText || '')
+                .split('\n')
+                .map((line) => line.trim())
+                .filter(Boolean);
+            const number = text.filter((line) => /^\d+$/.test(line))[0];
+            const name = text.filter((line) => !/^\d+$/.test(line))[0] || '';
+            return {
+                index: index,
+                slot: slot,
+                name: name,
+                level: ilvl ? Number(ilvl[1]) : number ? Number(number) : null,
+                itemID: id ? Number(id[1]) : null,
+                active: /selected/i.test(cls),
+                vault: /vault/i.test(cls),
+                catalyst: /[?&]original-item=[1-9]/.test(data),
+            };
+        });
+    }, CARD);
+}
+
+// One card as the log and the verdict file name it: "Head - Lynx Spaulders 678".
+function cardText(card) {
+    const parts = [card.slot || 'unknown slot', '-', card.name || 'item ' + (card.itemID === null ? '?' : card.itemID)];
+    if (card.level) parts.push(String(card.level));
+    if (card.vault) parts.push('(vault)');
+    if (card.catalyst) parts.push('(catalyst)');
+    return parts.join(' ');
+}
+
+// The pure half: cards in, { keep, activate, excluded } out. No page, no
+// clicking, no scoring - three named groups and then a fair walk over the rest.
+//
+// The order:
+//   1. every card that is already active stays active. That is the character's
+//      equipped set, his vault options, and any clone of one of those - the
+//      three things the scenarios exist to ask about.
+//   2. a vault item that is somehow NOT active. His import engine makes this
+//      group empty today; it is first anyway, because if that line ever changes
+//      the vault must not be the thing that falls out.
+//   3. every Catalyst clone. These are the whole subject of the `catalyzed` and
+//      `thisWeek` scenarios (C-6), and a run that spends its room on bags
+//      answers those two questions with the `asOffered` answer.
+//   4. the bag items, one per slot in turn rather than in page order. Page
+//      order is his slot list, so it fills Head to the cap and leaves the
+//      weapons unasked; a round over the slots gives every slot its best-placed
+//      card before any slot gets a second, and inside a slot his own order is
+//      kept. This is not a ranking: it is a queue that cannot starve a slot.
+function chooseSelection(cards, cap) {
+    const keep = cards.filter((card) => card.active);
+    const rest = cards.filter((card) => !card.active);
+    const vault = rest.filter((card) => card.vault);
+    const catalyst = rest.filter((card) => !card.vault && card.catalyst);
+    const bags = rest.filter((card) => !card.vault && !card.catalyst);
+
+    // One round over the slots at a time, in the order the slots first appear
+    // on his page, so a slot with twelve rings cannot take the room a slot with
+    // one weapon needs.
+    const bySlot = new Map();
+    for (const card of bags) {
+        const slot = card.slot || '';
+        if (!bySlot.has(slot)) bySlot.set(slot, []);
+        bySlot.get(slot).push(card);
+    }
+    const rounds = [];
+    let more = true;
+    while (more) {
+        more = false;
+        for (const queue of bySlot.values()) {
+            if (!queue.length) continue;
+            rounds.push(queue.shift());
+            if (queue.length) more = true;
+        }
+    }
+
+    const wanted = [...vault, ...catalyst, ...rounds];
+    const room = Math.max(0, cap - keep.length);
+    return { keep: keep, activate: wanted.slice(0, room), excluded: wanted.slice(room), room: room, cap: cap };
+}
+
+// What the verdict file and the addon call one left-out card. `level` is QE
+// Live's own item level for it, carried like every other number in that file.
+function excludedFrom(cards) {
+    return cards.map((card) => ({
+        slot: card.slot || '',
+        name: card.name || '',
+        level: card.level || null,
+        itemID: card.itemID === undefined ? null : card.itemID,
+        vault: !!card.vault,
+        catalyst: !!card.catalyst,
+    }));
+}
+
+// The driving half. Clicks exactly the cards `chooseSelection` named, reads the
+// counter back after each one, and refuses a click that did not move it: a card
+// whose state was misread would otherwise be DEselected here, and the run would
+// export a document about a pool nobody chose.
+async function selectItems(page, log) {
     const counter = page.getByText(/Selected Items:\s*\d+\/\d+/).first();
     await counter.waitFor({ timeout: 10000 });
     const readCount = async () => {
@@ -242,18 +409,46 @@ async function selectItems(page) {
         return { n: +m[1], cap: +m[2] };
     };
     let { n, cap } = await readCount();
-    const cards = page.locator('.MuiCardActionArea-root');
-    const total = await cards.count();
-    let clicked = 0;
-    for (let i = 0; i < total && n < cap; i++) {
-        const card = cards.nth(i);
-        const cls = (await card.locator('..').getAttribute('class')) || '';
-        if (/selected/i.test(cls)) continue;
-        await card.click();
-        clicked++;
-        ({ n, cap } = await readCount());
+    const cards = await readCards(page);
+    if (!cards.length) {
+        throw new ForkError(
+            `QE Live's Top Gear page shows "Selected Items: ${n}/${cap}" and no ${CARD} cards at all (MiniItemCard.tsx); refusing to run Top Gear over a pool it could not read`,
+            DRIVE
+        );
     }
-    return { selected: n, cap, cards: total, clicked };
+    const plan = chooseSelection(cards, cap);
+    if (plan.keep.length !== n && log) {
+        // Not fatal: his counter is `getSelectedItems().length` over the whole
+        // player and the cards are what this page drew, so a difference is
+        // worth saying rather than worth stopping for.
+        log.warn(`  QE Live's counter says ${n} selected, and ${plan.keep.length} of the ${cards.length} cards look active`);
+    }
+    const locators = page.locator(CARD);
+    let clicked = 0;
+    for (const card of plan.activate) {
+        const before = n;
+        await locators.nth(card.index).click();
+        ({ n, cap } = await readCount());
+        if (n !== before + 1) {
+            throw new ForkError(
+                `clicking "${cardText(card)}" moved QE Live's counter from ${before} to ${n}, not to ${before + 1}; refusing to run Top Gear over a pool the driver did not choose`,
+                DRIVE
+            );
+        }
+        clicked++;
+    }
+    const excluded = excludedFrom(plan.excluded);
+    if (log) {
+        const vaults = excluded.filter((card) => card.vault).length;
+        const clones = excluded.filter((card) => card.catalyst).length;
+        log.info(
+            `  top gear pool: ${n}/${cap} selected of ${cards.length} cards` +
+                ` (${plan.keep.length} active on import, ${clicked} clicked, ${excluded.length} left out` +
+                `${vaults ? `, ${vaults} of them vault items` : ''}${clones ? `, ${clones} of them Catalyst clones` : ''})`
+        );
+        for (const card of plan.excluded) log.info(`    not considered: ${cardText(card)}`);
+    }
+    return { selected: n, cap: cap, cards: cards.length, clicked: clicked, active: plan.keep.length, excluded: excluded };
 }
 
 // TopGear/Report/MenuDropdown.tsx opens Download JSON / Copy JSON; Copy JSON
@@ -269,13 +464,15 @@ async function readJson(page) {
     return text;
 }
 
+// The document AND the pool it was produced over (C-8): a Top Gear answer that
+// left items out has to be able to say which, so `excluded` travels with the
+// JSON from here all the way to the addon's own note.
 async function runTopGear(page, log) {
     await goTo(page, '/topgear');
-    const selection = await selectItems(page);
-    log.info(`  top gear: ${selection.selected}/${selection.cap} items selected (${selection.cards} cards, ${selection.clicked} clicked)`);
+    const selection = await selectItems(page, log);
     await page.getByRole('button', { name: 'Go!' }).click();
     await page.waitForURL((u) => /\/report\/[a-z0-9]+/.test(u.pathname), { timeout: 120000 });
-    return readJson(page);
+    return { json: await readJson(page), excluded: selection.excluded };
 }
 
 // -------------------------------------------------------------------------
@@ -436,6 +633,8 @@ async function run(config, profileText, log, options) {
     // What was actually asked for, read back off the page, so the verdict file
     // records the run rather than the intention.
     let qeSettings = null;
+    // The items QE Live's Top Gear was never shown, out of the base pass (C-8).
+    let excluded = null;
     try {
         let done = log.stage('  page load');
         // The CRA dev server holds a hot-reload socket open, so "networkidle"
@@ -478,16 +677,27 @@ async function run(config, profileText, log, options) {
                 }
                 const label = `${planned.kind} ${planned.contentType}${at}${planned.scenario ? ` (${planned.scenario})` : ''}`;
                 done = log.stage(`  ${label}`);
-                const json =
+                // Only a Top Gear run chooses a pool, so only a Top Gear
+                // document carries one; an Upgrade Finder document is about
+                // drops and has nothing to leave out (C-8).
+                const produced =
                     planned.kind === 'topgear'
                         ? await runTopGear(page, log)
-                        : await runUpgradeFinder(page, planned.keyLevel, log);
+                        : { json: await runUpgradeFinder(page, planned.keyLevel, log), excluded: null };
+                const json = produced.json;
                 timings.push([`${label} (${json.length} chars)`, done(`${json.length} chars`)]);
+                // The file-level list is the base pass's, for the same reason
+                // the file-level checkbox pair is: it is the pool the answer
+                // the Equip Now tab draws was produced over.
+                if (produced.excluded && (!excluded || pass.scenario === configLib.DEFAULT_SCENARIO)) {
+                    excluded = produced.excluded;
+                }
                 documents.push({
                     kind: planned.kind,
                     contentType: planned.contentType,
                     keyLevel: planned.keyLevel,
                     scenario: planned.scenario,
+                    excluded: produced.excluded,
                     // What the page reported after the click, not what the pass
                     // asked for, so a document says how it was really produced.
                     qeSettings: settings,
@@ -505,13 +715,17 @@ async function run(config, profileText, log, options) {
     } finally {
         await context.close().catch(() => {});
     }
-    return { documents, timings, qeSettings };
+    return { documents, timings, qeSettings, excluded };
 }
 
 module.exports = {
     run,
     ensureUp,
     isUp,
+    readCards,
+    chooseSelection,
+    selectItems,
+    cardText,
     setUpgradeCheckboxes,
     settingsFrom,
     importProfile,
@@ -520,6 +734,7 @@ module.exports = {
     selectKeyLevel,
     exportedKeyIndex,
     runUpgradeFinder,
+    CARD,
     CHECKBOX_LABELS,
     KEY_LEVEL_SECTION,
     ForkError,

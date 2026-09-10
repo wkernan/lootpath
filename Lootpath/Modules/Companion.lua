@@ -160,6 +160,120 @@ function Companion.Settings(raw)
     return settings
 end
 
+-- The items QE Live's Top Gear was never shown (C-8, WKE-558). His Top Gear
+-- takes thirty items for a non-patron, the character owns more, and the
+-- companion decides which thirty; this is the rest, so the panels can say that
+-- the set on screen is an answer about a subset. Optional everywhere: a file
+-- written before C-8 carries none, and so does the committed placeholder.
+--
+-- Nothing is repaired here. An entry with no name is dropped rather than
+-- renamed, a level that is not a whole number is left out rather than rounded,
+-- and the list stops at MAX_EXCLUDED so a broken writer cannot make the panel
+-- print for a page and a half.
+Companion.MAX_EXCLUDED = 200
+
+function Companion.Excluded(raw)
+    local safe, sawSecret = ns.Safe(raw)
+    if sawSecret or type(safe) ~= "table" then
+        return nil
+    end
+    local list = {}
+    for index = 1, math.min(#safe, Companion.MAX_EXCLUDED) do
+        local entry, entrySecret = ns.Safe(safe[index])
+        if not entrySecret and type(entry) == "table" then
+            local name = safeString(entry.name)
+            local slot = safeString(entry.slot)
+            local level, levelSecret = ns.Safe(entry.level)
+            if levelSecret or type(level) ~= "number" or level % 1 ~= 0 or level < 0 then
+                level = nil
+            end
+            local vault, vaultSecret = ns.Safe(entry.vault)
+            local catalyst, catalystSecret = ns.Safe(entry.catalyst)
+            if name then
+                list[#list + 1] = {
+                    name = name,
+                    slot = slot,
+                    level = level,
+                    vault = ((not vaultSecret) and vault == true) or nil,
+                    catalyst = ((not catalystSecret) and catalyst == true) or nil,
+                }
+            end
+        end
+    end
+    if #list == 0 then
+        return nil
+    end
+    return list
+end
+
+-- One left-out item as words: "Lynx Spaulders (Shoulder, 678)". The slot and
+-- the level are QE Live's own strings and his own number, and either may be
+-- missing, so the brackets appear only when there is something to put in them.
+function Companion.ExcludedItemText(entry)
+    if type(entry) ~= "table" or type(entry.name) ~= "string" then
+        return nil
+    end
+    local detail = {}
+    if entry.slot then
+        detail[#detail + 1] = entry.slot
+    end
+    if entry.level then
+        detail[#detail + 1] = tostring(entry.level)
+    end
+    if entry.vault then
+        detail[#detail + 1] = "Great Vault"
+    end
+    if entry.catalyst then
+        detail[#detail + 1] = "Catalyst"
+    end
+    if #detail == 0 then
+        return entry.name
+    end
+    return string.format("%s (%s)", entry.name, table.concat(detail, ", "))
+end
+
+-- Every left-out item as words, in the order the companion wrote them. This is
+-- what a tooltip shows; the line below is what a panel prints.
+function Companion.ExcludedLines(excluded)
+    local lines = {}
+    if type(excluded) ~= "table" then
+        return lines
+    end
+    for _, entry in ipairs(excluded) do
+        local text = Companion.ExcludedItemText(entry)
+        if text then
+            lines[#lines + 1] = text
+        end
+    end
+    return lines
+end
+
+-- How many names the one-line version says before it counts the rest. Three
+-- fits the panel's width at the sizes M5-2 settled on; the tooltip has them all.
+Companion.EXCLUDED_NAMED = 3
+
+-- The line both the Equip Now tab and the Vault tab print when the answer on
+-- screen was produced over a subset of what the character owns (C-8). One
+-- wording, in one place, so the two tabs cannot drift apart about it.
+--
+-- It says a count and then names, because the count is the part that changes
+-- how the set is read and the names are the part that says whether it matters.
+function Companion.ExcludedText(excluded)
+    local names = Companion.ExcludedLines(excluded)
+    if #names == 0 then
+        return nil
+    end
+    local shownNames = {}
+    for index = 1, math.min(#names, Companion.EXCLUDED_NAMED) do
+        shownNames[index] = names[index]
+    end
+    local line = string.format("QE Live did not consider %d of your items: %s", #names, table.concat(shownNames, ", "))
+    if #names > #shownNames then
+        line = string.format("%s and %d more", line, #names - #shownNames)
+    end
+    return line .. "."
+end
+
 -- Which named scenario a Top Gear document answers (C-6, WKE-540). Optional in
 -- exactly the way the key level is: an Upgrade Finder document never carries
 -- one, and a file written before C-6 carries none at all. The name is passed
@@ -207,6 +321,7 @@ function Companion.Validate(raw, now)
         writtenAtEpoch = writtenAtEpoch,
         companionVersion = safeString(safe.companionVersion),
         qeSettings = Companion.Settings(safe.qeSettings),
+        excluded = Companion.Excluded(safe.excluded),
         exports = exports,
     }
 end
@@ -252,6 +367,11 @@ function Companion.Entry(raw, index)
         -- each one says which. A document that does not carry the pair falls
         -- back to the file's, which is every file written before C-6.
         qeSettings = Companion.Settings(safe.qeSettings),
+        -- Per document since C-8, because each Top Gear pass chooses its own
+        -- pool: the Catalyst passes have clones to leave out that the base pass
+        -- never had. A document that does not carry a list falls back to the
+        -- file's, which is every file written before C-8.
+        excluded = Companion.Excluded(safe.excluded),
         json = json,
     }
 end
@@ -269,7 +389,7 @@ local function storedAt(verdict)
 end
 
 -- Import every export the file carries. Returns
---   { ok, writtenAt, writtenAtEpoch, companionVersion, qeSettings,
+--   { ok, writtenAt, writtenAtEpoch, companionVersion, qeSettings, excluded,
 --     imported = { { contentType, spec, items, warnings } },
 --     skipped  = { { index, reason, contentType, stale } },
 --     unchanged = { contentType } }
@@ -287,6 +407,7 @@ function Companion.ImportAll(raw, now)
         writtenAtEpoch = file.writtenAtEpoch,
         companionVersion = file.companionVersion,
         qeSettings = file.qeSettings,
+        excluded = file.excluded,
         imported = {},
         skipped = {},
         unchanged = {},
@@ -365,6 +486,15 @@ function Companion.ImportAll(raw, now)
                     -- screen, which may have come back from SavedVariables
                     -- reloads after the file that wrote it was replaced.
                     verdict.qeSettings = entry.qeSettings or file.qeSettings
+                    -- Carried the same way, and for the same reason: the note
+                    -- that says which items QE Live never saw is drawn off
+                    -- whichever verdict is on screen (C-8). Only a Top Gear
+                    -- verdict gets one - an Upgrade Finder document is about
+                    -- drops and chose no pool - so an Upgrade Finder verdict
+                    -- never inherits the file's list.
+                    if entry.schema == Companion.TOP_GEAR_SCHEMA then
+                        verdict.excluded = entry.excluded or file.excluded
+                    end
                     local stored = importer.Store(verdict)
                     if not stored.ok then
                         result.skipped[#result.skipped + 1] = { index = index, reason = stored.reason }

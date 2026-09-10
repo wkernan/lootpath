@@ -114,6 +114,38 @@ describe("the companion's Data/QEVerdict.lua", function()
         assert.are.equal(#HOSTILE, documents[4].bytes)
     end)
 
+    -- C-8 (WKE-558): a non-patron's Top Gear takes thirty items and the
+    -- character owns more, so the file names the ones QE Live was never shown.
+    -- A verdict that omits items must say so on screen, and the panels can only
+    -- say it if the names survive the chunk.
+    it("names the items QE Live's Top Gear was never shown", function()
+        local file = load().companionVerdict
+        assert.are.equal(3, #file.excluded)
+        assert.are.equal("Finger", file.excluded[1].slot)
+        -- The quote in the name is the point: it came off QE Live's own card
+        -- and went through the same escaper the JSON does.
+        assert.are.equal('Band of the "Quoted" Name', file.excluded[1].name)
+        assert.are.equal(678, file.excluded[1].level)
+        assert.are.equal("number", type(file.excluded[1].level))
+        assert.is_true(file.excluded[2].vault)
+        assert.is_nil(file.excluded[1].vault, "a bag item does not claim to be a vault item")
+        -- A card whose level could not be read is still named.
+        assert.is_nil(file.excluded[3].level)
+        assert.are.equal("a trinket with no level", file.excluded[3].name)
+    end)
+
+    it("gives each Top Gear document its own pool leftovers", function()
+        local documents = load().companionVerdict.exports
+        -- The Catalyst pass has a clone to leave out that the base pass never
+        -- had, so one list for the whole file would be wrong about one of them.
+        assert.are.equal(3, #documents[1].excluded)
+        assert.are.equal(4, #documents[2].excluded)
+        assert.is_true(documents[2].excluded[4].catalyst)
+        assert.are.equal("a Catalyst clone", documents[2].excluded[4].name)
+        assert.is_nil(documents[3].excluded, "an Upgrade Finder document chooses no pool")
+        assert.is_nil(documents[4].excluded)
+    end)
+
     it("is inert: loading it twice touches nothing but the namespace it is given", function()
         local chunk = loadfile(GOLDEN)
         local first = {}
@@ -130,6 +162,39 @@ describe("the companion's Data/QEVerdict.lua", function()
         assert.are.equal(before, _G.companionVerdict)
     end)
 
+    -- Since C-8 the chunk also holds one-line tables: `{ slot = "Head", name =
+    -- "x", level = 700 },`. They are data too, and they are checked field by
+    -- field rather than waved through - a key, an `=`, and a quoted string, a
+    -- whole number or `true`, and nothing that could be a call.
+    local function isInlineTable(line)
+        local body = line:match("^%s*{ (.*) },$")
+        if not body then
+            return false
+        end
+        -- Escaped backslashes first, then escaped quotes, so a name that holds
+        -- either cannot end a literal early here any more than it can in Lua.
+        local stripped = body:gsub("\\\\", "@"):gsub('\\"', "@"):gsub('"[^"]*"', '""')
+        for field in (stripped .. ", "):gmatch("(.-), ") do
+            local ok = field:match('^[%w_]+ = ""$') or field:match("^[%w_]+ = %d+$") or field:match("^[%w_]+ = true$")
+            if not ok then
+                return false
+            end
+        end
+        return true
+    end
+
+    -- The guard above is itself a guard, so it is proven rather than trusted:
+    -- a one-line table that hides a call, a key it did not expect or an
+    -- unterminated literal is not a line this waves through.
+    it("does not wave through a one-line table that could run something", function()
+        assert.is_true(isInlineTable('    { slot = "Head", name = "a \\"]] end -- name", level = 700 },'))
+        assert.is_true(isInlineTable("    { vault = true },"))
+        assert.is_false(isInlineTable('    { name = os.execute("calc") },'))
+        assert.is_false(isInlineTable("    { name = ns.Something },"))
+        assert.is_false(isInlineTable('    { name = "unterminated },'))
+        assert.is_false(isInlineTable("    qeSettings = { autoUpgradeVault = false },"))
+    end)
+
     it("holds no source a client could execute", function()
         local source = assert(io.open(GOLDEN, "rb"))
         local text = source:read("*a")
@@ -143,6 +208,7 @@ describe("the companion's Data/QEVerdict.lua", function()
                 or line:match("^end$")
                 or line:match("^%s*[%w_.]+ = ")
                 or line:match("^%s*[{}],?$")
+                or isInlineTable(line)
             assert.is_truthy(ok, "unexpected line in a data-only chunk: " .. line)
         end
     end)

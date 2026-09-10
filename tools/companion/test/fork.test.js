@@ -211,3 +211,251 @@ test('the boxes are set before Submit, because handleSubmit reads their state', 
     assert.deepStrictEqual(order, [`fill:${profile.length}`, 'checkbox:Upgrade Vault to Max Level', 'submit']);
     assert.strictEqual(settings.autoUpgradeVault.want, false);
 });
+
+// -------------------------------------------------------------------------
+// C-8 (WKE-558): which thirty items QE Live's Top Gear is asked about.
+//
+// The page below is a fake, and what it fakes is HIS rule: a card can become
+// active only while the counter is under the cap (TopGear.tsx line 739), the
+// counter is the number of active cards, and clicking an active card would
+// deselect it. Nothing here opens a browser.
+//
+// The DOM read (`readCards`) is deliberately not faked twice: it is one
+// `page.evaluate` whose result shape is what every test below hands in, and
+// the decision it feeds - `chooseSelection` - is pure and is where the whole of
+// C-8 lives.
+
+// A card as `readCards` returns it.
+function card(index, slot, name, extra) {
+    return {
+        index: index,
+        slot: slot,
+        name: name,
+        level: 600 + index,
+        itemID: 200000 + index,
+        active: false,
+        vault: false,
+        catalyst: false,
+        ...(extra || {}),
+    };
+}
+
+// The shape of the owner's 2026-09-09 22:48 page, as the run logged it: 57
+// cards, 19 of them active on import (15 equipped + 4 vault), and on a Catalyst
+// pass six clones on top with one of them active.
+function ownersPage(options) {
+    const opts = options || {};
+    const slots = ['Head', 'Neck', 'Shoulder', 'Back', 'Chest', 'Wrist', 'Hands', 'Waist', 'Legs', 'Feet', 'Finger', 'Trinket', 'Weapons', 'Offhands'];
+    const cards = [];
+    let index = 0;
+    for (let i = 0; i < 15; i++) cards.push(card(index++, slots[i % slots.length], `equipped ${i}`, { active: true }));
+    for (let i = 0; i < 4; i++) cards.push(card(index++, slots[i], `vault ${i}`, { active: true, vault: true }));
+    for (let i = 0; i < 38; i++) cards.push(card(index++, slots[i % slots.length], `bag ${i}`));
+    if (opts.clones) {
+        for (let i = 0; i < opts.clones; i++) {
+            cards.push(card(index++, slots[i % slots.length], `clone ${i}`, { catalyst: true, active: i === 0 }));
+        }
+    }
+    return cards;
+}
+
+// A page whose counter and cards obey his rule, so a driver that clicks the
+// wrong card is caught by the counter rather than by an assertion.
+function fakeTopGearPage(cards, cap) {
+    const state = cards.map((c) => ({ ...c }));
+    const clicks = [];
+    const page = {
+        cards: state,
+        clicks: clicks,
+        cap: cap,
+        count() {
+            return state.filter((c) => c.active).length;
+        },
+        getByText() {
+            return {
+                first: () => ({
+                    async waitFor() {},
+                    async innerText() {
+                        return `Selected Items: ${page.count()}/${cap}`;
+                    },
+                }),
+            };
+        },
+        async evaluate() {
+            return state.map((c) => ({ ...c }));
+        },
+        locator(selector) {
+            if (selector !== forkLib.CARD) throw new Error(`unexpected selector ${selector}`);
+            return {
+                nth(i) {
+                    return {
+                        async click() {
+                            clicks.push(i);
+                            const target = state[i];
+                            if (!target) throw new Error(`no card ${i}`);
+                            // His own guard: past the cap a click does nothing.
+                            if (!target.active && page.count() >= cap) return;
+                            target.active = !target.active;
+                        },
+                    };
+                },
+            };
+        },
+    };
+    return page;
+}
+
+test('C-8: the room left by the cap goes to the vault, then the Catalyst clones, then the bags', () => {
+    const plan = forkLib.chooseSelection(ownersPage({ clones: 6 }), 30);
+    // 19 equipped/vault + 1 active clone = 20 active on import, so 10 of room.
+    assert.strictEqual(plan.keep.length, 20);
+    assert.strictEqual(plan.room, 10);
+    const chosen = plan.activate;
+    assert.strictEqual(chosen.length, 10);
+    // Every clone that was not already active is in, and it got there before a
+    // single bag item did: the `catalyzed` and `thisWeek` scenarios are ABOUT
+    // the clones, and on 2026-09-09 not one of them was in the pool.
+    assert.strictEqual(chosen.filter((c) => c.catalyst).length, 5, 'the five inactive clones');
+    for (let i = 0; i < 5; i++) assert.ok(chosen[i].catalyst, `position ${i} should be a clone`);
+    assert.strictEqual(plan.excluded.filter((c) => c.catalyst).length, 0, 'no clone is left out');
+});
+
+test('C-8: nothing that arrived active is ever deselected', () => {
+    // The issue asked for active bag items to be deselected to make room. There
+    // are none: `SimCImportEngine.ts` line 712 makes equipped items and VAULT
+    // items active at import, and `Item.ts` line 174 gives a clone its source's
+    // flag. Deselecting one would drop the character's own gear out of the pool.
+    const cards = ownersPage({ clones: 6 });
+    const plan = forkLib.chooseSelection(cards, 30);
+    for (const chosen of plan.activate) assert.strictEqual(chosen.active, false, chosen.name);
+    for (const left of plan.excluded) assert.strictEqual(left.active, false, left.name);
+    assert.strictEqual(plan.keep.length + plan.activate.length + plan.excluded.length, cards.length);
+});
+
+test('C-8: a cap already full selects nothing rather than trading one item for another', () => {
+    const cards = ownersPage({ clones: 6 }).map((c, i) => ({ ...c, active: i < 30 }));
+    const plan = forkLib.chooseSelection(cards, 30);
+    assert.strictEqual(plan.room, 0);
+    assert.deepStrictEqual(plan.activate, []);
+    assert.strictEqual(plan.excluded.length, cards.length - 30);
+});
+
+test('C-8: bag items are taken a slot at a time, so a late slot is never starved', () => {
+    // Page order is his slot list, Head first (TopGear.tsx line 791). Twelve
+    // rings ahead of one weapon used to mean the weapon was never asked about.
+    const cards = [];
+    for (let i = 0; i < 12; i++) cards.push(card(cards.length, 'Finger', `ring ${i}`));
+    cards.push(card(cards.length, 'Weapons', 'the one weapon'));
+    cards.push(card(cards.length, 'Trinket', 'the one trinket'));
+    const plan = forkLib.chooseSelection(cards, 3);
+    assert.deepStrictEqual(
+        plan.activate.map((c) => c.name),
+        ['ring 0', 'the one weapon', 'the one trinket']
+    );
+    // And inside a slot his own order is kept.
+    const wide = forkLib.chooseSelection(cards, 6);
+    assert.deepStrictEqual(
+        wide.activate.map((c) => c.name),
+        ['ring 0', 'the one weapon', 'the one trinket', 'ring 1', 'ring 2', 'ring 3']
+    );
+});
+
+test('C-8: a vault item that is somehow not active comes before every clone and every bag item', () => {
+    const cards = [
+        card(0, 'Head', 'equipped', { active: true }),
+        card(1, 'Finger', 'a ring'),
+        card(2, 'Shoulder', 'a clone', { catalyst: true }),
+        card(3, 'Shoulder', 'the vault spaulders', { vault: true }),
+    ];
+    const plan = forkLib.chooseSelection(cards, 3);
+    assert.deepStrictEqual(
+        plan.activate.map((c) => c.name),
+        ['the vault spaulders', 'a clone']
+    );
+    assert.deepStrictEqual(
+        plan.excluded.map((c) => c.name),
+        ['a ring']
+    );
+});
+
+test('C-8: selectItems clicks exactly what the plan named and reports the leftovers', async () => {
+    const cards = ownersPage({ clones: 6 });
+    const page = fakeTopGearPage(cards, 30);
+    const selection = await forkLib.selectItems(page, quietLog());
+    assert.strictEqual(selection.selected, 30);
+    assert.strictEqual(selection.cap, 30);
+    assert.strictEqual(selection.cards, cards.length);
+    assert.strictEqual(selection.clicked, 10);
+    assert.strictEqual(selection.active, 20);
+    assert.strictEqual(page.clicks.length, 10);
+    // Every clicked card was inactive before the run, and the counter agrees.
+    assert.strictEqual(page.count(), 30);
+    // The leftovers are named, with the slot and the level QE Live's own card
+    // carried, and every one of them is a bag item.
+    assert.strictEqual(selection.excluded.length, cards.length - 30);
+    for (const left of selection.excluded) {
+        assert.strictEqual(left.vault, false);
+        assert.strictEqual(left.catalyst, false);
+        assert.ok(left.name.startsWith('bag '), left.name);
+        assert.ok(left.slot.length > 0);
+        assert.strictEqual(typeof left.level, 'number');
+    }
+});
+
+test('C-8: a click that does not move his counter fails the run', async () => {
+    // The failure this guards is a misread card: clicking one that is really
+    // active DEselects it, and the run would then export a document about a
+    // pool nobody chose. The fake makes it happen by lying about one card.
+    const cards = ownersPage({});
+    cards[25].active = true; // really active, reported as not
+    const page = fakeTopGearPage(cards, 30);
+    page.evaluate = async () => cards.map((c, i) => ({ ...c, active: i === 25 ? false : c.active }));
+    await assert.rejects(
+        () => forkLib.selectItems(page, quietLog()),
+        (e) => {
+            assert.strictEqual(e.code, forkLib.DRIVE);
+            assert.match(e.message, /moved QE Live's counter/);
+            assert.match(e.message, /refusing to run Top Gear/);
+            return true;
+        }
+    );
+});
+
+test('C-8: a Top Gear page with no cards is a named failure, not an empty pool', async () => {
+    const page = fakeTopGearPage([], 30);
+    await assert.rejects(
+        () => forkLib.selectItems(page, quietLog()),
+        (e) => {
+            assert.strictEqual(e.code, forkLib.DRIVE);
+            assert.match(e.message, /no \.MuiCardActionArea-root cards at all/);
+            return true;
+        }
+    );
+});
+
+test('C-8: what the driver reports as excluded is exactly what the verdict writer accepts', async () => {
+    const page = fakeTopGearPage(ownersPage({ clones: 6 }), 30);
+    const selection = await forkLib.selectItems(page, quietLog());
+    const settings = { autoUpgradeAll: false, autoUpgradeVault: false, autoCatalyze: false };
+    const text = luaWriter.render({
+        writtenAt: '2026-09-10T00:00:00Z',
+        companionVersion: '0.1.0',
+        qeSettings: { autoUpgradeAll: false, autoUpgradeVault: false },
+        excluded: selection.excluded,
+        documents: [
+            {
+                kind: 'topgear',
+                contentType: 'Dungeon',
+                scenario: 'asOffered',
+                qeSettings: settings,
+                excluded: selection.excluded,
+                json: '{}',
+            },
+        ],
+    });
+    assert.ok(text.includes('    excluded = {'), 'the file-level list');
+    assert.ok(text.includes('            excluded = {'), "the document's own list");
+    const first = selection.excluded[0];
+    assert.ok(text.includes(`name = ${JSON.stringify(first.name)}`), text.slice(0, 600));
+    assert.ok(text.includes(`slot = ${JSON.stringify(first.slot)}, name = ${JSON.stringify(first.name)}, level = ${first.level}`));
+});

@@ -208,6 +208,10 @@ async function once(config, log, args, deps) {
             // that reports nothing (the injected one in the tests) falls back
             // to the configured pair.
             qeSettings: run.qeSettings || wanted,
+            // The items the base pass's Top Gear was never shown (C-8). A
+            // driver that reports nothing writes no list, which is what every
+            // file written before C-8 carries.
+            excluded: run.excluded || null,
             documents: run.documents,
         });
         const written = output.writeVerdict(target, text);

@@ -15,6 +15,11 @@ ns.companionVerdict = {
         autoUpgradeVault = false,
         autoUpgradeAll = false,
     },
+    excluded = {
+        { slot = "Finger", name = "Band of the \"Quoted\" Name", level = 678 },
+        { slot = "Shoulder", name = "Spaulders of the Vault", level = 691, vault = true },
+        { slot = "Trinket", name = "a trinket with no level" },
+    },
     exports = {
         {
             schema = "qe-live-droptimizer",
@@ -24,6 +29,11 @@ ns.companionVerdict = {
                 autoUpgradeVault = false,
                 autoUpgradeAll = false,
                 autoCatalyze = false,
+            },
+            excluded = {
+                { slot = "Finger", name = "Band of the \"Quoted\" Name", level = 678 },
+                { slot = "Shoulder", name = "Spaulders of the Vault", level = 691, vault = true },
+                { slot = "Trinket", name = "a trinket with no level" },
             },
             bytes = 44,
             json = "{\"schema\":\"qe-live-droptimizer\",\"version\":1}",
@@ -36,6 +46,12 @@ ns.companionVerdict = {
                 autoUpgradeVault = false,
                 autoUpgradeAll = false,
                 autoCatalyze = true,
+            },
+            excluded = {
+                { slot = "Finger", name = "Band of the \"Quoted\" Name", level = 678 },
+                { slot = "Shoulder", name = "Spaulders of the Vault", level = 691, vault = true },
+                { slot = "Trinket", name = "a trinket with no level" },
+                { slot = "Shoulder", name = "a Catalyst clone", level = 678, catalyst = true },
             },
             bytes = 61,
             json = "{\"schema\":\"qe-live-droptimizer\",\"version\":1,\"catalyzed\":true}",
