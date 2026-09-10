@@ -48,6 +48,24 @@ test("a positional entry and a numeric key land in the same 1-based space", () =
   assert.deepEqual(luaArray(db.Root), ["first", "this is index 2 by position"]);
 });
 
+test("an empty bag slot between filled ones is a literal nil in the file, and the bag walk steps over it", () => {
+  // Measured 2026-09-09 21:06 in the owner's live SavedVariables: Blizzard's
+  // serialiser writes a sparse items list as positional entries with `nil,` in
+  // the gaps, so a freed backpack slot became a null entry and the walk read
+  // `.link` on it ("Cannot read properties of null"). The parser keeps the null
+  // so slot numbers stay right; the walk must skip it.
+  const db = parseSavedVariables(['Root = {', '{ ["link"] = { "a", ["n"] = 1 } },', 'nil,', '{ ["link"] = { "c", ["n"] = 1 } },', "}"].join("\n"));
+  assert.deepEqual(luaArray(db.Root).map((e) => (e ? e.link["1"] : null)), ["a", null, "c"]);
+  const transcript = readTranscript(transcriptText);
+  const bag = luaArray(transcript.inventory.data.bags)[0];
+  const slots = Object.keys(bag.items);
+  bag.items[String(Number(slots[0]) + 100)] = null;
+  const equipped = luaArray(transcript.inventory.data.equipped);
+  transcript.inventory.data.equipped[String(equipped.length + 1)] = null;
+  const profile = buildProfile(transcript);
+  assert.ok(profile.text.split("\n").length > 10);
+});
+
 test("refuses a malformed table instead of guessing, and names the line", () => {
   // Proven red: without the `expected a value` throw this returns a truncated
   // table and every count downstream is quietly wrong.

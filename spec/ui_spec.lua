@@ -1658,6 +1658,59 @@ describe("the launcher (M5-2)", function()
         end
     end)
 
+    it("sits just outside whatever size the minimap really is, not a fixed 80 points", function()
+        -- ElvUI and other minimap addons resize the minimap after login; a
+        -- fixed radius left the button inside the map (owner, 2026-09-09).
+        local x, y = ns.UI.MinimapButtonOffset(0, 200, 200)
+        assert.equal(100 + ns.UI.MINIMAP_MARGIN, x)
+        assert.is_true(math.abs(y) < 1e-9)
+        -- the default 140-point map is the old 80
+        x = ns.UI.MinimapButtonOffset(0, 140, 140)
+        assert.equal(80, x)
+        assert.equal(80, ns.UI.MINIMAP_RADIUS)
+    end)
+
+    it("hugs a square minimap's edge instead of a circle inside it", function()
+        -- GetMinimapShape() == "SQUARE" is the convention square-minimap addons
+        -- (ElvUI among them) publish and LibDBIcon reads. On a circle the
+        -- diagonal point would sit at (w cos 45, w sin 45), inside the corner.
+        local w = 100 + ns.UI.MINIMAP_MARGIN
+        local x, y = ns.UI.MinimapButtonOffset(45, 200, 200, "SQUARE")
+        -- the corner: on the diagonal, within the margin of the edge, never
+        -- past it (LibDBIcon's convention, so the button does not poke out)
+        assert.is_true(math.abs(x - y) < 1e-9)
+        assert.is_true(x > w - ns.UI.MINIMAP_MARGIN and x <= w)
+        -- and on a circle the same angle would sit well inside that corner
+        local rx = ns.UI.MinimapButtonOffset(45, 200, 200, "ROUND")
+        assert.is_true(rx < x)
+        x, y = ns.UI.MinimapButtonOffset(0, 200, 200, "SQUARE")
+        assert.equal(w, x)
+        assert.is_true(math.abs(y) < 1e-9)
+        x, y = ns.UI.MinimapButtonOffset(200, 200, 200, "SQUARE")
+        assert.is_true(x >= -w and x <= w and y >= -w and y <= w)
+        -- an unknown shape is treated as round
+        x = ns.UI.MinimapButtonOffset(0, 200, 200, "SOMETHING-ELSE")
+        assert.equal(w, x)
+    end)
+
+    it("moves with the minimap when the minimap is resized, and reads the client's shape", function()
+        local button = ns.UI.minimapButton
+        _G.Minimap:SetSize(200, 200)
+        _G.Minimap:GetScript("OnSizeChanged")(_G.Minimap)
+        local x, y = ns.UI.MinimapButtonOffset(ns.DB_DEFAULTS.profile.settings.minimapAngle, 200, 200)
+        local point = button.points[#button.points]
+        assert.same({ "CENTER", "CENTER" }, { point[1], point[3] })
+        assert.equal(_G.Minimap, point[2])
+        assert.is_true(math.abs(point[4] - x) < 1e-9 and math.abs(point[5] - y) < 1e-9)
+        _G.GetMinimapShape = function()
+            return "SQUARE"
+        end
+        ns.UI.SetMinimapAngle(0)
+        point = button.points[#button.points]
+        assert.equal(100 + ns.UI.MINIMAP_MARGIN, point[4])
+        _G.GetMinimapShape = nil
+    end)
+
     it("saves where the button was dragged to, in the profile", function()
         local button = ns.UI.minimapButton
         _G.Minimap.center = { 500, 400 }

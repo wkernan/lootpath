@@ -804,19 +804,58 @@ end
 -- addon with one user does not need LibDBIcon vendored and licence-recorded to
 -- put a 31-point button on a circle.
 
--- How far from the minimap's centre the button sits, and where it starts. The
--- radius is the one every minimap button uses: the minimap is 140 points across
--- at default scale, so 80 puts the button just outside its edge. The angle is
--- degrees counter-clockwise from east, which is the convention LibDBIcon's
--- saved variables use and the one a dragged position is measured back into.
-UI.MINIMAP_RADIUS = 80
+-- How far outside the minimap's edge the button sits, and where it starts. The
+-- minimap is 140 points across at default scale, so the margin puts the button
+-- at 80 from the centre there (`UI.MINIMAP_RADIUS`, kept for the tests and as
+-- the fallback when there is no minimap to measure) - but addons resize the
+-- minimap after login (ElvUI, the owner's, 2026-09-09), so the radius is read
+-- off `Minimap:GetWidth()` / `GetHeight()` at every placement, never fixed.
+-- The angle is degrees counter-clockwise from east, which is the convention
+-- LibDBIcon's saved variables use and the one a dragged position is measured
+-- back into.
+UI.MINIMAP_MARGIN = 10
+UI.MINIMAP_DEFAULT_SIZE = 140
+UI.MINIMAP_RADIUS = UI.MINIMAP_DEFAULT_SIZE / 2 + UI.MINIMAP_MARGIN
 UI.MINIMAP_BUTTON_SIZE = 31
 
--- Where a button at this angle goes, relative to the minimap's centre. Pure, so
--- the placement is a test and not a screenshot.
-function UI.MinimapButtonOffset(angle)
+-- The minimap's shape, as the client's minimap addon publishes it: a global
+-- `GetMinimapShape()` returning "ROUND" or "SQUARE" (and, for some addons,
+-- corner and side variants) is the convention every minimap-button library
+-- reads. Only "SQUARE" changes the placement here; anything else is round.
+function UI.MinimapShape()
+    local fn = rawget(_G, "GetMinimapShape")
+    if type(fn) == "function" then
+        local ok, shape = pcall(fn)
+        if ok and type(shape) == "string" then
+            return shape
+        end
+    end
+    return "ROUND"
+end
+
+-- Where a button at this angle goes, relative to the minimap's centre, for a
+-- minimap of this size and shape. Pure, so the placement is a test and not a
+-- screenshot. On a round map the button rides a circle just outside the edge;
+-- on a square one it rides the square, clamped to the edge, so the corners are
+-- reachable and the sides are not inside the map.
+function UI.MinimapButtonOffset(angle, width, height, shape)
     local radians = math.rad(tonumber(angle) or 0)
-    return UI.MINIMAP_RADIUS * math.cos(radians), UI.MINIMAP_RADIUS * math.sin(radians)
+    local w = (tonumber(width) or UI.MINIMAP_DEFAULT_SIZE) / 2 + UI.MINIMAP_MARGIN
+    local h = (tonumber(height) or UI.MINIMAP_DEFAULT_SIZE) / 2 + UI.MINIMAP_MARGIN
+    local cx, cy = math.cos(radians), math.sin(radians)
+    if shape == "SQUARE" then
+        local dw = math.sqrt(2 * w * w) - UI.MINIMAP_MARGIN
+        local dh = math.sqrt(2 * h * h) - UI.MINIMAP_MARGIN
+        return math.max(-w, math.min(cx * dw, w)), math.max(-h, math.min(cy * dh, h))
+    end
+    return cx * w, cy * h
+end
+
+-- The minimap as it is right now: its size in points and its published shape.
+function UI.MinimapGeometry()
+    local width = Minimap and Minimap.GetWidth and Minimap:GetWidth()
+    local height = Minimap and Minimap.GetHeight and Minimap:GetHeight()
+    return tonumber(width) or UI.MINIMAP_DEFAULT_SIZE, tonumber(height) or UI.MINIMAP_DEFAULT_SIZE, UI.MinimapShape()
 end
 
 -- The angle a cursor at (x, y) makes with a minimap centred at (cx, cy),
@@ -848,7 +887,7 @@ function UI.SetMinimapAngle(angle)
     end
     local button = UI.minimapButton
     if button then
-        local x, y = UI.MinimapButtonOffset(angle)
+        local x, y = UI.MinimapButtonOffset(angle, UI.MinimapGeometry())
         button:ClearAllPoints()
         button:SetPoint("CENTER", Minimap, "CENTER", x, y)
     end
@@ -937,6 +976,14 @@ function UI.MinimapButton()
             GameTooltip:Hide()
         end
     end)
+
+    -- Minimap addons size the minimap after this addon has placed the button,
+    -- so the placement follows the minimap's size rather than assuming it.
+    if Minimap.HookScript then
+        Minimap:HookScript("OnSizeChanged", function()
+            UI.SetMinimapAngle(UI.GetMinimapAngle())
+        end)
+    end
 
     UI.SetMinimapAngle(UI.GetMinimapAngle())
     return button
