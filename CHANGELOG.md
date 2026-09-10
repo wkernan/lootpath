@@ -4,6 +4,12 @@
 
 ### Fixes (2026-09-09, the owner's first look at the M5 window)
 
+- **The Upgrade Map tab no longer errors on open.** Its difficulty dropdown
+  was built from Blizzard's filter template, which has a fixed "Filter" caption
+  and no way to show the chosen difficulty; the tab asked it to anyway and the
+  client raised "attempt to call a nil value". It is now the selection
+  template the Vault tab already uses, and the headless client models what each
+  template really has.
 - **The companion no longer dies on an empty bag slot.** Blizzard writes a freed
   slot between two filled ones as a literal `nil,` in the SavedVariables; the
   walk over bag items, equipped items and vault rewards now steps over it

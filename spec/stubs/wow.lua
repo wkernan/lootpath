@@ -452,14 +452,15 @@ local function attachScrollBoxList(box, world)
     end
 end
 
--- WowStyle1FilterDropdownTemplate over the 11.0 menu API. The generator is
+-- WowStyle1FilterDropdownTemplate and WowStyle1DropdownTemplate over the 11.0
+-- menu API (both are DropdownButtonMixin; MenuTemplates.lua:753 and :776). The generator is
 -- handed the dropdown and a root description and calls CreateRadio /
 -- CreateButton / CreateTitle / SetTag on it (DropdownButton.lua:237 SetupMenu,
 -- :255 GenerateMenu; MenuUtil.lua:226 CreateRadio(text, isSelected,
 -- setSelected, data)). What is modelled is which elements the generator asked
 -- for and what each one does when it is picked, which is the whole contract
 -- the panel depends on; the menu's pixels are the client's.
-local function attachFilterDropdown(dropdown)
+local function attachMenuDropdown(dropdown)
     dropdown.menuElements = {}
 
     local function rootDescription(list)
@@ -516,17 +517,14 @@ local function attachFilterDropdown(dropdown)
         self.menuElements = {}
         self.rootDescription = rootDescription(self.menuElements)
         self.menuGenerator(self, self.rootDescription)
+        -- The generic DropdownButton's Pick/SelectedIndex read these.
+        self.menuEntries = self.menuElements
+        self.menuTag = self.rootDescription.tag
     end
     function dropdown:SetupMenu(generator)
         assert(type(generator) == "function", "SetupMenu: argument is not a function")
         self.menuGenerator = generator
         self:GenerateMenu()
-    end
-    function dropdown:SetDefaultText(text)
-        self.defaultText = text
-    end
-    function dropdown:SetSelectionText(formatter)
-        self.selectionTextFormatter = formatter
     end
     dropdown.IsMenuOpen = function()
         return false
@@ -578,8 +576,21 @@ local function attachTemplate(f, world, template)
     if template:find("WowScrollBoxList", 1, true) then
         attachScrollBoxList(f, world)
     end
-    if template:find("WowStyle1FilterDropdownTemplate", 1, true) then
-        attachFilterDropdown(f)
+    local isFilterDropdown = template:find("WowStyle1FilterDropdownTemplate", 1, true) ~= nil
+    local isSelectionDropdown = template:find("WowStyle1DropdownTemplate", 1, true) ~= nil
+    if isFilterDropdown or isSelectionDropdown then
+        attachMenuDropdown(f)
+    end
+    -- Only WowStyle1DropdownTemplate carries DropdownSelectionTextMixin, which
+    -- is where SetDefaultText / GetDefaultText / SetSelectionText live
+    -- (MenuTemplates.lua:753 vs :776, read 2026-09-10 after the real client
+    -- raised "attempt to call a nil value" on a filter dropdown's
+    -- SetDefaultText). A filter dropdown has DropdownTextMixin's SetText and a
+    -- fixed FILTER caption, nothing more.
+    if f.kind == "DropdownButton" and not isSelectionDropdown then
+        f.SetDefaultText = nil
+        f.GetDefaultText = nil
+        f.SetSelectionText = nil
     end
     -- PanelTabButtonTemplate declares parentArray="Tabs"
     -- (Blizzard_SharedXML/SharedUIPanelTemplates.xml line 905), so a tab built

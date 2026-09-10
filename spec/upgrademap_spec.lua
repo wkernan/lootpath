@@ -638,6 +638,23 @@ describe("UpgradeMapPanel difficulty control (WKE-530 finding 2, after M5-3)", f
         assert.is_nil(frame.filterLayout)
     end)
 
+    it("is the selection template, the one that can say which difficulty is chosen", function()
+        -- 2026-09-09 23:10 in the owner's client: `UpgradeMapPanel.lua:1865:
+        -- attempt to call a nil value` on SetDefaultText. The dropdown was a
+        -- WowStyle1FilterDropdownTemplate, whose mixin (MenuTemplates.lua:776)
+        -- has no SetDefaultText - that is DropdownSelectionTextMixin's, mixed
+        -- into WowStyle1DropdownTemplate (:753). The stub now hands each
+        -- template what its mixin has, so this is the crash, headless.
+        local frame = ns.UpgradeMapPanel.Create()
+        assert.equal(ns.UpgradeMapPanel.DROPDOWN_TEMPLATE, frame.difficultyDropdown.template)
+        assert.is_function(frame.difficultyDropdown.SetDefaultText)
+        local filter = CreateFrame("DropdownButton", nil, frame, "WowStyle1FilterDropdownTemplate")
+        assert.is_nil(filter.SetDefaultText)
+        assert.is_function(filter.SetText)
+        frame:Refresh()
+        assert.equal(ns.UpgradeMapPanel.DIFFICULTY_ALL_LABEL, frame.difficultyDropdown:GetText())
+    end)
+
     it("holds the walk's five difficulties in one control that fits the frame", function()
         local frame = ns.UpgradeMapPanel.Create()
         local model = frame:Refresh()

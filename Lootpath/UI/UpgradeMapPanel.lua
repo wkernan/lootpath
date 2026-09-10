@@ -1417,6 +1417,9 @@ Panel.SECTION_OPEN_MARK = "-"
 Panel.SECTION_SHUT_MARK = "+"
 
 Panel.DIFFICULTY_ALL_LABEL = "All difficulties"
+-- The dropdown's template: the one whose mixin has SetDefaultText (see the
+-- comment where it is created). The Vault's dropdown uses the same.
+Panel.DROPDOWN_TEMPLATE = "WowStyle1DropdownTemplate"
 
 local function estimateLabelWidth(label)
     return #tostring(label) * Panel.CONTROL_CHAR_WIDTH + Panel.CONTROL_PADDING
@@ -1515,7 +1518,14 @@ function Panel.Create(parent)
     frame.filterLabel:SetPoint("TOPLEFT", frame.viewLabel, "BOTTOMLEFT", 0, -8)
     frame.filterLabel:SetText("Difficulty:")
 
-    frame.difficultyDropdown = CreateFrame("DropdownButton", nil, frame, "WowStyle1FilterDropdownTemplate")
+    -- The SELECTION template, not the filter one. Both are DropdownButtons
+    -- over the 11.0 menu API, but only WowStyle1DropdownTemplate mixes in
+    -- DropdownSelectionTextMixin (Blizzard_Menu/MenuTemplates.lua:753), which
+    -- is where SetDefaultText lives and what lets the closed control say which
+    -- difficulty is chosen; WowStyle1FilterDropdownTemplate (:776) has a fixed
+    -- FILTER caption and no SetDefaultText - the owner's client said so with
+    -- "attempt to call a nil value" at line 1865, 2026-09-09 23:10.
+    frame.difficultyDropdown = CreateFrame("DropdownButton", nil, frame, Panel.DROPDOWN_TEMPLATE)
     frame.difficultyDropdown:SetSize(Panel.DROPDOWN_WIDTH, Panel.CONTROL_ROW_HEIGHT)
     frame.difficultyDropdown:SetPoint("LEFT", frame.filterLabel, "RIGHT", Panel.CONTROL_GAP, 0)
     -- The 11.0 menu API: the generator runs every time the menu opens and
