@@ -779,30 +779,37 @@ describe("the Upgrade Map tab", function()
         assert.equal(ns.UpgradeMapPanel.NOTE, panel.note:GetText())
         assert.equal("Upgrade Map", panel.header:GetText())
         assert.is_true(panel.model.hasMap)
-        local lines = ns.UpgradeMapPanel.Lines(panel.model)
-        assert.is_true(#lines > 100)
-        for i, line in ipairs(lines) do
-            assert.equal(line, panel.rows[i]:GetText())
-        end
+        -- The printed text is still the model's own, unchanged by M5-3...
+        assert.same(ns.UpgradeMapPanel.Lines(panel.model), panel.lines)
+        assert.is_true(#panel.lines > 100)
+        -- ...and what is DRAWN is the element list, through the scroll box.
+        assert.is_true(#panel.elements > 100)
+        local frames = panel.scrollBox:GetFrames()
+        assert.is_true(#frames > 0)
+        assert.same(panel.elements[1], frames[1]:GetElementData())
     end)
 
     it("puts no QE Live number on screen, because the real export covers nothing", function()
         assert.equal(0, panel.model.counts.covered)
-        for i = 1, #panel.lines do
-            assert.is_nil(panel.rows[i]:GetText():find("QE Live: ", 1, true))
+        for _, line in ipairs(panel.lines) do
+            assert.is_nil(line:find("QE Live: ", 1, true))
+        end
+        -- Not on a badge either, which is where a drawn row carries a number.
+        for _, element in ipairs(panel.elements) do
+            assert.is_nil(element.row and element.row.badge)
         end
     end)
 
-    it("narrows to one difficulty when its filter button is clicked", function()
+    it("narrows to one difficulty when its dropdown row is picked", function()
         local before = panel.model.counts.candidates
         local mythicPlus
-        for _, button in ipairs(panel.filterButtons) do
-            if button:GetText():find("Mythic+ 10", 1, true) then
-                mythicPlus = button
+        for _, option in ipairs(panel.difficultyDropdown.menuElements) do
+            if option.text:find("Mythic+ 10", 1, true) then
+                mythicPlus = option
             end
         end
         assert.is_not_nil(mythicPlus)
-        mythicPlus:Click()
+        mythicPlus:Select()
         assert.same({ 8 }, panel.difficultyIDs)
         assert.is_true(panel.model.counts.candidates < before)
     end)
@@ -840,13 +847,20 @@ describe("the Upgrade Map tab", function()
         -- The Dungeon export covers the journal's three rows for 251153; the
         -- Raid one covers nothing at all.
         assert.equal(3, panel.model.counts.covered)
-        local covered = 0
-        for i = 1, #panel.lines do
-            if panel.rows[i]:GetText():find("QE Live: in your best set", 1, true) then
+        local covered, badged = 0, 0
+        for _, line in ipairs(panel.lines) do
+            if line:find("QE Live: in your best set", 1, true) then
                 covered = covered + 1
             end
         end
+        for _, element in ipairs(panel.elements) do
+            local badge = element.row and element.row.badge
+            if badge and badge.text == "QE Live: in your best set" then
+                badged = badged + 1
+            end
+        end
         assert.equal(3, covered)
+        assert.equal(3, badged)
     end)
 end)
 
@@ -921,12 +935,19 @@ describe("the window after WKE-530", function()
         H.unload()
     end)
 
+    -- Counted over whatever the panel puts in its list: font strings on the
+    -- Vault tab, and since M5-3 the Upgrade Map's scroll box elements.
     local function noteCount(panel, note)
         local seen = 0
         if panel.note:GetText():find(note, 1, true) then
             seen = seen + 1
         end
-        for _, text in ipairs(panel.rows) do
+        for _, element in ipairs(panel.elements or {}) do
+            if type(element.text) == "string" and element.text:find(note, 1, true) then
+                seen = seen + 1
+            end
+        end
+        for _, text in ipairs(panel.rows or {}) do
             if text:GetText():find(note, 1, true) then
                 seen = seen + 1
             end
@@ -941,24 +962,22 @@ describe("the window after WKE-530", function()
         assert.equal(1, noteCount(frame.vaultPanel, ns.VaultPanel.NOTE))
     end)
 
-    it("keeps every difficulty button inside the panel's width", function()
+    -- Finding 2 was five difficulty buttons overflowing the window's width and
+    -- the fifth being clipped at its edge. Since M5-3 there are no difficulty
+    -- buttons: one dropdown holds every difficulty a map can have in the width
+    -- of one control, and the row it sits on cannot overflow however many the
+    -- walk found. What is left of the finding is that the dropdown is inside
+    -- the panel and that no two rows read the same.
+    it("holds every difficulty in one dropdown that fits the panel's width", function()
         frame.tabs[2]:Click()
         local panel = frame.upgradeMapPanel
-        assert.is_true(#panel.filterButtons > 1)
-        local used = {}
-        for _, placement in ipairs(panel.filterLayout.buttons) do
-            used[placement.row] = (used[placement.row] or 0) + placement.width + ns.UpgradeMapPanel.FILTER_BUTTON_GAP
-        end
-        for row, total in pairs(used) do
-            assert.is_true(total <= panel:GetWidth(), string.format("filter row %d is %d wide", row, total))
-        end
-        -- and no two buttons carry the same words
+        assert.is_true(#panel.model.difficulties > 1)
+        assert.is_true(panel.difficultyDropdown:IsShown())
+        assert.is_true(panel.difficultyDropdown:GetWidth() < panel:GetWidth())
         local seen = {}
-        for _, button in ipairs(panel.filterButtons) do
-            if button:IsShown() then
-                assert.is_nil(seen[button:GetText()], "two filter buttons read " .. button:GetText())
-                seen[button:GetText()] = true
-            end
+        for _, option in ipairs(panel.difficultyDropdown.menuElements) do
+            assert.is_nil(seen[option.text], "two dropdown rows read " .. option.text)
+            seen[option.text] = true
         end
     end)
 
@@ -1143,12 +1162,18 @@ describe("the Upgrade Map tab with an Upgrade Finder export", function()
         assert.is_true(panel.model.hasUpgrades)
         assert.equal(30, panel.model.counts.ranked)
         assert.equal(151, panel.model.counts.rankedAtAnotherLevel)
-        local valued = 0
-        for i = 1, #panel.lines do
-            if panel.rows[i]:GetText():find("QE Live: ", 1, true) then
+        local valued, badged = 0, 0
+        for _, line in ipairs(panel.lines) do
+            if line:find("QE Live: ", 1, true) then
                 valued = valued + 1
             end
         end
+        for _, element in ipairs(panel.elements) do
+            if element.row and element.row.badge then
+                badged = badged + 1
+            end
+        end
+        assert.equal(30, badged)
         -- The 30 ranked rows plus nothing else: this export has no Top Gear
         -- coverage behind it, so `covered` is still zero.
         assert.equal(0, panel.model.counts.covered)
@@ -1167,8 +1192,11 @@ describe("the Upgrade Map tab with an Upgrade Finder export", function()
         frame.tabs[2]:Click()
         assert.is_false(panel.model.hasUpgrades)
         assert.equal(0, panel.model.counts.ranked)
-        for i = 1, #panel.lines do
-            assert.is_nil(panel.rows[i]:GetText():find("QE Live: ", 1, true))
+        for _, line in ipairs(panel.lines) do
+            assert.is_nil(line:find("QE Live: ", 1, true))
+        end
+        for _, element in ipairs(panel.elements) do
+            assert.is_nil(element.row and element.row.badge)
         end
     end)
 end)

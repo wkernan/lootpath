@@ -454,39 +454,48 @@ describe("UpgradeMapPanel frames", function()
         H.unload()
     end)
 
-    it("renders the model's lines into the panel's font strings", function()
+    it("keeps the model's lines as its text and draws the element list beside them", function()
         local frame = ns.UpgradeMapPanel.Create()
         local model = frame:Refresh()
         assert.is_not_nil(model)
-        local lines = ns.UpgradeMapPanel.Lines(model)
-        assert.is_true(#lines > 100)
-        for i, line in ipairs(lines) do
-            assert.equal(line, frame.rows[i]:GetText())
-        end
+        assert.same(ns.UpgradeMapPanel.Lines(model), frame.lines)
+        assert.is_true(#frame.lines > 100)
+        assert.same(ns.UpgradeMapPanel.Elements(model, ns.UpgradeMapPanel.CollapseState()), frame.elements)
+        assert.equal(#frame.elements, frame.scrollBox:GetDataProviderSize())
         assert.equal(ns.UpgradeMapPanel.NOTE, frame.note:GetText())
     end)
 
-    it("builds one filter button per difficulty plus All, and clicking one narrows the panel", function()
+    it("offers every difficulty in the dropdown plus an all row, and picking one narrows the panel", function()
         local frame = ns.UpgradeMapPanel.Create()
         local model = frame:Refresh()
-        assert.equal(#model.difficulties + 1, #frame.filterButtons)
-        assert.equal("All", frame.filterButtons[#frame.filterButtons]:GetText())
+        local rows = frame.difficultyDropdown.menuElements
+        assert.equal(#model.difficulties + 1, #rows)
+        assert.equal(ns.UpgradeMapPanel.DIFFICULTY_ALL_LABEL, rows[1].text)
+        -- The rows ARE the model's difficulties, in its order and its words.
+        for index, difficulty in ipairs(model.difficulties) do
+            assert.equal(string.format("%s (%d)", difficulty.label, difficulty.count), rows[index + 1].text)
+            assert.equal(difficulty.difficultyID, rows[index + 1].data)
+        end
 
         local mythicPlus
-        for _, button in ipairs(frame.filterButtons) do
-            if button:GetText():find("Mythic+ 10", 1, true) then
-                mythicPlus = button
+        for _, option in ipairs(rows) do
+            if option.text:find("Mythic+ 10", 1, true) then
+                mythicPlus = option
             end
         end
         assert.is_not_nil(mythicPlus)
-        mythicPlus:Click()
+        mythicPlus:Select()
         assert.same({ 8 }, frame.difficultyIDs)
         for _, row in ipairs(everyCandidate(frame.model)) do
             assert.equal(8, row.difficultyID)
         end
-        frame.filterButtons[#frame.filterButtons]:Click()
+        -- ...and the shut dropdown says which one it is narrowed to.
+        assert.equal(mythicPlus.text, frame.difficultyDropdown:GetText())
+
+        frame.difficultyDropdown:SelectByText(ns.UpgradeMapPanel.DIFFICULTY_ALL_LABEL)
         assert.is_nil(frame.difficultyIDs)
         assert.is_true(frame.model.counts.candidates > model.counts.candidates / 2)
+        assert.equal(ns.UpgradeMapPanel.DIFFICULTY_ALL_LABEL, frame.difficultyDropdown:GetText())
     end)
 
     it("says why it is empty rather than rendering a map in combat", function()
@@ -598,7 +607,15 @@ describe("UpgradeMapPanel difficulty labels (WKE-530 finding 1)", function()
     end)
 end)
 
-describe("UpgradeMapPanel filter row layout (WKE-530 finding 2)", function()
+-- WKE-530 finding 2 was five difficulty buttons overflowing the window and the
+-- fifth being clipped at its edge; Panel.FilterLayout was the greedy packer
+-- that wrapped them, and Panel.EstimateLabelWidth measured them headlessly.
+-- M5-3 retires both with the buttons: one WowStyle1FilterDropdownTemplate holds
+-- every difficulty a map can have in the width of one control, so there is no
+-- row to overflow. What the finding is worth keeping is asserted below - the
+-- control fits the panel, and the list starts under it - and the packer's own
+-- tests go with the packer.
+describe("UpgradeMapPanel difficulty control (WKE-530 finding 2, after M5-3)", function()
     local ns, world, snapshot
 
     before_each(function()
@@ -612,64 +629,34 @@ describe("UpgradeMapPanel filter row layout (WKE-530 finding 2)", function()
         H.unload()
     end)
 
-    it("packs a row only as far as the width allows, then starts another", function()
-        local Panel = ns.UpgradeMapPanel
-        local labels = { "Heroic dungeon (67)", "Mythic+ 10 (54)", "Heroic raid (38)", "Mythic raid (39)" }
-        assert.equal(1, Panel.FilterLayout(labels, 5000).rows)
-        assert.is_true(Panel.FilterLayout(labels, 260).rows > 1)
-        for _, width in ipairs({ 260, 400, 530 }) do
-            local layout = Panel.FilterLayout(labels, width)
-            local used = {}
-            for _, placement in ipairs(layout.buttons) do
-                used[placement.row] = (used[placement.row] or -Panel.FILTER_BUTTON_GAP)
-                    + Panel.FILTER_BUTTON_GAP
-                    + placement.width
-            end
-            for row, total in pairs(used) do
-                assert.is_true(total <= width, string.format("row %d ran to %d in %d points", row, total, width))
-            end
-        end
-    end)
-
-    it("wraps the real filter row instead of running off the frame", function()
-        local frame = ns.UpgradeMapPanel.Create()
-        local model = frame:Refresh()
-        -- Measured over the committed walk: five difficulties plus All, whose
-        -- labels come out 134, 110, 116, 116, 134 and 60 points wide - 690
-        -- points of buttons plus gaps, which cannot fit the frame's 560. In
-        -- game on 2026-09-06 the fifth was clipped at the window's edge.
-        assert.equal(6, #frame.filterButtons)
-        assert.equal(#model.difficulties + 1, #frame.filterButtons)
-        assert.is_true(frame.filterRows > 1)
-        local used = {}
-        for _, placement in ipairs(frame.filterLayout.buttons) do
-            used[placement.row] = (used[placement.row] or 0) + placement.width + ns.UpgradeMapPanel.FILTER_BUTTON_GAP
-        end
-        for row, total in pairs(used) do
-            assert.is_true(total <= frame:GetWidth(), string.format("filter row %d is %d wide", row, total))
-        end
-    end)
-
-    it("anchors the first button of a wrapped row below the row above it", function()
+    it("no longer packs a row of buttons, because there is no row of buttons", function()
+        assert.is_nil(ns.UpgradeMapPanel.FilterLayout)
+        assert.is_nil(ns.UpgradeMapPanel.EstimateLabelWidth)
         local frame = ns.UpgradeMapPanel.Create()
         frame:Refresh()
-        local firstOfSecondRow
-        for index, placement in ipairs(frame.filterLayout.buttons) do
-            if placement.row == 2 and placement.column == 1 then
-                firstOfSecondRow = index
-            end
-        end
-        assert.is_not_nil(firstOfSecondRow)
-        -- Re-anchored on every refresh, so the only point on it is this one.
-        local button = frame.filterButtons[firstOfSecondRow]
-        assert.equal(1, #button.points)
-        assert.equal("TOPLEFT", button.points[1][1])
-        assert.equal(frame.filterButtons[1], button.points[1][2])
-        assert.equal("BOTTOMLEFT", button.points[1][3])
-        -- and the list starts below every filter row, not under the second one
-        local scrollPoint = frame.scroll.points[1]
-        assert.equal(frame.filterLabel, scrollPoint[2])
-        assert.is_true(scrollPoint[5] <= -(frame.filterRows * ns.UpgradeMapPanel.FILTER_ROW_HEIGHT))
+        assert.is_nil(frame.filterButtons)
+        assert.is_nil(frame.filterLayout)
+    end)
+
+    it("holds the walk's five difficulties in one control that fits the frame", function()
+        local frame = ns.UpgradeMapPanel.Create()
+        local model = frame:Refresh()
+        -- The committed walk covers five difficulties, whose buttons came out
+        -- 134, 110, 116, 116 and 134 points wide beside a 60-point All - 690
+        -- points, which never fitted the frame's 560. The dropdown is one
+        -- control of a fixed width whatever the walk found.
+        assert.equal(5, #model.difficulties)
+        assert.equal(#model.difficulties + 1, #frame.difficultyDropdown.menuElements)
+        assert.is_true(frame.difficultyDropdown:GetWidth() < frame:GetWidth())
+    end)
+
+    it("starts the list below the control row, not over it", function()
+        local frame = ns.UpgradeMapPanel.Create()
+        frame:Refresh()
+        local point = frame.scrollBox.points[1]
+        assert.equal("TOPLEFT", point[1])
+        assert.equal(frame.filterLabel, point[2])
+        assert.is_true(point[5] <= -ns.UpgradeMapPanel.CONTROL_ROW_HEIGHT)
     end)
 end)
 
@@ -692,8 +679,8 @@ describe("UpgradeMapPanel draws the pinned note once (WKE-530 finding 3)", funct
         if frame.note:GetText():find(ns.UpgradeMapPanel.NOTE, 1, true) then
             seen = seen + 1
         end
-        for _, text in ipairs(frame.rows) do
-            if text:GetText():find(ns.UpgradeMapPanel.NOTE, 1, true) then
+        for _, element in ipairs(frame.elements) do
+            if type(element.text) == "string" and element.text:find(ns.UpgradeMapPanel.NOTE, 1, true) then
                 seen = seen + 1
             end
         end
@@ -1477,21 +1464,21 @@ describe("UpgradeMapPanel view toggle on the frames", function()
         assert.equal(ns.UpgradeMapPanel.MODE_RUN, frame.mode)
         assert.same(ns.UpgradeMapPanel.RunLines(frame.model), frame.lines)
         assert.is_not.same(slotLines, frame.lines)
-        for index, line in ipairs(frame.lines) do
-            assert.equal(line, frame.rows[index]:GetText())
-        end
-        -- Nothing is left over from the longer list of the other view.
-        for index = #frame.lines + 1, #frame.rows do
-            assert.equal("", frame.rows[index]:GetText())
-            assert.is_false(frame.rows[index]:IsShown())
+        -- The drawn list is the run view's own elements, and the scroll box
+        -- holds exactly them - nothing is left over from the longer list of
+        -- the other view.
+        local state = ns.UpgradeMapPanel.CollapseState()
+        assert.same(ns.UpgradeMapPanel.RunElements(frame.model, state), frame.elements)
+        assert.equal(#frame.elements, frame.scrollBox:GetDataProviderSize())
+        for _, element in ipairs(frame.elements) do
+            assert.is_not.equal(ns.UpgradeMapPanel.ELEMENT_SECTION, element.kind)
         end
 
         frame.modeButtons[1]:Click()
         assert.equal(ns.UpgradeMapPanel.MODE_SLOT, frame.mode)
         assert.same(slotLines, frame.lines)
-        for index, line in ipairs(slotLines) do
-            assert.equal(line, frame.rows[index]:GetText())
-        end
+        assert.same(ns.UpgradeMapPanel.Elements(frame.model, state), frame.elements)
+        assert.equal(#frame.elements, frame.scrollBox:GetDataProviderSize())
     end)
 
     it("offers the two sort orders in the run view and re-sorts on a click", function()
@@ -1522,9 +1509,9 @@ describe("UpgradeMapPanel view toggle on the frames", function()
     it("keeps the difficulty filter across the two views", function()
         local frame = ns.UpgradeMapPanel.Create()
         frame:Refresh()
-        for _, button in ipairs(frame.filterButtons) do
-            if button:GetText():find("Mythic+ 10", 1, true) then
-                button:Click()
+        for _, option in ipairs(frame.difficultyDropdown.menuElements) do
+            if option.text:find("Mythic+ 10", 1, true) then
+                option:Select()
             end
         end
         assert.same({ 8 }, frame.difficultyIDs)
@@ -1859,5 +1846,547 @@ describe("UpgradeMapPanel by-run view across key levels", function()
         assert.is_number(documentsAt)
         assert.is_true(walkAt < documentsAt)
         assert.matches("%(at %+6%)$", lines[dropAt])
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- M5-3 (WKE-552): the map DRAWN. A WowScrollBoxList over a data provider in
+-- place of the column of font strings, collapsible slot sections, run cards,
+-- and one filter dropdown in place of the wrapping buttons.
+--
+-- Panel.Lines and Panel.RunLines are untouched by all of it and their tests
+-- above still read them; what these tests read is the element list beside them
+-- and the frames the scroll box actually made.
+
+local UF_KEY_LEVEL_PATHS = {
+    [2] = "spec/fixtures/qe/qe-upgradefinder-Hotornot-lrxljklscrjr.json",
+    [4] = "spec/fixtures/qe/qe-upgradefinder-Hotornot-jnjnmzftoppb.json",
+    [6] = "spec/fixtures/qe/qe-upgradefinder-Hotornot-zmtnpejwfewe.json",
+    [8] = "spec/fixtures/qe/qe-upgradefinder-Hotornot-lttldhvkiqlr.json",
+    [10] = "spec/fixtures/qe/qe-upgradefinder-Hotornot-wyharestkdyr.json",
+}
+
+describe("UpgradeMapPanel elements, over the committed walk and QE Live's own exports", function()
+    local ns, world, sources, summary
+
+    before_each(function()
+        ns, world = H.load()
+        sources, summary = coldWalk(ns)
+        loadInventory(ns, world)
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- The five Dungeon documents of one companion run plus the Raid one: the
+    -- six committed Upgrade Finder documents, stored the way the client really
+    -- gets them.
+    local function everyDocument()
+        local exports = {}
+        for _, level in ipairs({ 2, 4, 6, 8, 10 }) do
+            exports[#exports + 1] = {
+                schema = "qe-live-upgradefinder",
+                contentType = "Dungeon",
+                keyLevel = level,
+                json = readFile(UF_KEY_LEVEL_PATHS[level]),
+            }
+        end
+        local result = ns.Companion.ImportAll({ writtenAt = "2026-09-08T22:47:59Z", exports = exports })
+        assert(result.ok, result.reason)
+        return ns.UFImport.Documents("Dungeon")
+    end
+
+    local function slotModel(opts)
+        opts = opts or {}
+        return ns.UpgradeMapPanel.Model({
+            sources = sources,
+            summary = summary,
+            inventory = opts.inventory,
+            verdict = opts.verdict,
+            upgrades = opts.upgrades,
+            upgradeDocuments = opts.upgradeDocuments,
+        })
+    end
+
+    local function elementsOf(model, state)
+        return ns.UpgradeMapPanel.Elements(model, state)
+    end
+
+    local function firstOfKind(elements, kind)
+        for _, element in ipairs(elements) do
+            if element.kind == kind then
+                return element
+            end
+        end
+        return nil
+    end
+
+    it("lists one section per slot and one element per candidate, in the model's order", function()
+        local model = slotModel()
+        local elements = elementsOf(model)
+        local sections, items = 0, 0
+        for _, element in ipairs(elements) do
+            if element.kind == ns.UpgradeMapPanel.ELEMENT_SECTION then
+                sections = sections + 1
+            elseif element.kind == ns.UpgradeMapPanel.ELEMENT_ITEM then
+                items = items + 1
+            end
+        end
+        -- The cold walk's rows all arrived, so there is no unidentified
+        -- section: every section is one of the model's slots.
+        assert.equal(0, model.pending.count)
+        assert.equal(#model.slots, sections)
+        local candidates = 0
+        for _, section in ipairs(model.slots) do
+            candidates = candidates + #section.candidates
+        end
+        assert.equal(candidates, items)
+        -- ...and each item element carries the model's own row, not a copy.
+        local index = 0
+        for _, section in ipairs(model.slots) do
+            for _, row in ipairs(section.candidates) do
+                repeat
+                    index = index + 1
+                until elements[index].kind == ns.UpgradeMapPanel.ELEMENT_ITEM
+                assert.equal(row, elements[index].row)
+            end
+        end
+    end)
+
+    it("gives every drawn row the icon the walk recorded off the journal", function()
+        local model = slotModel()
+        local drawn, withIcon = 0, 0
+        for _, element in ipairs(elementsOf(model)) do
+            if element.kind == ns.UpgradeMapPanel.ELEMENT_ITEM then
+                drawn = drawn + 1
+                if element.row.icon then
+                    withIcon = withIcon + 1
+                    -- The client's own file ID, carried and not derived.
+                    assert.is_number(element.row.icon)
+                end
+            end
+        end
+        assert.is_true(drawn > 400)
+        assert.equal(drawn, withIcon)
+    end)
+
+    it("puts the source on the second line, boss first", function()
+        local model = slotModel()
+        local element = firstOfKind(elementsOf(model), ns.UpgradeMapPanel.ELEMENT_ITEM)
+        local row = element.row
+        assert.equal(string.format("%s - %s, %s", row.encounterName, row.instanceName, row.difficultyLabel), row.second)
+    end)
+
+    it("turns [owned 305] into the Owned tag and nothing else", function()
+        local model = slotModel({ inventory = loadInventory(ns, world) })
+        local owned, tagged = 0, 0
+        for _, element in ipairs(elementsOf(model)) do
+            if element.kind == ns.UpgradeMapPanel.ELEMENT_ITEM then
+                if element.row.owned then
+                    owned = owned + 1
+                    assert.same({ "owned" }, element.row.tags)
+                    tagged = tagged + 1
+                else
+                    assert.is_nil(element.row.tags)
+                end
+            end
+        end
+        assert.is_true(owned > 0)
+        assert.equal(owned, tagged)
+        -- The tag word the item widget draws for it is QE Live's own grey.
+        assert.equal("Owned", ns.UI.ItemLine.TAG.owned.label)
+    end)
+
+    it("splits QE Live's Upgrade Finder sentence into the badge and the grey key level", function()
+        local documents = everyDocument()
+        local model = slotModel({ upgradeDocuments = documents })
+        assert.is_true(model.counts.ranked > 0)
+        local badged = 0
+        for _, element in ipairs(elementsOf(model)) do
+            local row = element.kind == ns.UpgradeMapPanel.ELEMENT_ITEM and element.row or nil
+            if row and row.upgrade then
+                badged = badged + 1
+                -- The same words the printed line carries, split where the
+                -- drawn row splits them and joined back byte for byte.
+                assert.equal(row.upgradeValue, row.badge.text .. " " .. row.badge.note)
+                assert.equal(string.format("(at %s)", row.keyLabel), row.badge.note)
+                assert.is_not_nil(ns.UI.ItemLine.TONE[row.badge.tone])
+            end
+        end
+        assert.equal(model.counts.ranked, badged)
+    end)
+
+    it("colours the badge from QE Live's own verdict and never from arithmetic", function()
+        local documents = everyDocument()
+        local model = slotModel({ upgradeDocuments = documents })
+        local seen = {}
+        for _, element in ipairs(elementsOf(model)) do
+            local row = element.kind == ns.UpgradeMapPanel.ELEMENT_ITEM and element.row or nil
+            if row and row.upgrade then
+                local percent = tonumber(row.upgrade.upgradePercent)
+                local expected
+                if percent == 0 or percent == nil then
+                    expected = "none"
+                else
+                    expected = ns.UFImport.IsUpgrade(row.upgrade) and "better" or "worse"
+                end
+                assert.equal(expected, row.badge.tone)
+                seen[row.badge.tone] = true
+            end
+        end
+        -- Both tones this map really carries occur, so the assertion above is
+        -- not passing on a single branch. No drop of these six documents at
+        -- the item levels this walk lists comes back a downgrade, which is why
+        -- `worse` is asserted absent rather than present; the negative case is
+        -- the hand-built sample's, above.
+        assert.is_true(seen.better)
+        assert.is_true(seen.none)
+        assert.is_nil(seen.worse)
+    end)
+
+    it("carries a Top Gear verdict onto the badge when that is the only number", function()
+        local key = "251153:3524"
+        local model = slotModel({ verdict = verdictCovering(ns, key) })
+        local found
+        for _, element in ipairs(elementsOf(model)) do
+            local row = element.kind == ns.UpgradeMapPanel.ELEMENT_ITEM and element.row or nil
+            if row and row.itemKey == key then
+                found = row
+            end
+        end
+        assert.is_not_nil(found)
+        assert.equal("QE Live: in your best set", found.badge.text)
+        -- A status word, not one of his numbers, so it takes no colour of his.
+        assert.equal("neutral", found.badge.tone)
+        assert.is_nil(found.badge.note)
+    end)
+
+    it("keeps both numbers when a row has both, the badge for the drop and the line for the set", function()
+        local key = "251153:3524"
+        local model = slotModel({
+            verdict = verdictCovering(ns, key),
+            upgradeDocuments = everyDocument(),
+        })
+        local both
+        for _, element in ipairs(elementsOf(model)) do
+            local row = element.kind == ns.UpgradeMapPanel.ELEMENT_ITEM and element.row or nil
+            if row and row.value and row.upgradeValue then
+                both = row
+            end
+        end
+        assert.is_not_nil(both)
+        -- The Upgrade Finder verdict takes the badge: it is the one about THIS
+        -- drop at THIS item level.
+        assert.equal(both.upgradeValue, both.badge.text .. " " .. both.badge.note)
+        -- ...and the Top Gear sentence is on the second line rather than gone.
+        assert.is_not_nil(both.second:find(both.value, 1, true))
+    end)
+
+    it("collapses a slot section, and the section itself stays", function()
+        local model = slotModel()
+        local head = model.slots[1]
+        assert.is_true(#head.candidates > 0)
+        local function sectionFor(elements, slot)
+            for _, element in ipairs(elements) do
+                if element.kind == ns.UpgradeMapPanel.ELEMENT_SECTION and element.slot == slot then
+                    return element
+                end
+            end
+            return nil
+        end
+        local function itemsUnder(elements, slot)
+            local counting, count = false, 0
+            for _, element in ipairs(elements) do
+                if element.kind == ns.UpgradeMapPanel.ELEMENT_SECTION then
+                    counting = element.slot == slot
+                elseif counting and element.kind == ns.UpgradeMapPanel.ELEMENT_ITEM then
+                    count = count + 1
+                end
+            end
+            return count
+        end
+
+        local open = elementsOf(model, { slots = {} })
+        local shut = elementsOf(model, { slots = { [head.slot] = true } })
+        assert.equal(#head.candidates, itemsUnder(open, head.slot))
+        assert.equal(0, itemsUnder(shut, head.slot))
+        assert.is_true(#shut < #open)
+        assert.is_false(sectionFor(open, head.slot).collapsed)
+        -- The section itself stays on screen either way: it is how the reader
+        -- opens it again, and it still says how much is inside.
+        local closed = sectionFor(shut, head.slot)
+        assert.is_true(closed.collapsed)
+        assert.equal(#head.candidates, closed.count)
+        -- ...and every other slot is still headed exactly as it was.
+        local sections = 0
+        for _, element in ipairs(shut) do
+            if element.kind == ns.UpgradeMapPanel.ELEMENT_SECTION then
+                sections = sections + 1
+                assert.equal(element.slot ~= head.slot, not element.collapsed)
+            end
+        end
+        assert.equal(#model.slots, sections)
+    end)
+
+    it("heads each section with the item that slot is wearing", function()
+        local model = slotModel({ inventory = loadInventory(ns, world) })
+        local headed = 0
+        for _, element in ipairs(elementsOf(model)) do
+            if element.kind == ns.UpgradeMapPanel.ELEMENT_SECTION and element.worn then
+                headed = headed + 1
+                assert.equal(element.section.equipped[1], element.worn)
+                assert.is_number(element.worn.itemLevel)
+            end
+        end
+        assert.is_true(headed > 10)
+    end)
+end)
+
+describe("UpgradeMapPanel run cards", function()
+    local ns, sources, summary
+
+    before_each(function()
+        ns = H.load()
+        sources, summary = coldWalk(ns)
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function runModel(sort)
+        return ns.UpgradeMapPanel.RunModel({
+            sources = sources,
+            summary = summary,
+            upgrades = upgrades(ns, UF_RAID),
+            runSort = sort,
+        })
+    end
+
+    it("draws one card per run, in the sort's own order, and nothing under a shut one", function()
+        local model = runModel()
+        local elements = ns.UpgradeMapPanel.RunElements(model, {})
+        local cards = {}
+        for _, element in ipairs(elements) do
+            if element.kind == ns.UpgradeMapPanel.ELEMENT_RUN then
+                cards[#cards + 1] = element
+            end
+            -- Nothing is listed under a card nobody has opened.
+            assert.is_not.equal(ns.UpgradeMapPanel.ELEMENT_ITEM, element.kind)
+        end
+        assert.equal(#model.runs, #cards)
+        for index, run in ipairs(model.runs) do
+            assert.equal(run, cards[index].run)
+            assert.is_false(cards[index].expanded)
+        end
+    end)
+
+    it("opens one card onto its rated drops, best first", function()
+        local model = runModel()
+        local top = model.runs[1]
+        assert.is_true(#top.upgrades > 1)
+        local elements = ns.UpgradeMapPanel.RunElements(model, { runs = { [top.key] = true } })
+        local opened, listed = nil, {}
+        for index, element in ipairs(elements) do
+            if element.kind == ns.UpgradeMapPanel.ELEMENT_RUN and element.run == top then
+                opened = index
+            elseif element.kind == ns.UpgradeMapPanel.ELEMENT_ITEM then
+                listed[#listed + 1] = element.row
+            end
+        end
+        assert.is_number(opened)
+        assert.is_true(elements[opened].expanded)
+        assert.equal(#top.upgrades, #listed)
+        for index, row in ipairs(top.upgrades) do
+            assert.equal(row, listed[index])
+        end
+    end)
+
+    it("puts QE Live's best number on the card as his badge, and the count in grey beside it", function()
+        local model = runModel()
+        local rated, unrated = 0, 0
+        for _, run in ipairs(model.runs) do
+            if run.best then
+                rated = rated + 1
+                assert.equal(string.format("best %+.2f%%", run.bestPercent), run.badge.text)
+                -- Only a drop his own IsUpgrade calls an upgrade reaches a
+                -- run's list, so a rated run is his gold and nothing else.
+                assert.equal("better", run.badge.tone)
+            else
+                unrated = unrated + 1
+                assert.equal(ns.UpgradeMapPanel.RUN_NO_UPGRADE_TEXT, run.badge.text)
+                assert.equal("none", run.badge.tone)
+            end
+            -- The denominator is on the card, always: the count text is the
+            -- model's own and says how thin the best upgrade is spread.
+            assert.equal(string.format("%d of %d drops rated upgrades", run.rated, run.drops), run.countText)
+        end
+        assert.is_true(rated > 0)
+        assert.is_true(unrated > 0)
+    end)
+
+    it("carries no instance art, because the committed walk recorded none", function()
+        local model = runModel()
+        for _, run in ipairs(model.runs) do
+            assert.is_nil(run.instanceImage)
+        end
+    end)
+
+    it("carries the art onto the card when the walk did record it", function()
+        -- The same rows the committed walk gave, with the file ID a walk taken
+        -- after M5-3 would have recorded put on them. Nothing here invents an
+        -- art value for a real instance: it is a stub-shaped transcript
+        -- standing in until the owner's next `capture journal` (human-required).
+        local withArt = {}
+        for itemID, list in pairs(sources) do
+            local copies = {}
+            for index, entry in ipairs(list) do
+                local copy = {}
+                for k, v in pairs(entry) do
+                    copy[k] = v
+                end
+                copy.instanceImage = 4000 + (entry.instanceID or 0)
+                copies[index] = copy
+            end
+            withArt[itemID] = copies
+        end
+        local model = ns.UpgradeMapPanel.RunModel({
+            sources = withArt,
+            summary = summary,
+            upgrades = upgrades(ns, UF_RAID),
+        })
+        for _, run in ipairs(model.runs) do
+            assert.equal(4000 + run.instanceID, run.instanceImage)
+        end
+    end)
+end)
+
+describe("UpgradeMapPanel through the scroll box", function()
+    local ns, world, snapshot
+
+    before_each(function()
+        ns, world = H.load()
+        snapshot = R.snapshot("journal", R.JOURNAL_TWO_READ_COLD, R.JOURNAL_TWO_READ)
+        loadInventory(ns, world)
+        ns.db.global.captures.journal = { snapshot }
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- The whole reason the list is a WowScrollBoxList: the committed walk is
+    -- 478 drops and a column of font strings was 478 live frames. Blizzard's
+    -- own list view acquires frames only for the data indices on screen and
+    -- releases the rest to a pool (ScrollBoxListView's ValidateDataRange, read
+    -- under .luals/), which is what the stub models and this asserts.
+    it("draws 478 drops without making 478 frames", function()
+        local frame = ns.UpgradeMapPanel.Create()
+        local model = frame:Refresh()
+        assert.equal(478, model.counts.candidates)
+        assert.is_true(#frame.elements > 478)
+        assert.equal(#frame.elements, frame.scrollBox:GetDataProviderSize())
+        -- The pool is bounded by the box's own height, not by the list's
+        -- length: a few dozen at most, and nowhere near one per row.
+        assert.is_true(frame.scrollBox.framesCreated < 60, frame.scrollBox.framesCreated .. " frames were created")
+        assert.is_true(#frame.scrollBox:GetFrames() < #frame.elements)
+        assert.is_true(#frame.scrollBox:GetFrames() > 0)
+
+        -- ...and a second refresh reuses them rather than making more.
+        local created = frame.scrollBox.framesCreated
+        frame:Refresh()
+        assert.equal(created, frame.scrollBox.framesCreated)
+    end)
+
+    it("binds each visible frame to its own element, kind by kind", function()
+        local frame = ns.UpgradeMapPanel.Create()
+        frame:Refresh()
+        local frames = frame.scrollBox:GetFrames()
+        assert.is_true(#frames > 2)
+        for index, element in ipairs(frames) do
+            local data = element:GetElementData()
+            assert.equal(frame.elements[index], data)
+            if data.kind == ns.UpgradeMapPanel.ELEMENT_ITEM then
+                assert.equal(data.row.name, element.line.resolved.name)
+                assert.equal(data.row.icon, element.line.resolved.icon)
+                assert.equal(data.row.second, element.line.second:GetText())
+            elseif data.kind == ns.UpgradeMapPanel.ELEMENT_SECTION then
+                assert.equal(data.slot, element.sectionName:GetText())
+                assert.is_true(element.sectionButton:IsShown())
+            elseif data.kind == ns.UpgradeMapPanel.ELEMENT_NOTE then
+                assert.equal(data.text, element.noteText:GetText())
+            end
+        end
+    end)
+
+    it("shuts a slot section when its header is clicked, and remembers it", function()
+        local frame = ns.UpgradeMapPanel.Create()
+        frame:Refresh()
+        local before = #frame.elements
+        local header
+        for _, element in ipairs(frame.scrollBox:GetFrames()) do
+            if element:GetElementData().kind == ns.UpgradeMapPanel.ELEMENT_SECTION then
+                header = header or element
+            end
+        end
+        assert.is_not_nil(header)
+        local slot = header:GetElementData().slot
+        header.sectionButton:Click()
+        assert.is_true(ns.db.char.upgradeMap.collapsedSlots[slot])
+        assert.is_true(#frame.elements < before)
+        -- ...and clicking it again puts the list back exactly as it was.
+        for _, element in ipairs(frame.scrollBox:GetFrames()) do
+            local data = element:GetElementData()
+            if data.kind == ns.UpgradeMapPanel.ELEMENT_SECTION and data.slot == slot then
+                element.sectionButton:Click()
+            end
+        end
+        assert.is_nil(ns.db.char.upgradeMap.collapsedSlots[slot])
+        assert.equal(before, #frame.elements)
+    end)
+
+    it("opens a run card when it is clicked, and lists that run's drops under it", function()
+        local frame = ns.UpgradeMapPanel.Create()
+        frame:Refresh()
+        frame.modeButtons[2]:Click()
+        local before = #frame.elements
+        local card = frame.scrollBox:GetFrames()[1]
+        for _, element in ipairs(frame.scrollBox:GetFrames()) do
+            if element:GetElementData().kind == ns.UpgradeMapPanel.ELEMENT_RUN then
+                card = element
+                break
+            end
+        end
+        local run = card:GetElementData().run
+        assert.equal(ns.UpgradeMapPanel.ELEMENT_RUN, card:GetElementData().kind)
+        card.runButton:Click()
+        assert.is_true(ns.db.char.upgradeMap.expandedRuns[run.key])
+        assert.equal(before + #run.upgrades, #frame.elements)
+    end)
+
+    it("draws a plain strip for a run the walk has no art for", function()
+        local frame = ns.UpgradeMapPanel.Create()
+        frame:Refresh()
+        frame.modeButtons[2]:Click()
+        local drawn = 0
+        for _, element in ipairs(frame.scrollBox:GetFrames()) do
+            if element:GetElementData().kind == ns.UpgradeMapPanel.ELEMENT_RUN then
+                drawn = drawn + 1
+                assert.is_nil(element.runArt:GetTexture())
+                assert.is_not_nil(element.runArt.vertexColor)
+            end
+        end
+        assert.is_true(drawn > 0)
+    end)
+
+    it("says why it is empty in the list as well as in its text, in combat", function()
+        local frame = ns.UpgradeMapPanel.Create()
+        world.inCombat = true
+        frame:Refresh()
+        assert.equal(1, #frame.elements)
+        assert.equal(ns.UpgradeMapPanel.ELEMENT_NOTE, frame.elements[1].kind)
+        assert.equal(frame.lines[1], frame.elements[1].text)
+        assert.equal(1, frame.scrollBox:GetDataProviderSize())
     end)
 end)

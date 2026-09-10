@@ -412,7 +412,15 @@ end
 -- It read "Mythic+" here until 2026-09-06 (M2-2), a string no export can carry;
 -- "Dungeon" is QE Live's name for the Mythic+ side.
 ns.DB_DEFAULTS = {
-    char = { qeImports = {}, qeImportsByScenario = {}, ufImports = {} },
+    -- `upgradeMap` is which slot sections the reader has shut and which run
+    -- cards they have opened (M5-3). Per character, because which slot matters
+    -- is a fact about the character rather than about the account.
+    char = {
+        qeImports = {},
+        qeImportsByScenario = {},
+        ufImports = {},
+        upgradeMap = { collapsedSlots = {}, expandedRuns = {} },
+    },
     global = { journalCache = {}, captures = {} },
     -- `vaultScenario` is the Vault tab's HIGHLIGHT only; Equip Now and the
     -- Upgrade Map read `asOffered` and nothing else, whatever this says. It
