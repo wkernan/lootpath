@@ -132,6 +132,13 @@ local function record(counter, raw, index)
         currencyID = tonumber(guarded(counter, safe.currencyID)),
         quantity = tonumber(guarded(counter, safe.quantity)),
         maxQuantity = tonumber(guarded(counter, safe.maxQuantity)),
+        -- The client's own icon for the currency (M5-4, WKE-553). A file ID,
+        -- kept because the Vault tab draws the Catalyst charge and the five
+        -- crests with their own icons rather than with the word "crests"; it
+        -- is a number the client handed over, and nothing is derived from it.
+        -- Present in every committed currency transcript, so a snapshot
+        -- answers it as readily as the live client does.
+        iconFileID = tonumber(guarded(counter, safe.iconFileID)),
     }
 end
 
@@ -237,7 +244,7 @@ end
 
 -- Read(opts) -> { ok = true, source = "live"|"capture", entries, byID, crests,
 --                 crestsKnown, catalystKnown, catalystCharges, catalystMax,
---                 secretsSeen }
+--                 catalyst, secretsSeen }
 --            or { ok = false, reason }
 --
 -- **By ID first.** Each of KNOWN_IDS.crests and KNOWN_IDS.catalyst is looked up
@@ -253,7 +260,10 @@ end
 -- name) is configured at all, which is the difference between "you have none"
 -- and "nobody has told this addon what a crest is". `catalystCharges` and
 -- `catalystMax` are the client's `quantity` and `maxQuantity`, numbers or nil,
--- and nil is never shown as 0.
+-- and nil is never shown as 0; `catalyst` is the whole record they came from,
+-- so a caller that has to name and draw the currency has the client's own
+-- `name` and `iconFileID` without a second lookup. Every crest record carries
+-- its `iconFileID` for the same reason.
 --
 -- The live client wins when it can be asked, because the capture may be days
 -- old; in combat, or on a client with no currency API, the newest stored
@@ -317,6 +327,7 @@ function Currencies.Read(opts)
                 name = found.name or crestNames[index],
                 currencyID = found.currencyID,
                 quantity = found.quantity,
+                iconFileID = found.iconFileID,
             }
         end
     end
@@ -340,6 +351,11 @@ function Currencies.Read(opts)
         catalystKnown = #catalystIDs > 0 or #Currencies.CATALYST_NAMES > 0,
         catalystCharges = catalyst and catalyst.quantity or nil,
         catalystMax = catalyst and catalyst.maxQuantity or nil,
+        -- The whole record the two numbers above came out of, for a reader
+        -- that has to NAME the currency and draw it (M5-4): the client's own
+        -- `name` and `iconFileID`. The two fields above are unchanged and are
+        -- still what the Vault tab's words are built from.
+        catalyst = catalyst,
         secretsSeen = counter.secretsSeen,
     }
 end

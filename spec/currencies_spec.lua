@@ -91,6 +91,43 @@ describe("Currencies", function()
         assert.equal(8, read.catalystMax)
     end)
 
+    -- M5-4 (WKE-553): the Vault tab has to NAME and DRAW each currency, so the
+    -- whole record the two Catalyst numbers came out of is handed on, and each
+    -- crest carries its icon. Placeholder icon IDs in the client's documented
+    -- field, exactly as the names and counts around them are placeholders.
+    it("hands on the client's own icon and name for each currency it resolved", function()
+        world.currencies = { COLLAPSED }
+        world.currencyByID = {
+            [3442] = {
+                name = "Adventurer Mistcrest",
+                currencyID = 3442,
+                isHeader = false,
+                quantity = 356,
+                iconFileID = 900101,
+            },
+            [3465] = {
+                name = "Venomblight Manaflux",
+                currencyID = 3465,
+                isHeader = false,
+                quantity = 1,
+                maxQuantity = 8,
+                iconFileID = 900102,
+            },
+        }
+        local read = ns.Currencies.Read()
+        assert.same({
+            { name = "Adventurer Mistcrest", currencyID = 3442, quantity = 356, iconFileID = 900101 },
+        }, read.crests)
+        assert.equal("Venomblight Manaflux", read.catalyst.name)
+        assert.equal(900102, read.catalyst.iconFileID)
+        assert.equal(1, read.catalyst.quantity)
+        assert.equal(8, read.catalyst.maxQuantity)
+        -- The two numbers the words above the strip are built from are
+        -- untouched by any of this.
+        assert.equal(1, read.catalystCharges)
+        assert.equal(8, read.catalystMax)
+    end)
+
     -- The red proof for the ordering: the list and the probe answer two
     -- different numbers for the same currency, under the same name, and the
     -- probe is the one that is shown.
@@ -144,13 +181,20 @@ describe("Currencies", function()
         end
         assert.equal(10, headers)
         assert.equal(8, collapsed)
+        -- Every iconFileID below was read from this transcript, not from a
+        -- wiki or a memory: the client handed them over with the names and the
+        -- counts, and M5-4 (WKE-553) is what made them worth keeping - the
+        -- Vault tab draws each crest with its own icon.
         assert.same({
-            { name = "Adventurer Mistcrest", currencyID = 3442, quantity = 356 },
-            { name = "Veteran Mistcrest", currencyID = 3443, quantity = 0 },
-            { name = "Champion Mistcrest", currencyID = 3444, quantity = 2 },
-            { name = "Hero Mistcrest", currencyID = 3445, quantity = 21 },
-            { name = "Myth Mistcrest", currencyID = 3446, quantity = 20 },
+            { name = "Adventurer Mistcrest", currencyID = 3442, quantity = 356, iconFileID = 7734054 },
+            { name = "Veteran Mistcrest", currencyID = 3443, quantity = 0, iconFileID = 7734062 },
+            { name = "Champion Mistcrest", currencyID = 3444, quantity = 2, iconFileID = 7734056 },
+            { name = "Hero Mistcrest", currencyID = 3445, quantity = 21, iconFileID = 7734058 },
+            { name = "Myth Mistcrest", currencyID = 3446, quantity = 20, iconFileID = 7734060 },
         }, read.crests)
+        -- No Catalyst in this transcript, so no record of one either: the
+        -- absence is the answer and is never filled in.
+        assert.is_nil(read.catalyst)
         assert.is_true(read.catalystKnown)
         assert.is_nil(read.catalystCharges)
         assert.is_nil(read.catalystMax)

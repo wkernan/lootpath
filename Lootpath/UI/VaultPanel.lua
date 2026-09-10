@@ -47,6 +47,92 @@ Panel.ROW_LABEL_BY_ENUM = {
     World = "World",
 }
 
+-- ---------------------------------------------------------------------------
+-- The vault drawn as the vault (M5-4, WKE-553). Three rows of three cells, in
+-- Blizzard's own order and under Blizzard's own words.
+--
+-- The order is read off Blizzard's shipped frame rather than chosen here:
+-- `WeeklyRewardsFrame:SetUpActivities` calls SetUpActivity for RAIDS, then
+-- DUNGEONS, then WORLD (Blizzard_WeeklyRewards.lua under .luals/, the three
+-- consecutive lines), and the PvP row is set up separately and only when the
+-- client says to show it. Lootpath draws the three, and every option the
+-- client lists outside them - a Concession row, an "Also receive" row - keeps
+-- its place in the text list and is named under the grid rather than dropped.
+Panel.ROW_ORDER = { "Raid", "Activities", "World" }
+Panel.ROW_CELLS = 3
+
+-- The FrameXML global each row's own heading comes from, when the client has
+-- one. Their VALUES are not written down anywhere this repo can read - there
+-- is no GlobalStrings transcript under `.luals/` - so the global is asked for
+-- at runtime and ROW_LABEL_BY_ENUM above (the owner's own screenshot,
+-- 2026-09-08) is what a client without it falls back to. Nothing here claims
+-- to know what RAIDS says.
+Panel.ROW_GLOBAL = {
+    Raid = "RAIDS",
+    Activities = "DUNGEONS",
+    World = "WORLD",
+}
+
+-- What a cell with no reward says, in the client's own sentence. Blizzard's
+-- `WeeklyRewardsActivityMixin:Refresh` picks the pattern by threshold type -
+-- the activity's own `raidString` for a Raid row when it has one, else
+-- WEEKLY_REWARDS_THRESHOLD_RAID; WEEKLY_REWARDS_THRESHOLD_DUNGEONS for the
+-- Activities row; WEEKLY_REWARDS_THRESHOLD_WORLD for World - and formats it
+-- with the threshold. The same three globals are asked for here and formatted
+-- the same way; a client that has none of them leaves the cell with the
+-- progress wording the text panel already prints.
+Panel.THRESHOLD_GLOBAL = {
+    Raid = "WEEKLY_REWARDS_THRESHOLD_RAID",
+    Activities = "WEEKLY_REWARDS_THRESHOLD_DUNGEONS",
+    World = "WEEKLY_REWARDS_THRESHOLD_WORLD",
+}
+
+-- The glow Blizzard's own vault puts on the option you have chosen
+-- (`evergreen-weeklyrewards-reward-selected`, the SelectedTexture of
+-- WeeklyRewardsActivityTemplate in Blizzard_WeeklyRewards.xml). Asked for
+-- through C_Texture.GetAtlasInfo at draw time, because an atlas that has gone
+-- from the client must not leave the pick unmarked: a gold border in QE Live's
+-- own accent is drawn instead.
+Panel.SELECTED_ATLAS = "evergreen-weeklyrewards-reward-selected"
+Panel.SELECTED_HEX = "FFDF14"
+
+-- What the mark on that cell says. The grey one is the `nothing beats your
+-- set` case: the closest option is still named, and is still not called a pick
+-- on a screen that says there is not one.
+Panel.PICK_LABEL = "QE Live's pick"
+Panel.CLOSEST_LABEL = "closest"
+
+-- The cell's own last line. A cell whose option has more than one scenario to
+-- report says where the rest of them are; the tooltip carries exactly the
+-- lines `Panel.ScenarioLine` built, so the cell and the text panel cannot
+-- disagree about what QE Live said.
+Panel.CELL_HOVER_TEXT = "hover for the other scenarios"
+Panel.CELL_NO_VERDICT_TEXT = "not ranked by QE Live in any scenario"
+Panel.CELL_SECOND_SEPARATOR = " - "
+-- A row the client generated more than one gear reward for. Not measured on
+-- any transcript (every rewarded activity carried exactly one), so the cell
+-- draws the first and says how many it is not drawing rather than pretending
+-- the others are not there.
+Panel.CELL_MORE_TEXT = "+%d more in this option"
+-- The options the client lists outside the three rows Blizzard draws.
+Panel.OTHER_OPTIONS_TEXT = "Also in this vault: %s"
+
+-- The currency strip under the grid. The scenario lines above it already say
+-- how many of a thing the player has, in words; this names each currency with
+-- the client's own `name` and draws the client's own `iconFileID` beside it,
+-- so "needs crests" has a face. No arithmetic: a chip is a name, an icon and
+-- the client's number, and the Catalyst's chip carries its `maxQuantity` the
+-- same way the sentence above does.
+Panel.CURRENCY_UNNAMED = "currency %s"
+Panel.CURRENCY_OF_TEXT = "%s of %s"
+Panel.CURRENCY_NOTE = "Currency counts need /lootpath capture currencies."
+
+-- The scenario dropdown on the tab's own header row. The Settings page keeps
+-- its copy of the same setting, and both write through
+-- `ns.UI.Options.SetVaultScenario`, so there is one stored answer and two
+-- ways to reach it.
+Panel.SCENARIO_DROPDOWN_LABEL = "Vault highlight"
+
 -- What a row says about itself once the vault has generated its rewards. After
 -- the reset the client sets every `progress` back to 0 while the rewards sit
 -- there claimable (measured 2026-09-08: `HasAvailableRewards` and
@@ -349,20 +435,64 @@ local function progressText(option)
     return text
 end
 
--- The row's name in the game's words. Falls back to the module's measured label
--- for every threshold type this panel does not translate (Concession, Ranked
--- PvP, Also receive), which is honest: those rows are not on the owner's vault
--- screen under another name.
+-- A FrameXML global's value, or nil when this client does not have it. Every
+-- word this panel takes from the client goes through here, so a build that has
+-- dropped a global loses a word rather than rendering its NAME.
+local function globalString(name)
+    local value = type(name) == "string" and _G[name] or nil
+    if type(value) == "string" and value ~= "" then
+        return value
+    end
+    return nil
+end
+Panel.GlobalString = globalString
+
+-- The row's name in the game's words: the client's own global first (M5-4 -
+-- RAIDS, DUNGEONS, WORLD, the three Blizzard's own vault frame passes to
+-- SetUpActivity), then the label measured off the owner's vault screen, then
+-- the module's own for every threshold type this panel does not translate
+-- (Concession, Ranked PvP, Also receive) - which is honest: those rows are not
+-- on the owner's vault screen under another name.
 function Panel.RowLabel(option)
     local activityType = option and option.type
     if activityType ~= nil and ns.Vault then
         for name, label in pairs(Panel.ROW_LABEL_BY_ENUM) do
             if ns.Vault.ThresholdType(name) == activityType then
-                return label
+                return globalString(Panel.ROW_GLOBAL[name]) or label
             end
         end
     end
     return (option and option.typeLabel) or "Unknown"
+end
+
+-- The heading of one grid row, whether or not the client listed any option
+-- under it. Same two sources in the same order as RowLabel.
+function Panel.GridRowLabel(enumName)
+    return globalString(Panel.ROW_GLOBAL[enumName]) or Panel.ROW_LABEL_BY_ENUM[enumName] or tostring(enumName)
+end
+
+-- Blizzard's own threshold sentence for a row with no reward on it, or nil
+-- when this client has neither the activity's `raidString` nor the global.
+-- Formatted with the threshold exactly as `WeeklyRewardsActivityMixin:Refresh`
+-- formats it, inside a pcall: a pattern this addon did not write must not be
+-- able to throw the panel.
+function Panel.ThresholdText(option, enumName)
+    if type(option) ~= "table" then
+        return nil
+    end
+    local pattern
+    if enumName == "Raid" and type(option.raidString) == "string" and option.raidString ~= "" then
+        pattern = option.raidString
+    end
+    pattern = pattern or globalString(Panel.THRESHOLD_GLOBAL[enumName])
+    if not pattern then
+        return nil
+    end
+    local ok, text = pcall(string.format, pattern, option.threshold or 0)
+    if not ok or type(text) ~= "string" then
+        return nil
+    end
+    return text
 end
 
 -- The phrase naming which QE Live upgrade assumptions produced a number, or nil
@@ -823,6 +953,202 @@ function Panel.HeadlineText(scenario, pick, coverage)
     return string.format(Panel.HEADLINE_TEXT, label, rewardName(pick)) .. suffix
 end
 
+-- Which of QE Live's two tones one of his answers is drawn in (M5-1's
+-- palette, his own two colours and no third). His top set and anything he
+-- called better are "better"; anything else he ranked is "worse"; an option he
+-- did not rank at all has no tone of his and takes the panels' grey.
+function Panel.VerdictTone(coverage)
+    if type(coverage) ~= "table" then
+        return "none"
+    end
+    if coverage.where == "topSet" or coverage.isBetter == true then
+        return "better"
+    end
+    return "worse"
+end
+
+-- The tag words a cell carries, in QE Live's own vocabulary (M5-1's TAG
+-- table). Exactly one thing is said and it is read off HIS output: when the
+-- answer on this cell is about his catalyzed copy of the option rather than
+-- the option the vault hands over, the cell says Catalyst and Tier. Nothing
+-- else is tagged - every option here is a vault option, so a "Vault" tag on
+-- all nine of them would say nothing.
+function Panel.CellTags(line)
+    if type(line) == "table" and line.viaCatalyst then
+        return { "catalyst", "tier" }
+    end
+    return {}
+end
+
+-- One cell of the grid, as plain data. `option` is a model option, `enumName`
+-- its row's Blizzard enum name, `highlight` the scenario the pick follows.
+--
+-- A cell with a gear reward draws that reward as an M5-1 item line and says
+-- ONE verdict line - the highlighted scenario's, the same string
+-- `Panel.ScenarioLine` put on the option below - with every scenario's line
+-- kept in `tooltipLines` for the hover. A cell with no gear reward is locked
+-- and says what the client says it needs.
+function Panel.Cell(option, enumName, highlight)
+    local cell = {
+        index = option.index,
+        id = option.id,
+        type = option.type,
+        threshold = option.threshold,
+        progress = option.progress,
+        progressText = option.progressText,
+        unlocked = option.unlocked == true,
+        claimable = option.claimable == true,
+        extrasText = option.extrasText,
+    }
+    local reward = option.rewards and option.rewards[1] or nil
+    if not reward then
+        cell.kind = "locked"
+        cell.thresholdText = Panel.ThresholdText(option, enumName)
+        cell.text = cell.thresholdText or option.progressText
+        return cell
+    end
+    cell.kind = "reward"
+    cell.reward = reward
+    cell.pending = reward.pending == true
+    cell.name = reward.displayName or Panel.RewardName(reward)
+    cell.item = {
+        itemID = reward.itemID,
+        link = reward.link,
+        name = cell.name,
+        quality = reward.quality,
+        itemLevel = reward.itemLevel,
+        icon = reward.icon,
+    }
+    -- The grey line under the name: what slot it is and what level it is, in
+    -- M3-7's own words - the client's number, and QE Live's beside it whenever
+    -- the two disagree, with the setting that produced his.
+    local parts = {}
+    if type(reward.slot) == "string" and reward.slot ~= "" then
+        parts[#parts + 1] = reward.slot
+    end
+    parts[#parts + 1] = reward.levelText
+    cell.second = table.concat(parts, Panel.CELL_SECOND_SEPARATOR)
+    local highlighted
+    for _, line in ipairs(reward.scenarioLines or {}) do
+        if line.scenario == highlight then
+            highlighted = line
+        end
+    end
+    cell.scenarioLine = highlighted
+    cell.verdictText = highlighted and highlighted.text or Panel.CELL_NO_VERDICT_TEXT
+    cell.verdictTone = Panel.VerdictTone(highlighted and highlighted.coverage or nil)
+    cell.tags = Panel.CellTags(highlighted)
+    -- Exactly the strings the text panel indents under this option, so the
+    -- hover and `Panel.Lines` can never say different things about one item.
+    cell.tooltipLines = reward.verdictLines or {}
+    local footer = {}
+    if cell.claimable then
+        footer[#footer + 1] = Panel.CLAIMABLE_TEXT
+    elseif cell.unlocked then
+        footer[#footer + 1] = Panel.UNLOCKED_TEXT
+    end
+    if #cell.tooltipLines > 1 then
+        footer[#footer + 1] = Panel.CELL_HOVER_TEXT
+    end
+    cell.footer = table.concat(footer, Panel.CELL_SECOND_SEPARATOR)
+    local more = #option.rewards - 1
+    if more > 0 then
+        cell.moreText = string.format(Panel.CELL_MORE_TEXT, more)
+    end
+    return cell
+end
+
+-- The grid: three rows of three cells, in Blizzard's order, plus every option
+-- the client listed outside them. `best` is the reward the pick highlight
+-- follows and `closest` says the headline called it the closest rather than a
+-- pick, so exactly one cell is marked and it is marked the way the first line
+-- of the block already reads.
+function Panel.Grid(model, highlight, best, closest)
+    local placed, rows = {}, {}
+    for _, enumName in ipairs(Panel.ROW_ORDER) do
+        local activityType = ns.Vault and ns.Vault.ThresholdType(enumName) or nil
+        local row = { key = enumName, type = activityType, label = Panel.GridRowLabel(enumName), cells = {} }
+        for index = 1, Panel.ROW_CELLS do
+            row.cells[index] = { index = index, kind = "empty" }
+        end
+        for _, option in ipairs(model.options or {}) do
+            local slot = tonumber(option.index)
+            if
+                activityType ~= nil
+                and option.type == activityType
+                and slot
+                and slot >= 1
+                and slot <= Panel.ROW_CELLS
+                and row.cells[slot].kind == "empty"
+            then
+                local cell = Panel.Cell(option, enumName, highlight)
+                if best ~= nil and cell.reward == best then
+                    cell.selected = not closest
+                    cell.closest = closest and true or false
+                    cell.label = closest and Panel.CLOSEST_LABEL or Panel.PICK_LABEL
+                end
+                row.cells[slot] = cell
+                placed[option] = true
+            end
+        end
+        rows[#rows + 1] = row
+    end
+    local other = {}
+    for _, option in ipairs(model.options or {}) do
+        if not placed[option] and ((#option.rewards > 0) or (#option.extras > 0)) then
+            other[#other + 1] = option
+        end
+    end
+    local otherText
+    if #other > 0 then
+        local names = {}
+        for _, option in ipairs(other) do
+            -- The header AND what the row hands over: a Concession row that is
+            -- only ever a Mythic Keystone must still say so, or the grid has
+            -- quietly dropped something the client offered.
+            names[#names + 1] = option.headerText .. (option.extrasText and (" " .. option.extrasText) or "")
+        end
+        otherText = string.format(Panel.OTHER_OPTIONS_TEXT, table.concat(names, "; "))
+    end
+    return { rows = rows, other = other, otherText = otherText }
+end
+
+-- The currency strip: one chip per currency a scenario above assumed, with the
+-- client's own name, the client's own icon file ID and the client's own count.
+-- Empty whenever nothing has read the currencies yet, because a strip of
+-- question marks says less than no strip at all - the scenario lines already
+-- carry `Panel.COUNT_UNKNOWN` in words.
+function Panel.CurrencyChips(currencies)
+    if not (type(currencies) == "table" and currencies.ok == true) then
+        return {}
+    end
+    local chips = {}
+    local function add(key, record, count)
+        local name = type(record.name) == "string" and record.name ~= "" and record.name
+            or string.format(Panel.CURRENCY_UNNAMED, tostring(record.currencyID or "?"))
+        chips[#chips + 1] = {
+            key = key,
+            currencyID = record.currencyID,
+            name = name,
+            icon = record.iconFileID,
+            count = count,
+            text = name .. " " .. count,
+        }
+    end
+    local catalyst = currencies.catalyst
+    if type(catalyst) == "table" and catalyst.quantity ~= nil then
+        local count = tostring(catalyst.quantity)
+        if catalyst.maxQuantity then
+            count = string.format(Panel.CURRENCY_OF_TEXT, count, tostring(catalyst.maxQuantity))
+        end
+        add("catalyst", catalyst, count)
+    end
+    for _, crest in ipairs(currencies.crests or {}) do
+        add("crest", crest, tostring(crest.quantity))
+    end
+    return chips
+end
+
 -- Model(opts) -> the panel as plain data.
 --
 -- opts.vault       ns.Vault.Options()'s result
@@ -918,6 +1244,8 @@ function Panel.Model(opts)
                     name = reward.name,
                     pending = reward.pending == true,
                     displayName = displayName,
+                    icon = reward.icon,
+                    quality = reward.quality,
                 }
                 extra.text = "+ " .. displayName
                 extras[#extras + 1] = extra
@@ -941,6 +1269,12 @@ function Panel.Model(opts)
                     displayName = displayName,
                     itemLevel = reward.itemLevel,
                     slot = reward.slot,
+                    -- What the drawn cell needs and the text list never did
+                    -- (M5-4): the client's own icon file ID and quality, off
+                    -- the vault record M5-1 put them on. Neither is read for
+                    -- anything but drawing, and neither is ever guessed.
+                    icon = reward.icon,
+                    quality = reward.quality,
                     -- QE Live's own assumed level for this exact item, carried
                     -- beside the client's rather than instead of it.
                     qeLevel = qeItem and tonumber(qeItem.level) or nil,
@@ -978,6 +1312,9 @@ function Panel.Model(opts)
             threshold = option.threshold,
             progress = option.progress,
             level = option.level,
+            -- The client's own threshold sentence for this row, carried so a
+            -- locked cell can say what Blizzard's own vault says (M5-4).
+            raidString = option.raidString,
             unlocked = option.unlocked == true,
             claimable = claimable,
             progressText = progressText(option),
@@ -1074,14 +1411,19 @@ function Panel.Model(opts)
     -- else on the tab already says why there is not.
     if model.hasVerdict and #scenarios > 0 and model.counts.rewards > 0 then
         local pick = model.best
+        local headlineCoverage = bestByScenario[highlight] and bestByScenario[highlight].coverage or nil
+        -- The same test `Panel.HeadlineText` makes, kept beside it rather than
+        -- made twice in two places: when the best he said under the highlighted
+        -- scenario is still "worse than your set", the first line refuses to
+        -- call it a pick, and the cell below must refuse in the same breath.
+        local closest = type(headlineCoverage) == "table"
+            and headlineCoverage.where ~= "topSet"
+            and headlineCoverage.isBetter ~= true
         model.headline = {
             scenario = highlight,
             pick = pick,
-            text = Panel.HeadlineText(
-                highlight,
-                pick,
-                bestByScenario[highlight] and bestByScenario[highlight].coverage
-            ),
+            closest = closest and true or false,
+            text = Panel.HeadlineText(highlight, pick, headlineCoverage),
             lines = {},
         }
         local thisWeekVerdict
@@ -1118,6 +1460,12 @@ function Panel.Model(opts)
         end
     end
 
+    -- The vault drawn as the vault (M5-4). Built last, out of the options and
+    -- the headline that are already settled, so the grid is a second view of
+    -- the same answer and never a second answer.
+    model.grid = Panel.Grid(model, highlight, model.best, model.headline and model.headline.closest)
+    model.currencyChips = Panel.CurrencyChips(opts.currencies)
+
     if model.counts.rewards == 0 and model.counts.extras == 0 then
         model.rewardsNote = Panel.NO_REWARDS_NOTE
     end
@@ -1136,33 +1484,49 @@ function Panel.Model(opts)
     return model
 end
 
+-- The notes the drawn panel prints above the grid: everything `Panel.Lines`
+-- says that is not an option. Kept as one function so the text list and the
+-- drawn panel cannot drift apart about which notes there are.
+function Panel.NoteLines(model)
+    local lines = {}
+    if not model.ok then
+        lines[1] = string.format("The vault could not be read: %s", tostring(model.reason))
+        return lines
+    end
+    if model.verdictNote then
+        lines[#lines + 1] = model.verdictNote
+    end
+    if model.highlightNote then
+        lines[#lines + 1] = model.highlightNote
+    end
+    if model.staleNote then
+        lines[#lines + 1] = model.staleNote
+    end
+    if model.rewardsNote then
+        lines[#lines + 1] = model.rewardsNote
+    end
+    if model.pendingNote then
+        lines[#lines + 1] = Panel.NOTE_COLOR .. model.pendingNote .. "|r"
+    end
+    return lines
+end
+
 -- The pinned note is NOT one of these lines: the panel header draws it once,
 -- above the list, and until WKE-530 the list printed it again as its first row
 -- (seen in game 2026-09-06 on this tab and the Upgrade Map). The model still
 -- carries `note` for the headless tests that pin the wording.
+--
+-- Since M5-4 the drawn tab is a grid rather than this list, and this function
+-- is the pure text `/lootpath status` and every text test read: the same
+-- notes, the same headline block and the same per-option lines, in the same
+-- order. The grid renders the same fields; nothing on screen is built here.
 function Panel.Lines(model)
-    local lines = {}
+    local lines = Panel.NoteLines(model)
     local function add(text)
         lines[#lines + 1] = text
     end
     if not model.ok then
-        add(string.format("The vault could not be read: %s", tostring(model.reason)))
         return lines
-    end
-    if model.verdictNote then
-        add(model.verdictNote)
-    end
-    if model.highlightNote then
-        add(model.highlightNote)
-    end
-    if model.staleNote then
-        add(model.staleNote)
-    end
-    if model.rewardsNote then
-        add(model.rewardsNote)
-    end
-    if model.pendingNote then
-        add(Panel.NOTE_COLOR .. model.pendingNote .. "|r")
     end
     -- The answer first, the evidence under it (M3-9). The option list below is
     -- unchanged; this block is what the owner reads before scrolling.
@@ -1189,12 +1553,47 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Frames. Native only, no AceGUI (decision 2026-09-05).
+--
+-- Since M5-4 (WKE-553) the tab is drawn as the vault is drawn: the headline
+-- block first, then three rows of three option cells in Blizzard's own order,
+-- then the currency strip. Every cell is an M5-1 item line; the pick carries
+-- Blizzard's own selected glow when the client still has the atlas; each cell
+-- says the highlighted scenario's line and keeps the rest one hover away.
+-- `Panel.Lines` is untouched and is still the pure text the tests read.
 
 local ROW_HEIGHT = 14
 -- Only a default; the window anchors this panel by two corners. See the same
 -- note in UI/UpgradeMapPanel.lua.
 local PANEL_WIDTH = 560
 local PANEL_HEIGHT = 420
+
+local ROW_LABEL_WIDTH = 74
+local CELL_GAP = 8
+local CELL_HEIGHT = 92
+local GRID_ROW_GAP = 8
+local CELL_ICON_SIZE = 32
+local CHIP_ICON_SIZE = 14
+local CHIP_GAP = 12
+
+-- QE Live's gold as the three numbers a texture tint wants, off the same hex
+-- the badge uses. Read from the constant rather than written out again, so the
+-- accent has exactly one definition in this addon.
+local function toneRGB(hex)
+    return tonumber(hex:sub(1, 2), 16) / 255, tonumber(hex:sub(3, 4), 16) / 255, tonumber(hex:sub(5, 6), 16) / 255
+end
+
+-- A flat 1-pixel texture Blizzard ships and every addon tints; used for the
+-- fallback border, and only ever with SetVertexColor over it.
+local WHITE_TEXTURE = [[Interface\Buttons\WHITE8X8]]
+
+local function colored(hex, text)
+    return "|cff" .. hex .. tostring(text) .. "|r"
+end
+
+local function toneHex(name)
+    local tone = ns.UI and ns.UI.ItemLine and ns.UI.ItemLine.TONE[name] or nil
+    return tone and tone.hex or "909296"
+end
 
 -- The verdict the window is showing. `ns.UI.ActiveVerdict` honours the content
 -- type setting and falls back to the most recent import, saying so in the
@@ -1219,6 +1618,13 @@ local function activeScenarios()
     return {}
 end
 
+local function currentScenario()
+    if ns.UI and ns.UI.Options and ns.UI.Options.GetVaultScenario then
+        return ns.UI.Options.GetVaultScenario()
+    end
+    return nil
+end
+
 function Panel.Gather(opts)
     opts = opts or {}
     return {
@@ -1232,13 +1638,63 @@ function Panel.Gather(opts)
         -- the owner already has that a scenario's best set catalyzed (M3-13).
         -- Scan refuses in combat and the refusal is simply no sentence.
         inventory = ns.Inventory and ns.Inventory.Scan() or nil,
-        highlightScenario = ns.UI
-                and ns.UI.Options
-                and ns.UI.Options.GetVaultScenario
-                and ns.UI.Options.GetVaultScenario()
-            or nil,
+        highlightScenario = currentScenario(),
         now = opts.now,
     }
+end
+
+-- The scenario dropdown, on the tab's own header row (M5-4). It writes through
+-- `ns.UI.Options.SetVaultScenario`, which is the one place the setting lives,
+-- so the Settings page's copy and this one can never disagree; the labels are
+-- the Settings page's own words for the same reason.
+--
+-- `DropdownButton` with `WowStyle1DropdownTemplate` is the 11.0 menu system
+-- (Blizzard_Menu/DropdownButton.lua under .luals/: SetupMenu takes a generator
+-- of (dropdown, rootDescription) and rootDescription:CreateRadio takes text, an
+-- is-selected predicate and a setter). A client without the template gets no
+-- dropdown on the tab and keeps the Settings page's, which is why the whole
+-- thing is a pcall and a nil return rather than an error.
+Panel.DROPDOWN_TEMPLATE = "WowStyle1DropdownTemplate"
+Panel.DROPDOWN_TAG = "MENU_LOOTPATH_VAULT_SCENARIO"
+Panel.DROPDOWN_WIDTH = 210
+Panel.DROPDOWN_HEIGHT = 22
+
+function Panel.ScenarioChoiceLabel(scenario)
+    local labels = ns.UI and ns.UI.Options and ns.UI.Options.SCENARIO_CHOICE_LABEL or nil
+    return (type(labels) == "table" and labels[scenario]) or Panel.ScenarioLabel(scenario)
+end
+
+local function buildScenarioDropdown(frame)
+    local ok, dropdown = pcall(CreateFrame, "DropdownButton", nil, frame, Panel.DROPDOWN_TEMPLATE)
+    if not ok or type(dropdown) ~= "table" or type(dropdown.SetupMenu) ~= "function" then
+        return nil
+    end
+    dropdown:SetSize(Panel.DROPDOWN_WIDTH, Panel.DROPDOWN_HEIGHT)
+    dropdown:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
+    -- The words on the closed dropdown. `SetDefaultText` belongs to
+    -- DropdownSelectionTextMixin, which WowStyle1DropdownTemplate mixes in
+    -- through its own XML; Blizzard's generated annotations do not record that
+    -- inheritance, and a template's own method is a thing to call defensively
+    -- in any case - a dropdown with no caption is still a dropdown.
+    pcall(dropdown.SetDefaultText, dropdown, Panel.SCENARIO_DROPDOWN_LABEL)
+    dropdown:SetupMenu(function(_, rootDescription)
+        if type(rootDescription) ~= "table" or type(rootDescription.CreateRadio) ~= "function" then
+            return
+        end
+        if rootDescription.SetTag then
+            rootDescription:SetTag(Panel.DROPDOWN_TAG)
+        end
+        for _, scenario in ipairs(ns.QEImport.SCENARIOS) do
+            rootDescription:CreateRadio(Panel.ScenarioChoiceLabel(scenario), function()
+                return currentScenario() == scenario
+            end, function()
+                if ns.UI and ns.UI.Options and ns.UI.Options.SetVaultScenario then
+                    ns.UI.Options.SetVaultScenario(scenario)
+                end
+            end)
+        end
+    end)
+    return dropdown
 end
 
 function Panel.Create(parent)
@@ -1250,6 +1706,8 @@ function Panel.Create(parent)
     frame.header:SetJustifyH("LEFT")
     frame.header:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
     frame.header:SetText("Vault")
+
+    frame.scenarioDropdown = buildScenarioDropdown(frame)
 
     frame.note = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
     frame.note:SetJustifyH("LEFT")
@@ -1264,6 +1722,34 @@ function Panel.Create(parent)
     frame.content:SetSize(PANEL_WIDTH - 40, PANEL_HEIGHT - 60)
     frame.scroll:SetScrollChild(frame.content)
     frame.rows = {}
+    frame.gridRows = {}
+    frame.chips = {}
+
+    -- The headline block (M3-9), drawn: the pick's icon, the first line in
+    -- GameFontNormalLarge, and one small line per scenario under it, each of
+    -- them exactly what `Panel.HeadlineLine` produced.
+    local headline = CreateFrame("Frame", nil, frame.content)
+    headline:SetPoint("TOPLEFT", frame.content, "TOPLEFT", 0, 0)
+    headline:SetPoint("RIGHT", frame.content, "RIGHT", 0, 0)
+    headline:SetHeight(1)
+    headline.icon = ns.UI.ItemLine.CreateIcon(headline, { size = CELL_ICON_SIZE })
+    headline.icon:SetPoint("TOPLEFT", headline, "TOPLEFT", 0, 0)
+    headline.text = headline:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    headline.text:SetPoint("TOPLEFT", headline.icon, "TOPRIGHT", 8, -2)
+    headline.text:SetPoint("RIGHT", headline, "RIGHT", 0, 0)
+    headline.text:SetJustifyH("LEFT")
+    headline.text:SetWordWrap(true)
+    headline.lines = {}
+    frame.headline = headline
+
+    frame.other = frame.content:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+    frame.other:SetJustifyH("LEFT")
+    frame.other:SetWordWrap(true)
+    frame.other:Hide()
+
+    frame.currencyNote = frame.content:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+    frame.currencyNote:SetJustifyH("LEFT")
+    frame.currencyNote:Hide()
 
     frame.Refresh = Panel.Refresh
     Panel.frame = frame
@@ -1276,6 +1762,7 @@ local function row(frame, index)
         text = frame.content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
         text:SetJustifyH("LEFT")
         text:SetWidth(PANEL_WIDTH - 60)
+        text:SetWordWrap(true)
         if index == 1 then
             text:SetPoint("TOPLEFT", frame.content, "TOPLEFT", 0, 0)
         else
@@ -1287,6 +1774,245 @@ local function row(frame, index)
     return text
 end
 
+-- One option cell. Its regions are created once and re-bound on every refresh,
+-- the way every list in this addon works: a cell that stops being the pick must
+-- lose its glow, and a cell that stops holding an item must cancel what that
+-- item was waiting for.
+local function createCell(parent)
+    local cell = CreateFrame("Frame", nil, parent)
+    cell:SetHeight(CELL_HEIGHT)
+    cell:EnableMouse(true)
+
+    cell.background = cell:CreateTexture(nil, "BACKGROUND")
+    cell.background:SetAllPoints()
+    cell.background:SetTexture(WHITE_TEXTURE)
+    cell.background:SetVertexColor(0.07, 0.07, 0.08, 0.8)
+
+    -- Blizzard's own selected art, when the client still has the atlas.
+    cell.selectedTexture = cell:CreateTexture(nil, "OVERLAY")
+    cell.selectedTexture:SetAllPoints()
+    cell.selectedTexture:Hide()
+
+    -- The fallback: four tinted edges in QE Live's gold, so a pick is marked on
+    -- a client that has dropped the atlas.
+    cell.edges = {}
+    for index = 1, 4 do
+        local edge = cell:CreateTexture(nil, "OVERLAY")
+        edge:SetTexture(WHITE_TEXTURE)
+        edge:Hide()
+        cell.edges[index] = edge
+    end
+    cell.edges[1]:SetPoint("TOPLEFT", cell, "TOPLEFT", 0, 0)
+    cell.edges[1]:SetPoint("TOPRIGHT", cell, "TOPRIGHT", 0, 0)
+    cell.edges[1]:SetHeight(2)
+    cell.edges[2]:SetPoint("BOTTOMLEFT", cell, "BOTTOMLEFT", 0, 0)
+    cell.edges[2]:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", 0, 0)
+    cell.edges[2]:SetHeight(2)
+    cell.edges[3]:SetPoint("TOPLEFT", cell, "TOPLEFT", 0, 0)
+    cell.edges[3]:SetPoint("BOTTOMLEFT", cell, "BOTTOMLEFT", 0, 0)
+    cell.edges[3]:SetWidth(2)
+    cell.edges[4]:SetPoint("TOPRIGHT", cell, "TOPRIGHT", 0, 0)
+    cell.edges[4]:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", 0, 0)
+    cell.edges[4]:SetWidth(2)
+
+    cell.label = cell:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    cell.label:SetPoint("BOTTOMLEFT", cell, "TOPLEFT", 4, -1)
+    cell.label:SetJustifyH("LEFT")
+    cell.label:SetWordWrap(false)
+    cell.label:Hide()
+
+    -- The badge column is zero here: a third of a panel is too narrow for a
+    -- badge beside the name, so the verdict is its own line underneath, which
+    -- is also where Blizzard's own vault cell puts its progress.
+    cell.line = ns.UI.ItemLine.Create(cell, { size = CELL_ICON_SIZE, badgeWidth = 0 })
+    cell.line:SetPoint("TOPLEFT", cell, "TOPLEFT", 6, -6)
+    cell.line:SetPoint("RIGHT", cell, "RIGHT", -6, 0)
+
+    cell.tags = cell:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    cell.tags:SetPoint("TOPLEFT", cell.line, "BOTTOMLEFT", 0, -2)
+    cell.tags:SetPoint("RIGHT", cell, "RIGHT", -6, 0)
+    cell.tags:SetJustifyH("LEFT")
+    cell.tags:SetWordWrap(false)
+
+    cell.verdict = cell:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    cell.verdict:SetPoint("TOPLEFT", cell.tags, "BOTTOMLEFT", 0, -2)
+    cell.verdict:SetPoint("RIGHT", cell, "RIGHT", -6, 0)
+    cell.verdict:SetJustifyH("LEFT")
+    cell.verdict:SetWordWrap(true)
+
+    -- Everything the client hands over on this row that is not gear - the
+    -- Mythic Keystone every rewarded activity carries, a Token of Merit - in
+    -- the words the text list already gives it (finding 1, WKE-538). It has no
+    -- level and never a value; it is here so nothing the vault offers is off
+    -- the screen.
+    cell.extras = cell:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+    cell.extras:SetPoint("TOPLEFT", cell.verdict, "BOTTOMLEFT", 0, -2)
+    cell.extras:SetPoint("RIGHT", cell, "RIGHT", -6, 0)
+    cell.extras:SetJustifyH("LEFT")
+    cell.extras:SetWordWrap(false)
+
+    cell.footer = cell:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+    cell.footer:SetPoint("BOTTOMLEFT", cell, "BOTTOMLEFT", 6, 4)
+    cell.footer:SetPoint("RIGHT", cell, "RIGHT", -6, 0)
+    cell.footer:SetJustifyH("LEFT")
+    cell.footer:SetWordWrap(false)
+
+    -- The locked cell's own words, centred, where the item line would be.
+    cell.locked = cell:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+    cell.locked:SetPoint("TOPLEFT", cell, "TOPLEFT", 6, -6)
+    cell.locked:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", -6, 6)
+    cell.locked:SetJustifyH("CENTER")
+    cell.locked:SetJustifyV("MIDDLE")
+    cell.locked:SetWordWrap(true)
+    cell.locked:Hide()
+
+    cell:SetScript("OnEnter", function(self)
+        Panel.ShowCellTooltip(self)
+    end)
+    cell:SetScript("OnLeave", function()
+        if GameTooltip then
+            GameTooltip:Hide()
+        end
+    end)
+    return cell
+end
+
+-- Every scenario's line for the option in this cell, in the tooltip, built
+-- from the same strings `Panel.ScenarioLine` gave the text panel. The item
+-- itself is one hover further in - the icon and the name are the item line's
+-- own buttons and show the real item tooltip with the shopping compare.
+function Panel.ShowCellTooltip(cell)
+    local data = cell.data
+    if not (GameTooltip and type(data) == "table") then
+        return false
+    end
+    GameTooltip:SetOwner(cell, "ANCHOR_RIGHT")
+    GameTooltip:SetText(data.name or data.text or "", 1, 1, 1, 1, true)
+    for _, line in ipairs(data.tooltipLines or {}) do
+        GameTooltip:AddLine(line)
+    end
+    if data.extrasText then
+        GameTooltip:AddLine(data.extrasText)
+    end
+    if data.moreText then
+        GameTooltip:AddLine(data.moreText)
+    end
+    GameTooltip:Show()
+    return true
+end
+
+local function gridRow(frame, index)
+    local existing = frame.gridRows[index]
+    if existing then
+        return existing
+    end
+    local rowFrame = CreateFrame("Frame", nil, frame.content)
+    rowFrame:SetHeight(CELL_HEIGHT)
+    rowFrame.label = rowFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    rowFrame.label:SetPoint("TOPLEFT", rowFrame, "TOPLEFT", 0, -6)
+    rowFrame.label:SetWidth(ROW_LABEL_WIDTH)
+    rowFrame.label:SetJustifyH("LEFT")
+    rowFrame.label:SetWordWrap(false)
+    rowFrame.cells = {}
+    for cellIndex = 1, Panel.ROW_CELLS do
+        local cell = createCell(rowFrame)
+        if cellIndex == 1 then
+            cell:SetPoint("TOPLEFT", rowFrame, "TOPLEFT", ROW_LABEL_WIDTH, 0)
+        else
+            cell:SetPoint("TOPLEFT", rowFrame.cells[cellIndex - 1], "TOPRIGHT", CELL_GAP, 0)
+        end
+        rowFrame.cells[cellIndex] = cell
+    end
+    frame.gridRows[index] = rowFrame
+    return rowFrame
+end
+
+local function chip(frame, index)
+    local existing = frame.chips[index]
+    if existing then
+        return existing
+    end
+    local entry = CreateFrame("Frame", nil, frame.content)
+    entry:SetHeight(CHIP_ICON_SIZE + 2)
+    entry.icon = entry:CreateTexture(nil, "ARTWORK")
+    entry.icon:SetSize(CHIP_ICON_SIZE, CHIP_ICON_SIZE)
+    entry.icon:SetPoint("LEFT", entry, "LEFT", 0, 0)
+    entry.text = entry:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    entry.text:SetPoint("LEFT", entry.icon, "RIGHT", 3, 0)
+    entry.text:SetJustifyH("LEFT")
+    entry.text:SetWordWrap(false)
+    frame.chips[index] = entry
+    return entry
+end
+
+-- Marks (or unmarks) one cell as the pick. Blizzard's atlas when the client
+-- has it, four gold edges when it does not; never nothing.
+local function markCell(cell, selected)
+    local atlas = selected and ns.UI.ItemLine.Atlas(Panel.SELECTED_ATLAS) or nil
+    if atlas then
+        cell.selectedTexture:SetAtlas(atlas)
+        cell.selectedTexture:Show()
+    else
+        cell.selectedTexture:Hide()
+    end
+    local showEdges = selected and not atlas
+    local r, g, b = toneRGB(Panel.SELECTED_HEX)
+    for _, edge in ipairs(cell.edges) do
+        if showEdges then
+            edge:SetVertexColor(r, g, b, 1)
+            edge:Show()
+        else
+            edge:Hide()
+        end
+    end
+end
+
+local function bindCell(cell, data, cellWidth)
+    cell:SetWidth(cellWidth)
+    cell.data = data
+    if not data or data.kind == "empty" then
+        ns.UI.ItemLine.Clear(cell.line)
+        cell:Hide()
+        markCell(cell, false)
+        return
+    end
+    cell:Show()
+    cell.extras:SetText(data.extrasText or "")
+    if data.kind == "locked" then
+        ns.UI.ItemLine.Clear(cell.line)
+        cell.tags:SetText("")
+        cell.verdict:SetText("")
+        cell.footer:SetText("")
+        cell.locked:SetText(data.text or "")
+        cell.locked:Show()
+        cell.label:Hide()
+        markCell(cell, false)
+        return
+    end
+    cell.locked:Hide()
+    ns.UI.ItemLine.Set(cell.line, {
+        itemID = data.item.itemID,
+        link = data.item.link,
+        name = data.item.name,
+        quality = data.item.quality,
+        itemLevel = data.item.itemLevel,
+        icon = data.item.icon,
+        second = data.second,
+        tags = {},
+    })
+    cell.tags:SetText(ns.UI.ItemLine.TagText(data.tags))
+    cell.verdict:SetText(colored(toneHex(data.verdictTone), data.verdictText))
+    cell.footer:SetText(data.footer or "")
+    if data.label then
+        cell.label:SetText(colored(data.selected and Panel.SELECTED_HEX or toneHex("none"), data.label))
+        cell.label:Show()
+    else
+        cell.label:SetText("")
+        cell.label:Hide()
+    end
+    markCell(cell, data.selected == true)
+end
+
 function Panel.Refresh(self, opts)
     self = self or Panel.frame
     if not self then
@@ -1294,7 +2020,12 @@ function Panel.Refresh(self, opts)
     end
     local model = Panel.Model(Panel.Gather(opts))
     self.model = model
-    local lines = Panel.Lines(model)
+
+    local width = math.max(1, self.content:GetWidth())
+    local gaps = CELL_GAP * (Panel.ROW_CELLS - 1)
+    local cellWidth = math.max(60, math.floor((width - ROW_LABEL_WIDTH - gaps) / Panel.ROW_CELLS))
+
+    local lines = Panel.NoteLines(model)
     for i, line in ipairs(lines) do
         row(self, i):SetText(line)
     end
@@ -1302,7 +2033,152 @@ function Panel.Refresh(self, opts)
         self.rows[i]:SetText("")
         self.rows[i]:Hide()
     end
-    self.content:SetHeight(math.max(1, #lines * ROW_HEIGHT))
     self.lines = lines
+    local used = #lines * ROW_HEIGHT
+
+    -- The headline block, under whatever notes there were.
+    local headline = self.headline
+    headline:ClearAllPoints()
+    headline:SetPoint("RIGHT", self.content, "RIGHT", 0, 0)
+    if #lines > 0 then
+        headline:SetPoint("TOPLEFT", self.rows[#lines], "BOTTOMLEFT", 0, -8)
+        used = used + 8
+    else
+        headline:SetPoint("TOPLEFT", self.content, "TOPLEFT", 0, 0)
+    end
+    local block = model.headline
+    if block then
+        headline:Show()
+        if block.pick then
+            ns.UI.ItemLine.SetIcon(headline.icon, {
+                itemID = block.pick.itemID,
+                link = block.pick.link,
+                name = block.pick.displayName,
+                quality = block.pick.quality,
+                itemLevel = block.pick.itemLevel,
+                icon = block.pick.icon,
+            })
+        else
+            ns.UI.ItemLine.ClearIcon(headline.icon)
+        end
+        headline.text:SetText(block.text)
+        local height = CELL_ICON_SIZE
+        for index, line in ipairs(block.lines) do
+            local fontString = headline.lines[index]
+            if not fontString then
+                fontString = headline:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                fontString:SetJustifyH("LEFT")
+                fontString:SetWordWrap(true)
+                if index == 1 then
+                    fontString:SetPoint("TOPLEFT", headline.icon, "BOTTOMLEFT", 0, -4)
+                else
+                    fontString:SetPoint("TOPLEFT", headline.lines[index - 1], "BOTTOMLEFT", 0, -2)
+                end
+                fontString:SetPoint("RIGHT", headline, "RIGHT", 0, 0)
+                headline.lines[index] = fontString
+            end
+            fontString:SetText(line.text)
+            fontString:Show()
+            height = height + ROW_HEIGHT + 2
+        end
+        for index = #block.lines + 1, #headline.lines do
+            headline.lines[index]:SetText("")
+            headline.lines[index]:Hide()
+        end
+        headline:SetHeight(height + 8)
+        used = used + height + 8
+    else
+        headline:Hide()
+        ns.UI.ItemLine.ClearIcon(headline.icon)
+        headline.text:SetText("")
+        for _, fontString in ipairs(headline.lines) do
+            fontString:SetText("")
+            fontString:Hide()
+        end
+        headline:SetHeight(1)
+    end
+
+    -- The grid.
+    local anchor, anchorPoint = headline, "BOTTOMLEFT"
+    if not block then
+        if #lines > 0 then
+            anchor, anchorPoint = self.rows[#lines], "BOTTOMLEFT"
+        else
+            anchor, anchorPoint = self.content, "TOPLEFT"
+        end
+    end
+    local grid = model.grid or { rows = {} }
+    for index = 1, #Panel.ROW_ORDER do
+        local rowFrame = gridRow(self, index)
+        local data = grid.rows[index]
+        rowFrame:ClearAllPoints()
+        rowFrame:SetPoint("TOPLEFT", anchor, anchorPoint, 0, -GRID_ROW_GAP)
+        rowFrame:SetPoint("RIGHT", self.content, "RIGHT", 0, 0)
+        if data then
+            rowFrame:Show()
+            rowFrame.label:SetText(data.label)
+            for cellIndex, cell in ipairs(rowFrame.cells) do
+                bindCell(cell, data.cells[cellIndex], cellWidth)
+            end
+            used = used + CELL_HEIGHT + GRID_ROW_GAP
+            anchor, anchorPoint = rowFrame, "BOTTOMLEFT"
+        else
+            rowFrame:Hide()
+            for _, cell in ipairs(rowFrame.cells) do
+                bindCell(cell, nil, cellWidth)
+            end
+        end
+    end
+
+    -- The currency strip, under the grid.
+    local chips = model.currencyChips or {}
+    local previous
+    for index, data in ipairs(chips) do
+        local entry = chip(self, index)
+        entry:ClearAllPoints()
+        if previous then
+            entry:SetPoint("LEFT", previous, "RIGHT", CHIP_GAP, 0)
+        else
+            entry:SetPoint("TOPLEFT", anchor, anchorPoint, 0, -GRID_ROW_GAP)
+        end
+        if data.icon then
+            entry.icon:SetTexture(data.icon)
+            entry.icon:Show()
+        else
+            entry.icon:Hide()
+        end
+        entry.text:SetText(data.text)
+        entry:SetWidth(CHIP_ICON_SIZE + 4 + math.max(40, #data.text * 6))
+        entry:Show()
+        previous = entry
+    end
+    for index = #chips + 1, #self.chips do
+        self.chips[index]:Hide()
+    end
+    self.currencyNote:ClearAllPoints()
+    self.currencyNote:SetPoint("TOPLEFT", anchor, anchorPoint, 0, -GRID_ROW_GAP)
+    if #chips == 0 and model.headline then
+        self.currencyNote:SetText(Panel.CURRENCY_NOTE)
+        self.currencyNote:Show()
+    else
+        self.currencyNote:SetText("")
+        self.currencyNote:Hide()
+    end
+    used = used + CHIP_ICON_SIZE + GRID_ROW_GAP * 2
+
+    -- Everything the client offers outside the three rows Blizzard draws.
+    self.other:ClearAllPoints()
+    self.other:SetPoint("TOPLEFT", anchor, anchorPoint, 0, -GRID_ROW_GAP - CHIP_ICON_SIZE - GRID_ROW_GAP)
+    self.other:SetPoint("RIGHT", self.content, "RIGHT", 0, 0)
+    if grid.otherText then
+        self.other:SetText(grid.otherText)
+        self.other:Show()
+        used = used + ROW_HEIGHT * 2
+    else
+        self.other:SetText("")
+        self.other:Hide()
+    end
+
+    self.content:SetHeight(math.max(1, used))
     return model
 end

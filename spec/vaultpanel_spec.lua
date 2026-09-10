@@ -553,6 +553,70 @@ describe("VaultPanel staleness against the weekly reset", function()
     end)
 end)
 
+-- Every string the drawn tab actually has on it. Until M5-4 the tab was one
+-- column of font strings and `panel.lines` was the whole of it; it is a grid
+-- now, so a test that asks "is this on screen" asks the widgets. The rows are
+-- the notes, the headline block is its own frame, and every option is a cell.
+local function drawnTexts(panel)
+    local out = {}
+    local function add(region)
+        if not (region and region:IsShown()) then
+            return
+        end
+        local text = region:GetText()
+        if type(text) == "string" and text ~= "" then
+            out[#out + 1] = text
+        end
+    end
+    for _, region in ipairs(panel.rows) do
+        add(region)
+    end
+    if panel.headline:IsShown() then
+        add(panel.headline.text)
+        for _, region in ipairs(panel.headline.lines) do
+            add(region)
+        end
+    end
+    for _, gridRow in ipairs(panel.gridRows) do
+        if gridRow:IsShown() then
+            add(gridRow.label)
+            for _, cell in ipairs(gridRow.cells) do
+                if cell:IsShown() then
+                    if cell.line:IsShown() then
+                        add(cell.line.name)
+                        add(cell.line.second)
+                        add(cell.line.level)
+                    end
+                    add(cell.label)
+                    add(cell.tags)
+                    add(cell.verdict)
+                    add(cell.extras)
+                    add(cell.footer)
+                    add(cell.locked)
+                end
+            end
+        end
+    end
+    for _, entry in ipairs(panel.chips) do
+        if entry:IsShown() then
+            add(entry.text)
+        end
+    end
+    add(panel.other)
+    add(panel.currencyNote)
+    return out
+end
+
+-- The first of those strings that carries `needle`, or nil.
+local function containsText(texts, needle)
+    for _, text in ipairs(texts) do
+        if text:find(needle, 1, true) then
+            return text
+        end
+    end
+    return nil
+end
+
 describe("VaultPanel frames", function()
     local ns, world
 
@@ -565,18 +629,27 @@ describe("VaultPanel frames", function()
         H.unload()
     end)
 
-    it("renders the model's lines into the panel's font strings", function()
+    it("renders the notes into the panel's rows and the options into the grid", function()
         generateReward(world, 1, COVERED_ITEM.id, COVERED_ITEM.bonusIDs, COVERED_ITEM.name, 298)
         ns.QEImport.Store(realVerdict(ns))
         local frame = ns.VaultPanel.Create()
         local model = frame:Refresh()
-        local lines = ns.VaultPanel.Lines(model)
-        assert.is_true(#lines >= 11)
-        for i, line in ipairs(lines) do
+        local notes = ns.VaultPanel.NoteLines(model)
+        for i, line in ipairs(notes) do
             assert.equal(line, frame.rows[i]:GetText())
         end
+        assert.equal(#notes, #frame.lines)
         assert.equal(ns.VaultPanel.NOTE, frame.note:GetText())
         assert.equal("QE Live: in your best set", model.best.value)
+        -- Three rows of three cells, and the option the export covers is drawn
+        -- in one of them with QE Live's own line on it (M5-4).
+        assert.equal(3, #frame.gridRows)
+        for _, gridRow in ipairs(frame.gridRows) do
+            assert.equal(3, #gridRow.cells)
+        end
+        local texts = drawnTexts(frame)
+        assert.is_not_nil(containsText(texts, COVERED_ITEM.name))
+        assert.is_not_nil(containsText(texts, "in your best set"))
     end)
 
     -- The window, not the last paste, decides which verdict a panel reads
@@ -609,17 +682,27 @@ describe("VaultPanel frames", function()
         assert.equal("QE Live: in your best set", covered.best.value)
     end)
 
-    it("hides the rows a shorter render does not use", function()
+    it("hides the rows and the cells a shorter render does not use", function()
         ns.QEImport.Store(realVerdict(ns))
         local frame = ns.VaultPanel.Create()
-        local long = #ns.VaultPanel.Lines(frame:Refresh())
+        -- Two weeks past the export, so the tab carries the stale note as well
+        -- as the no-rewards one and there is more than one row to lose.
+        frame:Refresh({ now = ns.VaultPanel.EpochFromISO(EXPORTED_AT) + 2 * ns.VaultPanel.WEEK_SECONDS })
+        local long = #frame.lines
+        assert.is_true(long >= 2)
         world.inCombat = true
         frame:Refresh()
         assert.equal(1, #frame.lines)
-        assert.is_true(long > 2)
         for i = 2, long do
             assert.equal("", frame.rows[i]:GetText())
             assert.is_false(frame.rows[i]:IsShown())
+        end
+        -- A vault that could not be read draws no cells at all, rather than
+        -- nine cells left over from the last time it could.
+        for _, gridRow in ipairs(frame.gridRows) do
+            for _, cell in ipairs(gridRow.cells) do
+                assert.is_false(cell:IsShown())
+            end
         end
     end)
 end)
@@ -1387,7 +1470,7 @@ describe("VaultPanel over the fresh-login vault (M3-12, WKE-547)", function()
         local frame = ns.UI.frame
         ns.UI.SelectTab(frame, ns.UI.VAULT_TAB)
         local panel = frame.vaultPanel
-        assert.is_not_nil(contains(panel.lines, "name pending (item 275547)"))
+        assert.is_not_nil(contains(drawnTexts(panel), "name pending (item 275547)"))
         assert.equal(4, ns.Vault.PendingCount())
 
         -- The client answers; four events, one redraw, the names on screen.
@@ -1395,13 +1478,18 @@ describe("VaultPanel over the fresh-login vault (M3-12, WKE-547)", function()
         for _, id in ipairs(PENDING_IDS) do
             world.fireEvent("ITEM_DATA_LOAD_RESULT", id, true)
         end
-        assert.is_not_nil(contains(panel.lines, "name pending (item 275547)"))
+        assert.is_not_nil(contains(drawnTexts(panel), "name pending (item 275547)"))
         world.runTimers(0)
-        assert.is_nil(contains(panel.lines, "name pending"))
-        assert.is_not_nil(contains(panel.lines, "Preyhunter's Lantern (305)"))
-        assert.is_not_nil(contains(panel.lines, "Scavenger's Spaulders (308)"))
-        assert.is_not_nil(contains(panel.lines, "+ Thalassian Token of Merit"))
-        assertNoBracketsOrNil(panel.lines)
+        local texts = drawnTexts(panel)
+        assert.is_nil(contains(texts, "name pending"))
+        assert.is_not_nil(contains(texts, "Preyhunter's Lantern"))
+        assert.is_not_nil(contains(texts, "Scavenger's Spaulders"))
+        -- The level moved into the icon's own corner when the tab became a
+        -- grid; it is still the client's number and it is still on screen.
+        assert.is_not_nil(contains(texts, "305"))
+        assert.is_not_nil(contains(texts, "308"))
+        assert.is_not_nil(contains(texts, "+ Thalassian Token of Merit"))
+        assertNoBracketsOrNil(texts)
         assert.equal(0, ns.Vault.PendingCount())
 
         -- On another tab the Vault panel is left alone (M3-3's rule).
@@ -1962,5 +2050,611 @@ describe("VaultPanel's fifth line, one charge (M3-14, WKE-555)", function()
                 assert.is_nil(line.text:find("one charge", 1, true))
             end
         end
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- M5-4 (WKE-553): the vault drawn as the vault. Three rows of three option
+-- cells, in Blizzard's own order, over the same real after-reset vault
+-- (snapshot 9 of `Lootpath-20260908-124527.lua`) and the same four real QE Live
+-- documents the blocks above read. Every cell, every glow and every threshold
+-- sentence below is a second view of what `Panel.Lines` already says; nothing
+-- here is a second answer.
+
+describe("VaultPanel's grid (WKE-553)", function()
+    local ns, world
+    local CAPTURE = "spec/fixtures/captures/Lootpath-20260908-124527.lua"
+    local SCENARIO_FILES = {
+        asOffered = "spec/fixtures/qe/qe-droptimizer-Hotornot-hldibnbaajft.json",
+        catalyzed = "spec/fixtures/qe/qe-droptimizer-Hotornot-xrjevewtwqsw.json",
+        thisWeek = "spec/fixtures/qe/qe-droptimizer-Hotornot-hdaldwpeakpb.json",
+        maxed = "spec/fixtures/qe/qe-droptimizer-Hotornot-qqrqsbudcszh.json",
+    }
+    local ORDER = { "asOffered", "catalyzed", "thisWeek", "maxed" }
+    local WEAPON_KEY = "251935:6652:12841"
+    local SPAULDERS_KEY = "251146:6652:12699:12842:13440:13662"
+
+    before_each(function()
+        ns, world = H.load()
+        R.vault(world, R.snapshot("vault", 9, CAPTURE))
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function scenarios()
+        local out = {}
+        for _, name in ipairs(ORDER) do
+            local parsed = ns.QEImport.Parse(readFile(SCENARIO_FILES[name]))
+            assert(parsed.ok, parsed.reason)
+            parsed.verdict.scenario = name
+            parsed.verdict.qeSettings = {
+                autoUpgradeVault = name == "maxed" or name == "thisWeek",
+                autoUpgradeAll = name == "maxed",
+                autoCatalyze = name ~= "asOffered",
+            }
+            out[#out + 1] = { verdict = parsed.verdict, scenario = name }
+        end
+        return out
+    end
+
+    local function model(highlight)
+        local list = scenarios()
+        return ns.VaultPanel.Model({
+            vault = ns.Vault.Options(),
+            scenarios = list,
+            verdict = list[1].verdict,
+            highlightScenario = highlight,
+            now = 1788900000,
+        })
+    end
+
+    local function rowByKey(m, key)
+        for _, gridRow in ipairs(m.grid.rows) do
+            for _, cell in ipairs(gridRow.cells) do
+                if cell.reward and cell.reward.key == key then
+                    return gridRow, cell
+                end
+            end
+        end
+        return nil, nil
+    end
+
+    -- Deliverable 1: the grid itself.
+    it("draws three rows of three cells, in Blizzard's own order", function()
+        local m = model("asOffered")
+        assert.equal(3, #m.grid.rows)
+        assert.same({ "Raid", "Activities", "World" }, {
+            m.grid.rows[1].key,
+            m.grid.rows[2].key,
+            m.grid.rows[3].key,
+        })
+        -- No RAIDS / DUNGEONS / WORLD global in this harness, so each row falls
+        -- back to the label measured off the owner's own vault screen.
+        assert.same({ "Raids", "Dungeons", "World" }, {
+            m.grid.rows[1].label,
+            m.grid.rows[2].label,
+            m.grid.rows[3].label,
+        })
+        for _, gridRow in ipairs(m.grid.rows) do
+            assert.equal(3, #gridRow.cells)
+        end
+    end)
+
+    -- The red proof for the line above: define the globals and the rows are
+    -- headed by the client's words instead. Sentinel values, because no
+    -- transcript in this repo says what RAIDS actually reads.
+    it("prefers the client's own row headings when it has them", function()
+        _G.RAIDS = "PLACEHOLDER RAIDS"
+        _G.DUNGEONS = "PLACEHOLDER DUNGEONS"
+        _G.WORLD = "PLACEHOLDER WORLD"
+        local m = model("asOffered")
+        assert.same({ "PLACEHOLDER RAIDS", "PLACEHOLDER DUNGEONS", "PLACEHOLDER WORLD" }, {
+            m.grid.rows[1].label,
+            m.grid.rows[2].label,
+            m.grid.rows[3].label,
+        })
+        -- And the same words reach the option list, so the two views of one
+        -- vault never head the same row differently.
+        assert.equal("PLACEHOLDER WORLD", m.grid.rows[3].cells[2].reward.rowLabel)
+        _G.RAIDS, _G.DUNGEONS, _G.WORLD = nil, nil, nil
+    end)
+
+    it("puts each reward in the cell the client offered it in", function()
+        local m = model("asOffered")
+        -- Measured 2026-09-08: World 1 and 2 carry gear, Dungeons 1 and 2 carry
+        -- gear, every Raid row is empty and the third cell of each row is not
+        -- earned yet.
+        assert.equal("reward", m.grid.rows[3].cells[1].kind)
+        assert.equal("reward", m.grid.rows[3].cells[2].kind)
+        assert.equal("locked", m.grid.rows[3].cells[3].kind)
+        assert.equal("reward", m.grid.rows[2].cells[1].kind)
+        assert.equal("reward", m.grid.rows[2].cells[2].kind)
+        assert.equal("locked", m.grid.rows[2].cells[3].kind)
+        for _, cell in ipairs(m.grid.rows[1].cells) do
+            assert.equal("locked", cell.kind)
+        end
+        assert.equal(WEAPON_KEY, m.grid.rows[3].cells[2].reward.key)
+        assert.equal(SPAULDERS_KEY, m.grid.rows[2].cells[1].reward.key)
+        assert.equal("Scavenger's Spaulders", m.grid.rows[2].cells[1].name)
+        -- The cell binds the item the way M5-1's line wants it, off the client's
+        -- own record: the icon and the quality, never guessed.
+        local item = m.grid.rows[3].cells[2].item
+        assert.equal(251935, item.itemID)
+        assert.equal("Lightgrasp Worldroot", item.name)
+        assert.equal(305, item.itemLevel)
+        assert.is_number(item.icon)
+        assert.is_number(item.quality)
+    end)
+
+    it("keeps M3-7's level wording on the cell's second line", function()
+        local m = model("asOffered")
+        local weapon = m.grid.rows[3].cells[2]
+        assert.is_truthy(weapon.second:find(weapon.reward.levelText, 1, true))
+        assert.is_truthy(weapon.second:find(weapon.reward.slot, 1, true))
+        assert.is_truthy(weapon.second:find("305", 1, true))
+        -- The `maxed` run is the one whose importer had auto-upgrade-vault on,
+        -- so it is the one whose own level for this weapon differs from the
+        -- client's - and M3-7's rule puts both numbers on the line.
+        local upgraded = model("maxed").grid.rows[3].cells[2]
+        assert.is_truthy(upgraded.second:find("305", 1, true))
+        assert.is_truthy(upgraded.second:find("QE Live valued it at 321", 1, true))
+    end)
+
+    -- A locked cell says what the client says it needs. Blizzard's own frame
+    -- prefers the activity's `raidString` on a Raid row, so the Raid cells here
+    -- read the client's own sentence; the harness has no
+    -- WEEKLY_REWARDS_THRESHOLD_DUNGEONS, so those cells keep the progress
+    -- wording the text panel already prints.
+    it("shows Blizzard's threshold sentence on a cell with no reward", function()
+        local m = model("asOffered")
+        assert.equal("Defeat 2 Midnight Season 2 |4Boss:Bosses", m.grid.rows[1].cells[1].thresholdText)
+        assert.equal("Defeat 4 Midnight Season 2 |4Boss:Bosses", m.grid.rows[1].cells[2].thresholdText)
+        assert.equal("Defeat 6 Midnight Season 2 |4Boss:Bosses", m.grid.rows[1].cells[3].text)
+        assert.is_nil(m.grid.rows[2].cells[3].thresholdText)
+        assert.equal("0/8", m.grid.rows[2].cells[3].text)
+    end)
+
+    it("uses the client's own dungeon and world sentences when it has them", function()
+        _G.WEEKLY_REWARDS_THRESHOLD_DUNGEONS = "Complete %d Dungeons"
+        _G.WEEKLY_REWARDS_THRESHOLD_WORLD = "Complete %d World Activities"
+        local m = model("asOffered")
+        assert.equal("Complete 8 Dungeons", m.grid.rows[2].cells[3].text)
+        assert.equal("Complete 8 World Activities", m.grid.rows[3].cells[3].text)
+        _G.WEEKLY_REWARDS_THRESHOLD_DUNGEONS, _G.WEEKLY_REWARDS_THRESHOLD_WORLD = nil, nil
+    end)
+
+    it("never lets a pattern the client wrote throw the panel", function()
+        _G.WEEKLY_REWARDS_THRESHOLD_DUNGEONS = "Complete %z Dungeons"
+        local m = model("asOffered")
+        assert.equal("0/8", m.grid.rows[2].cells[3].text)
+        _G.WEEKLY_REWARDS_THRESHOLD_DUNGEONS = nil
+    end)
+
+    -- Deliverable 2: the pick.
+    it("glows the cell QE Live's pick names, under each scenario", function()
+        local function selected(m)
+            local found = {}
+            for rowIndex, gridRow in ipairs(m.grid.rows) do
+                for cellIndex, cell in ipairs(gridRow.cells) do
+                    if cell.selected then
+                        found[#found + 1] = { rowIndex, cellIndex, cell.reward and cell.reward.key }
+                    end
+                end
+            end
+            return found
+        end
+        -- Under `catalyzed` his top set holds the tier shoulder he cloned from
+        -- the Dungeons 1 shoulders; under `maxed` and `thisWeek` it is the World
+        -- 2 weapon. Each is his answer, and each is one cell.
+        assert.same({ { 2, 1, SPAULDERS_KEY } }, selected(model("catalyzed")))
+        assert.same({ { 3, 2, WEAPON_KEY } }, selected(model("maxed")))
+        assert.same({ { 3, 2, WEAPON_KEY } }, selected(model("thisWeek")))
+        for _, name in ipairs(ORDER) do
+            assert.is_true(#selected(model(name)) <= 1, name)
+        end
+    end)
+
+    it("labels the pick, and labels the closest instead when nothing beats the set", function()
+        local catalyzed = model("catalyzed")
+        assert.equal("QE Live's pick", catalyzed.grid.rows[2].cells[1].label)
+        assert.is_false(catalyzed.grid.rows[2].cells[1].closest)
+        assert.is_false(catalyzed.headline.closest)
+
+        -- Under `asOffered` the best he says about anything in this vault is
+        -- still "worse than your set", so the first line refuses to call it a
+        -- pick - and no cell glows.
+        local offered = model("asOffered")
+        assert.is_true(offered.headline.closest)
+        assert.is_truthy(offered.headline.text:find("none - nothing in the vault beats your set", 1, true))
+        local _, cell = rowByKey(offered, WEAPON_KEY)
+        assert.is_false(cell.selected)
+        assert.is_true(cell.closest)
+        assert.equal("closest", cell.label)
+        for _, gridRow in ipairs(offered.grid.rows) do
+            for _, gridCell in ipairs(gridRow.cells) do
+                assert.is_falsy(gridCell.selected)
+            end
+        end
+    end)
+
+    -- Deliverable 4: one scenario on the cell, every scenario in the tooltip.
+    it("says the highlighted scenario's line on the cell and keeps the rest for the hover", function()
+        local m = model("maxed")
+        local _, weapon = rowByKey(m, WEAPON_KEY)
+        assert.equal("everything upgraded: in your best set", weapon.verdictText)
+        assert.equal("better", weapon.verdictTone)
+        assert.same(weapon.reward.verdictLines, weapon.tooltipLines)
+        assert.equal(4, #weapon.tooltipLines)
+
+        local catalyzed = model("catalyzed")
+        local _, spaulders = rowByKey(catalyzed, SPAULDERS_KEY)
+        assert.equal("catalyzed, as tier: in your best set", spaulders.verdictText)
+        -- His own answer is about his catalyzed clone, so the cell says so in
+        -- his own tag words.
+        assert.same({ "catalyst", "tier" }, spaulders.tags)
+        assert.is_truthy(spaulders.footer:find("hover for the other scenarios", 1, true))
+    end)
+
+    -- The whole point of building the tooltip out of `Panel.ScenarioLine`'s own
+    -- strings: the hover and the text panel cannot disagree.
+    it("hovers exactly the lines the text panel prints under the same option", function()
+        local m = model("maxed")
+        local lines = ns.VaultPanel.Lines(m)
+        local function printed(text)
+            for _, line in ipairs(lines) do
+                if line == "    " .. text then
+                    return true
+                end
+            end
+            return false
+        end
+        local seen = 0
+        for _, gridRow in ipairs(m.grid.rows) do
+            for _, cell in ipairs(gridRow.cells) do
+                for _, line in ipairs(cell.tooltipLines or {}) do
+                    assert.is_true(printed(line), "the hover said what the panel does not: " .. line)
+                    seen = seen + 1
+                end
+            end
+        end
+        assert.is_true(seen > 0)
+    end)
+
+    it("says nothing of QE Live's about an option he never ranked", function()
+        local m = model("maxed")
+        local unranked
+        for _, gridRow in ipairs(m.grid.rows) do
+            for _, cell in ipairs(gridRow.cells) do
+                if cell.kind == "reward" and #cell.tooltipLines == 0 then
+                    unranked = cell
+                end
+            end
+        end
+        assert.is_not_nil(unranked)
+        assert.equal("not ranked by QE Live in any scenario", unranked.verdictText)
+        assert.equal("none", unranked.verdictTone)
+        assert.same({}, unranked.tags)
+    end)
+
+    -- Nothing the client hands over is dropped by the grid: the rows Blizzard
+    -- does not draw keep their place under it, in the words the text list
+    -- already gives them.
+    it("names the options that sit outside the three rows rather than losing them", function()
+        local m = model("asOffered")
+        assert.equal(2, #m.grid.other)
+        for _, option in ipairs(m.grid.other) do
+            assert.is_truthy(m.grid.otherText:find(option.headerText, 1, true))
+        end
+        assert.is_truthy(m.grid.otherText:find("Concession", 1, true))
+        -- Every option is either in a cell or in that list.
+        local placed = 0
+        for _, gridRow in ipairs(m.grid.rows) do
+            for _, cell in ipairs(gridRow.cells) do
+                if cell.kind ~= "empty" then
+                    placed = placed + 1
+                end
+            end
+        end
+        assert.equal(#m.options, placed + #m.grid.other)
+    end)
+
+    -- Deliverable 3's other half: the currencies, with the client's own icon
+    -- and the client's own name.
+    it("builds a currency chip per crest and one for the Catalyst charge", function()
+        local currencies = {
+            ok = true,
+            crests = {
+                { name = "Adventurer Mistcrest", currencyID = 3442, quantity = 356, iconFileID = 900101 },
+                { name = "Myth Mistcrest", currencyID = 3446, quantity = 20, iconFileID = 900105 },
+            },
+            catalyst = {
+                name = "Venomblight Manaflux",
+                currencyID = 3465,
+                quantity = 1,
+                maxQuantity = 8,
+                iconFileID = 900102,
+            },
+        }
+        local chips = ns.VaultPanel.CurrencyChips(currencies)
+        assert.equal(3, #chips)
+        assert.same({
+            key = "catalyst",
+            currencyID = 3465,
+            name = "Venomblight Manaflux",
+            icon = 900102,
+            count = "1 of 8",
+            text = "Venomblight Manaflux 1 of 8",
+        }, chips[1])
+        assert.equal("Adventurer Mistcrest 356", chips[2].text)
+        assert.equal(900105, chips[3].icon)
+        -- Nothing is computed from any of it: the strip is a name, an icon and
+        -- the client's own number.
+        assert.equal("Myth Mistcrest 20", chips[3].text)
+    end)
+
+    it("draws no strip at all when nothing has read the currencies", function()
+        assert.same({}, ns.VaultPanel.CurrencyChips(nil))
+        assert.same({}, ns.VaultPanel.CurrencyChips({ ok = false, reason = "combat" }))
+        assert.same({}, ns.VaultPanel.CurrencyChips({ ok = true }))
+    end)
+
+    it("carries the chips on the model the panel draws", function()
+        local list = scenarios()
+        local m = ns.VaultPanel.Model({
+            vault = ns.Vault.Options(),
+            scenarios = list,
+            verdict = list[1].verdict,
+            currencies = {
+                ok = true,
+                crests = { { name = "Hero Mistcrest", currencyID = 3445, quantity = 21, iconFileID = 900104 } },
+            },
+            now = 1788900000,
+        })
+        assert.equal(1, #m.currencyChips)
+        assert.equal("Hero Mistcrest 21", m.currencyChips[1].text)
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- M5-4 (WKE-553), drawn: the same grid through the real frames. What is
+-- checked here is what a widget was TOLD - which atlas a glow was given, which
+-- texture a chip's icon was set to, which strings a hover put on the tooltip -
+-- because that is a decision this addon makes. What any of it looks like on
+-- the owner's screen is an in-game step and is not a test.
+
+describe("VaultPanel's grid, drawn (WKE-553)", function()
+    local ns, world
+    local CAPTURE = "spec/fixtures/captures/Lootpath-20260908-124527.lua"
+    local SCENARIO_FILES = {
+        asOffered = "spec/fixtures/qe/qe-droptimizer-Hotornot-hldibnbaajft.json",
+        catalyzed = "spec/fixtures/qe/qe-droptimizer-Hotornot-xrjevewtwqsw.json",
+        thisWeek = "spec/fixtures/qe/qe-droptimizer-Hotornot-hdaldwpeakpb.json",
+        maxed = "spec/fixtures/qe/qe-droptimizer-Hotornot-qqrqsbudcszh.json",
+    }
+    local BOXES = {
+        asOffered = { autoUpgradeVault = false, autoUpgradeAll = false, autoCatalyze = false },
+        catalyzed = { autoUpgradeVault = false, autoUpgradeAll = false, autoCatalyze = true },
+        thisWeek = { autoUpgradeVault = true, autoUpgradeAll = false, autoCatalyze = true },
+        maxed = { autoUpgradeVault = true, autoUpgradeAll = true, autoCatalyze = true },
+    }
+    local SPAULDERS_KEY = "251146:6652:12699:12842:13440:13662"
+    local WEAPON_KEY = "251935:6652:12841"
+    local frame
+
+    before_each(function()
+        ns, world = H.load()
+        R.vault(world, R.snapshot("vault", 9, CAPTURE))
+        R.inventory(world, R.snapshot("inventory", 7, CAPTURE))
+        for _, name in ipairs({ "asOffered", "catalyzed", "thisWeek", "maxed" }) do
+            local parsed = ns.QEImport.Parse(readFile(SCENARIO_FILES[name]))
+            assert(parsed.ok, parsed.reason)
+            parsed.verdict.scenario = name
+            parsed.verdict.qeSettings = BOXES[name]
+            ns.QEImport.Store(parsed.verdict)
+        end
+        ns.db.profile.settings.contentType = ns.QEImport.ContentTypeKey(ns.QEImport.Current())
+        frame = ns.VaultPanel.Create()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function refresh(scenario)
+        ns.db.profile.settings.vaultScenario = scenario
+        return frame:Refresh({ now = 1788900000 })
+    end
+
+    local function cellFor(model, key)
+        for rowIndex, gridRow in ipairs(model.grid.rows) do
+            for cellIndex, cell in ipairs(gridRow.cells) do
+                if cell.reward and cell.reward.key == key then
+                    return frame.gridRows[rowIndex].cells[cellIndex], cell
+                end
+            end
+        end
+        return nil, nil
+    end
+
+    it("draws Blizzard's own selected art on the pick's cell and on no other", function()
+        local model = refresh("catalyzed")
+        local drawn = cellFor(model, SPAULDERS_KEY)
+        assert.equal("evergreen-weeklyrewards-reward-selected", drawn.selectedTexture:GetAtlas())
+        assert.is_true(drawn.selectedTexture:IsShown())
+        -- The atlas is there, so the fallback border is not.
+        for _, edge in ipairs(drawn.edges) do
+            assert.is_false(edge:IsShown())
+        end
+        local marked = 0
+        for _, gridRow in ipairs(frame.gridRows) do
+            for _, cell in ipairs(gridRow.cells) do
+                if cell.selectedTexture:IsShown() then
+                    marked = marked + 1
+                end
+            end
+        end
+        assert.equal(1, marked)
+    end)
+
+    -- The red proof: take the atlas away, as a future build may, and the pick
+    -- is still marked - in QE Live's own gold, on all four edges.
+    it("falls back to a gold border on a client without the atlas", function()
+        world.atlases["evergreen-weeklyrewards-reward-selected"] = nil
+        local model = refresh("catalyzed")
+        local drawn = cellFor(model, SPAULDERS_KEY)
+        assert.is_false(drawn.selectedTexture:IsShown())
+        -- FFDF14 as the three numbers a tint wants: 255/255, 223/255, 20/255.
+        -- The same accent M5-1 gives every "better" badge, so the eye learns
+        -- one colour and finds it on every tab.
+        assert.equal(ns.UI.ItemLine.TONE.better.hex, ns.VaultPanel.SELECTED_HEX)
+        for _, edge in ipairs(drawn.edges) do
+            assert.is_true(edge:IsShown())
+            assert.same({ 1, 0.87451, 0.078431, 1 }, {
+                math.floor(edge.vertexColor[1] * 1e6 + 0.5) / 1e6,
+                math.floor(edge.vertexColor[2] * 1e6 + 0.5) / 1e6,
+                math.floor(edge.vertexColor[3] * 1e6 + 0.5) / 1e6,
+                edge.vertexColor[4],
+            })
+        end
+    end)
+
+    it("moves the glow when the scenario changes, and shows none when nothing beats the set", function()
+        local catalyzed = refresh("catalyzed")
+        assert.is_true(cellFor(catalyzed, SPAULDERS_KEY).selectedTexture:IsShown())
+        local maxed = refresh("maxed")
+        assert.is_false(cellFor(maxed, SPAULDERS_KEY).selectedTexture:IsShown())
+        assert.is_true(cellFor(maxed, WEAPON_KEY).selectedTexture:IsShown())
+        local pickLabel = cellFor(maxed, WEAPON_KEY).label:GetText()
+        assert.equal("QE Live's pick", (pickLabel:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")))
+
+        local offered = refresh("asOffered")
+        for _, gridRow in ipairs(frame.gridRows) do
+            for _, cell in ipairs(gridRow.cells) do
+                assert.is_false(cell.selectedTexture:IsShown())
+                for _, edge in ipairs(cell.edges) do
+                    assert.is_false(edge:IsShown())
+                end
+            end
+        end
+        local closest = cellFor(offered, WEAPON_KEY)
+        assert.is_true(closest.label:IsShown())
+        assert.is_truthy(closest.label:GetText():find("closest", 1, true))
+    end)
+
+    it("binds every cell as an M5-1 item line, icon and quality border and all", function()
+        local model = refresh("maxed")
+        local drawn, cell = cellFor(model, WEAPON_KEY)
+        assert.is_true(drawn.line:IsShown())
+        assert.is_false(drawn.locked:IsShown())
+        assert.equal(cell.item.icon, drawn.line.icon:GetTexture())
+        assert.equal("305", drawn.line.level:GetText())
+        assert.is_true(drawn.line.border:IsShown())
+        assert.is_truthy(drawn.line.name:GetText():find("Lightgrasp Worldroot", 1, true))
+        assert.is_truthy(drawn.verdict:GetText():find("everything upgraded: in your best set", 1, true))
+        -- QE Live's gold on his own "better" answer; the same hex M5-1 gives
+        -- every badge on every tab.
+        assert.is_truthy(drawn.verdict:GetText():find(ns.UI.ItemLine.TONE.better.hex, 1, true))
+        -- The keystone that rode in with it, in words and at no level.
+        assert.equal("+ Mythic Keystone", drawn.extras:GetText())
+    end)
+
+    it("draws a locked cell with the client's own threshold sentence and no item", function()
+        refresh("maxed")
+        local raid = frame.gridRows[1].cells[1]
+        assert.is_true(raid:IsShown())
+        assert.is_false(raid.line:IsShown())
+        assert.is_true(raid.locked:IsShown())
+        assert.equal("Defeat 2 Midnight Season 2 |4Boss:Bosses", raid.locked:GetText())
+        assert.equal("", raid.verdict:GetText())
+    end)
+
+    it("hovers a cell with every scenario's line, and the item line with the item", function()
+        local model = refresh("maxed")
+        local drawn = cellFor(model, WEAPON_KEY)
+        drawn:GetScript("OnEnter")(drawn)
+        local shown = world.tooltip:Text()
+        assert.is_truthy(shown:find("Lightgrasp Worldroot", 1, true))
+        for _, line in ipairs(select(2, cellFor(model, WEAPON_KEY)).tooltipLines) do
+            assert.is_truthy(shown:find(line, 1, true), "the hover lost a line: " .. line)
+        end
+        -- The item itself is the item line's own hover, with the client's link
+        -- and the shopping compare - never a line of ours.
+        drawn.line.iconButton:Enter()
+        assert.equal(select(2, cellFor(model, WEAPON_KEY)).item.link, world.tooltip.hyperlink)
+        assert.equal(1, #world.compareCalls)
+    end)
+
+    it("draws one currency chip per crest and one for the charge, with the client's icons", function()
+        world.currencies = {
+            { name = "Placeholder Group", currencyID = 0, isHeader = true, isHeaderExpanded = true, quantity = 0 },
+        }
+        world.currencyByID = {
+            [3442] = {
+                name = "Adventurer Mistcrest",
+                currencyID = 3442,
+                isHeader = false,
+                quantity = 356,
+                iconFileID = 900101,
+            },
+            [3465] = {
+                name = "Venomblight Manaflux",
+                currencyID = 3465,
+                isHeader = false,
+                quantity = 1,
+                maxQuantity = 8,
+                iconFileID = 900102,
+            },
+        }
+        refresh("thisWeek")
+        assert.is_true(frame.chips[1]:IsShown())
+        assert.equal(900102, frame.chips[1].icon:GetTexture())
+        assert.equal("Venomblight Manaflux 1 of 8", frame.chips[1].text:GetText())
+        assert.equal(900101, frame.chips[2].icon:GetTexture())
+        assert.equal("Adventurer Mistcrest 356", frame.chips[2].text:GetText())
+        assert.is_false(frame.currencyNote:IsShown())
+        -- Nothing captured: no strip, and the tab says why rather than drawing
+        -- a row of question marks.
+        world.currencies, world.currencyByID = {}, {}
+        refresh("thisWeek")
+        assert.is_false(frame.chips[1]:IsShown())
+        assert.is_true(frame.currencyNote:IsShown())
+    end)
+
+    -- Deliverable 4's other half: the scenario dropdown on the tab itself.
+    it("puts the scenario dropdown on the tab and writes through the one setting", function()
+        refresh("maxed")
+        local dropdown = frame.scenarioDropdown
+        assert.is_not_nil(dropdown)
+        assert.equal("Vault highlight", dropdown:GetDefaultText())
+        dropdown:GenerateMenu()
+        assert.equal(#ns.QEImport.SCENARIOS, #dropdown.menuEntries)
+        for index, scenario in ipairs(ns.QEImport.SCENARIOS) do
+            -- The Settings page's own words, so the two ways to this setting
+            -- never label it differently.
+            assert.equal(ns.UI.Options.SCENARIO_CHOICE_LABEL[scenario], dropdown.menuEntries[index].text)
+        end
+        -- The entry the setting is on is the one that reads as selected.
+        local maxedIndex
+        for index, scenario in ipairs(ns.QEImport.SCENARIOS) do
+            if scenario == "maxed" then
+                maxedIndex = index
+            end
+        end
+        assert.equal(maxedIndex, dropdown:SelectedIndex())
+
+        -- Picking another one is the setting changing, and the tab redraws.
+        local catalyzedIndex
+        for index, scenario in ipairs(ns.QEImport.SCENARIOS) do
+            if scenario == "catalyzed" then
+                catalyzedIndex = index
+            end
+        end
+        assert.is_true(dropdown:Pick(catalyzedIndex))
+        assert.equal("catalyzed", ns.UI.Options.GetVaultScenario())
+        local model = frame:Refresh({ now = 1788900000 })
+        assert.equal("catalyzed", model.highlightScenario)
+        assert.is_true(cellFor(model, SPAULDERS_KEY).selectedTexture:IsShown())
     end)
 end)

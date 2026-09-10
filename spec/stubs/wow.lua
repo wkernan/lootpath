@@ -738,6 +738,82 @@ function newFrame(kind, world, parent, template)
         end
     end
 
+    -- DropdownButton, the 11.0 menu system (Blizzard_Menu/DropdownButton.lua
+    -- and MenuTemplates.lua under .luals/, read 2026-09-09). What is modelled
+    -- is the CONTRACT the panels use and nothing else: SetupMenu takes a
+    -- generator of (dropdown, rootDescription); the root description takes a
+    -- tag and radio entries of (text, isSelected, setSelected); the menu is
+    -- generated immediately when the dropdown is already shown, which is the
+    -- behaviour DropdownButtonMixin:SetupMenu documents. `Pick(index)` is the
+    -- stub's own, and is a test clicking one entry.
+    if kind == "DropdownButton" then
+        f.menuEntries = {}
+        function f:SetDefaultText(text)
+            self.defaultText = text
+        end
+        function f:GetDefaultText()
+            return self.defaultText
+        end
+        function f:GenerateMenu()
+            if not self.menuGenerator then
+                return
+            end
+            local root = { entries = {} }
+            function root.SetTag(description, tag)
+                description.tag = tag
+            end
+            function root.CreateRadio(description, text, isSelected, setSelected, data)
+                local entry = {
+                    kind = "radio",
+                    text = text,
+                    isSelected = isSelected,
+                    setSelected = setSelected,
+                    data = data,
+                }
+                description.entries[#description.entries + 1] = entry
+                return entry
+            end
+            function root.CreateButton(description, text, callback, data)
+                local entry = { kind = "button", text = text, callback = callback, data = data }
+                description.entries[#description.entries + 1] = entry
+                return entry
+            end
+            self.menuGenerator(self, root)
+            self.menuDescription = root
+            self.menuTag = root.tag
+            self.menuEntries = root.entries
+        end
+        function f:SetupMenu(generator)
+            assert(type(generator) == "function", "SetupMenu: argument is not a function")
+            self.menuGenerator = generator
+            if self:IsShown() then
+                self:GenerateMenu()
+            end
+        end
+        function f:Pick(index)
+            self:GenerateMenu()
+            local entry = self.menuEntries[index]
+            if not entry then
+                return false
+            end
+            if entry.setSelected then
+                entry.setSelected(entry.data)
+            elseif entry.callback then
+                entry.callback(entry.data)
+            end
+            return true
+        end
+        function f:SelectedIndex()
+            self:GenerateMenu()
+            for index, entry in ipairs(self.menuEntries) do
+                if entry.isSelected and entry.isSelected(entry.data) then
+                    return index
+                end
+            end
+            return nil
+        end
+    end
+
     if kind == "EditBox" then
         f.maxLetters = 0
         function f:SetMaxLetters(value)
@@ -832,6 +908,10 @@ function Stub.install()
         atlases = {
             ["common-icon-checkmark"] = true,
             ["common-icon-forwardarrow"] = true,
+            -- The Great Vault's own selected art, from the SelectedTexture of
+            -- WeeklyRewardsActivityTemplate in Blizzard's shipped
+            -- Blizzard_WeeklyRewards.xml under .luals/ (read 2026-09-09).
+            ["evergreen-weeklyrewards-reward-selected"] = true,
         },
         -- ITEM_QUALITY_COLORS, in Blizzard's documented shape
         -- ({ r, g, b, hex }, ColorManager.lua under .luals/) with PLACEHOLDER
