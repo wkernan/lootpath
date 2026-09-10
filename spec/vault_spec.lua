@@ -280,6 +280,20 @@ describe("ns.Vault over the after-reset transcript (generated rewards)", functio
         return map
     end
 
+    -- M5-4 (WKE-553): the client's own sentence for a Raid row's threshold,
+    -- kept because Blizzard's own vault frame prefers it over
+    -- WEEKLY_REWARDS_THRESHOLD_RAID and the drawn grid has to say the same
+    -- thing. Recorded verbatim, %d and plural marker and all; nothing formats
+    -- it in this module.
+    it("keeps the client's own raidString on every option that has one", function()
+        local options = byID(ns.Vault.Options())
+        assert.equal("Defeat %d Midnight Season 2 |4Boss:Bosses", options[210].raidString)
+        assert.equal("Defeat %d Midnight Season 2 |4Boss:Bosses", options[212].raidString)
+        -- Measured: this client sent the same string on every row, Raid or not.
+        assert.equal("Defeat %d Midnight Season 2 |4Boss:Bosses", options[208].raidString)
+        assert.equal(0, ns.Vault.Options().secretsSeen)
+    end)
+
     it("reads a week whose rewards are generated but unclaimed", function()
         local result = ns.Vault.Options()
         assert.is_true(result.ok)

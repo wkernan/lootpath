@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+### M5-4 (WKE-553) - the Vault, drawn as the vault
+
+- **The tab is the Great Vault**: three rows - Raids, Dungeons, World, in
+  Blizzard's own order and under the client's own headings - of three option
+  cells. Each cell is the reward the client is offering there, drawn as an item
+  line: its own icon with a quality-coloured border, its item level in the
+  icon's corner, the name in quality colour, and a grey line saying the slot
+  and the level. A cell you have not earned yet says what the client says it
+  needs ("Defeat 4 Midnight Season 2 Bosses").
+- **QE Live's pick carries the Great Vault's own selected glow** - Blizzard's
+  `evergreen-weeklyrewards-reward-selected`, or a gold border on a client that
+  no longer has that art - and a "QE Live's pick" label. When the honest answer
+  is "none - nothing in the vault beats your set", **no cell glows**: the
+  closest option gets a grey "closest" label instead, so the grid and the
+  headline never disagree.
+- **One scenario on the cell, all of them one hover away.** The cell shows the
+  line for the scenario the highlight follows; hovering it shows every
+  scenario's line, word for word the same strings the text panel prints.
+  Hovering the icon or the name still opens the item's own tooltip with the
+  shopping compare.
+- **The scenario dropdown is on the tab itself**, beside the header, in the
+  Settings page's own words and writing through the same one setting. The
+  Settings page keeps its copy.
+- **The crests and the Catalyst charge are drawn with the client's own icons**
+  and the client's own names, in a strip under the grid. Still no arithmetic:
+  a chip is a name, an icon and the number the client reports.
+- The headline block is unchanged and still comes first, now with the pick's
+  icon beside it and its first line in a larger font.
+- Nothing the vault offers is off the screen: the Mythic Keystone that rides
+  in with a reward is named on its cell, and the rows Blizzard does not draw -
+  Concession, "Also receive" - are listed under the grid.
+
 ### M5-3 (WKE-552) - the Upgrade Map, drawn
 
 - **The list is a real list.** Both views moved from a column of one font

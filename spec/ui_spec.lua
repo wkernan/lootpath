@@ -882,13 +882,28 @@ describe("the Vault tab", function()
         H.unload()
     end)
 
-    it("renders the week's options into the window", function()
+    it("renders the week's notes into the window and its options into the grid", function()
         assert.equal(ns.VaultPanel.NOTE, panel.note:GetText())
         assert.equal("Vault", panel.header:GetText())
         assert.equal(10, panel.model.counts.options)
-        local lines = ns.VaultPanel.Lines(panel.model)
-        for i, line in ipairs(lines) do
+        local notes = ns.VaultPanel.NoteLines(panel.model)
+        for i, line in ipairs(notes) do
             assert.equal(line, panel.rows[i]:GetText())
+        end
+        -- Since M5-4 the options are the grid, in Blizzard's own order.
+        assert.equal(3, #panel.gridRows)
+        assert.equal("Raids", panel.gridRows[1].label:GetText())
+        assert.equal("Dungeons", panel.gridRows[2].label:GetText())
+        assert.equal("World", panel.gridRows[3].label:GetText())
+        -- This week has generated nothing, so every cell is a locked one and
+        -- says what the client says it needs.
+        for _, gridRow in ipairs(panel.gridRows) do
+            assert.equal(3, #gridRow.cells)
+            for _, cell in ipairs(gridRow.cells) do
+                assert.is_true(cell:IsShown())
+                assert.is_true(cell.locked:IsShown())
+                assert.is_false(cell.line:IsShown())
+            end
         end
     end)
 

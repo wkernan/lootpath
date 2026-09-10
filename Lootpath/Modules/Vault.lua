@@ -419,7 +419,7 @@ end
 --
 -- One record per activity, in the order the client listed them:
 --   { type, typeLabel, index, id, threshold, progress, level, activityTierID,
---     unlocked, rewards = { <Vault.Reward records> } }
+--     raidString, unlocked, rewards = { <Vault.Reward records> } }
 --
 -- A reward record is { itemDBID, itemID, key, link, itemLevel, slot, equipLoc,
 -- name, quality, quantity, icon, pending }; `icon` is M5-1's addition, for the
@@ -475,6 +475,15 @@ function Vault.Options(opts)
                     progress = progress,
                     level = tonumber(guarded(counter, activity.level)),
                     activityTierID = tonumber(guarded(counter, activity.activityTierID)),
+                    -- The client's own sentence for a Raid row's threshold
+                    -- ("Defeat %d Midnight Season 2 |4Boss:Bosses" in the
+                    -- 2026-09-08 transcript). Blizzard's own WeeklyRewards
+                    -- frame prefers it over WEEKLY_REWARDS_THRESHOLD_RAID for
+                    -- exactly the Raid rows (Blizzard_WeeklyRewards.lua,
+                    -- WeeklyRewardsActivityMixin:Refresh), so the panel that
+                    -- draws a locked cell needs it. Recorded as the client
+                    -- said it; nothing formats it here.
+                    raidString = guarded(counter, activity.raidString),
                     unlocked = threshold > 0 and progress >= threshold,
                     rewards = rewards,
                 }
