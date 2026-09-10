@@ -237,11 +237,21 @@ end
 -- The badge as a coloured string, or "" when the row has none. A caller with
 -- a colour of its own (Equip Now's status colours) passes `badge.hex` and
 -- gets it; everything else takes QE Live's tone.
+--
+-- `badge.note` is an aside that belongs WITH the verdict but is not part of
+-- it - the Upgrade Map's "(at +6)", which names the stored document a number
+-- came from (M5-3). It is always grey, whatever tone the verdict is, because
+-- it is not one of his numbers; and it shares the badge's font string so the
+-- two never drift apart on screen.
 function ItemLine.BadgeText(badge)
     if type(badge) ~= "table" or type(badge.text) ~= "string" or badge.text == "" then
         return ""
     end
-    return colored(badge.hex or tone(badge).hex, badge.text)
+    local text = colored(badge.hex or tone(badge).hex, badge.text)
+    if type(badge.note) == "string" and badge.note ~= "" then
+        text = text .. " " .. colored(ItemLine.GREY, badge.note)
+    end
+    return text
 end
 
 function ItemLine.ShowTooltip(line, anchorTo)

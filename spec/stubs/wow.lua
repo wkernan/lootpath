@@ -214,6 +214,337 @@ end
 
 local newFrame
 
+-- ---------------------------------------------------------------------------
+-- The 11.0 ScrollBox, as far as its CONTRACT goes (M5-3, WKE-552). Read under
+-- .luals/ in Blizzard_SharedXML/Shared/Scroll/ rather than remembered:
+--   * `CreateDataProvider(tbl)` returns a DataProviderMixin whose collection is
+--     the table it was handed (DataProvider.lua:14, :261).
+--   * `CreateScrollBoxListLinearView(top, bottom, left, right, spacing)`
+--     returns a view; `SetElementInitializer(templateOrType, initializer)` is
+--     sugar over `SetElementFactory(function(factory, elementData) ... end)`
+--     (ScrollBoxListView.lua:461), and a list of mixed element kinds uses the
+--     factory directly.
+--   * `ScrollUtil.InitScrollBoxListWithScrollBar(box, bar, view)` registers the
+--     pair and calls `box:Init(view)` (ScrollUtil.lua:92).
+--   * **The list is VIRTUALIZED.** `ValidateDataRange` acquires frames only for
+--     the data indices `CalculateDataIndices` says are on screen and releases
+--     the rest back to a frame factory (ScrollBoxListView.lua:335, :414, :655,
+--     and :575 `IsVirtualized`). That is the one behaviour the panel is built
+--     for - 478 rows must not mean 478 frames - so it is modelled here rather
+--     than ignored: the box lays out from the top until it has covered its own
+--     height, and every element past that gets no frame at all.
+-- Nothing here draws anything. What a row looks like is still an in-game step.
+
+local function newDataProvider(tbl)
+    local provider = { collection = {} }
+    for _, value in ipairs(tbl or {}) do
+        provider.collection[#provider.collection + 1] = value
+    end
+    function provider:GetSize()
+        return #self.collection
+    end
+    function provider:Find(index)
+        return self.collection[index]
+    end
+    function provider:Insert(...)
+        for i = 1, select("#", ...) do
+            self.collection[#self.collection + 1] = (select(i, ...))
+        end
+    end
+    function provider:InsertTable(list)
+        for _, value in ipairs(list or {}) do
+            self.collection[#self.collection + 1] = value
+        end
+    end
+    function provider:Flush()
+        self.collection = {}
+    end
+    function provider:Enumerate(indexBegin, indexEnd)
+        local index = (indexBegin or 1) - 1
+        local last = indexEnd or #self.collection
+        return function()
+            index = index + 1
+            if index > last then
+                return nil
+            end
+            return index, self.collection[index]
+        end
+    end
+    function provider:EnumerateEntireRange()
+        return self:Enumerate()
+    end
+    return provider
+end
+
+local function newScrollBoxListLinearView(top, bottom, left, right, spacing)
+    local view = {
+        padding = { top = top or 0, bottom = bottom or 0, left = left or 0, right = right or 0 },
+        spacing = spacing or 0,
+    }
+    function view:SetPadding(t, b, l, r, sp)
+        self.padding = { top = t or 0, bottom = b or 0, left = l or 0, right = r or 0 }
+        self.spacing = sp or 0
+    end
+    function view:SetElementFactory(factory)
+        self.elementFactory = factory
+    end
+    function view:SetElementInitializer(frameTemplateOrType, initializer)
+        self.frameTemplateOrFrameType = frameTemplateOrType
+        self:SetElementFactory(function(factory)
+            factory(frameTemplateOrType, initializer)
+        end)
+    end
+    function view:SetElementExtent(extent)
+        self.elementExtent = extent
+    end
+    function view:SetElementExtentCalculator(calculator)
+        self.elementExtentCalculator = calculator
+    end
+    function view:GetElementExtent(dataIndex, elementData)
+        if self.elementExtentCalculator then
+            return self.elementExtentCalculator(dataIndex, elementData)
+        end
+        return self.elementExtent or 20
+    end
+    function view:SetElementResetter(resetter)
+        self.frameResetter = resetter
+    end
+    return view
+end
+
+-- Which template and initializer an element wants, without creating a frame:
+-- the real view asks its factory the same way when it only needs the extent
+-- (ScrollBoxListView.lua, "This local factory function allows us to ask for
+-- the template and initializer without actually creating a frame").
+local function factoryDataFor(view, elementData)
+    local template, initializer
+    if view.elementFactory then
+        view.elementFactory(function(t, init)
+            template, initializer = t, init
+        end, elementData)
+    end
+    return template, initializer
+end
+
+local function attachScrollBoxList(box, world)
+    box.frames = {}
+    box.pool = {} -- [template] = { frames }
+    box.framesCreated = 0
+    box.scrollTarget = newFrame("Frame", world, box)
+
+    function box:Init(view)
+        self.view = view
+    end
+    function box:GetView()
+        return self.view
+    end
+    function box:GetScrollTarget()
+        return self.scrollTarget
+    end
+    function box:GetDataProvider()
+        return self.dataProvider
+    end
+    function box:GetFrames()
+        return self.frames
+    end
+    function box:GetDataProviderSize()
+        return self.dataProvider and self.dataProvider:GetSize() or 0
+    end
+    box.ScrollToBegin = function() end
+    box.SetInterpolateScroll = function() end
+    box.CanInterpolateScroll = function()
+        return false
+    end
+
+    function box:Acquire(template)
+        local pool = self.pool[template]
+        if not pool then
+            pool = {}
+            self.pool[template] = pool
+        end
+        for _, frame in ipairs(pool) do
+            if not frame.inUse then
+                frame.inUse = true
+                return frame
+            end
+        end
+        -- The frame TYPE and the frame TEMPLATE are one argument in the real
+        -- factory: "Frame" and "MyRowTemplate" both arrive here.
+        local kind = (template == "Button" or template == "Frame" or template == "CheckButton") and template or "Frame"
+        local frame = newFrame(kind, world, self.scrollTarget, kind == template and nil or template)
+        frame.inUse = true
+        pool[#pool + 1] = frame
+        self.framesCreated = self.framesCreated + 1
+        return frame
+    end
+
+    function box:ReleaseAll()
+        for _, pool in pairs(self.pool) do
+            for _, frame in ipairs(pool) do
+                if frame.inUse then
+                    frame.inUse = false
+                    frame:Hide()
+                    if self.view and self.view.frameResetter then
+                        self.view.frameResetter(frame, frame.elementData)
+                    end
+                end
+            end
+        end
+        self.frames = {}
+    end
+
+    -- One layout pass: a frame for every element from the top down until the
+    -- box's own height is covered, and nothing for the rest. The real widget
+    -- calculates the same range from its scroll offset; a headless box never
+    -- scrolls, so its range always begins at 1.
+    function box:Layout()
+        local view = self.view
+        self:ReleaseAll()
+        if not (view and self.dataProvider) then
+            return
+        end
+        -- How much of the list is on screen. A real scroll box is sized by
+        -- its anchors - the panels anchor one to two corners of their frame -
+        -- and nothing here lays anything out, so a box with no size of its own
+        -- takes the nearest ancestor that has one. That errs towards MORE
+        -- visible rows than the client would show, which makes a bounded-pool
+        -- assertion harder to pass rather than easier.
+        local height = self:GetHeight() or 0
+        local ancestor = self.parent
+        while height <= 0 and ancestor do
+            height = ancestor.GetHeight and ancestor:GetHeight() or 0
+            ancestor = ancestor.parent
+        end
+        if height <= 0 then
+            height = 1
+        end
+        local used, total = 0, 0
+        for index, elementData in self.dataProvider:Enumerate() do
+            local extent = view:GetElementExtent(index, elementData) or 1
+            total = total + extent + view.spacing
+            if used <= height then
+                local template, initializer = factoryDataFor(view, elementData)
+                if template then
+                    local frame = self:Acquire(template)
+                    frame.elementData = elementData
+                    frame.GetElementData = function(element)
+                        return element.elementData
+                    end
+                    frame:SetHeight(extent)
+                    frame:Show()
+                    self.frames[#self.frames + 1] = frame
+                    if initializer then
+                        initializer(frame, elementData)
+                    end
+                end
+                used = used + extent + view.spacing
+            end
+        end
+        self.extent = total
+    end
+
+    function box:SetDataProvider(dataProvider)
+        self.dataProvider = dataProvider
+        self:Layout()
+    end
+    function box:FlushDataProvider()
+        self:SetDataProvider(newDataProvider({}))
+    end
+end
+
+-- WowStyle1FilterDropdownTemplate over the 11.0 menu API. The generator is
+-- handed the dropdown and a root description and calls CreateRadio /
+-- CreateButton / CreateTitle / SetTag on it (DropdownButton.lua:237 SetupMenu,
+-- :255 GenerateMenu; MenuUtil.lua:226 CreateRadio(text, isSelected,
+-- setSelected, data)). What is modelled is which elements the generator asked
+-- for and what each one does when it is picked, which is the whole contract
+-- the panel depends on; the menu's pixels are the client's.
+local function attachFilterDropdown(dropdown)
+    dropdown.menuElements = {}
+
+    local function rootDescription(list)
+        local root = { elements = list }
+        local function add(kind, text, isSelected, setSelected, data)
+            local element = {
+                kind = kind,
+                text = text,
+                isSelected = isSelected,
+                setSelected = setSelected,
+                data = data,
+            }
+            function element:IsSelected()
+                if type(self.isSelected) == "function" then
+                    return self.isSelected(self.data) and true or false
+                end
+                return false
+            end
+            -- What a click on this row does, which is the only way a test can
+            -- pick an option: the real menu calls setSelected with the data.
+            function element:Select()
+                if type(self.setSelected) == "function" then
+                    self.setSelected(self.data)
+                end
+            end
+            list[#list + 1] = element
+            return element
+        end
+        function root:SetTag(tag)
+            self.tag = tag
+        end
+        root.CreateRadio = function(_, text, isSelected, setSelected, data)
+            return add("radio", text, isSelected, setSelected, data)
+        end
+        root.CreateCheckbox = function(_, text, isSelected, setSelected, data)
+            return add("checkbox", text, isSelected, setSelected, data)
+        end
+        root.CreateButton = function(_, text, onSelect, data)
+            return add("button", text, nil, onSelect, data)
+        end
+        root.CreateTitle = function(_, text)
+            return add("title", text)
+        end
+        root.CreateDivider = function()
+            return add("divider")
+        end
+        return root
+    end
+
+    function dropdown:GenerateMenu()
+        if type(self.menuGenerator) ~= "function" then
+            return
+        end
+        self.menuElements = {}
+        self.rootDescription = rootDescription(self.menuElements)
+        self.menuGenerator(self, self.rootDescription)
+    end
+    function dropdown:SetupMenu(generator)
+        assert(type(generator) == "function", "SetupMenu: argument is not a function")
+        self.menuGenerator = generator
+        self:GenerateMenu()
+    end
+    function dropdown:SetDefaultText(text)
+        self.defaultText = text
+    end
+    function dropdown:SetSelectionText(formatter)
+        self.selectionTextFormatter = formatter
+    end
+    dropdown.IsMenuOpen = function()
+        return false
+    end
+    -- Picking an option the way a player does: find the row by its text and
+    -- run what the generator said it does. The real menu rebuilds its rows
+    -- from the owner's state every time it opens, so the caller regenerates.
+    function dropdown:SelectByText(text)
+        for _, element in ipairs(self.menuElements) do
+            if element.text == text then
+                element:Select()
+                return true
+            end
+        end
+        return false
+    end
+end
+
 local function attachTemplate(f, world, template)
     if type(template) ~= "string" then
         return
@@ -241,6 +572,14 @@ local function attachTemplate(f, world, template)
         if not template:find("NoCloseButton", 1, true) then
             f.CloseButton = newFrame("Button", world, f)
         end
+    end
+    -- WowScrollBoxList (Blizzard_SharedXML/Shared/Scroll/ScrollTemplates.xml
+    -- line 4) and the filter dropdown, both M5-3's.
+    if template:find("WowScrollBoxList", 1, true) then
+        attachScrollBoxList(f, world)
+    end
+    if template:find("WowStyle1FilterDropdownTemplate", 1, true) then
+        attachFilterDropdown(f)
     end
     -- PanelTabButtonTemplate declares parentArray="Tabs"
     -- (Blizzard_SharedXML/SharedUIPanelTemplates.xml line 905), so a tab built
@@ -756,6 +1095,24 @@ function Stub.install()
         end
         return f
     end)
+    -- The ScrollBox globals the panels build on (see the block above for where
+    -- each shape was read from).
+    define("CreateDataProvider", newDataProvider)
+    define("CreateScrollBoxListLinearView", newScrollBoxListLinearView)
+    define("CreateScrollBoxLinearView", newScrollBoxListLinearView)
+    define("ScrollUtil", {
+        InitScrollBoxListWithScrollBar = function(scrollBox, _, view)
+            scrollBox:Init(view)
+        end,
+        InitScrollBoxWithScrollBar = function(scrollBox, _, view)
+            scrollBox:Init(view)
+        end,
+        RegisterScrollBoxWithScrollBar = function() end,
+        AddManagedScrollBarVisibilityBehavior = function()
+            return {}
+        end,
+    })
+
     define("SlashCmdList", {})
     define("UIParent", newFrame("Frame", world))
     define("UISpecialFrames", {})
@@ -1349,11 +1706,35 @@ function Stub.install()
             nothing,
             instance.mapID
     end)
-    define("EJ_GetInstanceInfo", function()
-        local list = J.instances.dungeons
-        for _, instance in ipairs(list) do
-            if instance.instanceID == J.selectedInstance then
-                return instance.name
+    -- EJ_GetInstanceInfo([journalInstanceID]) -> name, description, bgImage,
+    -- buttonImage1, loreImage, buttonImage2, dungeonAreaMapID, link,
+    -- shouldDisplayDifficulty, mapID, covenantID, isRaid. The ordering is
+    -- Blizzard's own, read from its shipped Encounter Journal under .luals/
+    -- rather than from the wiki: `name, _, _, icon = EJ_GetInstanceInfo(id)`
+    -- takes the fourth return as the instance's button art
+    -- (Blizzard_EncounterJournal.lua line 2413), and
+    -- `instanceName, description, bgImage, _, loreImage, buttonImage, ...`
+    -- (line 1211) fixes the three around it. The art values here are
+    -- PLACEHOLDER file IDs like every other number in this file: what a test
+    -- asserts is that the fourth return reached the walk, never which file it
+    -- was. Raids answer as well as dungeons, and an instance this client does
+    -- not know answers nil.
+    define("EJ_GetInstanceInfo", function(journalInstanceID)
+        local wanted = journalInstanceID or J.selectedInstance
+        for _, list in pairs(J.instances) do
+            for _, instance in ipairs(list) do
+                if instance.instanceID == wanted then
+                    return instance.name,
+                        instance.description,
+                        instance.bgImage,
+                        instance.buttonImage1,
+                        instance.loreImage,
+                        instance.buttonImage2,
+                        instance.dungeonAreaMapID,
+                        instance.link,
+                        instance.shouldDisplayDifficulty,
+                        instance.mapID
+                end
             end
         end
         return nil

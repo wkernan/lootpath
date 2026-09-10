@@ -52,12 +52,33 @@ local function seedJournal(world)
     }
     J.instanceForGameMap = { [2001] = 1201 }
     J.instanceForMap = { [2002] = 1202 }
+    -- The art file IDs are placeholders like every other number in the stub;
+    -- what they exist for is that Dungeon One and the raid HAVE art and
+    -- Dungeon Two has none, so one walk exercises both cases (M5-3).
     J.instances.dungeons = {
-        { instanceID = 1201, name = "Test Dungeon One", description = "one", mapID = 2001 },
+        {
+            instanceID = 1201,
+            name = "Test Dungeon One",
+            description = "one",
+            mapID = 2001,
+            bgImage = 4101,
+            buttonImage1 = 4102,
+            loreImage = 4103,
+            buttonImage2 = 4104,
+        },
         { instanceID = 1202, name = "Test Dungeon Two", description = "two", mapID = 2002 },
     }
     J.instances.raids = {
-        { instanceID = 1300, name = "Test Raid", description = "raid", mapID = 2100 },
+        {
+            instanceID = 1300,
+            name = "Test Raid",
+            description = "raid",
+            mapID = 2100,
+            bgImage = 4201,
+            buttonImage1 = 4202,
+            loreImage = 4203,
+            buttonImage2 = 4204,
+        },
     }
     J.encounters = {
         [1201] = {
@@ -68,7 +89,10 @@ local function seedJournal(world)
         [1300] = { { name = "Raid Boss", description = "d", encounterID = 3100 } },
     }
     -- EncounterJournalItemInfo as Blizzard's docs describe it: no item level.
-    local helmRow = { itemID = 220001, encounterID = 3001, name = "Test Journal Helm", slot = "Head", link = HELM }
+    -- The helm carries the journal row's OWN icon, the ring does not: the two
+    -- paths M5-3 reads an item's icon by, in one walk.
+    local helmRow =
+        { itemID = 220001, encounterID = 3001, name = "Test Journal Helm", slot = "Head", link = HELM, icon = 236715 }
     local ringRow = { itemID = 220002, encounterID = 3002, name = "Test Journal Ring", slot = "Finger", link = RING }
     local cloakRow = { itemID = 220003, encounterID = 3100, name = "Test Raid Cloak", slot = "Back", link = CLOAK }
     J.loot = {
@@ -331,6 +355,34 @@ describe("JournalAdapter.Walk", function()
         assert.equal(2, #result.targets[1].encounters)
         assert.equal("First Boss", result.targets[1].encounters[1].name)
         assert.equal(3002, result.targets[1].encounters[2].encounterID)
+    end)
+
+    -- M5-3 (WKE-552): the run cards want the art Blizzard's own Adventure
+    -- Guide draws an instance with. EJ_GetInstanceInfo is a function this walk
+    -- already calls and it only reads, so what changed is how much of its
+    -- answer is kept - not what the capture does to the client.
+    it("records the instance's own row, art and all, beside its encounters", function()
+        local result = walk({ targets = targets(), classID = 11, specID = 105 })
+        local fields = ns.JournalAdapter.INSTANCE_INFO_FIELDS
+        local pack = result.targets[1].instanceInfo
+        assert.equal("Test Dungeon One", pack[fields.name])
+        assert.equal(4101, pack[fields.bgImage])
+        assert.equal(4102, pack[fields.buttonImage1])
+        assert.equal(4103, pack[fields.loreImage])
+        assert.equal(4104, pack[fields.buttonImage2])
+        -- A raid answers the same call the same way.
+        assert.equal(4202, result.targets[3].instanceInfo[fields.buttonImage1])
+    end)
+
+    it("still walks an instance the client has no art for", function()
+        local list = targets()
+        list[#list + 1] =
+            { instanceID = 1202, instanceName = "Test Dungeon Two", isRaid = false, difficultyID = DUNGEON_MYTHIC }
+        local result = walk({ targets = list, classID = 11, specID = 105 })
+        local pack = result.targets[4].instanceInfo
+        assert.equal("Test Dungeon Two", pack[ns.JournalAdapter.INSTANCE_INFO_FIELDS.name])
+        assert.is_nil(pack[ns.JournalAdapter.INSTANCE_INFO_FIELDS.buttonImage1])
+        assert.equal(1, result.targets[4].loot.numLoot[1])
     end)
 
     it("waits for EJ_LOOT_DATA_RECIEVED and re-reads, counting the events", function()
@@ -670,6 +722,33 @@ describe("ns.Journal over the 2026-09-06 transcript", function()
         end
         return rows
     end
+
+    -- M5-3: the committed walks predate the instance-art recording, so this is
+    -- the absent case on real data. It is a fact about the transcript, not a
+    -- gap to fill in: a card with no art is drawn with no art until the owner
+    -- runs `capture journal` again, which is a human-required step.
+    it("carries the row icons the transcript really has, and no instance art", function()
+        local withArt, withIcon, entries = 0, 0, 0
+        for _, list in pairs(sources) do
+            for _, entry in ipairs(list) do
+                entries = entries + 1
+                if entry.instanceImage or entry.instanceImage2 or entry.instanceBackground then
+                    withArt = withArt + 1
+                end
+                if entry.icon then
+                    withIcon = withIcon + 1
+                end
+            end
+        end
+        assert.equal(558, entries)
+        assert.equal(0, withArt)
+        -- 189 of the 558 sources are the keyed rows whose item data arrived;
+        -- those are the ones the journal handed an icon for.
+        assert.equal(189, withIcon)
+        for _, target in ipairs(snapshot.data.walk.targets) do
+            assert.is_nil(target.instanceInfo)
+        end
+    end)
 
     it("reads the transcript the tests claim to read", function()
         assert.equal("journal", snapshot.name)
@@ -1024,6 +1103,57 @@ describe("ns.Journal over a walk whose item data arrives late", function()
         world.runTimers(120)
         return { walk = done, player = { specID = 105 }, season = { currentSeason = { 15, n = 1 } } }
     end
+
+    -- M5-3: the two file IDs an Upgrade Map row and a run card draw with. Both
+    -- are the client's own; the aggregator carries them and derives neither.
+    it("carries the row's icon and the instance's art onto every source entry", function()
+        local sources = ns.Journal:Build({ data = walkData(nil), build = "69587" })
+        -- The helm's icon is the journal row's own...
+        assert.equal(236715, sources[220001][1].icon)
+        -- ...and the ring's, which the row does not carry, is the fifth return
+        -- of C_Item.GetItemInfoInstant, which the walk already probed.
+        assert.equal(134132, sources[220002][1].icon)
+        -- The instance art is EJ_GetInstanceInfo's, on every row of the target.
+        for _, list in pairs(sources) do
+            for _, entry in ipairs(list) do
+                assert.equal(4102, entry.instanceImage)
+                assert.equal(4104, entry.instanceImage2)
+                assert.equal(4101, entry.instanceBackground)
+            end
+        end
+    end)
+
+    it("leaves the art alone for an instance the client gave none for", function()
+        world.journal.itemDataDelaySeconds = nil
+        local done
+        ns.JournalAdapter.Walk({
+            targets = {
+                { instanceID = 1202, instanceName = "Test Dungeon Two", isRaid = false, difficultyID = DUNGEON_MYTHIC },
+            },
+            classID = 11,
+            specID = 105,
+        }, function(result)
+            done = result
+        end)
+        world.runTimers(120)
+        local sources = ns.Journal:Build({
+            data = { walk = done, player = { specID = 105 }, season = { currentSeason = { 15, n = 1 } } },
+            build = "69587",
+        })
+        local entry = sources[220002][1]
+        assert.is_nil(entry.instanceImage)
+        assert.is_nil(entry.instanceImage2)
+        assert.is_nil(entry.instanceBackground)
+        -- ...and the row is still a row: the art is the only thing missing.
+        assert.equal("Finger", entry.slot)
+        assert.equal(134132, entry.icon)
+    end)
+
+    it("fills a pending row's icon in from the second read", function()
+        local data = walkData(0.5)
+        local sources = ns.Journal:Build({ data = data, build = "69587" })
+        assert.equal(236715, sources[220001][1].icon)
+    end)
 
     it("knows nothing but the itemID from the first read alone", function()
         local data = walkData(0.5)

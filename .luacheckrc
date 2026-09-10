@@ -56,6 +56,13 @@ read_globals = {
     "Enum",
     -- Blizzard API, globals
     "CreateFrame",
+    -- The 11.0 ScrollBox, from Blizzard_SharedXML/Shared/Scroll/ and
+    -- Blizzard_SharedXML/DataProvider.lua (both read under .luals/): the data
+    -- provider, the linear list view, and the helper that registers a box with
+    -- its scroll bar. M5-3 draws the Upgrade Map's two lists with them.
+    "CreateDataProvider",
+    "CreateScrollBoxListLinearView",
+    "ScrollUtil",
     "GetBuildInfo",
     "GetCurrentRegion",
     "GetCurrentRegionName",

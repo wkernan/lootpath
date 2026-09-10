@@ -300,6 +300,30 @@ function Adapter.IsValidInstanceDifficulty(difficultyID)
     return Adapter.Call(_G.EJ_IsValidInstanceDifficulty, difficultyID)
 end
 
+-- The instance's own row of the Adventure Guide: its name and the art
+-- Blizzard's journal draws it with. `EJ_GetInstanceInfo` is already one of the
+-- functions this walk calls (FUNCTION_NAMES above) and it only reads, so
+-- recording more of what it returns is not a new client action (M5-3).
+--
+-- The positions are Blizzard's own, read from its shipped Encounter Journal
+-- under .luals/ rather than from the wiki: `name, _, _, icon =
+-- EJ_GetInstanceInfo(id)` takes the FOURTH return as the instance's button art
+-- (Blizzard_EncounterJournal.lua line 2413), and `instanceName, description,
+-- bgImage, _, loreImage, buttonImage, dungeonAreaMapID` (line 1211) fixes the
+-- three around it. Every one is a file ID the client hands over.
+Adapter.INSTANCE_INFO_FIELDS = {
+    name = 1,
+    description = 2,
+    bgImage = 3,
+    buttonImage1 = 4,
+    loreImage = 5,
+    buttonImage2 = 6,
+}
+
+function Adapter.InstanceInfo(journalInstanceID)
+    return Adapter.Call(_G.EJ_GetInstanceInfo, journalInstanceID)
+end
+
 function Adapter.Encounters(journalInstanceID, limit)
     local encounters = {}
     for index = 1, limit or 40 do
@@ -553,6 +577,9 @@ function Adapter.Walk(opts, onDone)
         if target.previewLevel then
             record.setPreviewLevel = Adapter.SetPreviewMythicPlusLevel(target.previewLevel)
         end
+        -- Recorded after the instance is selected, so a client that answers
+        -- only about the current selection answers about this target.
+        record.instanceInfo = Adapter.InstanceInfo(target.instanceID)
         record.encounters = Adapter.Encounters(target.instanceID)
         result.targets[index] = record
 
@@ -709,7 +736,12 @@ end
 --
 --   { [itemID] = { { instanceID, instanceName, encounterID, encounterName,
 --                    difficultyID, itemLevel, slot, isRaid, pending,
---                    itemKey, name } ... } }
+--                    itemKey, name, icon, instanceImage, instanceImage2,
+--                    instanceBackground } ... } }
+--
+-- `icon` and the three instance file IDs are what the Upgrade Map's item lines
+-- and run cards draw (M5-3). Both are the client's own values, carried rather
+-- than derived; the art is nil on every walk taken before the recording landed.
 --
 -- It is pure Lua over a table the adapter already produced - the same shape a
 -- `capture journal` snapshot stores - so like QEImport.Parse it carries no
@@ -795,6 +827,42 @@ local function probeValue(pack)
     return type(pack) == "table" and pack[1] or nil
 end
 
+-- The art the Adventure Guide draws an instance with, off the walk's own
+-- `EJ_GetInstanceInfo` pack (M5-3). Every value is a file ID the client gave;
+-- nothing is derived and nothing is defaulted, because a run card with no art
+-- is a run card with no art. Both committed walks predate the recording, so
+-- this answers nil on all six of them and the cards ship without art until a
+-- new `capture journal` lands - which is a human-required step.
+local function instanceArt(target)
+    local pack = target and target.instanceInfo
+    if type(pack) ~= "table" then
+        return nil
+    end
+    local fields = Adapter.INSTANCE_INFO_FIELDS
+    local art = {
+        instanceImage = tonumber(pack[fields.buttonImage1]),
+        instanceImage2 = tonumber(pack[fields.buttonImage2]),
+        instanceBackground = tonumber(pack[fields.bgImage]),
+    }
+    if art.instanceImage == nil and art.instanceImage2 == nil and art.instanceBackground == nil then
+        return nil
+    end
+    return art
+end
+
+-- The row's own icon, which the journal hands over on the loot row itself
+-- (`icon` on EncounterJournalItemInfo - 7893615 on the 2026-09-06 transcript's
+-- Polished Lightwood Channeler) and again as the FIFTH return of
+-- C_Item.GetItemInfoInstant, which the walk already probes. The row's is
+-- preferred because it is there even for a row whose link never arrived.
+local function rowIcon(info, row)
+    local own = type(info) == "table" and tonumber(info.icon) or nil
+    if own then
+        return own
+    end
+    return tonumber(row.instant and row.instant[5])
+end
+
 -- GetBuildInfo() -> version, build, date, tocversion. The cache is keyed on
 -- the BUILD number (69587 on 2026-09-06), not the version string: a hotfix
 -- build can move item levels without moving "12.1.0".
@@ -874,6 +942,9 @@ local function aggregate(targets, wanted)
                 summary.rereadTargets = summary.rereadTargets + 1
             end
             local read = finalRead(target)
+            -- Once per target, because every row of it comes from the same
+            -- instance: nil on a walk that never recorded the art.
+            local art = instanceArt(target)
             for _, row in ipairs((read and read.rows) or {}) do
                 summary.rows = summary.rows + 1
                 local info = row.itemInfo and row.itemInfo[1]
@@ -916,6 +987,7 @@ local function aggregate(targets, wanted)
                             existing.itemLevel = tonumber(probeValue(row.detailedLevel))
                             existing.itemKey = parsed and parsed.key or nil
                             existing.name = type(info.name) == "string" and info.name or nil
+                            existing.icon = rowIcon(info, row) or existing.icon
                         end
                     else
                         local entry = {
@@ -934,6 +1006,13 @@ local function aggregate(targets, wanted)
                             -- rather than item IDs even when the client has
                             -- since forgotten the item.
                             name = (not pending) and type(info.name) == "string" and info.name or nil,
+                            -- The row's own icon, for the same reason as the
+                            -- name: an item line drawn from the cache shows
+                            -- the right icon with no round trip (M5-3).
+                            icon = rowIcon(info, row),
+                            instanceImage = art and art.instanceImage or nil,
+                            instanceImage2 = art and art.instanceImage2 or nil,
+                            instanceBackground = art and art.instanceBackground or nil,
                         }
                         seen[key] = entry
                         local list = sources[itemID]

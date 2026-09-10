@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+### M5-3 (WKE-552) - the Upgrade Map, drawn
+
+- **The list is a real list.** Both views moved from a column of one font
+  string per line to Blizzard's own `WowScrollBoxList` over a data provider,
+  so the committed walk's 478 drops cost the frames that fit on screen rather
+  than one frame per drop.
+- **By slot: a collapsible section per slot**, headed by the icon and item
+  level of what that slot is wearing and by how many drops it has. Candidate
+  rows are the M5-1 item line - the drop's own icon, its name in quality
+  colour, and a grey second line saying `boss - instance, difficulty`.
+  `[owned 305]` is the "Owned" tag; QE Live's verdict is the badge on the
+  right, with the document that gave the number - `(at +6)` - in grey after
+  it. Which sections are shut is remembered per character.
+- **By run: a card per run** - the instance's own Adventure Guide art as a
+  left strip, the run and its difficulty, `best +1.83%` as QE Live's badge and
+  the drop count in grey. A card opens onto its rated drops. The two sort
+  orders stay two orders and are never combined into a score.
+- **One difficulty dropdown** in place of the row of buttons that used to wrap
+  (and, before that, run off the window's edge). It is the 11.0 menu API, and
+  its rows are the map's own difficulties with the map's own counts.
+- **The journal walk now records the instance's art** (`buttonImage1`,
+  `buttonImage2` and `bgImage` from `EJ_GetInstanceInfo`, all file IDs the
+  client hands over) and the aggregator keeps the loot row's `icon`. Both are
+  reads of a call the walk already made; the capture still touches nothing.
+  Every walk taken before this change has no art, and a run card with no art
+  draws a plain strip rather than a stand-in picture.
+- Nothing about the numbers changed. `Panel.Lines` and `Panel.RunLines` are
+  byte for byte what they were, every join is untouched, and every badge is
+  still one of QE Live's own sentences.
+
 ### M3-15 (WKE-556) - a catalyzed vault reward costs a charge
 
 - **The "one charge" line counted a converted Great Vault reward as free.** The
