@@ -299,6 +299,7 @@ function isBankBag(bag) {
 function equippedLines(inventorySnapshot, missing) {
   const rows = [];
   for (const record of luaArray(inventorySnapshot.data.equipped)) {
+    if (!record) continue; // a `nil,` gap in the serialised list (see bagRows)
     const link = probe(record.link);
     if (!link) continue;
     const simcSlotNum = INV_SLOT_TO_SIMC_SLOT_NUM[record.invSlot];
@@ -335,6 +336,11 @@ function bagRows(inventorySnapshot, includeBank, missing) {
       .sort((a, b) => a - b);
     for (const slot of slots) {
       const entry = bag.items[String(slot)];
+      // Blizzard's serialiser writes a sparse list as positional entries with
+      // `nil,` in the gaps, so a freed slot between two filled ones is a null
+      // here (measured 2026-09-09 in the owner's backpack). The parser keeps
+      // it so the slot numbers stay right; it is not an item.
+      if (!entry) continue;
       const link = probe(entry.link);
       if (!link) continue;
       const equipLoc = probe(entry.item && entry.item.instant, 4);
@@ -371,6 +377,7 @@ function vaultRows(vaultSnapshot, missing) {
   if (!vaultSnapshot) return rows;
   if (probe(vaultSnapshot.data.hasAvailableRewards) !== true) return rows;
   for (const reward of luaArray(vaultSnapshot.data.rewardLinks)) {
+    if (!reward) continue; // a `nil,` gap in the serialised list (see bagRows)
     const link = probe(reward.link);
     if (!link) continue;
     const equipLoc = probe(reward.item && reward.item.instant, 4);

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Fixes (2026-09-09, the owner's first look at the M5 window)
+
+- **The companion no longer dies on an empty bag slot.** Blizzard writes a freed
+  slot between two filled ones as a literal `nil,` in the SavedVariables; the
+  walk over bag items, equipped items and vault rewards now steps over it
+  instead of reading `.link` on nothing. Every `/lootpath refresh` had been
+  failing with exit code 3 and leaving the old verdict in place.
+- **The minimap button sits outside the minimap you actually have.** The
+  launcher read a fixed 80-point radius; it now measures the minimap at every
+  placement, follows it when an addon resizes it, and rides the edge of a
+  square minimap (ElvUI) instead of a circle inside it.
+
 ### M5-4 (WKE-553) - the Vault, drawn as the vault
 
 - **The tab is the Great Vault**: three rows - Raids, Dungeons, World, in
