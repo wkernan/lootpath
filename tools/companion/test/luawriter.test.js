@@ -9,7 +9,8 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 
-const { render, luaString, luaNumber, luaBoolean } = require('../lib/luawriter');
+const luaWriter = require('../lib/luawriter');
+const { render, luaString, luaNumber, luaBoolean } = luaWriter;
 
 const GOLDEN = path.join(__dirname, '..', '..', '..', 'spec', 'fixtures', 'expected', 'qeverdict-sample.lua');
 
@@ -190,17 +191,100 @@ test('the chunk declares one table and calls nothing', () => {
     assert.ok(code.includes('ns.companionVerdict = {'));
 });
 
+// C-8 (WKE-558). The last entry has no level on purpose: a card whose level
+// could not be read is still named rather than dropped or given a number.
+const EXCLUDED = [
+    { slot: 'Finger', name: 'Band of the "Quoted" Name', level: 678 },
+    { slot: 'Shoulder', name: 'Spaulders of the Vault', level: 691, vault: true },
+    { slot: 'Trinket', name: 'a trinket with no level' },
+];
+
+test('C-8: a verdict with no excluded list is written exactly as it was before', () => {
+    // Every file written before C-8 carries none, and so does the committed
+    // placeholder: the field appears only when there is something to say.
+    const text = render({
+        writtenAt: '2026-09-08T00:00:00Z',
+        companionVersion: '0.1.0',
+        qeSettings: BOXES,
+        documents: [topGear()],
+    });
+    assert.ok(!text.includes('excluded'), text);
+});
+
+test('C-8: the list is written as data, and a name that could end the literal cannot', () => {
+    const text = render({
+        writtenAt: '2026-09-08T00:00:00Z',
+        companionVersion: '0.1.0',
+        qeSettings: BOXES,
+        excluded: [{ slot: 'Head', name: 'a "]] end -- name', level: 700 }],
+        documents: [topGear()],
+    });
+    assert.ok(text.includes('excluded = {'));
+    assert.ok(text.includes('name = "a \\"]] end -- name"'), text);
+    // And it sits beside qeSettings, before the kilobytes of JSON.
+    assert.ok(text.indexOf('excluded = {') > text.indexOf('qeSettings = {'));
+    assert.ok(text.indexOf('excluded = {') < text.indexOf('exports = {'));
+});
+
+test('C-8: only a Top Gear document chooses a pool, so only one may carry a list', () => {
+    const payload = {
+        writtenAt: '2026-09-08T00:00:00Z',
+        companionVersion: '0.1.0',
+        qeSettings: BOXES,
+        documents: [{ kind: 'upgradefinder', contentType: 'Dungeon', qeSettings: BOXES, excluded: EXCLUDED, json: '{}' }],
+    };
+    assert.throws(() => render(payload), /only a Top Gear document chooses a pool/);
+});
+
+test('C-8: a list the driver could not have produced is refused rather than written', () => {
+    const payload = {
+        writtenAt: '2026-09-08T00:00:00Z',
+        companionVersion: '0.1.0',
+        qeSettings: BOXES,
+        documents: [topGear()],
+    };
+    assert.throws(() => render({ ...payload, excluded: 'nothing' }), /not an array/);
+    assert.throws(() => render({ ...payload, excluded: ['a ring'] }), /not a table/);
+    assert.throws(() => render({ ...payload, excluded: [{ name: 'x', level: 'high' }] }), /whose level is/);
+});
+
+test('C-8: a runaway list stops at MAX_EXCLUDED instead of filling the addon folder', () => {
+    const many = [];
+    for (let i = 0; i < luaWriter.MAX_EXCLUDED + 50; i++) many.push({ slot: 'Finger', name: `ring ${i}`, level: 600 });
+    const text = render({
+        writtenAt: '2026-09-08T00:00:00Z',
+        companionVersion: '0.1.0',
+        qeSettings: BOXES,
+        excluded: many,
+        documents: [topGear()],
+    });
+    assert.strictEqual((text.match(/ring \d+/g) || []).length, luaWriter.MAX_EXCLUDED);
+    assert.ok(text.includes(`ring ${luaWriter.MAX_EXCLUDED - 1}`));
+    assert.ok(!text.includes(`ring ${luaWriter.MAX_EXCLUDED}"`));
+});
+
 test('renders the committed golden byte for byte', () => {
     const text = render({
         writtenAt: '2026-09-08T00:00:00Z',
         companionVersion: '0.1.0',
         profileCapturedAt: '2026-09-05T13:33:25',
         qeSettings: { autoUpgradeVault: false, autoUpgradeAll: false },
+        // C-8 (WKE-558): the items his 30-item Top Gear was never shown. The
+        // file-level list is the base pass's; each Top Gear document also
+        // carries its own, because the Catalyst passes have clones to leave out
+        // that the base pass never had. A name with a quote in it is here on
+        // purpose - these are QE Live's own card strings.
+        excluded: EXCLUDED,
         documents: [
-            topGear({ json: '{"schema":"qe-live-droptimizer","version":1}' }),
+            topGear({ json: '{"schema":"qe-live-droptimizer","version":1}', excluded: EXCLUDED }),
             // C-6 (WKE-540): the same gear asked a different question. The Lua
             // spec proves the two land on two shelves rather than one.
-            topGear({ scenario: 'catalyzed', qeSettings: CATALYZED_BOXES, json: '{"schema":"qe-live-droptimizer","version":1,"catalyzed":true}' }),
+            topGear({
+                scenario: 'catalyzed',
+                qeSettings: CATALYZED_BOXES,
+                excluded: [...EXCLUDED, { slot: 'Shoulder', name: 'a Catalyst clone', level: 678, catalyst: true }],
+                json: '{"schema":"qe-live-droptimizer","version":1,"catalyzed":true}',
+            }),
             // C-7 (WKE-543): an Upgrade Finder document says which Mythic+ key
             // level QE Live ran it at, and spec/companionfile_spec.lua loads
             // this golden in a real Lua interpreter to prove the number comes

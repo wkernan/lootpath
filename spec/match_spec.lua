@@ -455,3 +455,66 @@ describe("Match.Build item identity", function()
         assert.is_nil(row.equipped)
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- C-8 (WKE-558): the Equip Now tab says when the set it drew was chosen out of
+-- a subset of what the character owns.
+--
+-- QE Live's Top Gear takes thirty items for a non-patron and the companion
+-- decides which thirty; a set that never mentions the ring in the bags has to
+-- say whether that is a verdict or an absence.
+describe("the items QE Live never saw", function()
+    local ns, world
+
+    before_each(function()
+        ns, world = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local EXCLUDED = {
+        { slot = "Finger", name = "Band of Whatever", level = 678 },
+        { slot = "Shoulder", name = "Lynx Spaulders", level = 691, catalyst = true },
+    }
+
+    it("rides through Match.Build untouched, because matching is not the place to say it", function()
+        local scan = scanFrom(ns, world, true)
+        local match = ns.Match.Build(scan, verdictFrom(ns, REAL_EXPORT))
+        assert.is_true(match.ok)
+        assert.is_nil(match.excluded, "the committed export was pasted and chose no pool")
+
+        local carried = verdictFrom(ns, REAL_EXPORT)
+        carried.excluded = EXCLUDED
+        local second = ns.Match.Build(scan, carried)
+        assert.same(EXCLUDED, second.excluded)
+        -- And it changed nothing about the match itself.
+        assert.same(match.counts, second.counts)
+        assert.equal(#match.rows, #second.rows)
+    end)
+
+    it("becomes one grey line under the panel's summary, in the companion's words", function()
+        local scan = scanFrom(ns, world, true)
+        local carried = verdictFrom(ns, REAL_EXPORT)
+        carried.excluded = EXCLUDED
+        local match = ns.Match.Build(scan, carried)
+        local expected = ns.Companion.ExcludedText(EXCLUDED)
+        assert.equal(expected, ns.UI.EquipPanel.ExcludedText(match))
+        local note = ns.UI.EquipPanel.NoteText(match)
+        assert.is_truthy(note:find(expected, 1, true), note)
+        assert.is_truthy(note:find(ns.UI.EquipPanel.NOTE_COLOR, 1, true))
+        -- The tooltip gets every name, not the three the line has room for.
+        assert.equal(2, #ns.UI.EquipPanel.ExcludedLines(match))
+    end)
+
+    it("says nothing at all when the run saw everything", function()
+        local scan = scanFrom(ns, world, true)
+        local match = ns.Match.Build(scan, verdictFrom(ns, REAL_EXPORT))
+        assert.is_nil(ns.UI.EquipPanel.ExcludedText(match))
+        assert.is_nil(ns.UI.EquipPanel.NoteText(match):find("did not consider", 1, true))
+        assert.same({}, ns.UI.EquipPanel.ExcludedLines(match))
+        -- And a refusal is still a refusal rather than a place to hang a note.
+        assert.is_nil(ns.UI.EquipPanel.ExcludedText({ ok = false, reason = "combat" }))
+    end)
+end)

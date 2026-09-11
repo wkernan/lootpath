@@ -289,6 +289,11 @@ function Match.Build(inventory, verdict)
         contentType = verdict.contentType,
         exportedAt = verdict.exportedAt,
         spec = verdict.spec,
+        -- Carried, never read here: the items QE Live's Top Gear was never
+        -- shown (C-8, WKE-558). This function matches what he answered against
+        -- what is owned; "and these he was not asked about" is the panel's
+        -- line, and the panel reads it off the match it drew.
+        excluded = verdict.excluded,
     }
 end
 

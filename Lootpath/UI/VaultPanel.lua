@@ -1201,6 +1201,11 @@ function Panel.Model(opts)
         hasAvailableRewards = vault.hasAvailableRewards == true,
         canClaimRewards = vault.canClaimRewards == true,
         qeSettings = qeSettings,
+        -- C-8 (WKE-558): which items the highlighted scenario's own Top Gear
+        -- run was never shown. Per scenario and not per file, because the
+        -- Catalyst passes have clones to leave out that the base pass never
+        -- had, and the tab's whole subject is what the Catalyst would do.
+        excluded = type(verdict) == "table" and verdict.excluded or nil,
         scenarios = scenarios,
         highlightScenario = highlight,
         highlightFellBack = highlightFellBack == true,
@@ -1480,6 +1485,9 @@ function Panel.Model(opts)
         if stale then
             model.staleNote = Panel.STALE_NOTE
         end
+        -- The same sentence the Equip Now tab prints, from the same function:
+        -- one wording for "this answer is about a subset" (C-8).
+        model.excludedNote = ns.Companion and ns.Companion.ExcludedText(model.excluded) or nil
     end
     return model
 end
@@ -1507,6 +1515,11 @@ function Panel.NoteLines(model)
     end
     if model.pendingNote then
         lines[#lines + 1] = Panel.NOTE_COLOR .. model.pendingNote .. "|r"
+    end
+    -- Last, and in the aside grey: it does not change what the grid says, it
+    -- says what the grid is an answer ABOUT (C-8).
+    if model.excludedNote then
+        lines[#lines + 1] = Panel.NOTE_COLOR .. model.excludedNote .. "|r"
     end
     return lines
 end

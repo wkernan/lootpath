@@ -23,15 +23,25 @@
 --           autoUpgradeVault = false,
 --           autoUpgradeAll = false,
 --       },
+--       excluded = {                          -- the items QE Live's Top Gear was never shown (C-8)
+--           { slot = "Finger", name = "Band of Whatever", level = 678 },
+--           -- ... one entry per card the 30-item cap left out of the base pass
+--       },
 --       exports = {
 --           {
 --               schema = "qe-live-droptimizer",  -- QE Live's own schema string
 --               contentType = "Dungeon",         -- what the companion asked QE Live for; advisory only
+--               excluded = { ... },              -- this document's own leftovers (C-8, Top Gear only)
 --               json = "{\"schema\":\"qe-live-droptimizer\",...}",
 --           },
 --           -- ... one entry per document the companion produced
 --       },
 --   }
+--
+-- `excluded` exists because a non-patron's Top Gear takes thirty items
+-- (TopGear.tsx) and the character owns more: the companion decides which thirty
+-- and the addon prints the rest, so a set that never mentions an owned item
+-- says why. Names are QE Live's own card text, carried like every other string.
 --
 -- Lua strings, numbers and tables only. `json` is QE Live's export text
 -- VERBATIM: Lootpath runs it through the same ns.QEImport parser as a paste,
