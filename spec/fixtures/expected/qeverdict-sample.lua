@@ -16,8 +16,8 @@ ns.companionVerdict = {
         autoUpgradeAll = false,
     },
     excluded = {
-        { slot = "Finger", name = "Band of the \"Quoted\" Name", level = 678 },
-        { slot = "Shoulder", name = "Spaulders of the Vault", level = 691, vault = true },
+        { slot = "Finger", name = "Band of the \"Quoted\" Name", level = 678, itemID = 228638, bonusIDs = { 42, 10390 } },
+        { slot = "Shoulder", name = "Spaulders of the Vault", level = 691, itemID = 271526, vault = true },
         { slot = "Trinket", name = "a trinket with no level" },
     },
     exports = {
@@ -31,8 +31,8 @@ ns.companionVerdict = {
                 autoCatalyze = false,
             },
             excluded = {
-                { slot = "Finger", name = "Band of the \"Quoted\" Name", level = 678 },
-                { slot = "Shoulder", name = "Spaulders of the Vault", level = 691, vault = true },
+                { slot = "Finger", name = "Band of the \"Quoted\" Name", level = 678, itemID = 228638, bonusIDs = { 42, 10390 } },
+                { slot = "Shoulder", name = "Spaulders of the Vault", level = 691, itemID = 271526, vault = true },
                 { slot = "Trinket", name = "a trinket with no level" },
             },
             bytes = 44,
@@ -48,10 +48,10 @@ ns.companionVerdict = {
                 autoCatalyze = true,
             },
             excluded = {
-                { slot = "Finger", name = "Band of the \"Quoted\" Name", level = 678 },
-                { slot = "Shoulder", name = "Spaulders of the Vault", level = 691, vault = true },
+                { slot = "Finger", name = "Band of the \"Quoted\" Name", level = 678, itemID = 228638, bonusIDs = { 42, 10390 } },
+                { slot = "Shoulder", name = "Spaulders of the Vault", level = 691, itemID = 271526, vault = true },
                 { slot = "Trinket", name = "a trinket with no level" },
-                { slot = "Shoulder", name = "a Catalyst clone", level = 678, catalyst = true },
+                { slot = "Shoulder", name = "a Catalyst clone", level = 678, itemID = 271527, bonusIDs = { 12 }, originalItem = 228638, catalyst = true },
             },
             bytes = 61,
             json = "{\"schema\":\"qe-live-droptimizer\",\"version\":1,\"catalyzed\":true}",

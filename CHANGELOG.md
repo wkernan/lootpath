@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### C-10 (WKE-567) - a left-out item is identified, not just named
+
+- **The excluded list carries the item's identity.** Each entry in
+  `Data/QEVerdict.lua` now holds `itemID`, the sorted `bonusIDs` and - on a
+  Catalyst clone - the `originalItem` it was made from, read off the
+  `data-wowhead` attribute QE Live's own card carries. The addon builds its one
+  `ns.ItemKey` from the first two, so "was this item left out of the pool" is an
+  identity comparison instead of a name comparison; two same-named items at one
+  item level used to answer it as one.
+- `ns.Companion.ExcludedKey(entry)` and `ns.Companion.IsExcluded(excluded, key,
+  item)` are the join, for the road surfaces that must say `not rated - beyond
+  the rating's item limit` about one item and not about its twin. An entry that
+  carries no identity - every file written before this change - is still matched
+  by name and level, and the answer says which of the two it was.
+- **All or nothing:** a bonus list the addon cannot read whole takes the item ID
+  down with it, and the companion refuses to write one rather than trimming it.
+  A shortened bonus list is a perfectly valid key for an item nobody owns.
+- Nothing on screen changed: the wording, the counts and the names are C-8's.
+
 ### C-8 (WKE-558) - QE Live is asked about the right thirty items, and says which it was not
 
 - **The companion no longer fills QE Live's Top Gear in page order.** His Top

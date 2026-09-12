@@ -220,23 +220,53 @@ test('the boxes are set before Submit, because handleSubmit reads their state', 
 // counter is the number of active cards, and clicking an active card would
 // deselect it. Nothing here opens a browser.
 //
-// The DOM read (`readCards`) is deliberately not faked twice: it is one
-// `page.evaluate` whose result shape is what every test below hands in, and
-// the decision it feeds - `chooseSelection` - is pure and is where the whole of
-// C-8 lives.
+// Since C-10 (WKE-567) the DOM read is split in two: `readCardRows` is the one
+// `page.evaluate` and hands back raw strings, and `cardFromRow` - pure Node -
+// decides what they mean. The fake page below therefore renders each card as
+// the row his page really carries, `data-wowhead` attribute and MUI class
+// included, so the parse is exercised rather than assumed; the decision it
+// feeds - `chooseSelection` - is pure and is where the whole of C-8 lives.
 
 // A card as `readCards` returns it.
 function card(index, slot, name, extra) {
-    return {
+    const built = {
         index: index,
         slot: slot,
         name: name,
         level: 600 + index,
         itemID: 200000 + index,
+        bonusIDs: [5, 10 + index],
+        originalItem: null,
         active: false,
         vault: false,
         catalyst: false,
         ...(extra || {}),
+    };
+    // A clone's own ID is the tier piece it became; `original-item` names the
+    // item it was made from, and it is the only thing on the card that says
+    // "clone" (Item.ts line 268, MiniItemCard.tsx line 224).
+    if (built.catalyst && built.originalItem === null) built.originalItem = 300000 + index;
+    built.catalyst = built.originalItem !== null;
+    return built;
+}
+
+// The same card as his page draws it: the wrapper's class, the WowheadTooltip
+// anchor's attribute (WHTooltips.tsx line 33) and the card's own text lines.
+function rowFor(item) {
+    const state = item.active ? (item.vault ? 'selectedVault' : 'selected') : item.vault ? 'vault' : 'root';
+    const wowhead = [
+        `item=${item.itemID}`,
+        `ilvl=${item.level}`,
+        `bonus=${item.bonusIDs.join(':')}`,
+        'domain=live',
+        `original-item=${item.originalItem === null ? 0 : item.originalItem}`,
+    ].join('&');
+    return {
+        index: item.index,
+        slot: item.slot,
+        cls: `MuiPaper-root MuiCard-root makeStyles-${state}-247`,
+        wowhead: wowhead,
+        lines: [item.name, String(item.level)],
     };
 }
 
@@ -282,7 +312,7 @@ function fakeTopGearPage(cards, cap) {
             };
         },
         async evaluate() {
-            return state.map((c) => ({ ...c }));
+            return state.map(rowFor);
         },
         locator(selector) {
             if (selector !== forkLib.CARD) throw new Error(`unexpected selector ${selector}`);
@@ -304,6 +334,75 @@ function fakeTopGearPage(cards, cap) {
     };
     return page;
 }
+
+// -------------------------------------------------------------------------
+// C-10 (WKE-567): a left-out item is named AND identified.
+//
+// The road surfaces have to say "not rated - beyond the rating's item limit"
+// about one item and not about the identical-looking one beside it, so the
+// excluded list carries the item ID and the bonus IDs his own card carries,
+// and the addon builds the same ns.ItemKey it builds for everything else.
+
+test('C-10: a card\'s data-wowhead attribute is read for the item ID, the level, the bonus IDs and the clone', () => {
+    const parsed = forkLib.parseWowhead('item=271526&ilvl=308&bonus=12:3:7&domain=live&original-item=228638');
+    assert.strictEqual(parsed.itemID, 271526);
+    assert.strictEqual(parsed.level, 308);
+    // Sorted here because ns.ItemKey sorts: a key that disagrees about the
+    // order of the bonus IDs is a key that never matches anything.
+    assert.deepStrictEqual(parsed.bonusIDs, [3, 7, 12]);
+    assert.strictEqual(parsed.originalItem, 228638);
+});
+
+test('C-10: original-item=0 is not a Catalyst clone, and a missing attribute identifies nothing', () => {
+    // His anchor writes the attribute for every card; `catalyzedID` is 0 on an
+    // item that was never converted (Item.ts line 268 sets it on a clone only).
+    const plain = forkLib.parseWowhead('item=228638&ilvl=678&bonus=10:20&domain=live&original-item=0');
+    assert.strictEqual(plain.originalItem, null);
+    assert.deepStrictEqual(plain.bonusIDs, [10, 20]);
+    const nothing = forkLib.parseWowhead('');
+    assert.deepStrictEqual(nothing, { itemID: null, level: null, bonusIDs: [], originalItem: null });
+    // A bonus list with nothing in it is an item with no bonus IDs, which is
+    // the bare "<itemID>" key, not an unreadable one.
+    assert.deepStrictEqual(forkLib.parseWowhead('item=5&bonus=').bonusIDs, []);
+});
+
+test('C-10: one row becomes one card, and the class is still the only word on active and vault', () => {
+    const clone = forkLib.cardFromRow({
+        index: 4,
+        slot: 'Shoulder',
+        cls: 'MuiPaper-root MuiCard-root makeStyles-selectedVault-247',
+        wowhead: 'item=271526&ilvl=308&bonus=7:3&domain=live&original-item=228638',
+        lines: ['Scavenger\'s Spaulders', '308'],
+    });
+    assert.strictEqual(clone.itemID, 271526);
+    assert.deepStrictEqual(clone.bonusIDs, [3, 7]);
+    assert.strictEqual(clone.originalItem, 228638);
+    assert.strictEqual(clone.catalyst, true, 'original-item is the only signal there is');
+    assert.strictEqual(clone.active, true);
+    assert.strictEqual(clone.vault, true);
+    assert.strictEqual(clone.name, "Scavenger's Spaulders");
+    assert.strictEqual(clone.level, 308);
+    // No attribute at all: the card is still named off its own text and the
+    // number on it is still his item level, and it claims no identity.
+    const bare = forkLib.cardFromRow({ index: 0, slot: 'Finger', cls: 'makeStyles-root-3', wowhead: '', lines: ['A Ring', '678'] });
+    assert.strictEqual(bare.itemID, null);
+    assert.deepStrictEqual(bare.bonusIDs, []);
+    assert.strictEqual(bare.catalyst, false);
+    assert.strictEqual(bare.level, 678);
+});
+
+test('C-10: the leftovers carry the identity his card carried, not just its name', async () => {
+    const cards = ownersPage({ clones: 6 });
+    const page = fakeTopGearPage(cards, 30);
+    const selection = await forkLib.selectItems(page, quietLog());
+    assert.ok(selection.excluded.length > 0);
+    for (const left of selection.excluded) {
+        const source = cards.find((c) => c.name === left.name);
+        assert.strictEqual(left.itemID, source.itemID, left.name);
+        assert.deepStrictEqual(left.bonusIDs, source.bonusIDs, left.name);
+        assert.strictEqual(left.originalItem, source.originalItem, left.name);
+    }
+});
 
 test('C-8: the room left by the cap goes to the vault, then the Catalyst clones, then the bags', () => {
     const plan = forkLib.chooseSelection(ownersPage({ clones: 6 }), 30);
@@ -409,7 +508,7 @@ test('C-8: a click that does not move his counter fails the run', async () => {
     const cards = ownersPage({});
     cards[25].active = true; // really active, reported as not
     const page = fakeTopGearPage(cards, 30);
-    page.evaluate = async () => cards.map((c, i) => ({ ...c, active: i === 25 ? false : c.active }));
+    page.evaluate = async () => cards.map((c, i) => rowFor({ ...c, active: i === 25 ? false : c.active }));
     await assert.rejects(
         () => forkLib.selectItems(page, quietLog()),
         (e) => {
@@ -458,4 +557,6 @@ test('C-8: what the driver reports as excluded is exactly what the verdict write
     const first = selection.excluded[0];
     assert.ok(text.includes(`name = ${JSON.stringify(first.name)}`), text.slice(0, 600));
     assert.ok(text.includes(`slot = ${JSON.stringify(first.slot)}, name = ${JSON.stringify(first.name)}, level = ${first.level}`));
+    // C-10: and the identity the addon builds its key from survives the writer.
+    assert.ok(text.includes(`itemID = ${first.itemID}, bonusIDs = { ${first.bonusIDs.join(', ')} }`), text.slice(0, 900));
 });
