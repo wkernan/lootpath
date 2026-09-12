@@ -18,10 +18,11 @@ describe("captures", function()
         H.unload()
     end)
 
-    it("registers env, inventory, vault, currencies and journal in that order", function()
-        -- `journal` registers in Modules/Journal.lua, which the .toc loads
-        -- after this file, so it comes last.
-        assert.same({ "env", "inventory", "vault", "currencies", "journal" }, ns.captureOrder)
+    it("registers env, inventory, vault, currencies, journal and spike in that order", function()
+        -- `journal` registers in Modules/Journal.lua and `spike` in
+        -- Modules/Spike.lua, both of which the .toc loads after this file, so
+        -- they come last. `spike` goes away with R-2 (WKE-563).
+        assert.same({ "env", "inventory", "vault", "currencies", "journal", "spike" }, ns.captureOrder)
     end)
 
     describe("env", function()
@@ -93,6 +94,73 @@ describe("captures", function()
             assert.equal("nil", data.globals.equip.EquipItemByName)
             assert.equal(1, data.constants.INVSLOT_FIRST_EQUIPPED)
             assert.equal(19, data.constants.INVSLOT_LAST_EQUIPPED)
+        end)
+
+        -- R-0 (WKE-561). The Roads brief wants "your key +8" beside a dungeon
+        -- drop; this is the read it rests on, recorded raw and shown nowhere.
+        describe("the keystone", function()
+            it("records the level, both map IDs and the name behind the challenge map ID", function()
+                world.keystone = { level = 8, challengeMapID = 542, mapID = 2664 }
+                local data = ns.RunCapture("env").snapshot.data
+                assert.equal(8, data.keystone.level[1])
+                assert.equal(542, data.keystone.challengeMapID[1])
+                assert.equal(2664, data.keystone.mapID[1])
+                assert.equal(1, data.keystone.level.n)
+            end)
+
+            it("asks GetMapUIInfo with the challenge map ID, not the map ID", function()
+                world.keystone = { level = 8, challengeMapID = 542, mapID = 2664 }
+                world.journal.mapUIInfo[542] = { "Ara-Kara, City of Echoes", 542, 1980, 4030202, 4030203, 2664 }
+                local data = ns.RunCapture("env").snapshot.data
+                assert.equal("Ara-Kara, City of Echoes", data.keystone.mapUIInfo[1])
+                assert.equal(2664, data.keystone.mapUIInfo[6])
+            end)
+
+            it("records a character holding no key as the client answers it, and asks for no name", function()
+                local data = ns.RunCapture("env").snapshot.data
+                assert.equal(0, data.keystone.level[1])
+                assert.equal(0, data.keystone.challengeMapID[1])
+                -- 0 is a number, so the name IS asked for; what comes back is
+                -- the client's own nothing rather than an invented name.
+                assert.is_nil(data.keystone.mapUIInfo[1])
+            end)
+
+            it("records an absent keystone API as absent, not as a zero", function()
+                _G.C_MythicPlus = nil
+                local data = ns.RunCapture("env").snapshot.data
+                assert.same({ absent = true }, data.keystone.level)
+                assert.same({ absent = true }, data.keystone.mapUIInfo)
+            end)
+        end)
+
+        -- R-0 (WKE-561): which bag frames are live. The glow has three code
+        -- paths and nothing recorded which one the owner is looking at.
+        describe("the bag addons", function()
+            it("probes the six names by name and records what each answered", function()
+                world.addons[#world.addons + 1] = { name = "Baganator", title = "Baganator", loaded = true }
+                world.addons[#world.addons + 1] = { name = "ElvUI", title = "ElvUI", loaded = false }
+                local data = ns.RunCapture("env").snapshot.data
+                assert.same({
+                    "Baganator",
+                    "Syndicator",
+                    "ElvUI",
+                    "Pawn",
+                    "Blizzard_UIPanels_Game",
+                    "Blizzard_BankUI",
+                }, data.bagAddons.probed)
+                assert.is_true(data.bagAddons.loaded.Baganator[1])
+                assert.is_false(data.bagAddons.loaded.ElvUI[1])
+                assert.is_false(data.bagAddons.loaded.Pawn[1])
+            end)
+
+            it("records the type of each bag global, never calling one", function()
+                local data = ns.RunCapture("env").snapshot.data
+                assert.equal("nil", data.bagAddons.globals.ContainerFrameCombinedBags)
+                assert.equal("nil", data.bagAddons.globals.Baganator)
+                _G.ContainerFrameCombinedBags = _G.CreateFrame("Frame", "ContainerFrameCombinedBags")
+                local second = ns.RunCapture("env").snapshot.data
+                assert.equal("table", second.bagAddons.globals.ContainerFrameCombinedBags)
+            end)
         end)
 
         it("records an absent API as absent, not as an error", function()

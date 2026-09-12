@@ -1510,3 +1510,86 @@ describe("QEImport.OneChargeCandidates over hand-built shapes (WKE-555)", functi
         assert.is_true(vaultFound[1].fromVault)
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- R-0 (WKE-561): the referent of "behind X" is READ, not inferred.
+--
+-- `docs/ROADS-UX.md` wants a row that says "1.73% behind taking the vault
+-- weapon". That sentence only exists if the export itself names the item the
+-- alternative swaps; if it did not, the wording would be an inference and the
+-- brief says so. The engineering pass claimed differential 7 of the committed
+-- `thisWeek` Dungeon document names it. This is that claim, checked against the
+-- committed file rather than remembered, before any surface is built on it.
+--
+-- Nothing here is computed: every number below is read out of
+-- `qe-droptimizer-Hotornot-hdaldwpeakpb.json` by the addon's own parser.
+describe("the alternative's own item list names the swapped item (R-0, WKE-561)", function()
+    local ns
+
+    before_each(function()
+        ns = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function items(list)
+        local bySlot = {}
+        for _, item in ipairs(list) do
+            bySlot[item.slot] = item
+        end
+        return bySlot
+    end
+
+    -- The top set is stored by item key with its own order, so it is read back
+    -- through that order rather than by walking a hash.
+    local function topSetBySlot(verdict)
+        local ordered = {}
+        for _, key in ipairs(verdict.topSet.order) do
+            ordered[#ordered + 1] = verdict.topSet.items[key]
+        end
+        return items(ordered)
+    end
+
+    it("reads differential 7 as the vault Shoulder at 321 beside the 2H Weapon at 308", function()
+        local parsed = ns.QEImport.Parse(readFile(THIS_WEEK_EXPORT))
+        assert.is_true(parsed.ok, parsed.reason)
+        local alternative = parsed.verdict.alternatives[7]
+        assert.equal(1.729166724018797, alternative.scorePercent)
+        assert.equal(-6009, alternative.hpsDifference)
+        assert.equal(2, #alternative.items)
+
+        local bySlot = items(alternative.items)
+        assert.equal(271526, bySlot.Shoulder.itemID)
+        assert.equal(321, bySlot.Shoulder.level)
+        assert.is_true(bySlot.Shoulder.isVault)
+        assert.equal(251935, bySlot["2H Weapon"].itemID)
+        assert.equal(308, bySlot["2H Weapon"].level)
+        assert.is_false(bySlot["2H Weapon"].isVault)
+    end)
+
+    -- The swap is identifiable because the SAME item ID appears on both sides
+    -- at different levels: the top set takes the weapon out of the vault at
+    -- 321, and this alternative gives it up for the 308 the owner wears in
+    -- order to take the vault's shoulders instead. "Behind taking the vault
+    -- weapon" is therefore two reads of one item ID, not an inference.
+    it("names an item the top set holds at another level, so the swap is a read", function()
+        local parsed = ns.QEImport.Parse(readFile(THIS_WEEK_EXPORT))
+        local top = topSetBySlot(parsed.verdict)
+        local alternative = items(parsed.verdict.alternatives[7].items)
+
+        assert.equal(251935, top["2H Weapon"].itemID)
+        assert.equal(321, top["2H Weapon"].level)
+        assert.is_true(top["2H Weapon"].isVault)
+        assert.equal(top["2H Weapon"].itemID, alternative["2H Weapon"].itemID)
+        assert.is_true(alternative["2H Weapon"].level < top["2H Weapon"].level)
+
+        -- And the other side of the same swap: the shoulder slot the top set
+        -- fills at 295 out of his own bags, taken from the vault at 321 here.
+        assert.equal(271526, top.Shoulder.itemID)
+        assert.equal(295, top.Shoulder.level)
+        assert.is_false(top.Shoulder.isVault)
+        assert.is_true(alternative.Shoulder.isVault)
+    end)
+end)

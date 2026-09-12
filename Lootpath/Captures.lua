@@ -66,6 +66,83 @@ local function itemProbe(link)
     }
 end
 
+-- The Mythic+ keystone the character owns, raw (R-0, WKE-561). The Roads brief
+-- wants "your key +8" beside a dungeon drop, so the spike reads the key before
+-- any surface is built on it. All four calls are in Blizzard's exported docs
+-- (Ketho's annotations, read 2026-09-12):
+--
+--   MythicPlusInfoDocumentation.lua:38 GetOwnedKeystoneLevel() -> keyStoneLevel
+--   MythicPlusInfoDocumentation.lua:34 GetOwnedKeystoneChallengeMapID() -> challengeMapID
+--   MythicPlusInfoDocumentation.lua:42 GetOwnedKeystoneMapID() -> mapID
+--   ChallengeModeInfoDocumentation.lua:81 GetMapUIInfo(mapChallengeModeID)
+--       -> name, id, timeLimit, texture?, backgroundTexture, mapID
+--
+-- Every one of them only answers a question; nothing here starts, alters or
+-- slots a keystone. The name is asked for with the CHALLENGE map ID, which is
+-- what GetMapUIInfo takes; GetOwnedKeystoneMapID's `mapID` is the other number
+-- and is recorded beside it rather than swapped for it. Nothing is displayed
+-- yet: this is a transcript read, and R-2 decides what to do with it.
+local function keystoneProbe()
+    local M = C_MythicPlus
+    local level = ns.Probe(M and M.GetOwnedKeystoneLevel)
+    local challengeMapID = ns.Probe(M and M.GetOwnedKeystoneChallengeMapID)
+    local mapID = ns.Probe(M and M.GetOwnedKeystoneMapID)
+    local challengeID = ns.Safe(challengeMapID[1])
+    local mapUIInfo = { absent = true }
+    if type(challengeID) == "number" and C_ChallengeMode and C_ChallengeMode.GetMapUIInfo then
+        mapUIInfo = ns.Probe(C_ChallengeMode.GetMapUIInfo, challengeID)
+    end
+    return {
+        level = level,
+        challengeMapID = challengeMapID,
+        mapID = mapID,
+        mapUIInfo = mapUIInfo,
+    }
+end
+
+-- Which bag frames are live (R-0, WKE-561). The Roads brief's bag glow has
+-- three code paths - Blizzard's own bags, Baganator's plugin API, ElvUI's
+-- Pawn-only arrow - and which of them the owner is actually looking at was
+-- written down nowhere. The addon list above already carries all 74 of his
+-- addons, so this is a named summary rather than a new source: the four names
+-- the brief argues about, plus the globals that say which frames exist.
+--
+-- **`Blizzard_Bags` is not a thing on 12.1**: Blizzard's container frames ship
+-- inside `Blizzard_UIPanels_Game` (`.luals/.../Blizzard_UIPanels_Game/Mainline/
+-- ContainerFrame.lua`), and the bank is the separate `Blizzard_BankUI` the
+-- inventory capture already probes, so those are the two names asked for here.
+-- `ContainerFrameCombinedBags` is the one-bag view; a client with it is a
+-- client whose bag buttons R-2 would have to walk differently from four
+-- separate frames. Types only - nothing is called on any of them.
+local BAG_ADDON_NAMES = { "Baganator", "Syndicator", "ElvUI", "Pawn", "Blizzard_UIPanels_Game", "Blizzard_BankUI" }
+
+-- Read through `rawget`, and only for its type: these are other addons' names,
+-- so nothing indexes into one and nothing calls one.
+local BAG_GLOBAL_NAMES = {
+    "ContainerFrameCombinedBags",
+    "ContainerFrame1",
+    "Baganator",
+    "Syndicator",
+    "ElvUI",
+    "PawnUI",
+}
+
+local function bagAddonProbe()
+    local loaded = {}
+    for _, name in ipairs(BAG_ADDON_NAMES) do
+        loaded[name] = ns.Probe(C_AddOns and C_AddOns.IsAddOnLoaded, name)
+    end
+    local globals = {}
+    for _, name in ipairs(BAG_GLOBAL_NAMES) do
+        globals[name] = type(rawget(_G, name))
+    end
+    return {
+        probed = BAG_ADDON_NAMES,
+        globals = globals,
+        loaded = loaded,
+    }
+end
+
 -- env: build, addons, restrictions, the namespaces later modules touch.
 -- M0-2 (WKE-515) reads build[4] against the .toc Interface number.
 ns.RegisterCapture("env", "build, player facts, addon list, secret/combat state, API namespaces", function()
@@ -115,6 +192,10 @@ ns.RegisterCapture("env", "build, player facts, addon list, secret/combat state,
             NUM_BAG_SLOTS = NUM_BAG_SLOTS,
             NUM_TOTAL_EQUIPPED_BAG_SLOTS = NUM_TOTAL_EQUIPPED_BAG_SLOTS,
         },
+        -- R-0 (WKE-561): the key, and which bag frames are live. Both are
+        -- recorded raw and shown nowhere.
+        keystone = keystoneProbe(),
+        bagAddons = bagAddonProbe(),
         enums = {
             BagIndex = enumCopy("BagIndex"),
             BankType = enumCopy("BankType"),
