@@ -512,7 +512,7 @@ describe("the items QE Live never saw", function()
         local scan = scanFrom(ns, world, true)
         local match = ns.Match.Build(scan, verdictFrom(ns, REAL_EXPORT))
         assert.is_nil(ns.UI.EquipPanel.ExcludedText(match))
-        assert.is_nil(ns.UI.EquipPanel.NoteText(match):find("did not consider", 1, true))
+        assert.is_nil(ns.UI.EquipPanel.NoteText(match):find("weren't rated this time", 1, true))
         assert.same({}, ns.UI.EquipPanel.ExcludedLines(match))
         -- And a refusal is still a refusal rather than a place to hang a note.
         assert.is_nil(ns.UI.EquipPanel.ExcludedText({ ok = false, reason = "combat" }))

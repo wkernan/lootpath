@@ -347,6 +347,8 @@ Companion.EXCLUDED_NAMED = 3
 --
 -- It says a count and then names, because the count is the part that changes
 -- how the set is read and the names are the part that says whether it matters.
+-- The wording names no source (owner decision, 2026-09-11, ARCHITECTURE.md §7):
+-- the screen says what happened to the player's items, not whose run it was.
 function Companion.ExcludedText(excluded)
     local names = Companion.ExcludedLines(excluded)
     if #names == 0 then
@@ -356,7 +358,7 @@ function Companion.ExcludedText(excluded)
     for index = 1, math.min(#names, Companion.EXCLUDED_NAMED) do
         shownNames[index] = names[index]
     end
-    local line = string.format("QE Live did not consider %d of your items: %s", #names, table.concat(shownNames, ", "))
+    local line = string.format("%d of your items weren't rated this time: %s", #names, table.concat(shownNames, ", "))
     if #names > #shownNames then
         line = string.format("%s and %d more", line, #names - #shownNames)
     end
