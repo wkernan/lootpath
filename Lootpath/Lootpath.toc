@@ -25,6 +25,7 @@ Modules\QEImport.lua
 Modules\UFImport.lua
 Modules\Companion.lua
 Modules\Match.lua
+Modules\Roads.lua
 UI\ItemLine.lua
 UI\EquipPanel.lua
 UI\Options.lua

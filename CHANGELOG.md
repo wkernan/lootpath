@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+### R-1 (WKE-562) - the road model and the plan sentence
+
+- **`ns.Roads`, the one model every Roads surface will render.** A road is one
+  way to get an item into a slot: the vault, the Catalyst, a boss drop, a
+  crafted item, a delve, the piece you already wear, or upgrading it.
+  `ns.Roads.ForSlot(slot, inputs)` answers for a slot, `ns.Roads.ForItem(key,
+  inputs)` answers for the item under the cursor with at most three roads.
+  Nothing is drawn by this change.
+- **Three groups, never one ordering.** Your best set, other rated sources
+  (percents against what you wear) and no rating. A whole-set verdict and a
+  per-item percent are two scales, so they are never sorted together; inside a
+  group the order is the rating's own.
+- **The four honesty phrases and the five verbs are constants**, so three
+  surfaces cannot drift apart about what "not rated" means or where a button
+  goes. A road whose next step is not something the addon may open - the
+  Catalyst, a crafting order, a vendor, a delve - carries no button at all.
+- **Every surface that shows more than one road now has a sentence to open
+  with**, in the words a guildmate would type: "Grab the Worldroot from the
+  vault and crest it. Catalyst the Lynx shoulders in your bag. Skip the vault
+  shoulders." When the plan spends more Catalyst charges than you hold, the
+  sentence says the first and a footnote says the rest - it never picks for you.
+- **No string in it names where a rating came from**, and no number in it is
+  Lootpath's: every badge is a figure one of the companion's documents carries.
+- Crest costs still say "not readable" for a vault reward or a drop and "not
+  read" for a piece you own, a delve row still says "not read", and a crafted
+  row still says "spark and materials not read". None of those is readable from
+  the client.
+
 ### Fix (2026-09-12)
 
 - **The "items left out" note names no source.** The Equip Now and Vault tabs
