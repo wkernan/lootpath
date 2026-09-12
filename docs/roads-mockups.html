@@ -1,0 +1,414 @@
+<title>Lootpath Roads</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --ground: #14110c; --page: #1a1610; --panel: #211c14; --panel-2: #2a241a;
+    --line: #3d3423; --line-strong: #5a4b2c;
+    --gold: #d8b45a; --gold-dim: #8e7a44;
+    --text: #e8dcc3; --muted: #a3967c; --faint: #6f6553;
+    --epic: #b07bf0; --rare: #4f9cf5;
+    --better: #e6c46a; --worse: #c9642a;
+    --vault: #46c6c6; --catalyst: #cf94dd; --crest: #7fb56a; --drop: #e08a4a; --craft: #d8a86a;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ground); color: var(--text); font-family: "Source Sans 3", "Segoe UI", system-ui, sans-serif; font-size: 16px; line-height: 1.5; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 40px 24px 80px; }
+  h1, h2 { font-family: "Cinzel", Georgia, serif; font-weight: 600; text-wrap: balance; margin: 0; color: var(--gold); }
+  h1 { font-size: 30px; letter-spacing: .02em; }
+  h2 { font-size: 20px; }
+  .eyebrow { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--gold-dim); }
+  p { max-width: 68ch; margin: 0; }
+  .lede { color: var(--muted); margin-top: 10px; }
+  .facts { margin: 22px 0 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px 24px; padding: 16px 20px; border: 1px solid var(--line); background: var(--page); }
+  .facts dt { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+  .facts dd { margin: 2px 0 0; font-size: 14px; }
+  .n { font-variant-numeric: tabular-nums; }
+  .board { margin-top: 52px; display: grid; gap: 16px; }
+  .board-head { display: grid; gap: 6px; }
+  .thesis { color: var(--muted); }
+  .screen { background: var(--panel); border: 1px solid var(--line-strong); box-shadow: 0 0 0 4px var(--ground), 0 0 0 5px var(--line); overflow-x: auto; }
+  .titlebar { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line-strong); background: linear-gradient(180deg, #2c2418, #221c13); }
+  .titlebar .t { font-family: "Cinzel", serif; font-size: 14px; color: var(--gold); letter-spacing: .04em; white-space: nowrap; }
+  .titlebar .sub { color: var(--muted); font-size: 13px; }
+  .titlebar .x { margin-left: auto; width: 18px; height: 18px; border: 1px solid var(--line-strong); color: var(--muted); font-size: 11px; display: grid; place-items: center; flex: none; }
+  .body { padding: 16px 20px 20px; }
+  .notes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .notes > div { border-top: 1px solid var(--line); padding-top: 10px; font-size: 14px; }
+  .notes .k { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); display: block; margin-bottom: 4px; }
+  @media (max-width: 720px) { .notes { grid-template-columns: 1fr; } }
+  .icon { width: 26px; height: 26px; border: 1px solid; flex: none; position: relative; background: #0d0a06; display: inline-block; vertical-align: middle; }
+  .icon.epic { border-color: var(--epic); background: radial-gradient(circle at 30% 30%, #4b2a7a, #1a0f2b); }
+  .icon.rare { border-color: var(--rare); background: radial-gradient(circle at 30% 30%, #274b80, #0f1a2b); }
+  .icon .lvl { position: absolute; right: 1px; bottom: 0; font-family: "IBM Plex Mono", monospace; font-size: 9px; line-height: 1; color: #fff; text-shadow: 0 0 2px #000, 0 0 2px #000; }
+  .name.epic { color: var(--epic); }
+  .badge { font-family: "IBM Plex Mono", monospace; font-size: 12px; padding: 1px 6px; border: 1px solid; border-radius: 2px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .badge.better { color: var(--better); border-color: var(--better); }
+  .badge.worse { color: var(--worse); border-color: var(--worse); }
+  .badge.none { color: var(--faint); border-color: var(--line); }
+  .tag { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; font-family: "IBM Plex Mono", monospace; white-space: nowrap; }
+  .tag.vault { color: var(--vault); } .tag.catalyst { color: var(--catalyst); } .tag.crest { color: var(--crest); } .tag.drop { color: var(--drop); } .tag.craft { color: var(--craft); } .tag.none { color: var(--faint); }
+  .have { color: var(--muted); font-size: 13px; }
+  .btn { display: inline-block; font-family: "Cinzel", serif; font-size: 12px; letter-spacing: .04em; color: #f5e6b8; padding: 5px 12px; border: 1px solid #7a6330; background: linear-gradient(180deg, #6e4d1a, #3f2c0e); border-radius: 3px; white-space: nowrap; }
+  .btn.quiet { color: var(--muted); background: var(--panel-2); border-color: var(--line-strong); }
+  .ex { display: inline-block; font-family: "IBM Plex Mono", monospace; font-size: 10px; letter-spacing: .1em; color: var(--worse); border: 1px dashed var(--worse); padding: 0 5px; margin-left: 6px; }
+
+  .inplace { display: grid; grid-template-columns: 1.05fr 1fr; gap: 18px; min-width: 820px; align-items: start; }
+  .blizz { border: 1px solid var(--line-strong); background: #17130d; padding: 12px; }
+  .blizz .h { font-family: "Cinzel", serif; font-size: 12px; color: var(--gold); margin-bottom: 8px; }
+  .bagrow { display: grid; grid-template-columns: repeat(8, 30px); gap: 4px; }
+  .bagrow .icon { width: 30px; height: 30px; }
+  .bagrow .icon.hot { outline: 2px solid var(--gold); outline-offset: 1px; }
+  .tip { border: 1px solid #5e5a55; background: rgba(8,6,4,.96); padding: 10px 12px; font-size: 13px; line-height: 1.45; box-shadow: 0 6px 24px rgba(0,0,0,.6); }
+  .tip .nm { color: var(--epic); font-weight: 600; font-size: 14px; }
+  .tip .grey { color: #a9a9a9; } .tip .green { color: #35d05b; } .tip .white { color: #fff; }
+  .tip .lp { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line-strong); }
+  .tip .lp .k { color: var(--gold); font-family: "Cinzel", serif; font-size: 11px; letter-spacing: .06em; }
+  .tip .lp .sub { color: var(--faint); font-family: "IBM Plex Mono", monospace; font-size: 10px; letter-spacing: .08em; margin-top: 4px; }
+  .tip .lp ul { margin: 4px 0 0; padding-left: 16px; }
+  .tip .lp li { margin-top: 2px; }
+  .tips2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; min-width: 820px; align-items: start; }
+
+  .map { min-width: 860px; }
+  .slot { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--line-strong); background: var(--panel-2); }
+  .slot .worn { font-size: 13px; }
+  .slot .caret { color: var(--faint); font-family: "IBM Plex Mono", monospace; font-size: 11px; }
+  .group { margin: 8px 0 0 24px; }
+  .group .gh { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); padding: 4px 0; }
+  .roads { display: grid; gap: 4px; }
+  .row { display: grid; grid-template-columns: 120px 1fr auto auto; gap: 12px; align-items: center; padding: 7px 10px; border: 1px solid var(--line); background: var(--page); font-size: 13px; }
+  .row.pick { border-color: var(--gold-dim); }
+  .row.dim { opacity: .55; }
+  .row .next { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .row .what { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+  .row .nobtn { width: 0; }
+  .explain { margin: 8px 0 0 24px; color: var(--muted); font-size: 12px; font-style: italic; }
+
+  .week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; min-width: 880px; }
+  .day { border: 1px solid var(--line); background: var(--panel-2); min-height: 120px; padding: 8px; font-size: 13px; display: grid; grid-template-rows: auto 1fr; gap: 6px; }
+  .day.today { border-color: var(--gold); }
+  .day .d { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); display: flex; justify-content: space-between; gap: 6px; }
+  .chip { border-left: 3px solid; padding: 4px 6px; background: #1c1710; font-size: 12px; line-height: 1.35; align-self: start; }
+  .chip.drop { border-color: var(--drop); } .chip.none { border-color: var(--line); }
+  .chip b { font-weight: 600; }
+  .oneline { padding: 14px 20px; color: var(--muted); font-size: 14px; display: flex; gap: 12px; align-items: center; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); font-weight: 500; }
+  td:first-child { color: var(--gold); font-weight: 600; white-space: nowrap; }
+  .tablewrap { overflow-x: auto; }
+  .rule { color: var(--muted); font-size: 14px; border-left: 2px solid var(--gold-dim); padding-left: 12px; margin-top: 8px; }
+  ol.plain { margin: 8px 0 0; padding-left: 20px; font-size: 14px; }
+  ol.plain li { margin-top: 4px; }
+</style>
+
+<div class="wrap">
+  <div class="eyebrow">Lootpath · design canvas · draft 9, 2026-09-11</div>
+  <h1>Lootpath Roads</h1>
+  <p class="lede">The one design we are building: three surfaces that answer "how do I get a better item" and "what do I do tonight" inside the game, using only the ratings the companion writes and the client's facts. Two real examples from the owner's captures and the exports of 2026-09-08 and 09-09. Every number on screen is a rating or the client's own count; no source is named on any surface; the only illustrative element is marked.</p>
+
+  <section class="board" style="margin-top:32px">
+    <div class="board-head">
+      <div class="eyebrow">The shape</div>
+      <h2>Three Surfaces, One Model</h2>
+      <p class="thesis">A road is one way to get an item: its source, the item as it would arrive, its rating, and the next thing the player can do. One road model renders three surfaces, so a road reads the same wherever it appears.</p>
+    </div>
+    <div class="notes">
+      <div><span class="k">1 · In place, built first</span>Hover any item in your bags, the vault or the journal and Blizzard's own tooltip gains at most three Lootpath lines: the item's own road, then other roads for that slot. The bag slot glows only when a road is "in your best set" or a positive percent. No window to open.</div>
+      <div><span class="k">2 · Roads, built second</span>On the Upgrade Map's by-slot view, each slot expands to its roads in three groups, never one ranking: your best set, then other rated sources, then roads with no rating. A verb only where one goes somewhere. Reached from the tooltip's "Why this?".</div>
+      <div><span class="k">3 · This Week, built third</span>Shown only when you have named a key or raid night in Options. Each named night holds one chip: the run with the highest-rated drop for that night. Without a night it is one line and the Options verb.</div>
+    </div>
+  </section>
+
+  <section class="board">
+    <div class="board-head">
+      <div class="eyebrow">Example A · a tier slot</div>
+      <h2>Shoulders</h2>
+    </div>
+    <dl class="facts">
+      <div><dt>Worn</dt><dd>shoulders, item level <span class="n">289</span> (an older tier piece)</dd></div>
+      <div><dt>In bags</dt><dd><span class="name epic">Venom-Cursed Lynx's Spaulders</span> <span class="n">295</span> · catalyzable</dd></div>
+      <div><dt>In the vault</dt><dd><span class="name epic">Scavenger's Spaulders</span> <span class="n">308</span> · Dungeons 1 · open now · reset in 5d 11h</dd></div>
+      <div><dt>Drops from</dt><dd>The Hoardmonger, Den of Nalorakk · the client previews <span class="n">305</span> at your key · rated 0% at that level, upgraded 321 at <span class="n">+0.38%</span></dd></div>
+      <div><dt>You hold</dt><dd>Catalyst charge <span class="n">1</span> held, <span class="n">8</span> max · Hero crests <span class="n">39</span> · Champion <span class="n">2</span> · keystone: readable (<code>C_MythicPlus</code>), shown as "your key" once captured</dd></div>
+      <div><dt>This week's plan</dt><dd>Lynx catalyzed: in your best set · vault Spaulders catalyzed and upgraded to 321 instead: <span class="n">1.73%</span> behind taking the vault weapon instead</dd></div>
+    </dl>
+
+    <div class="board-head" style="margin-top:20px"><div class="eyebrow">Surface 1 · In place</div></div>
+    <div class="screen">
+      <div class="titlebar"><span class="t">Backpack</span><span class="sub">Blizzard's own frame · Lootpath adds the glow and the tooltip block</span><span class="x">x</span></div>
+      <div class="body">
+        <div class="inplace">
+          <div class="blizz">
+            <div class="h">Backpack</div>
+            <div class="bagrow">
+              <span class="icon rare"></span><span class="icon epic hot"><span class="lvl">295</span></span><span class="icon"></span><span class="icon rare"></span><span class="icon"></span><span class="icon epic"><span class="lvl">302</span></span><span class="icon"></span><span class="icon"></span>
+              <span class="icon"></span><span class="icon"></span><span class="icon rare"></span><span class="icon"></span><span class="icon"></span><span class="icon"></span><span class="icon"></span><span class="icon"></span>
+            </div>
+            <div class="have" style="margin-top:10px">The 295 glows: its Catalyst road is in your best set under this week's plan. The 302 (Hide of Pestilence) does not: its roads are rated but behind. A not-rated item never glows.</div>
+          </div>
+          <div class="tip">
+            <div class="nm">Venom-Cursed Lynx's Spaulders</div>
+            <div class="white">Item Level 295</div>
+            <div class="white">Shoulder &nbsp; Leather</div>
+            <div class="grey">+412 Agility/Intellect</div>
+            <div class="green">+318 Haste · +205 Mastery</div>
+            <div class="lp">
+              <div class="k">LOOTPATH · SHOULDER · RATED 1D 2H AGO</div>
+              <ul>
+                <li><span class="tag catalyst">Catalyst</span> this item into tier shoulders: <span class="badge better">in your best set</span> (this week's plan) · charge 1 held, 8 max</li>
+              </ul>
+              <div class="sub">OTHER ROADS FOR THIS SLOT</div>
+              <ul>
+                <li><span class="tag vault">Vault</span> Scavenger's 308, catalyzed and upgraded to 321: <span class="badge worse">1.73% behind</span> taking the vault weapon instead · the same charge</li>
+                <li><span class="tag drop">Mythic+</span> Scavenger's at your key's 305: <span class="badge none">not in your best set</span> · upgraded 321 at <span class="badge better">+0.38%</span></li>
+                <li style="color:var(--gold)">Why this?</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <div><span class="k">Three roads, no more</span>The hovered item's own road first, then the top row of each remaining group in rated order until three roads are shown, then "Why this?", which always opens the slot's Roads row. The block is at most three roads, one sub-header and "Why this?". The header names the slot and carries the rating's age.</div>
+      <div><span class="k">The glow means one thing</span>This item, or something it can become, is rated in your best set or a positive percent under the highlighted plan. Rated-but-worse and not-rated items do not glow, so the glow always carries information.</div>
+      <div><span class="k">Explain on</span>Nothing changes on the tooltip; the Explain sentences live on the panels, under the first visible use of a system word.</div>
+    </div>
+
+    <div class="board-head" style="margin-top:20px"><div class="eyebrow">Surface 2 · Roads, as the slot's row on the Upgrade Map</div></div>
+    <div class="screen">
+      <div class="titlebar"><span class="t">Lootpath</span><span class="sub">Upgrade Map · by slot · rated 1d 2h ago (Wed 22:48)</span><span class="btn quiet" style="margin-left:8px">Refresh</span><span class="x">x</span></div>
+      <div class="body map">
+        <div class="slot">
+          <span class="icon epic"><span class="lvl">289</span></span>
+          <span class="worn"><b>Shoulder</b> · worn 289</span>
+          <span class="caret">collapse</span>
+        </div>
+        <div class="group">
+          <div class="gh">Your best set · this week's plan · the pick first, then the rated alternatives</div>
+          <div class="roads">
+            <div class="row pick">
+              <span class="tag catalyst">Catalyst</span>
+              <span class="what"><span class="name epic">Venom-Cursed Lynx's Spaulders</span> 295 → tier shoulders <span class="badge better">in your best set</span> <span class="have">· the same charge as the vault Spaulders road</span></span>
+              <span class="next">do: Catalyst it · charge 1 held, 8 max</span>
+              <span class="nobtn"></span>
+            </div>
+            <div class="row">
+              <span class="tag vault">Vault · open now</span>
+              <span class="what"><span class="name epic">Scavenger's Spaulders</span> 308 → catalyzed and upgraded to 321 <span class="badge worse">1.73% behind</span> <span class="have">taking the vault weapon instead · the same charge as the Catalyst road: one of these, not both · crest type and cost not readable for a vault item · reset in 5d 11h</span></span>
+              <span class="next">do: take one vault reward</span>
+              <span class="btn quiet">Show in vault</span>
+            </div>
+          </div>
+        </div>
+        <div class="group">
+          <div class="gh">Other rated sources · percents are against what you wear · at your key's preview level, per the client</div>
+          <div class="roads">
+            <div class="row">
+              <span class="tag drop">Mythic+</span>
+              <span class="what"><span class="name epic">Scavenger's Spaulders</span> 305 · The Hoardmonger, Den of Nalorakk <span class="badge none">not in your best set</span> <span class="have">0% at 305 · upgraded 321 at</span> <span class="badge better">+0.38%</span> <span class="have">· crest type and cost not read</span></span>
+              <span class="next">do: run the key · tick when it drops</span>
+              <span class="btn quiet">Show run</span>
+            </div>
+          </div>
+        </div>
+        <div class="group">
+          <div class="gh">No rating</div>
+          <div class="roads">
+            <div class="row dim">
+              <span class="tag crest">Upgrade</span>
+              <span class="what">your worn 289 at the upgrade vendor <span class="badge none">no rating</span> <span class="have">· no plan upgrades the worn piece alone · crest type and cost not read · you hold 2 Champion</span></span>
+              <span class="next">Champion crests, when rated</span>
+              <span class="nobtn"></span>
+            </div>
+          </div>
+        </div>
+        <div class="explain">Explain on: "Catalyst: converts one piece into your tier set and spends one charge; the client says 1 held, 8 max." · "plan: which assumptions a rating was made under: as offered, catalyzed, this week, everything upgraded." Shown under the first visible use of each word in the expanded slot.</div>
+      </div>
+    </div>
+    <div class="notes">
+      <div><span class="k">Three groups, not one list</span>A best-set rating and a per-item percent are two scales, so they never sort together. Group order is fixed and is not a ranking; inside a group the order is the rated order. The pick carries the gold edge. A Mythic+ row is rated at the level the client previews for your key (the 545 join), never at a higher key.</div>
+      <div><span class="k">Verbs only where they go somewhere</span>The vault row opens the vault cell; the run row opens the run. The Catalyst and the upgrade vendor are not things the addon may open, so those rows carry their next step in words and no button.</div>
+      <div><span class="k">Resources</span>Both roads that want the one charge name each other. Counts read "held, max". Crest steps say the cost or say it is not read, and any badge that depends on an upgrade names the level.</div>
+    </div>
+  </section>
+
+  <section class="board">
+    <div class="board-head">
+      <div class="eyebrow">Example B · an item the Catalyst cannot touch, with six roads</div>
+      <h2>The Weapon</h2>
+    </div>
+    <dl class="facts">
+      <div><dt>Worn</dt><dd><span class="name epic">Lightgrasp Worldroot</span> <span class="n">308</span> · Champion track, at its cap</dd></div>
+      <div><dt>In the vault</dt><dd>the same Worldroot at <span class="n">305</span>, Hero track · World 2 · open now · reset in 5d 11h</dd></div>
+      <div><dt>This week's plan</dt><dd>take it; rated at <span class="n">321</span>; keeping the worn 308 is <span class="n">2.74%</span> behind that</dd></div>
+      <div><dt>Other rated sources</dt><dd>four more roads rated: raid, crafted, Mythic+ at the client's preview 305, delve · percents against what you wear</dd></div>
+      <div><dt>You hold</dt><dd>Hero crests <span class="n">39</span> · Champion <span class="n">2</span></dd></div>
+    </dl>
+
+    <div class="board-head" style="margin-top:20px"><div class="eyebrow">Surface 1 · In place, on the vault cell</div></div>
+    <div class="screen">
+      <div class="titlebar"><span class="t">Lootpath</span><span class="sub">Vault · World 2 · the cell glows: the pick</span><span class="x">x</span></div>
+      <div class="body">
+        <div class="tip" style="max-width:520px">
+            <div class="nm">Lightgrasp Worldroot</div>
+            <div class="white">Item Level 305</div>
+            <div class="white">Two-Hand &nbsp; Staff</div>
+            <div class="lp">
+              <div class="k">LOOTPATH · 2H WEAPON · RATED 1D 2H AGO</div>
+              <ul>
+                <li><span class="tag vault">Vault</span> take it: <span class="badge better">in your best set at 321</span> (this week's plan) · crest type and cost not readable for a vault item · you hold 39 Hero</li>
+              </ul>
+              <div class="sub">OTHER ROADS FOR THIS SLOT · AGAINST WHAT YOU WEAR</div>
+              <ul>
+                <li><span class="tag craft">Crafted</span> Magister's Valediction at 331: <span class="badge better">+3.63%</span> · spark and materials not read</li>
+                <li><span class="tag drop">Raid</span> two-hander from Vashnik, Heroic: <span class="badge better">+3.08%</span> · at its cap 334 <span class="badge better">+4.71%</span></li>
+                <li style="color:var(--gold)">Why this?</li>
+              </ul>
+            </div>
+          </div>
+        
+      </div>
+    </div>
+
+    <div class="board-head" style="margin-top:20px"><div class="eyebrow">Surface 2 · Roads, as the slot's row</div></div>
+    <div class="screen">
+      <div class="titlebar"><span class="t">Lootpath</span><span class="sub">Upgrade Map · by slot · rated 1d 2h ago (Wed 22:48)</span><span class="btn quiet" style="margin-left:8px">Refresh</span><span class="x">x</span></div>
+      <div class="body map">
+        <div class="slot">
+          <span class="icon epic"><span class="lvl">308</span></span>
+          <span class="worn"><b>2H Weapon</b> · worn Lightgrasp Worldroot 308</span>
+          <span class="caret">collapse</span>
+        </div>
+        <div class="group">
+          <div class="gh">Your best set · this week's plan · the pick first, then the rated alternatives</div>
+          <div class="roads">
+            <div class="row pick">
+              <span class="tag vault">Vault · open now</span>
+              <span class="what"><span class="name epic">Lightgrasp Worldroot</span> 305 · World 2 <span class="badge better">in your best set at 321</span> <span class="have">· rated at 321 · crest type and cost not readable for a vault item · you hold 39 Hero · reset in 5d 11h</span></span>
+              <span class="next">do: take it · rated at 321, crests not readable</span>
+              <span class="btn">Show in vault</span>
+            </div>
+            <div class="row">
+              <span class="tag none">Keep (what you wear)</span>
+              <span class="what">your worn Worldroot 308 <span class="badge worse">2.74% behind</span> <span class="have">taking the vault copy and upgrading it to 321</span></span>
+              <span class="next">nothing to do</span>
+              <span class="nobtn"></span>
+            </div>
+          </div>
+        </div>
+        <div class="group">
+          <div class="gh">Other rated sources · percents are against what you wear · at your key's preview level, per the client</div>
+          <div class="roads">
+            <div class="row">
+              <span class="tag drop">Raid</span>
+              <span class="what">two-hander 324 · Vashnik the Malignant, The Venomous Abyss, Heroic <span class="badge better">+3.08%</span> <span class="have">· at its cap 334</span> <span class="badge better">+4.71%</span> <span class="have">· crest type and cost not read</span></span>
+              <span class="next">do: raid Heroic</span>
+              <span class="btn quiet">Show run</span>
+            </div>
+            <div class="row">
+              <span class="tag craft">Crafted</span>
+              <span class="what"><span class="name epic">Magister's Valediction</span> · at 331, Crit / Haste <span class="badge better">+3.63%</span> <span class="have">· spark and materials not read</span></span>
+              <span class="next">do: get the spark, then order it</span>
+              <span class="nobtn"></span>
+            </div>
+            <div class="row">
+              <span class="tag drop">Mythic+</span>
+              <span class="what"><span class="name epic">Staff of the Lightning Serpent</span> 305 · Adderis and Aspix, Temple of Sethraliss <span class="badge better">+0.32%</span> <span class="have">· upgraded 321 at</span> <span class="badge better">+2.62%</span> <span class="have">· crest type and cost not read</span></span>
+              <span class="next">do: run the key · tick when it drops</span>
+              <span class="btn quiet">Show run</span>
+            </div>
+            <div class="row">
+              <span class="tag crest">Delves</span>
+              <span class="what">two-hander 321 · a Bountiful delve <span class="badge better">+2.18%</span></span>
+              <span class="next">not read</span>
+              <span class="nobtn"></span>
+            </div>
+          </div>
+        </div>
+        <div class="group">
+          <div class="gh">No rating</div>
+          <div class="roads">
+            <div class="row dim">
+              <span class="tag none">Quartermaster<span class="ex">illustrative</span></span>
+              <span class="what">a season vendor weapon for tokens <span class="badge none">no rating</span> <span class="have">· needs a season table, then a refresh</span></span>
+              <span class="next">the season currency, when rated</span>
+              <span class="nobtn"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <div><span class="k">Large and small</span>Every badge is the rating for the item as it would arrive, against what you wear: the raid at the journal's Heroic 324, the key at the client's preview 305. The raid and the craft are the big ones, the key is the cheap one, and nothing on screen says so in any other way.</div>
+      <div><span class="k">Why the pick is in its own group</span>"In your best set" is a rating of a whole set; a per-item percent is a different question. Putting them in one ranked list would be an ordering of our own, so they are two groups with the scale named.</div>
+      <div><span class="k">The gap</span>Vendor and turn-in gear needs a season table for the items and one refresh so they get rated. Until then the road is "no rating" and dim.</div>
+    </div>
+
+    <div class="board-head" style="margin-top:20px"><div class="eyebrow">Surface 3 · This Week, with two nights named in Options</div></div>
+    <div class="screen">
+      <div class="titlebar"><span class="t">Lootpath</span><span class="sub">This Week · reset in 5d 11h · rated 1d 2h ago (Wed 22:48) · nights: Thu key, Sat raid</span><span class="btn quiet" style="margin-left:8px">Options</span><span class="x">x</span></div>
+      <div class="body">
+        <div class="week">
+          <div class="day today"><div class="d"><span>Thu</span><span>key night</span></div>
+            <div class="chip drop"><b>Temple of Sethraliss</b> · your key's preview 305<br><span class="have">highest-rated drop: Staff of the Lightning Serpent +0.32%</span></div></div>
+          <div class="day"><div class="d"><span>Fri</span></div><div></div></div>
+          <div class="day"><div class="d"><span>Sat</span><span>raid night</span></div>
+            <div class="chip drop"><b>The Venomous Abyss · Heroic</b><br><span class="have">highest-rated drop: two-hander from Vashnik +3.08% (Heroic, 324)</span></div></div>
+          <div class="day"><div class="d"><span>Sun</span></div><div></div></div>
+          <div class="day"><div class="d"><span>Mon</span></div><div></div></div>
+          <div class="day"><div class="d"><span>Tue</span><span>reset</span></div>
+            <div class="chip none"><b>New vault</b><br><span class="have">not rated until you refresh</span></div></div>
+          <div class="day"><div class="d"><span>Wed</span></div><div></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="screen" style="margin-top:8px">
+      <div class="titlebar"><span class="t">Lootpath</span><span class="sub">This Week · no night named</span><span class="x">x</span></div>
+      <div class="oneline"><span>Name a key or raid night in Options and This Week fills in with the highest-rated drop for each.</span><span class="btn quiet">Options</span></div>
+    </div>
+    <div class="notes">
+      <div><span class="k">One scale per day</span>A named night holds one chip: the run with the highest-rated drop, an arrangement of ratings that adds none. The open vault and the charge are not here; they live on the tooltip and the Roads row. The one vault chip is the reset day's "new vault: not rated".</div>
+      <div><span class="k">No deadlines</span>The reset timer is the client's fact. Whether this week's offer survives the reset is not something any capture confirms, so nothing here says "before reset" or "last day".</div>
+      <div><span class="k">Honest empties</span>A day without a night is blank. Nothing says "nothing rated": the runs are rated, the player simply has no night there.</div>
+    </div>
+  </section>
+
+  <section class="board">
+    <div class="board-head">
+      <div class="eyebrow">The rules every surface obeys</div>
+      <h2>Words and Verbs</h2>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Phrase</th><th>Means</th><th>Cure</th></tr></thead>
+        <tbody>
+          <tr><td>not rated · new since the last refresh</td><td>the item did not exist at the last run, so it has no rating yet</td><td>the refresh loop</td></tr>
+          <tr><td>not rated · beyond the rating's item limit</td><td>the run rates a fixed number of items; the equipped items, the vault options and the Catalyst clones take their places first (558) and this one was left out; it is in the leftover list</td><td>the owner's cap decision on 558; not a refresh</td></tr>
+          <tr><td>not in your best set</td><td>rated, and at or below what you wear (not in the best set, or 0% at the level it arrives)</td><td>none needed; it is an answer</td></tr>
+          <tr><td>no rating</td><td>no run covers this road (a source that cannot be rated yet, a plan not run)</td><td>a new source table or plan, then a refresh</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="tablewrap" style="margin-top:12px">
+      <table>
+        <thead><tr><th>Verb</th><th>Goes to</th></tr></thead>
+        <tbody>
+          <tr><td>Show item</td><td>the item's Roads row on the Upgrade Map; only from the tooltip ("Why this?") and the vault cell, never inside a Roads row</td></tr>
+          <tr><td>Show run</td><td>the Upgrade Map by run, scrolled to that run</td></tr>
+          <tr><td>Show in vault</td><td>the Vault tab, that cell</td></tr>
+          <tr><td>Options</td><td>the settings page: nights, Explain, the plan</td></tr>
+          <tr><td>Refresh</td><td>runs the captures and reloads; its tooltip says to reload again when the companion window says wrote</td></tr>
+          <tr><td>(none)</td><td>a road whose next step is not something the addon may open: the Catalyst, a crafting order, a vendor, a delve. Words, no button.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="rule">A road is drawn from the client's facts. Its value is the rating for the item as it would arrive that way, with its referent and its level. Rows are grouped by the kind of rating and kept in rated order inside each group; the groups are not a ranking. A drop is rated at the level the client says it arrives. Every rating carries its age. No count, ring or score beyond the ratings appears anywhere. Where there is no rating, the line says which of the four phrases applies. No source is named on any surface.</p>
+    <ol class="plain">
+      <li><b>Build order:</b> the road model (pure Lua over the committed captures and exports), then In place, then Roads as the slot's row, then Delves and Crafted from the export's extra rows, then This Week, then vendor gear when a season table exists.</li>
+      <li><b>Not built:</b> the flow chart, the four-column roads panel, the metro map, the orbit. Their counts and rings were the reason.</li>
+      <li><b>Buildable, per the engineering pass against Blizzard's 12.1 annotations:</b> the tooltip block (a post-call that must be an O(1) cache lookup), the bag glow (three bag implementations, Pawn on two of them; find out which bag addon is enabled first), the Roads row (two new element kinds in the existing list), This Week (reset timer, calendar weekday, nights in Options). Not readable from the client: the crest cost for a vault item or a drop, which delves are Bountiful, crafting materials. The first issue is a measurement spike on the tooltip hook, not a surface.</li>
+    </ol>
+  </section>
+</div>
