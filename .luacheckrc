@@ -123,6 +123,14 @@ read_globals = {
     "RETRIEVING_ITEM_INFO",
     "GameTooltip_ShowCompareItem",
     "Settings",
+    -- Blizzard's tooltip data handler, from
+    -- Blizzard_SharedXML/Tooltip/TooltipDataHandler.lua and TooltipUtil.lua
+    -- (both read under .luals/). R-0's tooltip measurement (WKE-561) names
+    -- AddTooltipPostCall and GetDisplayedItem and nothing else; both are asked
+    -- for through a type check, so a client without them still loads. These two
+    -- entries go away with Modules/Spike.lua unless R-2 keeps them.
+    "TooltipDataProcessor",
+    "TooltipUtil",
     "UIParent",
     "DifficultyUtil",
     "GetDifficultyInfo",
