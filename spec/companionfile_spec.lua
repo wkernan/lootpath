@@ -134,6 +134,36 @@ describe("the companion's Data/QEVerdict.lua", function()
         assert.are.equal("a trinket with no level", file.excluded[3].name)
     end)
 
+    -- C-10 (WKE-567): and it carries the item's identity, so "beyond the
+    -- rating's item limit" can be decided by ns.ItemKey instead of by a name
+    -- two items can share. The numbers have to come back as Lua NUMBERS: a
+    -- bonus ID that arrived as a string would build a key nothing matches.
+    it("carries the item ID and the bonus IDs of each item it names", function()
+        local file = load().companionVerdict
+        assert.are.equal(228638, file.excluded[1].itemID)
+        assert.are.equal("number", type(file.excluded[1].itemID))
+        assert.are.same({ 42, 10390 }, file.excluded[1].bonusIDs)
+        assert.are.equal("number", type(file.excluded[1].bonusIDs[1]))
+        -- An item with no bonus IDs carries none: that is the bare "<itemID>"
+        -- key, not a missing one.
+        assert.are.equal(271526, file.excluded[2].itemID)
+        assert.is_nil(file.excluded[2].bonusIDs)
+        -- And an entry that identified nothing claims nothing, which is every
+        -- entry of every file written before C-10.
+        assert.is_nil(file.excluded[3].itemID)
+    end)
+
+    it("says which item a Catalyst clone was made from", function()
+        local documents = load().companionVerdict.exports
+        local clone = documents[2].excluded[4]
+        assert.are.equal("a Catalyst clone", clone.name)
+        -- The clone's own ID is the tier piece it became; the character owns
+        -- the item it was made from, and that is the one a road asks about.
+        assert.are.equal(271527, clone.itemID)
+        assert.are.equal(228638, clone.originalItem)
+        assert.is_true(clone.catalyst)
+    end)
+
     it("gives each Top Gear document its own pool leftovers", function()
         local documents = load().companionVerdict.exports
         -- The Catalyst pass has a clone to leave out that the base pass never
@@ -165,7 +195,8 @@ describe("the companion's Data/QEVerdict.lua", function()
     -- Since C-8 the chunk also holds one-line tables: `{ slot = "Head", name =
     -- "x", level = 700 },`. They are data too, and they are checked field by
     -- field rather than waved through - a key, an `=`, and a quoted string, a
-    -- whole number or `true`, and nothing that could be a call.
+    -- whole number, a list of whole numbers (C-10's bonus IDs) or `true`, and
+    -- nothing that could be a call.
     local function isInlineTable(line)
         local body = line:match("^%s*{ (.*) },$")
         if not body then
@@ -174,8 +205,16 @@ describe("the companion's Data/QEVerdict.lua", function()
         -- Escaped backslashes first, then escaped quotes, so a name that holds
         -- either cannot end a literal early here any more than it can in Lua.
         local stripped = body:gsub("\\\\", "@"):gsub('\\"', "@"):gsub('"[^"]*"', '""')
+        -- A bonus ID list is one field with commas in it, so it is collapsed to
+        -- a token BEFORE the fields are split - and only when every one of its
+        -- members really is a whole number, which is what makes the collapse a
+        -- check rather than a hole.
+        stripped = stripped:gsub("{ %d+[%d ,]* }", "{}"):gsub("{ %d+ }", "{}")
         for field in (stripped .. ", "):gmatch("(.-), ") do
-            local ok = field:match('^[%w_]+ = ""$') or field:match("^[%w_]+ = %d+$") or field:match("^[%w_]+ = true$")
+            local ok = field:match('^[%w_]+ = ""$')
+                or field:match("^[%w_]+ = %d+$")
+                or field:match("^[%w_]+ = true$")
+                or field:match("^[%w_]+ = {}$")
             if not ok then
                 return false
             end
@@ -189,6 +228,11 @@ describe("the companion's Data/QEVerdict.lua", function()
     it("does not wave through a one-line table that could run something", function()
         assert.is_true(isInlineTable('    { slot = "Head", name = "a \\"]] end -- name", level = 700 },'))
         assert.is_true(isInlineTable("    { vault = true },"))
+        -- C-10's bonus IDs: a list of whole numbers and nothing else.
+        assert.is_true(isInlineTable("    { itemID = 228638, bonusIDs = { 42, 10390 } },"))
+        assert.is_false(isInlineTable("    { bonusIDs = { os.time() } },"))
+        assert.is_false(isInlineTable("    { bonusIDs = { 42, ns.bonus } },"))
+        assert.is_false(isInlineTable('    { bonusIDs = { 42, "10390" } },'))
         assert.is_false(isInlineTable('    { name = os.execute("calc") },'))
         assert.is_false(isInlineTable("    { name = ns.Something },"))
         assert.is_false(isInlineTable('    { name = "unterminated },'))

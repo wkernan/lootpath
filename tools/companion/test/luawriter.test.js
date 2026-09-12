@@ -193,9 +193,15 @@ test('the chunk declares one table and calls nothing', () => {
 
 // C-8 (WKE-558). The last entry has no level on purpose: a card whose level
 // could not be read is still named rather than dropped or given a number.
+//
+// C-10 (WKE-567): the first two carry the identity his card carries. The vault
+// one has no bonus IDs, which is the bare "<itemID>" key ns.ItemKey builds for
+// an item that has none; the last carries no identity at all, which is every
+// entry in every file written before C-10, and is what the addon's name+level
+// fallback is for.
 const EXCLUDED = [
-    { slot: 'Finger', name: 'Band of the "Quoted" Name', level: 678 },
-    { slot: 'Shoulder', name: 'Spaulders of the Vault', level: 691, vault: true },
+    { slot: 'Finger', name: 'Band of the "Quoted" Name', level: 678, itemID: 228638, bonusIDs: [10390, 42] },
+    { slot: 'Shoulder', name: 'Spaulders of the Vault', level: 691, itemID: 271526, bonusIDs: [], vault: true },
     { slot: 'Trinket', name: 'a trinket with no level' },
 ];
 
@@ -248,6 +254,41 @@ test('C-8: a list the driver could not have produced is refused rather than writ
     assert.throws(() => render({ ...payload, excluded: [{ name: 'x', level: 'high' }] }), /whose level is/);
 });
 
+test('C-10: the identity travels with the name, sorted, and only when there is one', () => {
+    const text = render({
+        writtenAt: '2026-09-08T00:00:00Z',
+        companionVersion: '0.1.0',
+        qeSettings: BOXES,
+        excluded: [
+            { slot: 'Shoulder', name: 'a clone', level: 308, itemID: 271526, bonusIDs: [12, 3, 7], originalItem: 228638, catalyst: true },
+            { slot: 'Trinket', name: 'a card that identified nothing' },
+        ],
+        documents: [topGear()],
+    });
+    // Sorted, because ns.ItemKey sorts and a key in another order matches
+    // nothing; `originalItem` is written because a clone's own ID is a tier
+    // piece the character does not own.
+    assert.ok(text.includes('itemID = 271526, bonusIDs = { 3, 7, 12 }, originalItem = 228638, catalyst = true'), text);
+    // And an entry with no identity says nothing rather than claiming one.
+    assert.ok(text.includes('{ slot = "Trinket", name = "a card that identified nothing" },'), text);
+});
+
+test('C-10: an identity that is not whole numbers is refused rather than half-written', () => {
+    const payload = {
+        writtenAt: '2026-09-08T00:00:00Z',
+        companionVersion: '0.1.0',
+        qeSettings: BOXES,
+        documents: [topGear()],
+    };
+    const entry = (extra) => ({ ...payload, excluded: [{ slot: 'Finger', name: 'a ring', level: 678, ...extra }] });
+    assert.throws(() => render(entry({ itemID: 228638.5 })), /whose itemID is 228638.5, which is not a whole number/);
+    assert.throws(() => render(entry({ itemID: 228638, bonusIDs: '10390:42' })), /whose bonusIDs is "10390:42", not an array/);
+    // Never trimmed to the readable ones: a shortened bonus list is a valid
+    // key for an item nobody owns, which is worse than no key at all.
+    assert.throws(() => render(entry({ itemID: 228638, bonusIDs: [10390, 'x'] })), /bonus ID "x", which is not a whole number/);
+    assert.throws(() => render(entry({ itemID: 228638, originalItem: -1 })), /whose originalItem is -1/);
+});
+
 test('C-8: a runaway list stops at MAX_EXCLUDED instead of filling the addon folder', () => {
     const many = [];
     for (let i = 0; i < luaWriter.MAX_EXCLUDED + 50; i++) many.push({ slot: 'Finger', name: `ring ${i}`, level: 600 });
@@ -282,7 +323,20 @@ test('renders the committed golden byte for byte', () => {
             topGear({
                 scenario: 'catalyzed',
                 qeSettings: CATALYZED_BOXES,
-                excluded: [...EXCLUDED, { slot: 'Shoulder', name: 'a Catalyst clone', level: 678, catalyst: true }],
+                excluded: [
+                    ...EXCLUDED,
+                    {
+                        slot: 'Shoulder',
+                        name: 'a Catalyst clone',
+                        level: 678,
+                        // A clone's own ID is the tier piece; `originalItem` is
+                        // the item it was made from (Item.ts line 268).
+                        itemID: 271527,
+                        bonusIDs: [12],
+                        originalItem: 228638,
+                        catalyst: true,
+                    },
+                ],
                 json: '{"schema":"qe-live-droptimizer","version":1,"catalyzed":true}',
             }),
             // C-7 (WKE-543): an Upgrade Finder document says which Mythic+ key

@@ -137,7 +137,45 @@ function documentSettings(doc) {
 // Names come off QE Live's own cards, so they are HIS strings and go through
 // the same escaper every other string here does. `level` is his item level and
 // is optional; a card whose level could not be read is still named.
+//
+// Since C-10 (WKE-567) an entry also carries the item's identity - `itemID`,
+// the sorted `bonusIDs` and, on a Catalyst clone, the `originalItem` it was
+// made from. The addon builds its own `ns.ItemKey` out of the first two and
+// asks "was this item left out" as an identity comparison; before C-10 the only
+// join was name plus level, which two same-named items at one level break. The
+// numbers are QE Live's own `data-wowhead` attribute, read and carried, never
+// derived: a bonus list that is not whole numbers is refused here rather than
+// half-written, because a partial list makes a key that means a different item.
 const MAX_EXCLUDED = 200;
+
+function wholeNumberOrNull(value, describe) {
+    if (value === undefined || value === null) return null;
+    const number = Number(value);
+    if (!Number.isInteger(number) || number < 0) {
+        throw new Error(`${describe} is ${JSON.stringify(value)}, which is not a whole number`);
+    }
+    return number;
+}
+
+// The bonus IDs of one entry, sorted, or an empty list. All or nothing: an
+// entry whose list holds anything but whole numbers is refused, never trimmed
+// to the readable ones, because `ns.ItemKey` over a shortened list is a key for
+// an item nobody owns.
+function bonusIDsOf(card, where) {
+    if (card.bonusIDs === undefined || card.bonusIDs === null) return [];
+    if (!Array.isArray(card.bonusIDs)) {
+        throw new Error(`${where} carries an excluded entry whose bonusIDs is ${JSON.stringify(card.bonusIDs)}, not an array`);
+    }
+    return card.bonusIDs
+        .map((bonus) => {
+            const number = Number(bonus);
+            if (!Number.isInteger(number) || number < 0) {
+                throw new Error(`${where} carries an excluded entry with bonus ID ${JSON.stringify(bonus)}, which is not a whole number`);
+            }
+            return number;
+        })
+        .sort((a, b) => a - b);
+}
 
 function excludedList(value, where) {
     if (value === undefined || value === null) return null;
@@ -154,7 +192,18 @@ function excludedList(value, where) {
         if (level !== null && !Number.isFinite(level)) {
             throw new Error(`${where} carries an excluded entry whose level is ${JSON.stringify(card.level)}`);
         }
-        return { slot, name, level, vault: !!card.vault, catalyst: !!card.catalyst };
+        const itemID = wholeNumberOrNull(card.itemID, `${where} carries an excluded entry whose itemID`);
+        const originalItem = wholeNumberOrNull(card.originalItem, `${where} carries an excluded entry whose originalItem`);
+        return {
+            slot,
+            name,
+            level,
+            itemID,
+            bonusIDs: bonusIDsOf(card, where),
+            originalItem,
+            vault: !!card.vault,
+            catalyst: !!card.catalyst,
+        };
     });
 }
 
@@ -167,6 +216,9 @@ function excludedLines(list, indent) {
     for (const card of list) {
         const fields = [`slot = ${luaString(card.slot)}`, `name = ${luaString(card.name)}`];
         if (card.level !== null) fields.push(`level = ${luaNumber(card.level)}`);
+        if (card.itemID !== null) fields.push(`itemID = ${luaNumber(card.itemID)}`);
+        if (card.bonusIDs.length) fields.push(`bonusIDs = { ${card.bonusIDs.map(luaNumber).join(', ')} }`);
+        if (card.originalItem !== null) fields.push(`originalItem = ${luaNumber(card.originalItem)}`);
         if (card.vault) fields.push('vault = true');
         if (card.catalyst) fields.push('catalyst = true');
         lines.push(`${pad}    { ${fields.join(', ')} },`);

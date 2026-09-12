@@ -285,12 +285,17 @@ const CARD = '.MuiCardActionArea-root';
 //   * the slot is not on the card at all. TopGear.tsx line 791 renders one
 //     `Typography h6` per slot above that slot's grid of cards, so the slot is
 //     the nearest heading above the card, found by walking up.
-async function readCards(page) {
+// The DOM half, and nothing else: one `page.evaluate` that hands back the raw
+// strings each card carries - its wrapper's class, its `data-wowhead`
+// attribute, its slot heading and its own text lines. Every decision about what
+// those strings MEAN is made in Node by `cardFromRow` below, where a test can
+// reach it; a regex that only ever runs inside a browser is a regex nothing can
+// prove red (C-10, WKE-567).
+async function readCardRows(page) {
     return page.evaluate((selector) => {
         const areas = Array.prototype.slice.call(document.querySelectorAll(selector));
         return areas.map((area, index) => {
             const card = area.parentElement;
-            const cls = (card && card.getAttribute('class')) || '';
             let slot = '';
             let node = card;
             while (node && node !== document.body) {
@@ -302,27 +307,84 @@ async function readCards(page) {
                 node = node.parentElement;
             }
             const link = area.querySelector('a[data-wowhead]');
-            const data = (link && link.getAttribute('data-wowhead')) || '';
-            const id = /(?:^|[?&])item=(\d+)/.exec(data);
-            const ilvl = /[?&]ilvl=(\d+)/.exec(data);
-            const text = (area.innerText || '')
-                .split('\n')
-                .map((line) => line.trim())
-                .filter(Boolean);
-            const number = text.filter((line) => /^\d+$/.test(line))[0];
-            const name = text.filter((line) => !/^\d+$/.test(line))[0] || '';
             return {
                 index: index,
                 slot: slot,
-                name: name,
-                level: ilvl ? Number(ilvl[1]) : number ? Number(number) : null,
-                itemID: id ? Number(id[1]) : null,
-                active: /selected/i.test(cls),
-                vault: /vault/i.test(cls),
-                catalyst: /[?&]original-item=[1-9]/.test(data),
+                cls: (card && card.getAttribute('class')) || '',
+                wowhead: (link && link.getAttribute('data-wowhead')) || '',
+                lines: (area.innerText || '')
+                    .split('\n')
+                    .map((line) => line.trim())
+                    .filter(Boolean),
             };
         });
     }, CARD);
+}
+
+// What one `data-wowhead` attribute says about an item: his own item ID, his
+// own item level, the bonus IDs the item was imported with, and - on a Catalyst
+// clone and on nothing else - the ID of the item the clone was made from.
+//
+// The bonus IDs are why this exists (C-10, WKE-567). `excluded` used to travel
+// as a name and a level, so "was THIS item left out of the pool" could only be
+// asked by name, and two same-named items at one level answer it wrongly. With
+// the ID and the bonus IDs the addon builds the same `ns.ItemKey` it builds for
+// everything else and the question is an identity comparison.
+//
+// Sorted here, because `ns.ItemKey` sorts and a key that disagrees about order
+// is a key that never matches. Numbers only: a bonus list is `1:2:3` on his
+// link, and anything that is not a run of digits is not a bonus ID.
+function parseWowhead(data) {
+    const text = typeof data === 'string' ? data : '';
+    const id = /(?:^|[?&])item=(\d+)/.exec(text);
+    const ilvl = /[?&]ilvl=(\d+)/.exec(text);
+    const bonus = /[?&]bonus=([0-9:.]*)/.exec(text);
+    const original = /[?&]original-item=(\d+)/.exec(text);
+    const originalItem = original && Number(original[1]) > 0 ? Number(original[1]) : null;
+    return {
+        itemID: id ? Number(id[1]) : null,
+        level: ilvl ? Number(ilvl[1]) : null,
+        bonusIDs: bonus
+            ? bonus[1]
+                  .split(/[^0-9]+/)
+                  .filter((part) => part.length)
+                  .map(Number)
+                  .sort((a, b) => a - b)
+            : [],
+        originalItem: originalItem,
+    };
+}
+
+// One raw row -> the card record the rest of this file works in. Pure, so the
+// whole read is testable without a browser.
+//
+// `level` prefers his tooltip's `ilvl` and falls back to the bare number on the
+// card, which is the level he prints on it. `catalyst` is `original-item`,
+// which `convertToTier` sets on a clone and on nothing else (Item.ts line 268);
+// the class cannot say - `classes.catalyst` is declared and unreachable
+// (MiniItemCard.tsx line 224).
+function cardFromRow(row) {
+    const cls = (row && row.cls) || '';
+    const lines = (row && Array.isArray(row.lines) ? row.lines : []).filter((line) => typeof line === 'string');
+    const number = lines.filter((line) => /^\d+$/.test(line))[0];
+    const name = lines.filter((line) => !/^\d+$/.test(line))[0] || '';
+    const tooltip = parseWowhead(row && row.wowhead);
+    return {
+        index: row && row.index,
+        slot: (row && row.slot) || '',
+        name: name,
+        level: tooltip.level !== null ? tooltip.level : number ? Number(number) : null,
+        itemID: tooltip.itemID,
+        bonusIDs: tooltip.bonusIDs,
+        originalItem: tooltip.originalItem,
+        active: /selected/i.test(cls),
+        vault: /vault/i.test(cls),
+        catalyst: tooltip.originalItem !== null,
+    };
+}
+
+async function readCards(page) {
+    return (await readCardRows(page)).map(cardFromRow);
 }
 
 // One card as the log and the verdict file name it: "Head - Lynx Spaulders 678".
@@ -386,12 +448,23 @@ function chooseSelection(cards, cap) {
 
 // What the verdict file and the addon call one left-out card. `level` is QE
 // Live's own item level for it, carried like every other number in that file.
+//
+// Since C-10 (WKE-567) the identity travels too: `itemID` and the sorted
+// `bonusIDs` are what `ns.ItemKey` is built from, so the addon can ask "was
+// THIS item left out" of an item it is holding rather than of a name. A name
+// and a level cannot answer it - two rings of one name at one level are one
+// question with two answers - and the road surfaces have to say "not rated -
+// beyond the rating's item limit" about one item and not about its twin.
+// `originalItem` is the item a Catalyst clone was made from, carried because
+// the clone's own ID is a tier piece the character does not own.
 function excludedFrom(cards) {
     return cards.map((card) => ({
         slot: card.slot || '',
         name: card.name || '',
         level: card.level || null,
         itemID: card.itemID === undefined ? null : card.itemID,
+        bonusIDs: Array.isArray(card.bonusIDs) ? card.bonusIDs.slice() : [],
+        originalItem: card.originalItem === undefined ? null : card.originalItem,
         vault: !!card.vault,
         catalyst: !!card.catalyst,
     }));
@@ -723,6 +796,9 @@ module.exports = {
     ensureUp,
     isUp,
     readCards,
+    readCardRows,
+    parseWowhead,
+    cardFromRow,
     chooseSelection,
     selectItems,
     cardText,

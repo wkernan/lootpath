@@ -172,6 +172,45 @@ end
 -- print for a page and a half.
 Companion.MAX_EXCLUDED = 200
 
+-- The identity half of an entry (C-10, WKE-567). QE Live's own card carries the
+-- item ID and the bonus IDs in its `data-wowhead` attribute and the companion
+-- copies both into the file, so "was THIS item left out of the pool" is an
+-- ns.ItemKey comparison instead of a name comparison - two rings of one name at
+-- one item level are one question with two answers otherwise.
+--
+-- All or nothing, deliberately: a bonusIDs field that is present and unreadable
+-- takes the item ID down with it, because ns.ItemKey over a shortened list is a
+-- valid key for an item nobody owns, and a wrong match here would put "beyond
+-- the rating's item limit" on the wrong item. An entry with no bonusIDs field
+-- at all keeps its ID: that is the bare "<itemID>" key ns.ItemKey builds for an
+-- item with no bonus IDs, which is what such a card really is.
+local function safeItemID(value)
+    local safe, sawSecret = ns.Safe(value)
+    if sawSecret or type(safe) ~= "number" or safe <= 0 or safe % 1 ~= 0 then
+        return nil
+    end
+    return safe
+end
+
+local function safeBonusIDs(value)
+    if value == nil then
+        return nil, true
+    end
+    local safe, sawSecret = ns.Safe(value)
+    if sawSecret or type(safe) ~= "table" then
+        return nil, false
+    end
+    local list = {}
+    for index = 1, #safe do
+        local bonus, bonusSecret = ns.Safe(safe[index])
+        if bonusSecret or type(bonus) ~= "number" or bonus < 0 or bonus % 1 ~= 0 then
+            return nil, false
+        end
+        list[index] = bonus
+    end
+    return list, true
+end
+
 function Companion.Excluded(raw)
     local safe, sawSecret = ns.Safe(raw)
     if sawSecret or type(safe) ~= "table" then
@@ -189,11 +228,16 @@ function Companion.Excluded(raw)
             end
             local vault, vaultSecret = ns.Safe(entry.vault)
             local catalyst, catalystSecret = ns.Safe(entry.catalyst)
+            local bonusIDs, bonusOK = safeBonusIDs(entry.bonusIDs)
+            local itemID = bonusOK and safeItemID(entry.itemID) or nil
             if name then
                 list[#list + 1] = {
                     name = name,
                     slot = slot,
                     level = level,
+                    itemID = itemID,
+                    bonusIDs = itemID and bonusIDs or nil,
+                    originalItem = itemID and safeItemID(entry.originalItem) or nil,
                     vault = ((not vaultSecret) and vault == true) or nil,
                     catalyst = ((not catalystSecret) and catalyst == true) or nil,
                 }
@@ -204,6 +248,51 @@ function Companion.Excluded(raw)
         return nil
     end
     return list
+end
+
+-- The ns.ItemKey of one left-out item, or nil for an entry that carries no
+-- identity - every file written before C-10, and the committed placeholder.
+-- The key is BUILT here rather than read: the format is Core.lua's one
+-- definition and the companion never writes it, so a writer that learned to
+-- spell keys differently could not quietly introduce a second one.
+function Companion.ExcludedKey(entry)
+    if type(entry) ~= "table" or entry.itemID == nil then
+        return nil
+    end
+    return ns.ItemKey(entry.itemID, entry.bonusIDs)
+end
+
+-- How a left-out item was recognised. The key is identity; the name is the
+-- best a pre-C-10 file can do and is named so a caller can say which it got.
+Companion.EXCLUDED_BY_KEY = "key"
+Companion.EXCLUDED_BY_NAME = "name+level"
+
+-- Was this item one of the ones QE Live was never shown? -> the entry and how
+-- it was recognised, or nil.
+--
+-- `key` is the ns.ItemKey of the item being asked about; `item` is optional and
+-- carries `name` and `level` for the fallback. An entry that has an identity is
+-- matched on identity ALONE - a name match against an entry whose key says a
+-- different item is a wrong answer, not a second chance - and the name+level
+-- fallback is used only for entries that carry no identity at all, which is
+-- every file written before C-10.
+function Companion.IsExcluded(excluded, key, item)
+    if type(excluded) ~= "table" then
+        return nil
+    end
+    local name = type(item) == "table" and item.name or nil
+    local level = type(item) == "table" and item.level or nil
+    for _, entry in ipairs(excluded) do
+        local entryKey = Companion.ExcludedKey(entry)
+        if entryKey then
+            if key ~= nil and entryKey == key then
+                return entry, Companion.EXCLUDED_BY_KEY
+            end
+        elseif name ~= nil and entry.name == name and entry.level == level then
+            return entry, Companion.EXCLUDED_BY_NAME
+        end
+    end
+    return nil
 end
 
 -- One left-out item as words: "Lynx Spaulders (Shoulder, 678)". The slot and

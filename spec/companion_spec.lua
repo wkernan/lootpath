@@ -1224,6 +1224,95 @@ describe("Companion excluded items", function()
         assert.equal(ns.Companion.MAX_EXCLUDED, #ns.Companion.Excluded(many))
     end)
 
+    -- C-10 (WKE-567): a left-out item is identified, not just named. The road
+    -- surfaces say "not rated - beyond the rating's item limit" about ONE item,
+    -- and two rings of one name at one item level make that sentence a coin
+    -- toss until the item ID and the bonus IDs travel with the name.
+    it("carries the identity his card carried, and builds the one key format", function()
+        ns = H.load()
+        local list = ns.Companion.Excluded({
+            { slot = "Finger", name = "Band of Whatever", level = 678, itemID = 228638, bonusIDs = { 10390, 42 } },
+            { slot = "Shoulder", name = "Spaulders of the Vault", level = 691, itemID = 271526 },
+            {
+                slot = "Shoulder",
+                name = "a Catalyst clone",
+                level = 678,
+                itemID = 271527,
+                bonusIDs = { 12 },
+                originalItem = 228638,
+            },
+        })
+        assert.equal(3, #list)
+        assert.equal(228638, list[1].itemID)
+        assert.same({ 10390, 42 }, list[1].bonusIDs)
+        -- The key is ns.ItemKey's, built here and never read from the file, so
+        -- a companion that learned to spell keys differently could not
+        -- introduce a second format into the addon.
+        assert.equal(ns.ItemKey(228638, { 10390, 42 }), ns.Companion.ExcludedKey(list[1]))
+        -- An item with no bonus IDs is the bare "<itemID>" key, which is what
+        -- such an item really is - not an entry that identified nothing.
+        assert.equal("271526", ns.Companion.ExcludedKey(list[2]))
+        assert.equal(228638, list[3].originalItem)
+    end)
+
+    it("drops the whole identity rather than building a key for a different item", function()
+        local world
+        ns, world = H.load()
+        -- A bonus list with one unreadable member would otherwise become a
+        -- SHORTER list, which is a perfectly valid key for an item nobody owns.
+        local partial = ns.Companion.Excluded({
+            { name = "Band of Whatever", level = 678, itemID = 228638, bonusIDs = { 10390, "42" } },
+        })
+        assert.equal(1, #partial, "the item is still named")
+        assert.is_nil(partial[1].itemID)
+        assert.is_nil(ns.Companion.ExcludedKey(partial[1]))
+        local secret = ns.Companion.Excluded({
+            { name = "Band of Whatever", level = 678, itemID = 228638, bonusIDs = world.markSecret({ 10390 }) },
+        })
+        assert.is_nil(secret[1].itemID)
+        -- And an item ID that is not a whole positive number is no item ID.
+        local half = ns.Companion.Excluded({
+            { name = "Band of Whatever", level = 678, itemID = 228638.5, bonusIDs = { 10390 } },
+        })
+        assert.is_nil(half[1].itemID)
+        assert.is_nil(half[1].bonusIDs)
+        assert.is_nil(ns.Companion.ExcludedKey({ name = "Band of Whatever" }))
+        assert.is_nil(ns.Companion.ExcludedKey("Band of Whatever"))
+    end)
+
+    it("answers 'was this item left out' by key, and says so", function()
+        ns = H.load()
+        local list = ns.Companion.Excluded({
+            { slot = "Finger", name = "Band of Whatever", level = 678, itemID = 228638, bonusIDs = { 10390, 42 } },
+            { slot = "Finger", name = "Band of Whatever", level = 678, itemID = 228638, bonusIDs = { 10391, 42 } },
+        })
+        local key = ns.ItemKey(228638, { 42, 10391 })
+        local entry, how = ns.Companion.IsExcluded(list, key, { name = "Band of Whatever", level = 678 })
+        assert.equal(list[2], entry, "the twin with the other bonus IDs is a different item")
+        assert.equal(ns.Companion.EXCLUDED_BY_KEY, how)
+        -- The same name and level at a third identity was NOT left out, and the
+        -- name is not a second chance to say it was.
+        assert.is_nil(
+            ns.Companion.IsExcluded(list, ns.ItemKey(228638, { 42, 10392 }), { name = "Band of Whatever", level = 678 })
+        )
+        assert.is_nil(ns.Companion.IsExcluded(list, nil, { name = "Band of Whatever", level = 678 }))
+        assert.is_nil(ns.Companion.IsExcluded(nil, key))
+    end)
+
+    it("falls back to the name and the level for a file written before C-10", function()
+        ns = H.load()
+        local list = ns.Companion.Excluded(CLONES)
+        local entry, how =
+            ns.Companion.IsExcluded(list, ns.ItemKey(228638, { 42 }), { name = "Lynx Spaulders", level = 691 })
+        assert.equal("Lynx Spaulders", entry.name)
+        assert.equal(ns.Companion.EXCLUDED_BY_NAME, how)
+        -- The level is part of it: the same name at another level is another
+        -- item, and this is the best a file with no identities can do.
+        assert.is_nil(ns.Companion.IsExcluded(list, nil, { name = "Lynx Spaulders", level = 678 }))
+        assert.is_nil(ns.Companion.IsExcluded(list, nil, { name = "Something Else", level = 691 }))
+        assert.is_nil(ns.Companion.IsExcluded(list, nil, nil))
+    end)
+
     it("reads the list out of a real companion chunk", function()
         local source = string.format(
             [[
