@@ -2704,7 +2704,7 @@ describe("VaultPanel and the items QE Live never saw", function()
         assert.is_nil(model.excluded)
         assert.is_nil(model.excludedNote)
         for _, line in ipairs(ns.VaultPanel.NoteLines(model)) do
-            assert.is_nil(line:find("did not consider", 1, true))
+            assert.is_nil(line:find("weren't rated this time", 1, true))
         end
     end)
 
@@ -2718,6 +2718,6 @@ describe("VaultPanel and the items QE Live never saw", function()
         for i, line in ipairs(notes) do
             assert.equal(line, frame.rows[i]:GetText())
         end
-        assert.is_truthy(containsText(drawnTexts(frame), "did not consider"))
+        assert.is_truthy(containsText(drawnTexts(frame), "weren't rated this time"))
     end)
 end)

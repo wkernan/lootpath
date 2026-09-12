@@ -1338,16 +1338,23 @@ ns.companionVerdict = {
 
     -- The wording, in one place, because the Equip Now tab and the Vault tab
     -- both print it and neither may say something the other does not.
+    it("says the count first and then the names, and names no source", function()
+        ns = H.load()
+        local text = ns.Companion.ExcludedText(BAG)
+        assert.is_nil(text:find("QE Live", 1, true))
+        assert.is_nil(text:find(" his ", 1, true))
+    end)
+
     it("says the count first and then the names", function()
         ns = H.load()
         assert.is_nil(ns.Companion.ExcludedText(nil))
         assert.is_nil(ns.Companion.ExcludedText({}))
         assert.equal(
-            "QE Live did not consider 1 of your items: Band of Whatever (Finger, 678).",
+            "1 of your items weren't rated this time: Band of Whatever (Finger, 678).",
             ns.Companion.ExcludedText(BAG)
         )
         assert.equal(
-            "QE Live did not consider 2 of your items: Band of Whatever (Finger, 678),"
+            "2 of your items weren't rated this time: Band of Whatever (Finger, 678),"
                 .. " Lynx Spaulders (Shoulder, 691, Catalyst).",
             ns.Companion.ExcludedText(CLONES)
         )
@@ -1361,7 +1368,7 @@ ns.companionVerdict = {
         end
         local text = ns.Companion.ExcludedText(many)
         assert.equal(
-            "QE Live did not consider 27 of your items: ring 1 (Finger), ring 2 (Finger), ring 3 (Finger) and 24 more.",
+            "27 of your items weren't rated this time: ring 1 (Finger), ring 2 (Finger), ring 3 (Finger) and 24 more.",
             text
         )
         -- And the tooltip gets every one of them.

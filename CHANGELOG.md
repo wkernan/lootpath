@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fix (2026-09-12)
+
+- **The "items left out" note names no source.** The Equip Now and Vault tabs
+  said "QE Live did not consider N of your items"; they now say "N of your
+  items weren't rated this time", per the 2026-09-11 decision that nothing on
+  screen names where a rating came from.
+
 ### C-10 (WKE-567) - a left-out item is identified, not just named
 
 - **The excluded list carries the item's identity.** Each entry in
