@@ -470,6 +470,7 @@ local HELP = {
     "/lootpath capture <name> - record raw client returns; then /reload and run tools\\sync.ps1 -Pull",
     "/lootpath capture - list the capture commands",
     "/lootpath capture wipe - clear every stored capture",
+    "/lootpath spike tooltip on|off|report - R-0's tooltip measurement (WKE-561); off unless you turn it on",
     "/lootpath status - what is stored",
     "/lootpath help - this list",
 }
@@ -540,6 +541,10 @@ function ns.HandleSlash(msg)
         ns.Companion.Refresh()
     elseif cmd == "capture" then
         captureCommand(rest)
+    -- R-0 (WKE-561), temporary: the tooltip measurement, and nothing a player
+    -- sees. Both this branch and Modules/Spike.lua go away with R-2.
+    elseif cmd == "spike" then
+        ns.Spike.Command(rest)
     elseif cmd == "status" then
         statusCommand()
     else

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### R-0 (WKE-561) - the Roads spike: measure first, show nothing
+
+- **A tooltip counter behind `/lootpath spike tooltip on|off|report`, off unless
+  you turn it on.** It counts how many item tooltips fire, what each call costs,
+  whether the hyperlink was nil or secret, which tooltip frame fired, and how
+  often it returned at once because you were in combat. It reads nothing about
+  the item and draws nothing on any tooltip. The numbers are printed on request
+  and stored as a `spike` capture, so `/reload` keeps them.
+- **Temporary on purpose:** the module, the command and the capture go away when
+  the real tooltip block lands.
+- **`/lootpath capture env` records two more things:** the Mythic+ keystone you
+  own (level, both map IDs, and the dungeon's name) and which bag addons and bag
+  frames are live. Both are recorded for the transcript; neither is displayed.
+
 ### Fix (2026-09-12)
 
 - **The "items left out" note names no source.** The Equip Now and Vault tabs

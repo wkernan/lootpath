@@ -115,6 +115,12 @@ local function newRegion(kind, parent)
     function r:GetParent()
         return self.parent
     end
+    -- Every widget answers GetName; an anonymous one answers nil (Blizzard's
+    -- ScriptObject annotations). CreateFrame sets frameName when it was given
+    -- a name, which is exactly when the real client registers a global.
+    function r:GetName()
+        return self.frameName
+    end
     function r:SetParent(p)
         self.parent = p
     end
@@ -900,10 +906,17 @@ function Stub.install()
         -- The active specialization, or nil for a client that names none.
         -- Placeholder in every particular except the shape (M2-2, M5-2).
         spec = { index = 4, id = 105, name = "Restoration", icon = 136041, role = "HEALER" },
+        -- The keystone the character owns, or nil for one holding none, which
+        -- the client answers as 0/0/0 (R-0, WKE-561). A test that wants a key
+        -- sets { level = 8, challengeMapID = 542, mapID = 2664 }.
+        keystone = nil,
         cursor = { 0, 0 },
         equipped = {}, -- [invSlot] = { link = , id = }
         bags = {}, -- [bagIndex] = { numSlots = , items = { [slot] = { info = , link = , id = } } }
         items = {}, -- [link] = { level = , info = {...}, instant = {...} }
+        -- [guid] = link, for C_Item.GetItemLinkByGUID; a tooltip whose data
+        -- carries a GUID reaches its hyperlink through this (R-0, WKE-561).
+        itemLinksByGUID = {},
         -- Every itemID C_Item.RequestLoadItemDataByID was asked for, in order.
         -- The stub never answers by itself: a test that wants the data to
         -- arrive registers the item and fires ITEM_DATA_LOAD_RESULT (or
@@ -1272,6 +1285,80 @@ function Stub.install()
         world.compareCalls[#world.compareCalls + 1] = { self, anchorFrame }
     end)
 
+    -- Blizzard's tooltip data handler, only the parts the R-0 spike (WKE-561)
+    -- touches, each read from the shipped source under
+    -- `.luals/vscode-wow-api/Annotations/FrameXML/.../Blizzard_SharedXMLGame/Tooltip/`:
+    --
+    --   TooltipDataHandler.lua:199  TooltipDataProcessor.AddTooltipPostCall(type, func)
+    --   TooltipDataHandler.lua:298  the call: func(tooltip, tooltipData)
+    --   TooltipUtil.lua:9           GetDisplayedItem(tooltip) -> name, hyperlink, id
+    --
+    -- Only AddTooltipPostCall is modelled: the file also declares
+    -- AddTooltipPreCall, AddLinePreCall and AddLinePostCall and NO remover of
+    -- any kind, which is the fact the spike is built around, so a stub that
+    -- offered one would be a superset of the client.
+    world.tooltipPostCalls = {}
+
+    -- TooltipDataHandlerMixin's two questions. Mixed into tooltips only, which
+    -- is where the real client mixes it in.
+    local function attachTooltipData(f, name)
+        f.frameName = name
+        function f:IsTooltipType(dataType)
+            return self.tooltipDataType == dataType
+        end
+        function f:GetPrimaryTooltipData()
+            return self.tooltipData
+        end
+        return f
+    end
+
+    attachTooltipData(tooltip, "GameTooltip")
+
+    -- A second named tooltip, so a test can prove the spike counts by frame
+    -- the way the owner's client will (ItemRefTooltip, Baganator's own, ...).
+    function world.newTooltip(name)
+        return attachTooltipData(newFrame("GameTooltip", world), name)
+    end
+
+    define("TooltipDataProcessor", {
+        AllTypes = "ALL",
+        AddTooltipPostCall = function(dataType, func)
+            local list = world.tooltipPostCalls[dataType] or {}
+            world.tooltipPostCalls[dataType] = list
+            list[#list + 1] = func
+        end,
+    })
+
+    define("TooltipUtil", {
+        GetDisplayedItem = function(displayed)
+            if displayed:IsTooltipType(Enum.TooltipDataType.Item) then
+                local data = displayed:GetPrimaryTooltipData()
+                local hyperlink
+                if data.guid then
+                    hyperlink = C_Item.GetItemLinkByGUID(data.guid)
+                elseif data.hyperlink then
+                    hyperlink = data.hyperlink
+                end
+                if hyperlink then
+                    local name = C_Item.GetItemInfo(hyperlink)
+                    return name, hyperlink, data.id
+                end
+            end
+        end,
+    })
+
+    -- One item tooltip, shown: the data is set and every registered post-call
+    -- runs against it, in the order Blizzard runs them.
+    function world.showItemTooltip(data, frame)
+        local shown = frame or tooltip
+        shown.tooltipDataType = Enum.TooltipDataType.Item
+        shown.tooltipData = data or {}
+        for _, fn in ipairs(world.tooltipPostCalls[Enum.TooltipDataType.Item] or {}) do
+            fn(shown, shown.tooltipData)
+        end
+        return shown
+    end
+
     -- The Settings API, from Blizzard's shipped Blizzard_Settings.lua (read
     -- 2026-09-06). Only the six calls the options page makes are modelled, and
     -- what was registered is recorded in world.settings.
@@ -1408,6 +1495,11 @@ function Stub.install()
             World = 6,
         },
         CachedRewardType = { None = 0, Item = 1, Currency = 2, Quest = 3 },
+        -- The three the tooltip spike names, with the values Blizzard's own
+        -- enum carries (Ketho's Annotations/Core/Data/Enum.lua:8654). The real
+        -- enum has 28 members; a subset is modelled, never a member the client
+        -- does not have. Item = 0, which is why nothing here tests it for truth.
+        TooltipDataType = { Item = 0, Spell = 1, Unit = 2 },
         ItemQuality = { Poor = 0, Common = 1, Uncommon = 2, Rare = 3, Epic = 4, Legendary = 5 },
     })
 
@@ -1498,6 +1590,13 @@ function Stub.install()
                 return nil
             end
             return unpack(item.instant, 1, 7)
+        end,
+        -- Blizzard's exported C_Item.GetItemLinkByGUID(itemGUID) -> itemLink?
+        -- (ItemDocumentation.lua:286). TooltipUtil.GetDisplayedItem takes this
+        -- branch for a tooltip whose data carries a GUID, which is how a bag
+        -- hover reaches a hyperlink.
+        GetItemLinkByGUID = function(guid)
+            return world.itemLinksByGUID[guid]
         end,
         GetCurrentItemLevel = function(location)
             local e = world.equipped[location.equipmentSlotIndex]
@@ -1933,6 +2032,20 @@ function Stub.install()
         end,
     })
     define("C_MythicPlus", {
+        -- The keystone the character owns. Three reads, exactly as Blizzard's
+        -- exported docs declare them (MythicPlusInfoDocumentation.lua:34, 38,
+        -- 42): each returns one number and takes nothing. world.keystone = nil
+        -- is a character holding no key, which is what the client answers with
+        -- 0 / 0 / 0 on a fresh character.
+        GetOwnedKeystoneLevel = function()
+            return world.keystone and world.keystone.level or 0
+        end,
+        GetOwnedKeystoneChallengeMapID = function()
+            return world.keystone and world.keystone.challengeMapID or 0
+        end,
+        GetOwnedKeystoneMapID = function()
+            return world.keystone and world.keystone.mapID or 0
+        end,
         GetCurrentSeason = function()
             return J.season
         end,
