@@ -46,69 +46,69 @@ end
 -- editbox. It models the API's CONTRACT (SetMaxLetters(0) means no limit;
 -- SetEnabled(false) means OnClick does not fire), never its pixels - what a
 -- frame looks like on the owner's screen is an in-game step (M2-3), not a test.
+--
+-- **One widget carries one widget's methods** (WKE-560, T-1). Which methods a
+-- kind gets is read under `.luals/vscode-wow-api/Annotations/Core/Widget/`,
+-- class by class, and the stub gives a kind nothing its own class does not
+-- have. A superset is a test that cannot go red: on 2026-09-10 the Upgrade Map
+-- tab errored in the owner's client on `SetDefaultText` while 761 tests were
+-- green, because the stub handed the method to every DropdownButton. Missing
+-- the other way is safe and deliberate - a method no panel calls is simply not
+-- modelled, and a panel that starts calling it fails headlessly first.
+--
+-- The class hierarchy, as the annotations declare it:
+--   Region : ScriptRegion, ScriptRegionResizing, AnimatableObject  (Base/Region.lua:3)
+--   Frame : Region, ScriptObject                                   (Frame/Frame.lua:3)
+--   Button : Frame  /  CheckButton : Button                        (Frame/Button/Button.lua:3, CheckButton.lua:3)
+--   EditBox : Frame  /  ScrollFrame : Frame                        (Frame/EditBox.lua:3, Frame/ScrollFrame.lua:3)
+--   EventFrame : EventFrameMixin, Frame                            (Intrinsic/EventFrame.lua:13)
+--   DropdownButton : DropdownButtonMixin, Button                   (Intrinsic/DropdownButton.lua:9)
+--   FontString : Region                                            (Font/FontString.lua:3)
+--   Texture : TextureBase : Region                                 (Texture/Texture.lua:3, Base/TextureBase.lua:3)
+-- So text setters are a FontString's (and, for four of them, an EditBox's),
+-- texture setters are a Texture's, and the scroll setters are a ScrollFrame's.
+-- None of the three belongs on a bare Frame.
+
 -- Appearance-only setters: accepted and ignored, because a headless test has no
--- pixels to check them against.
+-- pixels to check them against. `SetDrawLayer` is Region's (Base/Region.lua:56),
+-- so every widget answers it.
 local IGNORED_REGION_METHODS = {
+    "SetDrawLayer",
+}
+
+-- The font setters a FontString ignores. All five are FontString's
+-- (Font/FontString.lua:194 SetNonSpaceWrap, and the four inherited font-instance
+-- setters); an EditBox has four of them (Frame/EditBox.lua:262, :266, :285, :289)
+-- and not SetNonSpaceWrap, which is why the two lists are separate.
+local IGNORED_FONT_METHODS = {
     "SetJustifyH",
     "SetJustifyV",
     "SetFontObject",
     "SetFont",
     "SetNonSpaceWrap",
-    "SetDrawLayer",
+}
+local IGNORED_EDITBOX_FONT_METHODS = {
+    "SetJustifyH",
+    "SetJustifyV",
+    "SetFontObject",
+    "SetFont",
 }
 
--- Appearance setters whose ARGUMENT is a contract, recorded rather than
--- ignored (M5-1, WKE-550). Which icon a row got, which colour its quality
--- border was tinted and whether a badge is at a downgrade's opacity are
--- decisions this addon makes and a test can hold it to; what they look like on
--- the owner's screen is still an in-game step. The real widgets have no
--- getters for these, so none is faked - the last arguments are left on the
--- region under names of the stub's own (`texture`, `atlas`, `vertexColor`,
--- `alpha`, `textColor`).
-local function attachAppearance(r)
-    -- A texture and an atlas are the same slot in the real widget: setting one
-    -- replaces the other, which is why a row that stops being a swap and drops
-    -- its arrow atlas cannot still be showing it.
-    function r:SetTexture(value)
-        self.texture = value
-        self.atlas = nil
-    end
-    function r:GetTexture()
-        return self.texture
-    end
-    function r:SetAtlas(value)
-        self.atlas = value
-        self.texture = nil
-    end
-    function r:GetAtlas()
-        return self.atlas
-    end
-    function r:SetVertexColor(red, green, blue, alpha)
-        self.vertexColor = { red, green, blue, alpha }
-    end
-    function r:SetAlpha(value)
-        self.alpha = value
-    end
-    function r:GetAlpha()
-        return self.alpha == nil and 1 or self.alpha
-    end
-    function r:SetTextColor(red, green, blue, alpha)
-        self.textColor = { red, green, blue, alpha }
-    end
+-- Stub-only affordances - a test clicking a menu row, firing an OnEnter, or
+-- reading a tooltip back - live on `widget.stub` and never in a Blizzard method
+-- slot (WKE-560). A panel that reached for one in the client would index a nil
+-- field and say so on the first frame, instead of passing headlessly and
+-- erroring on the owner's screen.
+local function stubShelf(r)
+    local shelf = { widget = r }
+    r.stub = shelf
+    return shelf
 end
 
-local function newRegion(kind, parent)
-    local r = {
-        kind = kind,
-        parent = parent,
-        points = {},
-        shown = true,
-        text = "",
-        width = 0,
-        height = 0,
-        children = {},
-        regions = {},
-    }
+-- The Region surface every widget has, whatever its class: anchors, size,
+-- visibility, scale, alpha and vertex colour (Base/Region.lua,
+-- Base/ScriptRegion.lua, Base/ScriptRegionResizing.lua).
+local function attachRegion(r)
     function r:GetObjectType()
         return self.kind
     end
@@ -163,6 +163,49 @@ local function newRegion(kind, parent)
     function r:IsVisible()
         return self.shown
     end
+    function r:SetScale(value)
+        self.scale = tonumber(value) or 1
+    end
+    function r:GetScale()
+        return self.scale or 1
+    end
+    function r:GetEffectiveScale()
+        return self.effectiveScale or self.scale or 1
+    end
+    -- The frame's centre in UI coordinates (Base/ScriptRegion.lua:51). Nothing
+    -- here lays anything out, so it is whatever a test set (used by the minimap
+    -- drag, M5-2); 0, 0 unset.
+    function r:GetCenter()
+        local c = self.center
+        if not c then
+            return 0, 0
+        end
+        return c[1], c[2]
+    end
+    -- Alpha and vertex colour are Region's (Base/Region.lua:75 SetVertexColor),
+    -- so a Frame has them as much as a Texture does. Whether a badge is at a
+    -- downgrade's opacity is a decision this addon makes and a test can hold it
+    -- to (M5-1, WKE-550); the real widget has no getter for the colour, so none
+    -- is faked - the last arguments are left under names of the stub's own
+    -- (`vertexColor`, `alpha`).
+    function r:SetAlpha(value)
+        self.alpha = value
+    end
+    function r:GetAlpha()
+        return self.alpha == nil and 1 or self.alpha
+    end
+    function r:SetVertexColor(red, green, blue, alpha)
+        self.vertexColor = { red, green, blue, alpha }
+    end
+    for _, name in ipairs(IGNORED_REGION_METHODS) do
+        r[name] = function() end
+    end
+end
+
+-- A FontString's own text surface (Font/FontString.lua): SetText/GetText at
+-- :222/:119, SetTextColor at :229, SetWordWrap at :245, and the five ignored
+-- font setters above. A Frame has none of these.
+local function attachFontSurface(r)
     function r:SetText(value)
         self.text = value == nil and "" or tostring(value)
     end
@@ -176,45 +219,61 @@ local function newRegion(kind, parent)
     function r:SetWordWrap(value)
         self.wordWrap = value and true or false
     end
-    -- WHICH texture a region was given is a decision the code makes - the spec
-    -- icon or the class sheet, the class sheet at which corner - and not a
-    -- pixel, so it is recorded like SetWordWrap rather than ignored. The real
-    -- widget has no getter for any of the three; nothing here is faked beyond
-    -- remembering what it was told (M5-2).
+    function r:SetTextColor(red, green, blue, alpha)
+        self.textColor = { red, green, blue, alpha }
+    end
+    for _, name in ipairs(IGNORED_FONT_METHODS) do
+        r[name] = function() end
+    end
+end
+
+-- A Texture's own surface (Base/TextureBase.lua and Texture/Texture.lua).
+-- WHICH texture a region was given is a decision the code makes - the spec icon
+-- or the class sheet, the class sheet at which corner - and not a pixel, so it
+-- is recorded rather than ignored (M5-1, M5-2). The real widget has no getter
+-- for the tex coords; nothing here is faked beyond remembering what it was told.
+local function attachTextureSurface(r)
+    -- A texture and an atlas are the same slot in the real widget: setting one
+    -- replaces the other, which is why a row that stops being a swap and drops
+    -- its arrow atlas cannot still be showing it.
     function r:SetTexture(value)
         self.texture = value
+        self.atlas = nil
     end
     function r:GetTexture()
         return self.texture
     end
     function r:SetAtlas(value)
         self.atlas = value
+        self.texture = nil
+    end
+    function r:GetAtlas()
+        return self.atlas
     end
     function r:SetTexCoord(...)
         self.texCoord = { ... }
     end
-    function r:SetScale(value)
-        self.scale = tonumber(value) or 1
+end
+
+local function newRegion(kind, parent)
+    local r = {
+        kind = kind,
+        parent = parent,
+        points = {},
+        shown = true,
+        text = "",
+        width = 0,
+        height = 0,
+        children = {},
+        regions = {},
+    }
+    attachRegion(r)
+    stubShelf(r)
+    if kind == "FontString" then
+        attachFontSurface(r)
+    elseif kind == "Texture" then
+        attachTextureSurface(r)
     end
-    function r:GetScale()
-        return self.scale or 1
-    end
-    function r:GetEffectiveScale()
-        return self.effectiveScale or self.scale or 1
-    end
-    -- The frame's centre in UI coordinates. Nothing here lays anything out, so
-    -- it is whatever a test set (used by the minimap drag, M5-2); 0, 0 unset.
-    function r:GetCenter()
-        local c = self.center
-        if not c then
-            return 0, 0
-        end
-        return c[1], c[2]
-    end
-    for _, name in ipairs(IGNORED_REGION_METHODS) do
-        r[name] = function() end
-    end
-    attachAppearance(r)
     return r
 end
 
@@ -362,7 +421,12 @@ local function attachScrollBoxList(box, world)
         return false
     end
 
-    function box:Acquire(template)
+    -- The frame pool is the VIEW's and the frame factory's, never the box's:
+    -- `ScrollBoxListViewMixin:AcquireInternal` (ScrollBoxListView.lua:335) and
+    -- `self.frameFactory:ReleaseAll()` (:131). A ScrollBox answers neither, so
+    -- neither sits in a Blizzard method slot here - they are the stub's own.
+    function box.stub.Acquire(shelf, template)
+        local self = shelf.widget
         local pool = self.pool[template]
         if not pool then
             pool = {}
@@ -384,7 +448,8 @@ local function attachScrollBoxList(box, world)
         return frame
     end
 
-    function box:ReleaseAll()
+    function box.stub.ReleaseAll(shelf)
+        local self = shelf.widget
         for _, pool in pairs(self.pool) do
             for _, frame in ipairs(pool) do
                 if frame.inUse then
@@ -393,6 +458,10 @@ local function attachScrollBoxList(box, world)
                     if self.view and self.view.frameResetter then
                         self.view.frameResetter(frame, frame.elementData)
                     end
+                    -- The real view clears the reader when it releases a
+                    -- frame (ScrollBoxListView.lua:114), so a frame that is
+                    -- back in the pool cannot still answer for its old row.
+                    frame.GetElementData = nil
                 end
             end
         end
@@ -405,7 +474,7 @@ local function attachScrollBoxList(box, world)
     -- scrolls, so its range always begins at 1.
     function box:Layout()
         local view = self.view
-        self:ReleaseAll()
+        self.stub:ReleaseAll()
         if not (view and self.dataProvider) then
             return
         end
@@ -431,7 +500,7 @@ local function attachScrollBoxList(box, world)
             if used <= height then
                 local template, initializer = factoryDataFor(view, elementData)
                 if template then
-                    local frame = self:Acquire(template)
+                    local frame = self.stub:Acquire(template)
                     frame.elementData = elementData
                     frame.GetElementData = function(element)
                         return element.elementData
@@ -478,15 +547,21 @@ local function attachScrollBoxList(box, world)
     end
 end
 
--- WowStyle1FilterDropdownTemplate and WowStyle1DropdownTemplate over the 11.0
--- menu API (both are DropdownButtonMixin; MenuTemplates.lua:753 and :776). The generator is
--- handed the dropdown and a root description and calls CreateRadio /
--- CreateButton / CreateTitle / SetTag on it (DropdownButton.lua:237 SetupMenu,
--- :255 GenerateMenu; MenuUtil.lua:226 CreateRadio(text, isSelected,
--- setSelected, data)). What is modelled is which elements the generator asked
--- for and what each one does when it is picked, which is the whole contract
--- the panel depends on; the menu's pixels are the client's.
-local function attachMenuDropdown(dropdown)
+-- The DropdownButton INTRINSIC's menu surface, which is DropdownButtonMixin's
+-- and therefore every DropdownButton's, template or none
+-- (Core/Widget/Intrinsic/DropdownButton.lua:9 `DropdownButton : DropdownButtonMixin,
+-- Button`; Blizzard_Menu/DropdownButton.lua:237 SetupMenu, :255 GenerateMenu,
+-- :275 IsMenuOpen). The generator is handed the dropdown and a root description
+-- and calls CreateRadio / CreateButton / CreateTitle / SetTag on it
+-- (MenuUtil.lua:226 CreateRadio(text, isSelected, setSelected, data)). What is
+-- modelled is which elements the generator asked for and what each one does
+-- when it is picked, which is the whole contract the panels depend on; the
+-- menu's pixels are the client's.
+--
+-- The CAPTION on the closed control is NOT here: SetDefaultText and friends are
+-- DropdownSelectionTextMixin's, which only some templates mix in (see
+-- attachDropdownSelectionText below).
+local function attachDropdownButton(dropdown)
     dropdown.menuElements = {}
 
     local function rootDescription(list)
@@ -555,17 +630,61 @@ local function attachMenuDropdown(dropdown)
     dropdown.IsMenuOpen = function()
         return false
     end
-    -- Picking an option the way a player does: find the row by its text and
-    -- run what the generator said it does. The real menu rebuilds its rows
-    -- from the owner's state every time it opens, so the caller regenerates.
-    function dropdown:SelectByText(text)
-        for _, element in ipairs(self.menuElements) do
+
+    -- Picking an option the way a player does. None of these three is a client
+    -- method: DropdownButtonMixin:Pick takes a menu DESCRIPTION and an input
+    -- context (DropdownButton.lua:341), not an index, and there is no
+    -- SelectedIndex or SelectByText at all - so they sit on the stub shelf
+    -- where they cannot be mistaken for API. The real menu rebuilds its rows
+    -- from the owner's state every time it opens, so each one regenerates.
+    function dropdown.stub.Pick(_, index)
+        dropdown:GenerateMenu()
+        local element = dropdown.menuElements[index]
+        if not element then
+            return false
+        end
+        element:Select()
+        return true
+    end
+    function dropdown.stub.SelectedIndex()
+        dropdown:GenerateMenu()
+        for index, element in ipairs(dropdown.menuElements) do
+            if element:IsSelected() then
+                return index
+            end
+        end
+        return nil
+    end
+    function dropdown.stub.SelectByText(_, text)
+        for _, element in ipairs(dropdown.menuElements) do
             if element.text == text then
                 element:Select()
                 return true
             end
         end
         return false
+    end
+end
+
+-- DropdownSelectionTextMixin: the words on the CLOSED control. Mixed into
+-- WowStyle1DropdownTemplate through WowStyle1DropdownMixin
+-- (Blizzard_Menu/Mainline/MenuTemplates.xml:3 `mixin="WowStyle1DropdownMixin"`;
+-- MenuTemplates.lua:753 `WowStyle1DropdownMixin = CreateFromMixins(
+-- ButtonStateBehaviorMixin, DropdownSelectionTextMixin)`), and NOT into
+-- WowStyle1FilterDropdownTemplate, whose WowStyle1FilterDropdownMixin is
+-- ButtonStateBehaviorMixin + DropdownTextMixin + WowFilterButtonMixin
+-- (MenuTemplates.xml:66, MenuTemplates.lua:776) and carries a fixed FILTER
+-- caption instead (the KeyValue at MenuTemplates.xml:69). That difference is
+-- what the owner's client raised as "attempt to call a nil value" on the
+-- Upgrade Map tab on 2026-09-10. GetDefaultText / SetDefaultText are
+-- MenuTemplates.lua:578 / :582; SetSelectionText (:591) and SetTooltip (:659)
+-- are real too and are deliberately not modelled, because no panel calls them.
+local function attachDropdownSelectionText(dropdown)
+    function dropdown:SetDefaultText(text)
+        self.defaultText = text
+    end
+    function dropdown:GetDefaultText()
+        return self.defaultText
     end
 end
 
@@ -597,26 +716,20 @@ local function attachTemplate(f, world, template)
             f.CloseButton = newFrame("Button", world, f)
         end
     end
-    -- WowScrollBoxList (Blizzard_SharedXML/Shared/Scroll/ScrollTemplates.xml
-    -- line 4) and the filter dropdown, both M5-3's.
+    -- WowScrollBoxList is a Frame inheriting ScrollBoxBaseTemplate with
+    -- ScrollBoxListMixin (Blizzard_SharedXML/Shared/Scroll/ScrollTemplates.xml:4),
+    -- M5-3's.
     if template:find("WowScrollBoxList", 1, true) then
         attachScrollBoxList(f, world)
     end
-    local isFilterDropdown = template:find("WowStyle1FilterDropdownTemplate", 1, true) ~= nil
-    local isSelectionDropdown = template:find("WowStyle1DropdownTemplate", 1, true) ~= nil
-    if isFilterDropdown or isSelectionDropdown then
-        attachMenuDropdown(f)
-    end
-    -- Only WowStyle1DropdownTemplate carries DropdownSelectionTextMixin, which
-    -- is where SetDefaultText / GetDefaultText / SetSelectionText live
-    -- (MenuTemplates.lua:753 vs :776, read 2026-09-10 after the real client
-    -- raised "attempt to call a nil value" on a filter dropdown's
-    -- SetDefaultText). A filter dropdown has DropdownTextMixin's SetText and a
-    -- fixed FILTER caption, nothing more.
-    if f.kind == "DropdownButton" and not isSelectionDropdown then
-        f.SetDefaultText = nil
-        f.GetDefaultText = nil
-        f.SetSelectionText = nil
+    -- The caption surface is ADDED to the one template whose mixin chain has
+    -- DropdownSelectionTextMixin, rather than handed to every dropdown and
+    -- taken back from the rest. A superset that is subtracted again is still a
+    -- superset: a `CreateFrame("DropdownButton")` with no template never
+    -- reached the subtraction at all, and answered SetDefaultText headlessly
+    -- while the intrinsic in the client does not have it.
+    if template:find("WowStyle1DropdownTemplate", 1, true) then
+        attachDropdownSelectionText(f)
     end
     -- PanelTabButtonTemplate declares parentArray="Tabs"
     -- (Blizzard_SharedXML/SharedUIPanelTemplates.xml line 905), so a tab built
@@ -715,21 +828,45 @@ function newFrame(kind, world, parent, template)
     function f:GetID()
         return self.id
     end
-    function f:SetScrollChild(child)
-        self.scrollChild = child
+    -- The scroll setters are a ScrollFrame's alone (Core/Widget/Frame/ScrollFrame.lua:3
+    -- `ScrollFrame : Frame`, which declares SetScrollChild, GetScrollChild,
+    -- SetVerticalScroll, GetVerticalScrollRange and UpdateScrollChildRect). A
+    -- bare Frame answers none of them, and neither does a WowScrollBoxList -
+    -- the 11.0 box is a Frame with a scroll TARGET, not a scroll child.
+    if kind == "ScrollFrame" then
+        function f:SetScrollChild(child)
+            self.scrollChild = child
+        end
+        function f:GetScrollChild()
+            return self.scrollChild
+        end
+        function f:SetVerticalScroll(value)
+            self.verticalScroll = value
+        end
+        f.GetVerticalScrollRange = function()
+            return 0
+        end
+        f.UpdateScrollChildRect = function() end
     end
-    function f:GetScrollChild()
-        return self.scrollChild
-    end
-    function f:SetVerticalScroll(value)
-        self.verticalScroll = value
-    end
-    f.GetVerticalScrollRange = function()
-        return 0
-    end
-    f.UpdateScrollChildRect = function() end
 
-    if kind == "Button" or kind == "CheckButton" then
+    -- Button's own surface (Core/Widget/Frame/Button/Button.lua): Click at :47,
+    -- Disable :50, Enable :53, GetFontString :69, GetText :102, IsEnabled :114,
+    -- RegisterForClicks :118, SetDisabledFontObject :135, SetEnabled :143,
+    -- SetHighlightFontObject :161, SetNormalFontObject :178, SetText :199.
+    -- CheckButton : Button (CheckButton.lua:3) and DropdownButton : Button
+    -- (Intrinsic/DropdownButton.lua:9) both inherit all of it, so both get it -
+    -- the Upgrade Map's difficulty control is a DropdownButton and calls
+    -- SetText, which it has twice over (Button.lua:199 and, on the templates
+    -- that mix it in, DropdownTextMixin:SetText at MenuTemplates.lua:522).
+    -- CheckButton's own SetChecked / GetChecked are not modelled, because no
+    -- panel uses a check button.
+    if kind == "Button" or kind == "CheckButton" or kind == "DropdownButton" then
+        function f:SetText(value)
+            self.text = value == nil and "" or tostring(value)
+        end
+        function f:GetText()
+            return self.text
+        end
         function f:SetEnabled(value)
             self.enabled = value and true or false
         end
@@ -761,98 +898,49 @@ function newFrame(kind, world, parent, template)
             end
             return true
         end
-        function f:Enter()
-            local fn = self.scripts.OnEnter
+        -- Firing a script by hand is the stub's own affair - the client has no
+        -- Button:Enter or Button:Leave - so both sit on the stub shelf.
+        function f.stub.Enter()
+            local fn = f.scripts.OnEnter
             if fn then
-                fn(self)
+                fn(f)
             end
         end
-        function f:Leave()
-            local fn = self.scripts.OnLeave
+        function f.stub.Leave()
+            local fn = f.scripts.OnLeave
             if fn then
-                fn(self)
+                fn(f)
             end
         end
     end
 
-    -- DropdownButton, the 11.0 menu system (Blizzard_Menu/DropdownButton.lua
-    -- and MenuTemplates.lua under .luals/, read 2026-09-09). What is modelled
-    -- is the CONTRACT the panels use and nothing else: SetupMenu takes a
-    -- generator of (dropdown, rootDescription); the root description takes a
-    -- tag and radio entries of (text, isSelected, setSelected); the menu is
-    -- generated immediately when the dropdown is already shown, which is the
-    -- behaviour DropdownButtonMixin:SetupMenu documents. `Pick(index)` is the
-    -- stub's own, and is a test clicking one entry.
+    -- DropdownButton is an intrinsic, so the menu surface comes with the KIND
+    -- and not with any template (Core/Widget/Intrinsic/DropdownButton.lua:9).
+    -- There is exactly one menu implementation here, attachDropdownButton
+    -- above, so a dropdown built with a template and one built without cannot
+    -- drift apart. What is modelled is the CONTRACT the panels use and nothing
+    -- else: SetupMenu takes a generator of (dropdown, rootDescription); the
+    -- root description takes a tag and radio entries of (text, isSelected,
+    -- setSelected).
     if kind == "DropdownButton" then
-        f.menuEntries = {}
-        function f:SetDefaultText(text)
-            self.defaultText = text
-        end
-        function f:GetDefaultText()
-            return self.defaultText
-        end
-        function f:GenerateMenu()
-            if not self.menuGenerator then
-                return
-            end
-            local root = { entries = {} }
-            function root.SetTag(description, tag)
-                description.tag = tag
-            end
-            function root.CreateRadio(description, text, isSelected, setSelected, data)
-                local entry = {
-                    kind = "radio",
-                    text = text,
-                    isSelected = isSelected,
-                    setSelected = setSelected,
-                    data = data,
-                }
-                description.entries[#description.entries + 1] = entry
-                return entry
-            end
-            function root.CreateButton(description, text, callback, data)
-                local entry = { kind = "button", text = text, callback = callback, data = data }
-                description.entries[#description.entries + 1] = entry
-                return entry
-            end
-            self.menuGenerator(self, root)
-            self.menuDescription = root
-            self.menuTag = root.tag
-            self.menuEntries = root.entries
-        end
-        function f:SetupMenu(generator)
-            assert(type(generator) == "function", "SetupMenu: argument is not a function")
-            self.menuGenerator = generator
-            if self:IsShown() then
-                self:GenerateMenu()
-            end
-        end
-        function f:Pick(index)
-            self:GenerateMenu()
-            local entry = self.menuEntries[index]
-            if not entry then
-                return false
-            end
-            if entry.setSelected then
-                entry.setSelected(entry.data)
-            elseif entry.callback then
-                entry.callback(entry.data)
-            end
-            return true
-        end
-        function f:SelectedIndex()
-            self:GenerateMenu()
-            for index, entry in ipairs(self.menuEntries) do
-                if entry.isSelected and entry.isSelected(entry.data) then
-                    return index
-                end
-            end
-            return nil
-        end
+        attachDropdownButton(f)
     end
 
+    -- EditBox's own surface (Core/Widget/Frame/EditBox.lua): SetText :347,
+    -- GetText, SetTextColor :354 and the four font setters at :262, :266, :285
+    -- and :289 - an EditBox is the one frame besides a FontString that has
+    -- them, and it does NOT have SetNonSpaceWrap or SetWordWrap.
     if kind == "EditBox" then
         f.maxLetters = 0
+        function f:GetText()
+            return self.text
+        end
+        function f:SetTextColor(red, green, blue, alpha)
+            self.textColor = { red, green, blue, alpha }
+        end
+        for _, name in ipairs(IGNORED_EDITBOX_FONT_METHODS) do
+            f[name] = function() end
+        end
         function f:SetMaxLetters(value)
             self.maxLetters = tonumber(value) or 0
         end
@@ -1265,8 +1353,12 @@ function Stub.install()
     end)
 
     -- GameTooltip: what it was told to show is recorded so a test can read the
-    -- combat message back off it.
-    local tooltip = newFrame("Frame", world)
+    -- combat message back off it. Its KIND is GameTooltip, not Frame - a
+    -- GameTooltip is its own widget class (Core/Widget/Frame/GameTooltip.lua:3
+    -- `GameTooltip : Frame`) and every method below is one of its own
+    -- (SetOwner, SetText, AddLine, SetHyperlink, SetItemByID, ClearLines). The
+    -- ONE reader that is not the client's, `Text()`, is on the stub shelf.
+    local tooltip = newFrame("GameTooltip", world)
     world.tooltip = tooltip
     tooltip.lines = {}
     function tooltip:SetOwner(owner, anchor)
@@ -1294,8 +1386,8 @@ function Stub.install()
     function tooltip:ClearLines()
         self.lines = {}
     end
-    function tooltip:Text()
-        return table.concat(self.lines, "\n")
+    function tooltip.stub.Text()
+        return table.concat(tooltip.lines, "\n")
     end
     define("GameTooltip", tooltip)
     -- The shopping compare. A FrameXML global, not an exported API, so what is

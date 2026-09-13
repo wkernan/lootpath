@@ -2577,14 +2577,14 @@ describe("VaultPanel's grid, drawn (WKE-553)", function()
         local model = refresh("maxed")
         local drawn = cellFor(model, WEAPON_KEY)
         drawn:GetScript("OnEnter")(drawn)
-        local shown = world.tooltip:Text()
+        local shown = world.tooltip.stub:Text()
         assert.is_truthy(shown:find("Lightgrasp Worldroot", 1, true))
         for _, line in ipairs(select(2, cellFor(model, WEAPON_KEY)).tooltipLines) do
             assert.is_truthy(shown:find(line, 1, true), "the hover lost a line: " .. line)
         end
         -- The item itself is the item line's own hover, with the client's link
         -- and the shopping compare - never a line of ours.
-        drawn.line.iconButton:Enter()
+        drawn.line.iconButton.stub:Enter()
         assert.equal(select(2, cellFor(model, WEAPON_KEY)).item.link, world.tooltip.hyperlink)
         assert.equal(1, #world.compareCalls)
     end)
@@ -2645,7 +2645,7 @@ describe("VaultPanel's grid, drawn (WKE-553)", function()
                 maxedIndex = index
             end
         end
-        assert.equal(maxedIndex, dropdown:SelectedIndex())
+        assert.equal(maxedIndex, dropdown.stub:SelectedIndex())
 
         -- Picking another one is the setting changing, and the tab redraws.
         local catalyzedIndex
@@ -2654,7 +2654,7 @@ describe("VaultPanel's grid, drawn (WKE-553)", function()
                 catalyzedIndex = index
             end
         end
-        assert.is_true(dropdown:Pick(catalyzedIndex))
+        assert.is_true(dropdown.stub:Pick(catalyzedIndex))
         assert.equal("catalyzed", ns.UI.Options.GetVaultScenario())
         local model = frame:Refresh({ now = 1788900000 })
         assert.equal("catalyzed", model.highlightScenario)

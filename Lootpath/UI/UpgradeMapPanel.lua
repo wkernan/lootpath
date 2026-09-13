@@ -2060,11 +2060,17 @@ function Panel.Create(parent)
 
     -- The SELECTION template, not the filter one. Both are DropdownButtons
     -- over the 11.0 menu API, but only WowStyle1DropdownTemplate mixes in
-    -- DropdownSelectionTextMixin (Blizzard_Menu/MenuTemplates.lua:753), which
-    -- is where SetDefaultText lives and what lets the closed control say which
-    -- difficulty is chosen; WowStyle1FilterDropdownTemplate (:776) has a fixed
-    -- FILTER caption and no SetDefaultText - the owner's client said so with
-    -- "attempt to call a nil value" at line 1865, 2026-09-09 23:10.
+    -- DropdownSelectionTextMixin (Blizzard_Menu/Mainline/MenuTemplates.xml:3
+    -- declares `mixin="WowStyle1DropdownMixin"`; MenuTemplates.lua:753 composes
+    -- that mixin from ButtonStateBehaviorMixin and DropdownSelectionTextMixin),
+    -- which is where SetDefaultText lives and what lets the closed control say
+    -- which difficulty is chosen; WowStyle1FilterDropdownTemplate
+    -- (MenuTemplates.xml:66, MenuTemplates.lua:776) is ButtonStateBehaviorMixin
+    -- + DropdownTextMixin + WowFilterButtonMixin, with a fixed FILTER caption
+    -- (the KeyValue at MenuTemplates.xml:69) and no SetDefaultText - the
+    -- owner's client said so with "attempt to call a nil value" at line 1865,
+    -- 2026-09-09 23:10. Since T-1 (WKE-560) the headless stub says the same:
+    -- `spec/stubs_spec.lua` fails if a filter dropdown ever answers it.
     frame.difficultyDropdown = CreateFrame("DropdownButton", nil, frame, Panel.DROPDOWN_TEMPLATE)
     frame.difficultyDropdown:SetSize(Panel.DROPDOWN_WIDTH, Panel.CONTROL_ROW_HEIGHT)
     frame.difficultyDropdown:SetPoint("LEFT", frame.filterLabel, "RIGHT", Panel.CONTROL_GAP, 0)
