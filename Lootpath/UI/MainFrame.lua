@@ -357,22 +357,41 @@ function UI.SecondsUntilWeeklyReset()
     return tonumber((ns.Safe(seconds)))
 end
 
--- The one line under the title: what is on screen, whose it is and how old.
--- `QE Live | spec | content type kind | source, age | scenario tag`, from the
--- same facts UI.VerdictNoteText states in a sentence and ns.Companion.SourceText
--- names the source with. Returns a model rather than a string so the age can be
--- toned amber without the tests reading colour codes: { text, stale, tooltip }.
+-- The one line under the title: what is on screen, whose it is, how old, and
+-- what the companion last did - `QE Live | spec | content type kind |
+-- source, age | scenario tag | companion`, from the same facts
+-- UI.VerdictNoteText states in a sentence, ns.Companion.SourceText names the
+-- source with and ns.Companion.StatusText reads out of the companion's own
+-- status file. Returns a model rather than a string so the age can be toned
+-- amber without the tests reading colour codes: { text, stale, companion,
+-- tooltip }.
 --
 -- `stale` is VaultPanel.IsVerdictStale over the client's own reset boundary -
 -- an export older than the last weekly reset, which is the tell ARCHITECTURE.md
--- 11 names for a
--- companion watcher that has died. nil (not false) when the client does not say
--- when the reset is; only a true makes the age amber.
+-- 11 named for a companion watcher that has died. Since C-9 (WKE-559) the
+-- companion clause says it outright instead, and the amber age is the second
+-- opinion. nil (not false) when the client does not say when the reset is; only
+-- a true makes the age amber.
 function UI.StatusStripModel(now)
     local verdict, contentType, fellBack = UI.ActiveVerdict()
     local tooltip = { UI.VerdictNoteText(now) }
+    -- C-9 (WKE-559): the sixth fact, and the only one that is about the
+    -- companion rather than the export - what its last run did. It is on the
+    -- line even with no export at all, because "companion: FAILED at profile"
+    -- is exactly what an empty window needs to say.
+    local companion = ns.Companion.StatusText(ns.companionStatus, now)
+    -- Last in the tooltip, always: the lines above it are about the export on
+    -- screen, and a reader looking for why there is no newer one reads down.
+    local companionNote = ns.Companion.StatusTooltip(ns.companionStatus, now)
     if not verdict then
-        return { text = UI.NO_VERDICT_STRIP, tooltip = tooltip }
+        if companionNote then
+            tooltip[#tooltip + 1] = companionNote
+        end
+        return {
+            text = UI.NO_VERDICT_STRIP .. UI.SEPARATOR .. companion,
+            companion = companion,
+            tooltip = tooltip,
+        }
     end
     local kind = UI.KIND_LABEL[UI.KIND_TOP_GEAR]
     local source = ns.Companion.SourceText(verdict, now) or "imported"
@@ -391,15 +410,20 @@ function UI.StatusStripModel(now)
         string.format("%s %s", contentType or "unknown content type", kind),
         source,
         UI.SCENARIO_TAG[scenario] or ("vault pick: " .. tostring(scenario)),
+        companion,
     }
     local other = UI.OtherImportLine(UI.KIND_TOP_GEAR, verdict, now)
     if other then
         tooltip[#tooltip + 1] = other
     end
+    if companionNote then
+        tooltip[#tooltip + 1] = companionNote
+    end
     return {
         text = table.concat(parts, UI.SEPARATOR),
         stale = stale,
         fellBack = fellBack,
+        companion = companion,
         tooltip = tooltip,
     }
 end

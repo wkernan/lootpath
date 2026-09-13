@@ -2,8 +2,9 @@
 
 A program on the owner's own PC that closes the gearing loop without a browser
 in it. It reads Lootpath's SavedVariables, builds the SimulationCraft profile
-from them, runs QE Live's engine in the owner's local fork, and writes one file
-back into the addon folder.
+from them, runs QE Live's engine in the owner's local fork, and writes the
+verdict back into the addon folder - with a log and a status chunk beside it
+saying what it did.
 
 **The loop it makes possible is `/lootpath refresh`, wait, `/lootpath refresh`.**
 No `/simc`, no alt-tab, no paste. That is the floor and this README says so
@@ -73,9 +74,9 @@ the addon folder the same way - and it is the one exception to Lootpath's
 - **It never talks to anything but localhost.** No backend, no telemetry,
   nothing leaves the machine. The only network call is to the fork's own dev
   server.
-- **It never writes anywhere but `Data/QEVerdict.lua`** inside
-  `Interface\AddOns\Lootpath\`, and it refuses if the addon is not installed
-  rather than creating a folder.
+- **It never writes anywhere but `Interface\AddOns\Lootpath\Data\`** - the
+  verdict, its own log and its own status chunk, and nothing else anywhere - and
+  it refuses if the addon is not installed rather than creating a folder.
 - **It never writes code.** The chunk it produces declares one local, checks
   that it really is loading inside the addon, and assigns one table of string
   literals and numbers. The addon runs each string through the same
@@ -119,6 +120,79 @@ configured clone and waits for it.
 Changing either upgrade setting changes the question, so it also changes the
 fingerprint: the next run goes to QE Live even though not a byte of gear moved.
 
+### Seeing what it did
+
+The companion used to be invisible unless you were watching the window that
+started it: it printed to that terminal and nowhere else, so a run that DIED and
+a run that had nothing to do looked identical from inside the game - an export a
+few hours old, either way. That happened on 2026-09-09 (`docs/ARCHITECTURE.md`
+11). Since C-9 (WKE-559) it writes two more files, both next to the verdict:
+
+| file | what it is |
+|---|---|
+| `Data\companion.log` | every line the companion prints, with the date the terminal leaves out. Rotates at 200 KB, keeping one `companion.log.1`. |
+| `Data\CompanionStatus.lua` | what the last run did, as a data-only Lua chunk the addon loads: `state` (`idle` / `running` / `skipped` / `failed`), `startedAt`, `finishedAt`, `stage`, `message`, `profileCapturedAt`, `verdictWrittenAt`, `exitCode`. |
+
+The status chunk is written at **every stage change**, so a run in progress says
+so rather than leaving the last run's words on screen for the minute QE Live
+takes. The addon reads it at load like any other addon file and the window's
+status strip carries one clause of it:
+
+```
+QE Live . Restoration Druid . Dungeon Top Gear . companion, written 3 minute(s) ago . vault pick: this week . companion: wrote 3 minute(s) ago
+```
+
+and, in the four other states,
+
+```
+companion: run started 22:48
+companion: profile unchanged, no run (23:06)
+companion: FAILED at profile (21:06) - see companion.log
+companion: never seen
+```
+
+A `--profile-only` dry run writes the log and NOT the status chunk: it asks QE
+Live nothing, so it has nothing to say about the last real run. `--out` moves
+both files next to the file it is writing, for the same reason - a dry run must
+not overwrite what the game is about to read.
+
+### Starting with Windows
+
+Neither the fork's dev server nor the watcher survives a reboot, and until C-9
+nothing restarted them: the loop quietly stopped working and the only tell was
+an ageing age on the status strip (`docs/ARCHITECTURE.md` 11, 2026-09-08).
+
+```powershell
+cd tools\companion
+.\install-startup.ps1            # registers the logon task
+Start-ScheduledTask -TaskName 'Lootpath companion'   # ... and try it now
+.\uninstall-startup.ps1          # removes it
+```
+
+`install-startup.ps1` registers a Task Scheduler task for the **current user**,
+**at logon**, hidden, working directory `tools\companion`, running
+`start-companion.ps1`, which:
+
+1. refuses if a `companion.js` is already running (see "never two watchers"
+   below), and says which pid has it;
+2. starts `npm start` in `forkPath` when nothing answers `forkUrl`, and waits up
+   to `forkStartTimeoutSeconds` for the port;
+3. runs `node companion.js --watch`.
+
+Both scripts are idempotent: installing twice replaces the task rather than
+doubling it, and uninstalling a task that is not there says so and exits 0.
+Neither starts or stops a watcher the owner is running himself. The task runs
+interactively as whoever registered it and no password is stored; a console may
+flash for an instant at logon, which is Windows rather than a setting.
+
+**Never two watchers.** Two companions over one SavedVariables file both wake on
+the same `/reload`, both build the same profile and both drive the same browser
+profile directory. Since C-9 the watcher takes a lock file in the state
+directory (`.state\watch.lock`) and a second one refuses with exit code 7,
+naming the pid that has it. A lock whose process is gone - a machine that lost
+power mid-run - is taken over and said so; there is never a file to delete by
+hand.
+
 ### Exit codes
 
 | code | meaning |
@@ -130,6 +204,7 @@ fingerprint: the next run goes to QE Live even though not a byte of gear moved.
 | 4 | the fork is unreachable, or driving it failed |
 | 5 | QE Live refused the profile (its own message is quoted) |
 | 6 | the write failed; the previous verdict file is untouched |
+| 7 | `--watch` only: another companion is already watching (it names the pid) |
 
 ## Configuration
 
@@ -149,7 +224,7 @@ the defaults, which are the owner's machine. Every key is optional.
 | `qeAutoUpgradeAll` | `false` | his "Upgrade ALL to Max Level" box, likewise |
 | `startFork` | `true` | |
 | `headed` | `false` | show the browser when a selector stops matching |
-| `stateDir` | `.state` | the browser profile (so the welcome dialog is answered once) and `last-profile.json`, the fingerprint of the last verdict written |
+| `stateDir` | `.state` | the browser profile (so the welcome dialog is answered once), `last-profile.json`, the fingerprint of the last verdict written, and `watch.lock`, the watcher's own lock |
 | `forkStartTimeoutSeconds` | `180` | |
 | `debounceMs` | `1500` | quiet time after a SavedVariables write before reading it |
 
@@ -305,6 +380,10 @@ and, on every Upgrade Finder document, the key level it was run at:
 | `lib/output.js` | temp file, then rename, so the client never reads half a file |
 | `lib/watch.js` | one run per `/reload`, never one per byte written |
 | `lib/fingerprint.js` | is this the profile QE Live was already asked about? (C-4) |
+| `lib/status.js` | renders `Data/CompanionStatus.lua` - what the last run did (C-9) |
+| `lib/lock.js` | never two watchers: the lock file and whose pid holds it (C-9) |
+| `start-companion.ps1` | the fork if it is not up, then the watcher - what the logon task runs (C-9) |
+| `install-startup.ps1` / `uninstall-startup.ps1` | register and remove that logon task (C-9) |
 
 `lib/config.js` also owns `plannedPasses(config, { hasVaultGear, force })`, which
 turns the configured lists into the PASSES one run makes over QE Live - an import
@@ -403,9 +482,9 @@ until WKE-535's reader exists (Upgrade Finder).
 npm test        # node --test, no install needed for the pure parts
 ```
 
-130 tests over the reader, the profile builder, the config, the writer, the
-watcher, the fingerprint, the driver's checkbox step, its key selector and its
-scenario passes. The profile builder is measured against the owner's
+186 tests over the reader, the profile builder, the config, the writers, the
+watcher, the fingerprint, the log file, the status chunk, the watcher's lock,
+the driver's checkbox step, its key selector and its scenario passes. The profile builder is measured against the owner's
 own `/simc` string (`spec/fixtures/simc/hotornot-20260907.txt`) and against a
 committed generated profile; the writer's golden is loaded by a real Lua interpreter in
 `spec/companionfile_spec.lua`. The fork driver is not mocked: it is proven by a
@@ -421,4 +500,13 @@ that the "Mythic+ Key Level" Paper is the one Playwright finds in his real page,
 and that is the recorded run in the pull request. C-6's scenario table is
 proved over the plan (`plannedPasses`) and the same fake dialog, and end to end
 through `once()`: with no vault gear only `asOffered` is asked, `--force` asks
-all three, and changing the list costs a run.
+all three, and changing the list costs a run. C-9's log and status chunk are
+driven the same way - a whole fake `_retail_` in the temp directory, the fork
+injected - and twice through the real CLI in a child process, because the log
+file and the status recorder are `main()`'s to wire and no in-process test can
+say it did. **What is NOT tested is the Task Scheduler task**: there is no
+Windows and no logon in CI, so `install-startup.ps1` is proved by the owner
+registering it once and rebooting (WKE-559). What IS tested of the three scripts
+is that install and uninstall name the same task and that the task starts the
+script that starts the watcher - the part that breaks silently when a file is
+renamed.

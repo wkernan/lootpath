@@ -15,6 +15,7 @@ Libs\json.lua
 
 Core.lua
 Data\QEVerdict.lua
+Data\CompanionStatus.lua
 Captures.lua
 Modules\ItemData.lua
 Modules\Inventory.lua

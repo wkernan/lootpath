@@ -1375,3 +1375,234 @@ ns.companionVerdict = {
         assert.equal(27, #ns.Companion.ExcludedLines(many))
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- C-9 (WKE-559): the companion's own status file.
+
+describe("the committed Data/CompanionStatus.lua placeholder", function()
+    after_each(function()
+        H.unload()
+    end)
+
+    it("is listed in the .toc, right after the verdict and before the modules", function()
+        local files = H.tocFiles()
+        local verdict, status, firstModule
+        for index, file in ipairs(files) do
+            if file == "Data/QEVerdict.lua" then
+                verdict = index
+            elseif file == "Data/CompanionStatus.lua" then
+                status = index
+            elseif file:match("^Modules/") and not firstModule then
+                firstModule = index
+            end
+        end
+        assert.is_number(verdict)
+        assert.is_number(status)
+        assert.equal(verdict + 1, status)
+        assert.is_true(status < firstModule)
+    end)
+
+    it("loads and sets nothing, so a fresh install says the companion has never been seen", function()
+        local ns = H.load()
+        assert.is_nil(ns.companionStatus)
+        assert.equal(ns.Companion.STATUS_NEVER, ns.Companion.StatusText(ns.companionStatus))
+    end)
+
+    it("is not gitignored: the .toc names it, so a release without it would not load", function()
+        for line in io.lines(".gitignore") do
+            local rule = line:gsub("%s+$", "")
+            if rule ~= "" and rule:sub(1, 1) ~= "#" then
+                assert.is_nil(rule:find("CompanionStatus", 1, true), ".gitignore names CompanionStatus: " .. rule)
+            end
+        end
+    end)
+end)
+
+describe("Companion.Status", function()
+    local ns, world
+
+    before_each(function()
+        ns, world = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("reads every field the companion writes", function()
+        local status = ns.Companion.Status({
+            state = "idle",
+            startedAt = "2026-09-13T22:48:01Z",
+            finishedAt = "2026-09-13T22:48:44Z",
+            stage = "write",
+            message = "8 documents",
+            profileCapturedAt = "2026-09-13T22:47:31",
+            verdictWrittenAt = "2026-09-13T22:48:44Z",
+            companionVersion = "0.1.0",
+            exitCode = 0,
+        })
+        assert.is_true(status.ok)
+        assert.equal("idle", status.state)
+        assert.equal("2026-09-13T22:48:01Z", status.startedAt)
+        assert.equal("2026-09-13T22:48:44Z", status.finishedAt)
+        assert.equal("write", status.stage)
+        assert.equal("8 documents", status.message)
+        assert.equal("2026-09-13T22:47:31", status.profileCapturedAt)
+        assert.equal("2026-09-13T22:48:44Z", status.verdictWrittenAt)
+        assert.equal("0.1.0", status.companionVersion)
+        assert.equal(0, status.exitCode)
+    end)
+
+    it("calls a missing file absent rather than broken: nothing has run yet", function()
+        local status = ns.Companion.Status(nil)
+        assert.is_true(status.absent)
+        assert.is_nil(status.ok)
+    end)
+
+    it("refuses a state it cannot act on, and anything that is not a table", function()
+        assert.is_false(ns.Companion.Status({ state = "exploded" }).ok)
+        assert.is_false(ns.Companion.Status({}).ok)
+        assert.is_false(ns.Companion.Status("running").ok)
+        assert.is_false(ns.Companion.Status(42).ok)
+        for state in pairs(ns.Companion.STATUS_STATES) do
+            assert.is_true(ns.Companion.Status({ state = state }).ok, state .. " is a state it can be in")
+        end
+    end)
+
+    it("drops a field it cannot read rather than showing whatever was there", function()
+        local status = ns.Companion.Status({
+            state = "failed",
+            stage = 12,
+            message = {},
+            exitCode = "3",
+            finishedAt = "",
+        })
+        assert.is_true(status.ok)
+        assert.is_nil(status.stage)
+        assert.is_nil(status.message)
+        assert.is_nil(status.exitCode)
+        assert.is_nil(status.finishedAt)
+        -- a fractional or negative exit code is not an exit code either
+        assert.is_nil(ns.Companion.Status({ state = "idle", exitCode = 1.5 }).exitCode)
+        assert.is_nil(ns.Companion.Status({ state = "idle", exitCode = -1 }).exitCode)
+    end)
+
+    it("passes every value through ns.Safe before it looks at it", function()
+        -- A secret value coerces to nil and answers no type honestly, so the
+        -- guard runs before anything reads it - the order M3-3 settled on.
+        assert.is_false(ns.Companion.Status({ state = world.markSecret("running") }).ok)
+        assert.is_false(ns.Companion.Status(world.secretTable()).ok)
+        -- A whole file the client hid: every field of it is readable Lua and the
+        -- guard is the only thing that refuses it.
+        assert.is_false(ns.Companion.Status(world.markSecret({ state = "idle", stage = "write" })).ok)
+        local status = ns.Companion.Status({
+            state = "idle",
+            stage = world.markSecret("write"),
+            exitCode = world.markSecret(0),
+        })
+        assert.is_true(status.ok)
+        assert.is_nil(status.stage)
+        assert.is_nil(status.exitCode)
+    end)
+end)
+
+describe("Companion.StatusText", function()
+    local ns
+
+    before_each(function()
+        ns = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local NOW = "2026-09-13T22:51:00Z"
+
+    local function at(iso)
+        return date("%H:%M", ns.EpochFromISO(iso))
+    end
+
+    local function text(status)
+        return ns.Companion.StatusText(status, ns.EpochFromISO(NOW))
+    end
+
+    it("says how long ago the verdict on disk was written", function()
+        assert.equal(
+            "companion: wrote 3 minute(s) ago",
+            text({ state = "idle", verdictWrittenAt = "2026-09-13T22:48:00Z" })
+        )
+        -- The VERDICT's stamp, not the run's own finish: the two are minutes
+        -- apart on a real run, and the age on the strip is about the file the
+        -- addon read.
+        assert.equal(
+            "companion: wrote 6 minute(s) ago",
+            text({
+                state = "idle",
+                verdictWrittenAt = "2026-09-13T22:45:00Z",
+                finishedAt = "2026-09-13T22:50:00Z",
+            })
+        )
+    end)
+
+    it("says a run is running, and when it started", function()
+        assert.equal(
+            "companion: run started " .. at("2026-09-13T22:48:00Z"),
+            text({ state = "running", stage = "qe live", startedAt = "2026-09-13T22:48:00Z" })
+        )
+        -- a stamp it cannot read is a clause without a time, never a wrong one
+        assert.equal("companion: run started", text({ state = "running", startedAt = "some time on Tuesday" }))
+    end)
+
+    it("says there was nothing to do, which is not the same as nothing happening", function()
+        assert.equal(
+            "companion: profile unchanged, no run (" .. at("2026-09-13T22:06:00Z") .. ")",
+            text({ state = "skipped", finishedAt = "2026-09-13T22:06:00Z" })
+        )
+    end)
+
+    it("says where a run died, and where to read why", function()
+        assert.equal(
+            "companion: FAILED at profile (" .. at("2026-09-13T21:06:00Z") .. ") - see companion.log",
+            text({ state = "failed", stage = "profile", finishedAt = "2026-09-13T21:06:00Z", exitCode = 3 })
+        )
+        -- and a failure that does not say where still says to read the log
+        assert.equal(
+            "companion: FAILED (" .. at("2026-09-13T21:06:00Z") .. ") - see companion.log",
+            text({ state = "failed", finishedAt = "2026-09-13T21:06:00Z" })
+        )
+    end)
+
+    it("says never seen for the placeholder, and says so rather than guessing at a broken file", function()
+        assert.equal(ns.Companion.STATUS_NEVER, text(nil))
+        assert.equal(ns.Companion.STATUS_UNREADABLE, text({ state = "exploded" }))
+        assert.equal(ns.Companion.STATUS_UNREADABLE, text("a string"))
+    end)
+
+    it("falls back to the clock when an idle run names no verdict", function()
+        assert.equal(
+            "companion: idle (" .. at("2026-09-13T22:48:00Z") .. ")",
+            text({ state = "idle", finishedAt = "2026-09-13T22:48:00Z" })
+        )
+        assert.equal("companion: idle", text({ state = "idle" }))
+    end)
+
+    it("puts the companion's own words in the tooltip and never on the line", function()
+        local status = {
+            state = "failed",
+            stage = "qe live",
+            message = "the fork did not answer http://localhost:3000",
+            finishedAt = "2026-09-13T21:06:00Z",
+        }
+        assert.is_nil(text(status):find("localhost", 1, true))
+        local tooltip = ns.Companion.StatusTooltip(status, ns.EpochFromISO(NOW))
+        assert.equal(
+            "The companion's last run: the fork did not answer http://localhost:3000 ("
+                .. at("2026-09-13T21:06:00Z")
+                .. ")",
+            tooltip
+        )
+        -- a status with nothing to add adds nothing
+        assert.is_nil(ns.Companion.StatusTooltip({ state = "idle" }, ns.EpochFromISO(NOW)))
+    end)
+end)

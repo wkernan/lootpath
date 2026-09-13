@@ -14,9 +14,13 @@
 // The loop it makes possible: /reload, wait, /reload. No /simc, no browser, no
 // paste. It reads Lootpath's own SavedVariables, builds the SimulationCraft
 // profile from them, runs QE Live's engine in the owner's local fork, and
-// writes Interface\AddOns\Lootpath\Data\QEVerdict.lua - the only file it ever
-// writes inside the game folder, and the only file the addon loads that it did
-// not ship with.
+// writes Interface\AddOns\Lootpath\Data\QEVerdict.lua - the verdict the addon
+// reads, and the only file it loads that it did not ship with.
+//
+// Since C-9 (WKE-559) two more files sit beside it in that folder and nowhere
+// else: `companion.log`, every line this program prints, and
+// `CompanionStatus.lua`, what the last run did - so a run that died and a run
+// that had nothing to do stop looking the same from inside the game.
 //
 // It computes nothing. Every healing number in that file is QE Live's own
 // export text, carried through unchanged for the addon to parse exactly as it
@@ -33,6 +37,8 @@ const forkLib = require('./lib/fork');
 const luaWriter = require('./lib/luawriter');
 const output = require('./lib/output');
 const fingerprintLib = require('./lib/fingerprint');
+const statusLib = require('./lib/status');
+const lockLib = require('./lib/lock');
 const { watch } = require('./lib/watch');
 
 const VERSION = require('./package.json').version;
@@ -47,6 +53,10 @@ const EXIT = {
     fork: 4,
     refused: 5,
     write: 6,
+    // C-9 (WKE-559): another watcher already has the lock. Its own run is
+    // fine; this one would be the second, and two watchers over one
+    // SavedVariables file is the failure the rule has named since C-1.
+    watching: 7,
 };
 
 function parseArgs(argv) {
@@ -66,28 +76,37 @@ function parseArgs(argv) {
 
 // `deps` exists for the tests: the fork driver is the one part that opens a
 // browser, so a test that has to prove QE Live was NOT asked hands in its own.
+// `deps.status` is C-9's recorder (lib/status.js); with none, every status call
+// is a no-op and nothing is written, which is what a --profile-only dry run
+// wants.
 async function once(config, log, args, deps) {
     const fork = (deps && deps.fork) || forkLib;
+    const status = (deps && deps.status) || statusLib.make({});
     // path.resolve, not path.join, so an absolute stateDir (which is what a
     // test passes) is honoured instead of being glued onto __dirname.
     const stateDir = path.resolve(__dirname, config.stateDir);
+    status.started();
     const found = configLib.findSavedVariables(config);
     if (!found.ok) {
         log.error(found.reason);
+        status.failed('savedvariables', found.reason, EXIT.savedVariables);
         return EXIT.savedVariables;
     }
     log.info(`SavedVariables: ${configLib.maskAccount(found.file)}`);
 
+    status.stage('read');
     let done = log.stage('read');
     let text;
     try {
         text = fs.readFileSync(found.file, 'utf8');
     } catch (e) {
         log.error(`could not read the SavedVariables: ${e.message}`);
+        status.failed('read', `could not read the SavedVariables: ${e.message}`, EXIT.savedVariables);
         return EXIT.savedVariables;
     }
     done(`${(Buffer.byteLength(text) / 1024).toFixed(0)} KB`);
 
+    status.stage('profile');
     done = log.stage('profile');
     const profile = profileLib.build(text, { includeBank: config.includeBank });
     if (!profile.ok) {
@@ -97,8 +116,10 @@ async function once(config, log, args, deps) {
                 `the companion would rather read one "${profile.wanted}" capture; until the addon writes it, run /lootpath capture inventory and /reload`
             );
         }
+        status.failed('profile', profile.reason, EXIT.profile);
         return EXIT.profile;
     }
+    status.stage('profile', { profileCapturedAt: profile.capturedAtLocal });
     for (const warning of profile.warnings) log.warn(warning);
     done(
         `${profile.counts.equipped} equipped, ${profile.counts.bag} in bags, ${profile.counts.bank} in the bank, ${profile.counts.vault} vault, ${profile.counts.lines} lines`
@@ -134,6 +155,9 @@ async function once(config, log, args, deps) {
             log.info(
                 `profile unchanged since ${current.writtenAt}; the verdict file is current - /reload in game to read it`
             );
+            status.skipped(`profile unchanged since ${current.writtenAt}; the verdict file is current`, {
+                verdictWrittenAt: current.writtenAt,
+            });
             return EXIT.ok;
         }
     }
@@ -165,6 +189,7 @@ async function once(config, log, args, deps) {
                 : " - a mixed pair, which values vault options and owned gear at different points on their upgrade tracks")
     );
 
+    status.stage('qe live', { message: `${passes.length} imports, ${plan.length} documents` });
     done = log.stage('qe live');
     let run;
     try {
@@ -175,8 +200,9 @@ async function once(config, log, args, deps) {
         });
     } catch (e) {
         log.error(e.message);
-        if (e.code === forkLib.REFUSED) return EXIT.refused;
-        return EXIT.fork;
+        const code = e.code === forkLib.REFUSED ? EXIT.refused : EXIT.fork;
+        status.failed('qe live', e.message, code);
+        return code;
     }
     done(`${run.documents.length} documents`);
     for (const doc of run.documents) {
@@ -194,6 +220,7 @@ async function once(config, log, args, deps) {
         }
     }
 
+    status.stage('write');
     done = log.stage('write');
     // Second precision: `ns.EpochFromISO` (Core.lua) reads
     // YYYY-MM-DDTHH:MM:SS and the addon's contract spells it that way.
@@ -218,8 +245,12 @@ async function once(config, log, args, deps) {
         done(`${(written.bytes / 1024).toFixed(0)} KB -> ${written.target}`);
     } catch (e) {
         log.error(`writing ${target} failed, so the previous verdict is untouched: ${e.message}`);
+        status.failed('write', `writing the verdict failed, so the previous one is untouched: ${e.message}`, EXIT.write);
         return EXIT.write;
     }
+    // Only now: the status file says a verdict was written when one was, and
+    // never a moment before.
+    status.wrote(writtenAt, { message: `${run.documents.length} documents` });
     // After the write, never before: the fingerprint records what the addon can
     // actually read. A state file that will not write costs one extra run next
     // time and nothing else, so it is a warning and not a failed run.
@@ -232,9 +263,34 @@ async function once(config, log, args, deps) {
     return EXIT.ok;
 }
 
+// The log file and the status chunk both live beside whatever verdict this run
+// would write - next to `QEVerdict.lua` for a real run, next to the file
+// `--out` names for a dry one - so a dry run never overwrites what the game is
+// about to read (C-9, WKE-559).
+function visibility(config, args, log) {
+    const target = args.out || configLib.verdictPath(config);
+    const dir = path.dirname(target);
+    const file = path.join(dir, configLib.LOG_FILE);
+    const logSink = logLib.fileSink(file, {
+        onError: (e) => log.warn(`the log file ${file} cannot be written (${e.message}); the terminal is all there is`),
+    });
+    // --profile-only touches no browser and writes no verdict, so it says
+    // nothing about the last real run either: a null file makes every status
+    // call a no-op.
+    const status = statusLib.make({
+        file: args.profileOnly ? null : path.join(dir, configLib.STATUS_FILE),
+        companionVersion: VERSION,
+        onError: (e) => log.warn(`the status file cannot be written (${e.message}); the log is still the record`),
+    });
+    return { logSink, status, logFile: file };
+}
+
 async function main() {
     const args = parseArgs(process.argv.slice(2));
-    const log = logLib.make();
+    // Until the config is read there is nowhere to put a log file: where it
+    // goes is the config's answer. The two failures below are therefore the
+    // only ones the terminal alone ever sees.
+    let log = logLib.make();
     if (args.error) {
         log.error(args.error);
         return EXIT.usage;
@@ -250,10 +306,46 @@ async function main() {
         log.error(e.message);
         return EXIT.usage;
     }
+    const seen = visibility(config, args, log);
+    log = logLib.make(logLib.tee(logLib.consoleSink(), seen.logSink));
     for (const warning of config.warnings || []) log.warn(warning);
     log.info(`Lootpath companion ${VERSION}${config.configFile ? ` (config ${config.configFile})` : ' (built-in defaults)'}`);
+    log.info(`log file: ${seen.logFile}`);
 
-    const code = await once(config, log, args);
+    // Never two watchers (lib/lock.js). The refusal comes BEFORE the first run,
+    // because a second companion that ran once and then refused to watch would
+    // still have driven the browser profile the first one is using.
+    let lock = null;
+    if (args.watch) {
+        const lockFile = path.join(path.resolve(__dirname, config.stateDir), configLib.LOCK_FILE);
+        const taken = lockLib.acquire(lockFile, { watching: configLib.maskAccount(configLib.verdictPath(config)) });
+        if (!taken.ok) {
+            log.error(
+                `another companion is already watching (pid ${taken.held.pid}, since ${taken.held.startedAt}).` +
+                    ` Two watchers would both run QE Live on every /reload. Stop that one, or delete ${lockFile} if it is gone.`
+            );
+            return EXIT.watching;
+        }
+        lock = taken;
+        if (taken.took) {
+            log.warn('a previous watcher left its lock behind and is no longer running; taking it over');
+        }
+        const release = () => {
+            if (lock) {
+                lock.release();
+                lock = null;
+            }
+        };
+        process.on('exit', release);
+        for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+            process.on(signal, () => {
+                release();
+                process.exit(EXIT.ok);
+            });
+        }
+    }
+
+    const code = await once(config, log, args, { status: seen.status });
     if (!args.watch) return code;
 
     const found = configLib.findSavedVariables(config);
@@ -264,7 +356,7 @@ async function main() {
     log.info(`watching ${configLib.maskAccount(found.file)}; /reload in game to trigger a run. Ctrl+C to stop.`);
     watch(found.file, { debounceMs: config.debounceMs }, async () => {
         log.info('SavedVariables changed');
-        const result = await once(config, log, args);
+        const result = await once(config, log, args, { status: seen.status });
         if (result !== EXIT.ok) log.warn(`that run failed with exit code ${result}; the previous verdict file is untouched`);
     });
     // Never resolves: the watcher owns the process from here.
@@ -284,4 +376,4 @@ if (require.main === module) {
     );
 }
 
-module.exports = { parseArgs, once, EXIT, VERSION };
+module.exports = { parseArgs, once, visibility, EXIT, VERSION };
