@@ -122,6 +122,27 @@ Roads.TAG_EQUIP = "In your bags"
 -- client's own countdown (principle 5). "before reset" is never written.
 Roads.VAULT_OPEN_NOW = "open now"
 
+-- The client's own countdown, in the client's own units, and nothing else: the
+-- vault road says how long is left, never what happens when it runs out
+-- (principle 5, which is why "before reset" is not a string in this file).
+Roads.RESET_TEXT = "reset in %s"
+
+function Roads.ResetText(seconds)
+    seconds = tonumber(seconds)
+    if not seconds or seconds < 0 then
+        return nil
+    end
+    local days = math.floor(seconds / 86400)
+    local hours = math.floor((seconds % 86400) / 3600)
+    if days > 0 then
+        return string.format(Roads.RESET_TEXT, string.format("%dd %dh", days, hours))
+    end
+    if hours > 0 then
+        return string.format(Roads.RESET_TEXT, string.format("%dh", hours))
+    end
+    return string.format(Roads.RESET_TEXT, string.format("%dm", math.floor((seconds % 3600) / 60)))
+end
+
 -- A crest step says the cost or says it is not read, and never promises one.
 -- `C_ItemUpgrade.GetItemUpgradeItemInfo` answers only for an owned item placed
 -- in the open vendor window, which is an action rather than a read, so for a
@@ -356,8 +377,13 @@ end
 -- ---------------------------------------------------------------------------
 -- Steps and what to do next.
 
-local function step(text, done)
-    return { text = text, done = done }
+-- A step is either something to DO or something that is KNOWN. `fact` marks
+-- the second kind - what the client says you hold, and what is not readable at
+-- all - because a surface shows those beside the badge as muted facts while the
+-- doing steps belong to the footer and the "do:" line (R-3, docs/ROADS-UX.md
+-- surface 2). Nothing else about a step changes with the flag.
+local function step(text, done, fact)
+    return { text = text, done = done, fact = fact or nil }
 end
 
 -- The footer names the next step nobody has ticked, never a count
@@ -369,6 +395,20 @@ function Roads.NextStep(road)
         end
     end
     return nil
+end
+
+-- The steps that state what is known rather than what to do: what the client
+-- says you hold, and what is not readable at all. A surface shows these beside
+-- the badge (R-3's muted facts); the doing steps belong to the footer. In the
+-- order the road built them, because that order is the order of the road.
+function Roads.Facts(road)
+    local facts = {}
+    for _, entry in ipairs(type(road) == "table" and road.steps or {}) do
+        if entry.fact then
+            facts[#facts + 1] = entry.text
+        end
+    end
+    return facts
 end
 
 -- ---------------------------------------------------------------------------
@@ -707,7 +747,7 @@ local function finishSetRoad(road, entry, inputs, planVault, charge)
         road.resetSeconds = type(inputs.vault) == "table" and inputs.vault.secondsUntilWeeklyReset or nil
         road.steps[#road.steps + 1] = step("the vault is offering it", Roads.DONE_CLIENT)
         if rating and rating.level and rating.arrivesAt and rating.level > rating.arrivesAt then
-            road.steps[#road.steps + 1] = step(Roads.CREST_NOT_READABLE)
+            road.steps[#road.steps + 1] = step(Roads.CREST_NOT_READABLE, nil, true)
         end
         road.steps[#road.steps + 1] = step("take it from the Great Vault")
         road.verb = Roads.VERB_SHOW_IN_VAULT
@@ -925,10 +965,10 @@ function Roads.ForSlot(slot, inputs)
             road.arrivesAt = record.itemLevel
             road.phrase = Roads.PHRASE_NO_RATING
             road.rating = { kind = Roads.RATING_NONE, badge = Roads.PHRASE_NO_RATING, arrivesAt = record.itemLevel }
-            road.steps[#road.steps + 1] = step(Roads.CREST_NOT_READ)
+            road.steps[#road.steps + 1] = step(Roads.CREST_NOT_READ, nil, true)
             local holding = Roads.CrestHoldingText(inputs.currencies)
             if holding then
-                road.steps[#road.steps + 1] = step(holding, Roads.DONE_CLIENT)
+                road.steps[#road.steps + 1] = step(holding, Roads.DONE_CLIENT, true)
             end
             road.nextStep = Roads.NextStep(road)
             if record.key then
@@ -989,7 +1029,7 @@ function Roads.ForSlot(slot, inputs)
                     road.rating = { kind = Roads.RATING_NONE, badge = Roads.PHRASE_NO_RATING }
                     road.rankedAtAnotherLevel = ns.UFImport.LevelsAcrossLevels(documents, itemID)
                 end
-                road.steps[#road.steps + 1] = step(Roads.CREST_NOT_READABLE)
+                road.steps[#road.steps + 1] = step(Roads.CREST_NOT_READABLE, nil, true)
                 road.steps[#road.steps + 1] = step("it drops for you", Roads.DONE_PLAYER)
                 road.verb = Roads.VERB_SHOW_RUN
                 if rated then
@@ -1074,13 +1114,13 @@ function Roads.ForSlot(slot, inputs)
                 road.phrase = Roads.PHRASE_NOT_IN_BEST_SET
             end
             if kind == Roads.KIND_CRAFT then
-                road.steps[#road.steps + 1] = step(Roads.CRAFT_NOT_READ)
+                road.steps[#road.steps + 1] = step(Roads.CRAFT_NOT_READ, nil, true)
                 road.todo = "do: get the spark, then order it"
             else
                 -- No delve step until a delve capture exists: the key's
                 -- currency ID is in no capture and no client call says which
                 -- delves are Bountiful. The row says so, without a "do:".
-                road.steps[#road.steps + 1] = step(Roads.DELVE_NOT_READ)
+                road.steps[#road.steps + 1] = step(Roads.DELVE_NOT_READ, nil, true)
             end
             road.nextStep = Roads.NextStep(road)
             if item.key then

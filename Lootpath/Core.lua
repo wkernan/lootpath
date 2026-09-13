@@ -439,6 +439,10 @@ ns.DB_DEFAULTS = {
             scale = 1.0,
             compactRows = false,
             minimapAngle = 200,
+            -- "Explain" (R-3, WKE-564, docs/ROADS-UX.md principle 11): one
+            -- plain sentence under the first visible use of a system word in
+            -- an expanded slot. Off by default, because the default is dense.
+            explain = false,
         },
     },
 }

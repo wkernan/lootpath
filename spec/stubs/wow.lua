@@ -449,6 +449,26 @@ local function attachScrollBoxList(box, world)
         self.extent = total
     end
 
+    -- ScrollBox.lua:869. The real call asks its view to prepare, finds the
+    -- data index by predicate (ScrollBoxListView.lua:200, which is the data
+    -- provider's own FindIndexByPredicate), and returns the element data it
+    -- scrolled to - or nothing at all when no element matches. A headless box
+    -- has no offset to move, so what is modelled is the FIND and the answer:
+    -- `scrolledTo` records which element the box was asked to put on screen.
+    function box:ScrollToElementDataByPredicate(predicate)
+        if not (self.dataProvider and type(predicate) == "function") then
+            return nil
+        end
+        for index, elementData in self.dataProvider:Enumerate() do
+            if predicate(elementData) then
+                self.scrolledToIndex = index
+                self.scrolledTo = elementData
+                return elementData
+            end
+        end
+        return nil
+    end
+
     function box:SetDataProvider(dataProvider)
         self.dataProvider = dataProvider
         self:Layout()
