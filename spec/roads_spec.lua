@@ -368,8 +368,16 @@ describe("Roads over the owner's week of 2026-09-08", function()
         assert.equal(ns.Roads.TAG_CRAFTED, craft.tag)
         assert.equal(331, craft.arrivesAt)
         assert.equal("+3.63%", craft.rating.badge)
-        assert.equal(ns.Roads.CRAFT_NOT_READ, craft.steps[1].text)
+        -- What the number assumed, from the export's own settings (R-4): the
+        -- stats a crafting order would have to ask for. A fact, not a step.
+        assert.equal("the rating assumes Crit / Haste", craft.steps[1].text)
+        assert.is_true(craft.steps[1].fact)
+        assert.equal(ns.Roads.CRAFT_NOT_READ, craft.steps[2].text)
+        assert.same({ "the rating assumes Crit / Haste", ns.Roads.CRAFT_NOT_READ }, ns.Roads.Facts(craft))
         assert.equal("do: get the spark, then order it", craft.todo)
+        -- The key level is not what values a crafted item, so no row names one
+        -- (ns.UFImport.SourceRows; ARCHITECTURE.md 9, 2026-09-13).
+        assert.is_nil(craft.rating.keyLevel)
 
         assert.is_table(delve)
         assert.equal(ns.Roads.TAG_DELVES, delve.tag)
@@ -380,6 +388,9 @@ describe("Roads over the owner's week of 2026-09-08", function()
         assert.equal(ns.Roads.DELVE_NOT_READ, delve.steps[1].text)
         assert.is_nil(delve.todo)
         assert.is_nil(delve.verb)
+        assert.is_nil(delve.rating.keyLevel)
+        -- A delve row is not crafted, so it assumes no stats line.
+        assert.same({ ns.Roads.DELVE_NOT_READ }, ns.Roads.Facts(delve))
     end)
 
     it("puts upgrading what you wear in the no-rating group, cost unread", function()

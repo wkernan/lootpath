@@ -22,6 +22,32 @@ local function readFile(path)
     return text
 end
 
+-- R-4 (WKE-565): the by-run view now carries two cards the Encounter Journal
+-- walk cannot produce - Crafting and Delves, built out of the rows every
+-- Upgrade Finder export carries beside its drops. They sit in `model.runs`
+-- beside the walk's own cards and sort against them, and they are the only
+-- runs with a `sourceKind` and no instance. Every assertion below that is
+-- about THE WALK filters them out with this, so the walk's own figures are
+-- still asserted as exactly what they were.
+local function walkedRuns(model)
+    local list = {}
+    for _, run in ipairs(model.runs) do
+        if not run.sourceKind then
+            list[#list + 1] = run
+        end
+    end
+    return list
+end
+
+local function cardNamed(model, name)
+    for _, run in ipairs(model.runs) do
+        if run.name == name then
+            return run
+        end
+    end
+    return nil
+end
+
 -- The real export, parsed. Restoration Druid, Raid content, 15 equipped items,
 -- no differentials and no vault items (see spec/fixtures/qe/README.md).
 local function realVerdict(ns)
@@ -1083,10 +1109,15 @@ describe("UpgradeMapPanel by-run view, joined to the genuine Raid export", funct
     it("carries the whole walk: 48 runs over the 478 drops the slot view counts", function()
         -- Measured over the 2026-09-06 20:09 cold walk, whose rows all arrived.
         local model = runModel(ns.UpgradeMapPanel.SORT_BEST)
-        assert.equal(48, model.counts.runs)
+        assert.equal(48, #walkedRuns(model))
         assert.equal(478, model.counts.drops)
         local slotModel = ns.UpgradeMapPanel.Model({ sources = sources, summary = summary })
         assert.equal(slotModel.counts.candidates, model.counts.drops)
+        -- R-4: two more cards, and they are not the walk's - `drops` is still
+        -- the walk's own total, because an export row is not a drop the
+        -- Adventure Guide lists.
+        assert.equal(50, model.counts.runs)
+        assert.equal(2, model.counts.exportRuns)
     end)
 
     it("is one run per dungeon and difficulty, and one run per raid boss and difficulty", function()
@@ -1096,6 +1127,8 @@ describe("UpgradeMapPanel by-run view, joined to the genuine Raid export", funct
         for _, run in ipairs(model.runs) do
             assert.is_nil(seen[run.key])
             seen[run.key] = true
+        end
+        for _, run in ipairs(walkedRuns(model)) do
             if run.isRaid then
                 raids = raids + 1
                 assert.is_number(run.encounterID)
@@ -1113,13 +1146,25 @@ describe("UpgradeMapPanel by-run view, joined to the genuine Raid export", funct
         assert.equal(23, dungeons)
         assert.equal(25, raids)
         assert.equal(48, dungeons + raids)
+        -- R-4's two are neither, and say so: no instance, no encounter, no
+        -- difficulty, and a key of their own that cannot collide with a run's.
+        for _, name in ipairs({ "Crafting", "Delves" }) do
+            local card = cardNamed(model, name)
+            assert.is_not_nil(card, name .. " is missing from the by-run view")
+            assert.is_nil(card.instanceID)
+            assert.is_nil(card.encounterID)
+            assert.is_nil(card.difficultyID)
+            assert.is_nil(card.instanceImage)
+            assert.is_false(card.isRaid)
+        end
     end)
 
     it("ranked by best upgrade, puts QE Live's biggest single number first", function()
         -- Measured: Gaze of the Coiled Watcher (Head, 344) from Ula'tek is the
         -- Raid export's largest upgradePercent among the walk's drops, 3.42.
         local model = runModel(ns.UpgradeMapPanel.SORT_BEST)
-        local top = model.runs[1]
+        local walked = walkedRuns(model)
+        local top = walked[1]
         assert.equal("The Venomous Abyss - Ula'tek - Mythic raid", top.label)
         assert.equal(3.42, top.bestPercent)
         assert.equal(
@@ -1127,8 +1172,18 @@ describe("UpgradeMapPanel by-run view, joined to the genuine Raid export", funct
                 .. "2 of 3 drops rated upgrades",
             top.text
         )
+        for index = 2, #walked do
+            assert.is_true((walked[index].bestPercent or 0) <= top.bestPercent)
+        end
+        -- R-4: the biggest number in the whole export is not in the walk at
+        -- all. The same document values the crafted Magister's Valediction
+        -- (237849, 331) at 3.724, which is why the card sorts above every run
+        -- under this order - his number, in his order, against his own rows.
+        local first = model.runs[1]
+        assert.equal("Crafting", first.name)
+        assert.equal(3.724, first.bestPercent)
         for index = 2, #model.runs do
-            assert.is_true((model.runs[index].bestPercent or 0) <= top.bestPercent)
+            assert.is_true((model.runs[index].bestPercent or 0) <= first.bestPercent)
         end
     end)
 
@@ -1136,43 +1191,63 @@ describe("UpgradeMapPanel by-run view, joined to the genuine Raid export", funct
         -- Measured: The Coiled Altar has 4 of its 6 drops rated, more than any
         -- other run, though its best single number (2.035) is only the fourth.
         local model = runModel(ns.UpgradeMapPanel.SORT_COUNT)
-        local top = model.runs[1]
+        local walked = walkedRuns(model)
+        local top = walked[1]
         assert.equal("The Venomous Abyss - The Coiled Altar - Mythic raid", top.label)
         assert.equal(4, top.rated)
         assert.equal(6, top.drops)
         assert.equal(2.035, top.bestPercent)
         assert.equal("4 of 6 drops rated upgrades", top.countText)
+        for index = 2, #walked do
+            assert.is_true(walked[index].rated <= top.rated)
+        end
+        -- R-4: 21 of the 33 delve rows in this same document are upgrades by
+        -- his own IsUpgrade, which is more than any run of the walk has drops
+        -- rated - and the count wording says "ranked items", never "drops",
+        -- because the denominator is the rows he ranked and not a loot table.
+        local first = model.runs[1]
+        assert.equal("Delves", first.name)
+        assert.equal(21, first.rated)
+        assert.equal(33, first.drops)
+        assert.equal("21 of 33 ranked items are upgrades", first.countText)
         for index = 2, #model.runs do
-            assert.is_true(model.runs[index].rated <= top.rated)
+            assert.is_true(model.runs[index].rated <= first.rated)
         end
     end)
 
     it("answers at first glance, in one sentence naming the top row under the sort", function()
+        -- The sentence names whatever sorts first, and since R-4 that can be a
+        -- card the walk never produced: his biggest single number in this
+        -- document is a crafted weapon and his longest list of upgrades is the
+        -- delve one. Both figures are his; neither is weighted by anything.
         local best = runModel(ns.UpgradeMapPanel.SORT_BEST)
-        assert.equal(
-            "Best run right now (by best upgrade): The Venomous Abyss, Ula'tek, Mythic raid - +3.42% for Head.",
-            best.headline
-        )
-        assert.equal("The Venomous Abyss, Ula'tek, Mythic raid", best.runs[1].name)
+        assert.equal("Best run right now (by best upgrade): Crafting - +3.72% for 2H Weapon.", best.headline)
+        assert.equal("Crafting", best.runs[1].name)
         local count = runModel(ns.UpgradeMapPanel.SORT_COUNT)
         assert.equal(
-            "Best run right now (by most upgrades): The Venomous Abyss, The Coiled Altar, Mythic raid - "
-                .. "4 of 6 drops rated upgrades.",
+            "Best run right now (by most upgrades): Delves - 21 of 33 ranked items are upgrades.",
             count.headline
         )
-        assert.equal("The Venomous Abyss, The Coiled Altar, Mythic raid", count.runs[1].name)
+        assert.equal("Delves", count.runs[1].name)
+        -- The walk's own best is unchanged underneath, and still reads the way
+        -- it did before the two cards existed.
+        assert.equal("The Venomous Abyss, Ula'tek, Mythic raid", walkedRuns(best)[1].name)
+        assert.equal("The Venomous Abyss, The Coiled Altar, Mythic raid", walkedRuns(count)[1].name)
         -- The sentence is the list's first line, so it is the first thing read.
         assert.equal(best.headline, ns.UpgradeMapPanel.RunLines(best)[1])
         assert.equal(count.headline, ns.UpgradeMapPanel.RunLines(count)[1])
     end)
 
     it("says a run has nothing rated rather than ranking it, and sorts it last", function()
-        -- Measured: 9 of the 48 runs have a rated drop; the other 39 do not,
-        -- every one of them a dungeon, because the export assumed key level 7
-        -- and the walk previewed 10 (ARCHITECTURE.md 11).
+        -- Measured: 9 of the 48 walked runs have a rated drop; the other 39 do
+        -- not, every one of them a dungeon, because the export assumed key
+        -- level 7 and the walk previewed 10 (ARCHITECTURE.md 11). R-4's two
+        -- cards are both rated, so the count is 11 and the first unrated card
+        -- moves from position 10 to position 12 - the rule is unchanged: a
+        -- card with nothing rated sorts after every card that has something.
         for _, sort in ipairs(ns.UpgradeMapPanel.SORTS) do
             local model = runModel(sort)
-            assert.equal(9, model.counts.ratedRuns)
+            assert.equal(11, model.counts.ratedRuns)
             local firstEmpty
             for index, run in ipairs(model.runs) do
                 if run.rated == 0 then
@@ -1184,7 +1259,7 @@ describe("UpgradeMapPanel by-run view, joined to the genuine Raid export", funct
                     assert.is_nil(firstEmpty, "a rated run sorted after an unrated one")
                 end
             end
-            assert.equal(10, firstEmpty)
+            assert.equal(12, firstEmpty)
         end
     end)
 
@@ -1192,19 +1267,30 @@ describe("UpgradeMapPanel by-run view, joined to the genuine Raid export", funct
         local model = runModel(ns.UpgradeMapPanel.SORT_BEST)
         local fromJournal = journalDropsPerRun(ns, sources, summary.previewMythicPlusLevel)
         local total = 0
-        for _, run in ipairs(model.runs) do
+        for _, run in ipairs(walkedRuns(model)) do
             assert.equal(fromJournal[run.key], run.drops)
             assert.equal(string.format("%d of %d drops rated upgrades", run.rated, run.drops), run.countText)
             assert.is_not_nil(run.text:find(run.countText, 1, true))
             total = total + run.drops
         end
         assert.equal(478, total)
+        -- R-4's two cards have a denominator too, and it is a different claim:
+        -- every row the export ranks for that source, which is not every
+        -- crafted item or every delve reward in the game. The wording says so.
+        for _, name in ipairs({ "Crafting", "Delves" }) do
+            local card = cardNamed(model, name)
+            assert.is_nil(fromJournal[card.key])
+            assert.equal(string.format("%d of %d ranked items are upgrades", card.rated, card.drops), card.countText)
+            assert.is_not_nil(card.text:find(card.countText, 1, true))
+        end
+        assert.equal(18, cardNamed(model, "Crafting").drops)
+        assert.equal(33, cardNamed(model, "Delves").drops)
     end)
 
     it("lists a run's rated drops under it, best first, with QE Live's own words", function()
         local model = runModel(ns.UpgradeMapPanel.SORT_BEST)
         local lines = ns.UpgradeMapPanel.RunLines(model)
-        local top = model.runs[1]
+        local top = walkedRuns(model)[1]
         assert.equal(2, #top.upgrades)
         assert.equal("Gaze of the Coiled Watcher", top.upgrades[1].name)
         assert.equal("Aqirbane Reliquary", top.upgrades[2].name)
@@ -1225,7 +1311,7 @@ describe("UpgradeMapPanel by-run view, joined to the genuine Raid export", funct
         -- shows, of which 21 are upgrades and 9 are his zero.
         assert.equal(21, model.counts.rated)
         local rated = 0
-        for _, run in ipairs(model.runs) do
+        for _, run in ipairs(walkedRuns(model)) do
             rated = rated + #run.upgrades
             for _, row in ipairs(run.upgrades) do
                 assert.is_true(ns.UFImport.IsUpgrade(row.upgrade))
@@ -1234,6 +1320,19 @@ describe("UpgradeMapPanel by-run view, joined to the genuine Raid export", funct
             end
         end
         assert.equal(21, rated)
+        -- Same rule on R-4's cards: only a row his own IsUpgrade calls an
+        -- upgrade is listed under one, so a zero row never reaches a card.
+        for _, name in ipairs({ "Crafting", "Delves" }) do
+            local card = cardNamed(model, name)
+            assert.equal(card.rated, #card.upgrades)
+            for _, row in ipairs(card.upgrades) do
+                assert.is_true(ns.UFImport.IsUpgrade(row.upgrade))
+                assert.equal(row.itemLevel, row.upgrade.level)
+                assert.equal(row.itemID, row.upgrade.itemID)
+            end
+        end
+        assert.equal(13, cardNamed(model, "Crafting").rated)
+        assert.equal(21, cardNamed(model, "Delves").rated)
     end)
 
     it("offers the two rankings as facts and never an expected value, a chance or a weighting", function()
@@ -1272,10 +1371,22 @@ describe("UpgradeMapPanel by-run view, joined to the genuine Raid export", funct
     it("follows the difficulty filter, and the buttons still count the whole map", function()
         local model = runModel(ns.UpgradeMapPanel.SORT_BEST, { difficultyIDs = { 8 } })
         -- Measured: the walk previews 54 Mythic Keystone drops over 7 dungeons.
-        assert.equal(7, model.counts.runs)
+        assert.equal(7, #walkedRuns(model))
         assert.equal(54, model.counts.drops)
-        for _, run in ipairs(model.runs) do
+        for _, run in ipairs(walkedRuns(model)) do
             assert.equal(8, run.difficultyID)
+        end
+        -- R-4 deliverable 4: the two export cards have no difficulty, gain no
+        -- entry in the dropdown, and are shown whatever it is filtered to -
+        -- there is nothing about them a difficulty could filter.
+        assert.equal(9, model.counts.runs)
+        assert.equal(2, model.counts.exportRuns)
+        for _, name in ipairs({ "Crafting", "Delves" }) do
+            assert.is_not_nil(cardNamed(model, name))
+        end
+        for _, option in ipairs(ns.UpgradeMapPanel.DifficultyOptions(model)) do
+            assert.is_nil(option.label:find("Crafting", 1, true))
+            assert.is_nil(option.label:find("Delves", 1, true))
         end
         local unfiltered = runModel(ns.UpgradeMapPanel.SORT_BEST)
         assert.equal(#unfiltered.difficulties, #model.difficulties)
@@ -1310,17 +1421,19 @@ describe("UpgradeMapPanel by-run view, joined to the genuine Dungeon export", fu
             runSort = ns.UpgradeMapPanel.SORT_BEST,
         })
         assert.equal(22, model.counts.rated)
-        assert.equal(9, model.counts.ratedRuns)
+        -- 9 walked runs are rated, as they were before R-4, and both export
+        -- cards are: 11.
+        assert.equal(11, model.counts.ratedRuns)
         assert.equal(
             "The Venomous Abyss - Vashnik the Malignant - Mythic raid: best +3.08% "
                 .. "(Venomancer's Winged Channeler, 2H Weapon); 3 of 3 drops rated upgrades",
-            model.runs[1].text
+            walkedRuns(model)[1].text
         )
-        assert.equal(
-            "Best run right now (by best upgrade): The Venomous Abyss, Vashnik the Malignant, Mythic raid - "
-                .. "+3.08% for 2H Weapon.",
-            model.headline
-        )
+        -- This document's own crafted row is bigger than any of its drops -
+        -- 3.634 against 3.08 - so the sentence names the card. Measured:
+        -- tools/measure-delves-crafted.lua over abxrrnezfilt.
+        assert.equal("Best run right now (by best upgrade): Crafting - +3.63% for 2H Weapon.", model.headline)
+        assert.equal(3.634, model.runs[1].bestPercent)
     end)
 end)
 
@@ -1526,17 +1639,29 @@ describe("UpgradeMapPanel view toggle on the frames", function()
     it("keeps the difficulty filter across the two views", function()
         local frame = ns.UpgradeMapPanel.Create()
         frame:Refresh()
-        for _, option in ipairs(frame.difficultyDropdown.menuElements) do
+        -- Picked the way T-1's stub offers: the helper lives on `widget.stub`,
+        -- where it cannot be mistaken for a client method.
+        local picked
+        for index, option in ipairs(frame.difficultyDropdown.menuElements) do
             if option.text:find("Mythic+ 10", 1, true) then
-                option:Select()
+                picked = index
             end
         end
+        assert.is_number(picked)
+        assert.is_true(frame.difficultyDropdown.stub:Pick(picked))
         assert.same({ 8 }, frame.difficultyIDs)
         frame.modeButtons[2]:Click()
         assert.same({ 8 }, frame.difficultyIDs)
+        local cards = 0
         for _, run in ipairs(frame.model.runs) do
-            assert.equal(8, run.difficultyID)
+            if run.sourceKind then
+                -- R-4: no difficulty, so no filter can exclude it.
+                cards = cards + 1
+            else
+                assert.equal(8, run.difficultyID)
+            end
         end
+        assert.equal(frame.model.counts.exportRuns, cards)
     end)
 
     it("says why it is empty in the run view too, rather than a map, in combat", function()
@@ -1782,8 +1907,11 @@ describe("UpgradeMapPanel by-run view across key levels", function()
         })
     end
 
+    -- The first card of the walk that is a dungeon: R-4's export cards are
+    -- neither raid nor dungeon (they carry a sourceKind and no instance), so
+    -- they are skipped here rather than being mistaken for one.
     local function firstDungeonRun(model)
-        for _, run in ipairs(model.runs) do
+        for _, run in ipairs(walkedRuns(model)) do
             if not run.isRaid then
                 return run
             end
@@ -1793,9 +1921,11 @@ describe("UpgradeMapPanel by-run view across key levels", function()
 
     it("ranks dungeon runs at last, over the journal's own denominator", function()
         local model = runModel(ns.UpgradeMapPanel.SORT_BEST)
-        assert.equal(48, model.counts.runs)
+        assert.equal(48, #walkedRuns(model))
         assert.equal(478, model.counts.drops)
-        assert.equal(16, model.counts.ratedRuns)
+        -- 16 of the walk's runs are rated, as they were; R-4's two cards are
+        -- both rated, so 18 cards on screen carry a best.
+        assert.equal(18, model.counts.ratedRuns)
         assert.equal(46, model.counts.rated)
         local dungeon = firstDungeonRun(model)
         assert.equal("Voidscar Arena - Mythic+ 10", dungeon.label)
@@ -1816,7 +1946,7 @@ describe("UpgradeMapPanel by-run view across key levels", function()
             upgradeDocuments = { { verdict = ns.UFImport.ForContentTypeAndLevel("Dungeon", 10), keyLevel = 10 } },
             runSort = ns.UpgradeMapPanel.SORT_BEST,
         })
-        for _, run in ipairs(only10.runs) do
+        for _, run in ipairs(walkedRuns(only10)) do
             if not run.isRaid then
                 assert.is_nil(run.best)
                 assert.matches("no drop rated yet", run.text)
@@ -1829,10 +1959,14 @@ describe("UpgradeMapPanel by-run view across key levels", function()
         local dungeon = firstDungeonRun(model)
         assert.equal("Temple of Sethraliss - Mythic+ 10", dungeon.label)
         assert.equal("6 of 8 drops rated upgrades", dungeon.countText)
+        -- The sentence names whatever is first, and over these five documents
+        -- that is the Delves card: 21 of its 33 ranked items are upgrades,
+        -- against the best dungeon's 6 of 8 (measured).
         assert.equal(
-            "Best run right now (by most upgrades): Temple of Sethraliss, Mythic+ 10 - 6 of 8 drops rated upgrades.",
+            "Best run right now (by most upgrades): Delves - 21 of 33 ranked items are upgrades.",
             model.headline
         )
+        assert.equal("Temple of Sethraliss - Mythic+ 10", walkedRuns(model)[1].label)
     end)
 
     it("keeps the walk's key level on the run and QE Live's on the drop line", function()
@@ -2233,8 +2367,11 @@ describe("UpgradeMapPanel run cards", function()
                 assert.equal("none", run.badge.tone)
             end
             -- The denominator is on the card, always: the count text is the
-            -- model's own and says how thin the best upgrade is spread.
-            assert.equal(string.format("%d of %d drops rated upgrades", run.rated, run.drops), run.countText)
+            -- model's own and says how thin the best upgrade is spread. R-4's
+            -- two cards count ranked items rather than drops, because that is
+            -- what their denominator is.
+            local wording = run.sourceKind and "%d of %d ranked items are upgrades" or "%d of %d drops rated upgrades"
+            assert.equal(string.format(wording, run.rated, run.drops), run.countText)
         end
         assert.is_true(rated > 0)
         assert.is_true(unrated > 0)
@@ -2270,8 +2407,17 @@ describe("UpgradeMapPanel run cards", function()
             summary = summary,
             upgrades = upgrades(ns, UF_RAID),
         })
-        for _, run in ipairs(model.runs) do
+        for _, run in ipairs(walkedRuns(model)) do
             assert.equal(4000 + run.instanceID, run.instanceImage)
+        end
+        -- R-4's cards have no instance and therefore no art: the card draws
+        -- the plain dark strip rather than standing in a picture of somewhere
+        -- else (deliverable 3).
+        for _, name in ipairs({ "Crafting", "Delves" }) do
+            local card = cardNamed(model, name)
+            assert.is_not_nil(card)
+            assert.is_nil(card.instanceID)
+            assert.is_nil(card.instanceImage)
         end
     end)
 end)
@@ -2402,5 +2548,211 @@ describe("UpgradeMapPanel through the scroll box", function()
         assert.equal(ns.UpgradeMapPanel.ELEMENT_NOTE, frame.elements[1].kind)
         assert.equal(frame.lines[1], frame.elements[1].text)
         assert.equal(1, frame.scrollBox:GetDataProviderSize())
+    end)
+end)
+
+-- R-4 (WKE-565): Delves and Crafted on both views.
+--
+-- Every Upgrade Finder document the companion writes carries 18 `Crafted` and
+-- 33 `Delves` rows beside its drops, and until now the panel drew none of them:
+-- it draws what the Encounter Journal walk found, and the walk finds no
+-- crafting order and no delve. Every figure below was read off the committed
+-- documents by tools/measure-delves-crafted.lua before it was written here.
+-- R-4's BY-RUN half. The by-slot half is R-3's - `ns.Roads.ForSlot` builds a
+-- craft and a delve road per slot and the slot's `Other rated sources` group
+-- draws them - and `spec/roadsrow_spec.lua` is where those rows are asserted.
+describe("UpgradeMapPanel Crafting and Delves cards", function()
+    local ns, world, sources, summary
+
+    -- The owner's own two-hander slot, which is the slot the issue was filed
+    -- on: his best crafted row beats every dungeon drop at his key.
+    local CRAFTED_WEAPON = 237849
+
+    before_each(function()
+        ns, world = H.load()
+        sources, summary = coldWalk(ns)
+        loadInventory(ns, world)
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- The five Dungeon documents of one companion run, stored the way the
+    -- client really gets them.
+    local function companionRun()
+        local exports = {}
+        for _, level in ipairs({ 2, 4, 6, 8, 10 }) do
+            exports[#exports + 1] = {
+                schema = "qe-live-upgradefinder",
+                contentType = "Dungeon",
+                keyLevel = level,
+                json = readFile(UF_KEY_LEVEL_PATHS[level]),
+            }
+        end
+        local result = ns.Companion.ImportAll({ writtenAt = "2026-09-08T22:47:59Z", exports = exports })
+        assert(result.ok, result.reason)
+        return ns.UFImport.Documents("Dungeon")
+    end
+
+    it("gives the by-run view one card each, ranked against the walk's runs by both orders", function()
+        local documents = companionRun()
+        local function runModel(sort)
+            return ns.UpgradeMapPanel.RunModel({
+                sources = sources,
+                summary = summary,
+                upgradeDocuments = documents,
+                runSort = sort,
+            })
+        end
+
+        local best = runModel(ns.UpgradeMapPanel.SORT_BEST)
+        assert.equal(2, best.counts.exportRuns)
+        local crafting = cardNamed(best, "Crafting")
+        assert.equal("craft", crafting.sourceKind)
+        assert.equal(3.627, crafting.bestPercent)
+        assert.equal("best +3.63%", crafting.badge.text)
+        assert.equal("13 of 18 ranked items are upgrades", crafting.countText)
+        assert.equal("No difficulty - spark and materials not read", crafting.difficultyLabel)
+        assert.equal(13, #crafting.upgrades)
+        assert.equal(CRAFTED_WEAPON, crafting.upgrades[1].itemID)
+
+        -- A card's rows carry what only the export knows, and no more: the
+        -- stats line its crafted rating assumed, and NO key level - every
+        -- document of one companion run values these rows identically, so
+        -- "(at +2)" would claim a dependency his own files deny.
+        local craftedRow = crafting.upgrades[1]
+        assert.equal("Crafted, Crit / Haste - spark and materials not read", craftedRow.second)
+        assert.equal("better by 3.63%", craftedRow.upgradeValue)
+        assert.is_nil(craftedRow.badge.note)
+        assert.is_nil(craftedRow.keyLabel)
+        assert.is_nil(craftedRow.upgradeKeyLevel)
+        assert.equal(2, craftedRow.documentKeyLevel)
+        assert.equal(5, craftedRow.documentsCarrying)
+
+        local delves = cardNamed(best, "Delves")
+        assert.equal("delve", delves.sourceKind)
+        assert.equal(2.366, delves.bestPercent)
+        -- A delve row is not crafted, so it assumes no stats line at all.
+        assert.equal("Delves - key and Bountiful state not read", delves.upgrades[1].second)
+        assert.is_nil(delves.upgrades[1].badge.note)
+        assert.equal("21 of 33 ranked items are upgrades", delves.countText)
+        assert.equal("No difficulty - key and Bountiful state not read", delves.difficultyLabel)
+        assert.equal(21, #delves.upgrades)
+
+        -- Measured: his biggest single number over these documents is the
+        -- crafted weapon, so the Crafting card is first under "best upgrade";
+        -- 21 of 33 delve rows are upgrades, more than any run of the walk has
+        -- rated drops, so Delves is first under "most upgrades".
+        assert.equal("Crafting", best.runs[1].name)
+        assert.equal("Delves", runModel(ns.UpgradeMapPanel.SORT_COUNT).runs[1].name)
+
+        -- Proven red: with no document neither card exists, and the view is
+        -- the walk's alone.
+        local without = ns.UpgradeMapPanel.RunModel({ sources = sources, summary = summary })
+        assert.equal(0, without.counts.exportRuns)
+        assert.is_nil(cardNamed(without, "Crafting"))
+        assert.is_nil(cardNamed(without, "Delves"))
+        assert.is_nil(without.exportNote)
+        assert.equal(#without.runs + 2, #best.runs)
+    end)
+
+    it("shows both cards under every difficulty, and adds neither to the dropdown", function()
+        local documents = companionRun()
+        local unfiltered = ns.UpgradeMapPanel.RunModel({
+            sources = sources,
+            summary = summary,
+            upgradeDocuments = documents,
+        })
+        for _, difficulty in ipairs(unfiltered.difficulties) do
+            local model = ns.UpgradeMapPanel.RunModel({
+                sources = sources,
+                summary = summary,
+                upgradeDocuments = documents,
+                difficultyIDs = { difficulty.difficultyID },
+            })
+            assert.equal(2, model.counts.exportRuns)
+            assert.is_not_nil(cardNamed(model, "Crafting"))
+            assert.is_not_nil(cardNamed(model, "Delves"))
+            -- The dropdown is built from the walk's own difficulties, and the
+            -- two cards have none to add: the options are the same list they
+            -- were, whichever view is on screen.
+            assert.equal(#unfiltered.difficulties, #model.difficulties)
+        end
+        -- The by-slot half is R-3's: the same rows are ns.Roads' craft and
+        -- delve roads under the slot's `Other rated sources` group, and they
+        -- are not in this view's dropdown either.
+        for _, option in ipairs(ns.UpgradeMapPanel.DifficultyOptions(unfiltered)) do
+            assert.is_nil(option.label:find("Crafting", 1, true))
+            assert.is_nil(option.label:find("Delves", 1, true))
+        end
+    end)
+
+    it("draws a card with no art and no instance, and opens onto its ranked rows", function()
+        local documents = companionRun()
+        local model = ns.UpgradeMapPanel.RunModel({
+            sources = sources,
+            summary = summary,
+            upgradeDocuments = documents,
+        })
+        local card = cardNamed(model, "Crafting")
+        local elements = ns.UpgradeMapPanel.RunElements(model, { runs = { [card.key] = true } })
+        local opened, listed = nil, 0
+        for index, element in ipairs(elements) do
+            if element.kind == ns.UpgradeMapPanel.ELEMENT_RUN and element.run == card then
+                opened = index
+            elseif opened and element.kind == ns.UpgradeMapPanel.ELEMENT_ITEM then
+                listed = listed + 1
+            elseif opened and element.kind == ns.UpgradeMapPanel.ELEMENT_RUN then
+                break
+            end
+        end
+        assert.is_number(opened)
+        assert.equal(#card.upgrades, listed)
+
+        -- The card is drawn by the same element the instance cards are, and
+        -- the strip where art would be stays the plain dark one because there
+        -- is no instance to draw.
+        local frame = ns.UpgradeMapPanel.Create()
+        local element = CreateFrame("Frame", nil, frame)
+        ns.UpgradeMapPanel.InitElement(frame, element, elements[opened])
+        assert.equal("Crafting", element.runName:GetText())
+        assert.equal("No difficulty - spark and materials not read", element.runSecond:GetText())
+        assert.equal("13 of 18 ranked items are upgrades", element.runCount:GetText())
+        assert.is_nil(element.runArt:GetTexture())
+        assert.is_not_nil(element.runArt.vertexColor)
+    end)
+
+    it("says nothing about either source when the export ranks neither", function()
+        -- The hand-built sample carries one Delves row and a Crafted row with
+        -- an unusable itemID, so the Crafted half is absent and the Delves
+        -- half is one row: the panel says exactly what the document says.
+        local parsed = ns.UFImport.Parse(readFile(UF_SAMPLE))
+        assert(parsed.ok, parsed.reason)
+        -- One delve row and no crafted one: the sample's crafted entry carries
+        -- an unusable itemID, so nothing names it (ns.UFImport.SourceRows).
+        local documents = { { verdict = parsed.verdict } }
+        assert.equal(0, #ns.UFImport.SourceRows(documents, "craft"))
+        assert.equal(1, #ns.UFImport.SourceRows(documents, "delve"))
+
+        local runs = ns.UpgradeMapPanel.RunModel({
+            sources = sources,
+            summary = summary,
+            upgrades = parsed.verdict,
+        })
+        assert.equal(1, runs.counts.exportRuns)
+        assert.is_nil(cardNamed(runs, "Crafting"))
+        assert.equal(1, cardNamed(runs, "Delves").drops)
+    end)
+
+    it("draws nothing of either when there is no loot map at all", function()
+        -- The by-slot list and the by-run list both stop at "no loot map yet",
+        -- so the model carries no row that nothing draws.
+        local model = ns.UpgradeMapPanel.Model({ upgradeDocuments = companionRun() })
+        assert.is_false(model.hasMap)
+        assert.same({ ns.UpgradeMapPanel.EMPTY_NOTE }, ns.UpgradeMapPanel.Lines(model))
+        local runs = ns.UpgradeMapPanel.RunModel({ upgradeDocuments = companionRun() })
+        assert.equal(0, runs.counts.exportRuns)
+        assert.same({ ns.UpgradeMapPanel.EMPTY_NOTE }, ns.UpgradeMapPanel.RunLines(runs))
     end)
 end)

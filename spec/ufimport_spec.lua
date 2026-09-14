@@ -822,3 +822,211 @@ describe("UFImport.LookupAcrossLevels over the five committed key levels", funct
         assert.is_nil(ns.UFImport.KeyLabel(-1))
     end)
 end)
+
+-- R-4 (WKE-565): the rows that are not a boss drop.
+--
+-- Every committed export carries them and nothing ever asked for them. The
+-- figures below were read off the files by tools/measure-delves-crafted.lua
+-- before they were written down here.
+describe("UFImport Delves and Crafted rows", function()
+    local ns
+
+    local BY_LEVEL = {
+        [2] = "spec/fixtures/qe/qe-upgradefinder-Hotornot-lrxljklscrjr.json",
+        [4] = "spec/fixtures/qe/qe-upgradefinder-Hotornot-jnjnmzftoppb.json",
+        [6] = "spec/fixtures/qe/qe-upgradefinder-Hotornot-zmtnpejwfewe.json",
+        [8] = "spec/fixtures/qe/qe-upgradefinder-Hotornot-lttldhvkiqlr.json",
+        [10] = "spec/fixtures/qe/qe-upgradefinder-Hotornot-wyharestkdyr.json",
+    }
+    local RAID_KEY_10 = "spec/fixtures/qe/qe-upgradefinder-Hotornot-ynfzbppepnzw.json"
+
+    -- The owner's own two-hander slot, the one the issue was filed on: the
+    -- crafted Magister's Valediction at 331 and the delve two-hander at 321.
+    local CRAFTED_WEAPON = 237849
+    local DELVE_WEAPON = 272273
+
+    local function verdictAt(path)
+        local result = ns.UFImport.Parse(readFile(path))
+        assert(result.ok, result.reason)
+        return result.verdict
+    end
+
+    local function dungeonDocuments()
+        local documents = {}
+        for _, level in ipairs({ 2, 4, 6, 8, 10 }) do
+            documents[#documents + 1] = { verdict = verdictAt(BY_LEVEL[level]), keyLevel = level }
+        end
+        return documents
+    end
+
+    before_each(function()
+        ns = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("names a kind for exactly the two dropLoc values that are not a drop", function()
+        assert.equal("craft", ns.UFImport.SourceKind("Crafted"))
+        assert.equal("delve", ns.UFImport.SourceKind("Delves"))
+        -- Everything else is a drop and belongs to the journal's half of the
+        -- panel, including the number his own unit-test fixture uses and the
+        -- two words the real exports carry for a boss.
+        assert.is_nil(ns.UFImport.SourceKind("Dungeon"))
+        assert.is_nil(ns.UFImport.SourceKind("Raid"))
+        assert.is_nil(ns.UFImport.SourceKind(1))
+        assert.is_nil(ns.UFImport.SourceKind(nil))
+        assert.is_nil(ns.UFImport.SourceKind("crafted"))
+    end)
+
+    it("puts the kind and the crafted row's profession index on the entry itself", function()
+        local verdict = verdictAt(BY_LEVEL[10])
+        local crafted = verdict.items[CRAFTED_WEAPON .. "@331"]
+        assert.is_not_nil(crafted)
+        assert.equal("craft", crafted.sourceKind)
+        assert.equal("Crafted", crafted.dropLoc)
+        -- His own sentinel instance, and the encounterId carried as the index
+        -- it is. Never turned into a profession name here.
+        assert.equal(ns.UFImport.CRAFTED_INSTANCE_ID, crafted.instanceID)
+        assert.equal(3, crafted.professionIndex)
+        assert.equal(crafted.encounterID, crafted.professionIndex)
+        -- `dropType` is null and `dropDifficulty` is the empty string on these
+        -- rows, so neither the drop tie-break nor a difficulty means anything.
+        assert.is_nil(crafted.dropType)
+        assert.is_nil(crafted.dropDifficulty)
+        assert.is_false(ns.UFImport.IsDropAtLevel(crafted))
+
+        local delve = verdict.items[DELVE_WEAPON .. "@321"]
+        assert.equal("delve", delve.sourceKind)
+        assert.equal(ns.UFImport.DELVE_INSTANCE_ID, delve.instanceID)
+        assert.equal(ns.UFImport.DELVE_INSTANCE_ID, delve.encounterID)
+        -- A delve row has no profession, so it carries no index at all.
+        assert.is_nil(delve.professionIndex)
+
+        -- Proven red on a real boss drop of the same file: it has neither.
+        local drop = verdict.items["252258@311"]
+        assert.is_not_nil(drop)
+        assert.is_nil(drop.sourceKind)
+        assert.is_nil(drop.professionIndex)
+    end)
+
+    it("carries 18 crafted and 33 delve rows in every committed export", function()
+        local files = { BY_LEVEL[2], BY_LEVEL[4], BY_LEVEL[6], BY_LEVEL[8], BY_LEVEL[10], RAID_KEY_10 }
+        for _, path in ipairs(files) do
+            local documents = { { verdict = verdictAt(path) } }
+            assert.equal(18, #ns.UFImport.SourceRows(documents, "craft"), path)
+            assert.equal(33, #ns.UFImport.SourceRows(documents, "delve"), path)
+            for _, held in ipairs(ns.UFImport.SourceRows(documents, "delve")) do
+                assert.equal(321, held.entry.level)
+                assert.equal(ns.UFImport.DELVE_INSTANCE_ID, held.entry.instanceID)
+            end
+            for _, held in ipairs(ns.UFImport.SourceRows(documents, "craft")) do
+                assert.equal(331, held.entry.level)
+                assert.equal(ns.UFImport.CRAFTED_INSTANCE_ID, held.entry.instanceID)
+                assert.is_number(held.entry.professionIndex)
+            end
+        end
+    end)
+
+    it("orders a kind by the percentage he gave, best first", function()
+        local documents = { { verdict = verdictAt(BY_LEVEL[10]), keyLevel = 10 } }
+        local crafted = ns.UFImport.SourceRows(documents, "craft")
+        assert.equal(CRAFTED_WEAPON, crafted[1].entry.itemID)
+        assert.equal(3.627, crafted[1].entry.upgradePercent)
+        local previous
+        for _, held in ipairs(crafted) do
+            if previous then
+                assert.is_true(held.entry.upgradePercent <= previous)
+            end
+            previous = held.entry.upgradePercent
+        end
+        -- Narrowed to one slot, it is the same order over the same entries.
+        local weapon = ns.UFImport.SourceRows(documents, "craft", "2H Weapon")
+        assert.equal(2, #weapon)
+        assert.equal(CRAFTED_WEAPON, weapon[1].entry.itemID)
+        for _, held in ipairs(weapon) do
+            assert.equal("2H Weapon", held.entry.slot)
+        end
+        local delves = ns.UFImport.SourceRows(documents, "delve", "2H Weapon")
+        assert.equal(2, #delves)
+        assert.equal(DELVE_WEAPON, delves[1].entry.itemID)
+        assert.equal(2.171, delves[1].entry.upgradePercent)
+        -- An unknown kind is not a kind: no rows, rather than every row.
+        assert.equal(0, #ns.UFImport.SourceRows(documents, "vendor"))
+        assert.equal(0, #ns.UFImport.SourceRows(documents, nil))
+        assert.equal(0, #ns.UFImport.SourceRows(nil, "craft"))
+    end)
+
+    it("says the five key-level documents agree about every one of these rows", function()
+        -- Measured: all five dungeon documents carry the same 51 Crafted and
+        -- Delves rows with the same upgradePercent on every one, because a
+        -- Mythic+ key is not what values a crafted item. So no row names a key
+        -- level, and the first document (the lowest key) is the one kept.
+        local documents = dungeonDocuments()
+        local rows = 0
+        for _, kind in ipairs(ns.UFImport.SOURCE_KINDS) do
+            for _, held in ipairs(ns.UFImport.SourceRows(documents, kind)) do
+                rows = rows + 1
+                assert.equal(5, held.documents, held.entry.key)
+                assert.is_nil(held.disagrees, held.entry.key)
+                assert.equal(2, held.keyLevel)
+            end
+        end
+        assert.equal(51, rows)
+
+        -- Proven red with two documents that really do disagree: the Raid
+        -- export values 33 of the same 51 rows differently (his content type
+        -- is what moves them), and a row that two stored documents disagree
+        -- about says which document it took.
+        local mixed = { { verdict = verdictAt(BY_LEVEL[10]), keyLevel = 10 }, { verdict = verdictAt(RAID_KEY_10) } }
+        local disagreed = 0
+        for _, kind in ipairs(ns.UFImport.SOURCE_KINDS) do
+            for _, held in ipairs(ns.UFImport.SourceRows(mixed, kind)) do
+                assert.equal(2, held.documents)
+                if held.disagrees then
+                    disagreed = disagreed + 1
+                    assert.equal(10, held.keyLevel)
+                end
+            end
+        end
+        assert.equal(33, disagreed)
+    end)
+
+    it("reads the crafted settings as a stats line and an INDEX, never an item level", function()
+        local verdict = verdictAt(BY_LEVEL[10])
+        local settings = ns.UFImport.CraftedSettings(verdict)
+        assert.equal("Crit / Haste", settings.stats)
+        -- 2 is a row of his own crafted-level table, and the rows it produced
+        -- arrive at item level 331. The two are never confused: the level on a
+        -- row is the row's own.
+        assert.equal(2, settings.levelIndex)
+        assert.equal(331, verdict.items[CRAFTED_WEAPON .. "@331"].level)
+        assert.is_nil(ns.UFImport.CraftedSettings({}))
+        assert.is_nil(ns.UFImport.CraftedSettings(nil))
+        assert.is_nil(ns.UFImport.CraftedSettings({ settings = {} }))
+        -- Carried on every crafted row of that document, and on no delve row:
+        -- the stats line is about what a crafting order would make.
+        local documents = { { verdict = verdict, keyLevel = 10 } }
+        for _, held in ipairs(ns.UFImport.SourceRows(documents, "craft")) do
+            assert.equal("Crit / Haste", held.crafted.stats)
+        end
+        for _, held in ipairs(ns.UFImport.SourceRows(documents, "delve")) do
+            assert.is_nil(held.crafted)
+        end
+    end)
+
+    it("keeps a row with no usable itemID out, as it keeps out any other", function()
+        -- The hand-built sample's crafted row carries itemID 0 and an empty
+        -- source, which UFImport.Item refuses; its delve row is real and is
+        -- read. A row nobody can identify is skipped, never shown as item 0.
+        local verdict = verdictAt(SAMPLE_PATH)
+        local documents = { { verdict = verdict } }
+        assert.equal(0, #ns.UFImport.SourceRows(documents, "craft"))
+        local delves = ns.UFImport.SourceRows(documents, "delve")
+        assert.equal(1, #delves)
+        assert.equal(272147, delves[1].entry.itemID)
+        assert.equal(321, delves[1].entry.level)
+        assert.equal(1, verdict.skippedItems)
+    end)
+end)
