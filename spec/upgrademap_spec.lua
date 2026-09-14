@@ -2623,7 +2623,7 @@ describe("UpgradeMapPanel Crafting and Delves cards", function()
         -- "(at +2)" would claim a dependency his own files deny.
         local craftedRow = crafting.upgrades[1]
         assert.equal("Crafted, Crit / Haste - spark and materials not read", craftedRow.second)
-        assert.equal("QE Live: better by 3.63%", craftedRow.upgradeValue)
+        assert.equal("better by 3.63%", craftedRow.upgradeValue)
         assert.is_nil(craftedRow.badge.note)
         assert.is_nil(craftedRow.keyLabel)
         assert.is_nil(craftedRow.upgradeKeyLevel)

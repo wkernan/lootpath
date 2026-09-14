@@ -544,9 +544,9 @@ Panel.CRAFT_SECOND_STATS = "%s, %s - " .. ns.Roads.CRAFT_NOT_READ
 -- read are named, because "Delves - not read" does not say what was not.
 Panel.DELVE_SECOND = "%s - key and Bountiful state not read"
 
-Panel.EXPORT_NOTE = "Crafting and Delves are ranked in QE Live's export rather than walked in the Adventure "
-    .. "Guide: they carry no difficulty, so they are shown whatever the difficulty filter is set to, and their "
-    .. "counts are of the items he ranked rather than of a run's drops."
+Panel.EXPORT_NOTE = "Crafting and Delves are rated rather than walked in the Adventure Guide: they carry no "
+    .. "difficulty, so they are shown whatever the difficulty filter is set to, and their counts are of rated "
+    .. "items rather than of a run's drops."
 
 -- A run card's denominator is every drop the journal lists for the run. These
 -- two have no journal behind them, so theirs is every row the export ranks -
