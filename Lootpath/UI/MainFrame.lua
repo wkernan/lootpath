@@ -109,9 +109,10 @@ function UI.AgeText(iso, now)
 end
 
 -- The two exports the paste box takes, and what each is called on screen. The
--- kind travels on the import result so the status line can name it: two files
--- that both say "QE Live" answer different questions, and an owner who pasted
--- the wrong one has to be able to see that from the line.
+-- kind travels on the import result so the status line can name it: the two
+-- exports answer different questions, and an owner who pasted the wrong one has
+-- to be able to see that from the line. The line names the export, never the
+-- engine that wrote it (V-1, WKE-569).
 UI.KIND_TOP_GEAR = "topgear"
 UI.KIND_UPGRADE_FINDER = "upgradefinder"
 UI.KIND_LABEL = {

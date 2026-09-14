@@ -117,7 +117,7 @@ end
 -- `where = "topSet"` carries NO numbers, and that is not an omission: the
 -- export gives per-item deltas only on its differentials, and inventing one for
 -- a top-set item would be Lootpath computing a healer value. The panels say
--- "QE Live put this in your best set" there and show a number nowhere else.
+-- "in your best set" there and show a number nowhere else.
 --
 -- An item that appears in several alternatives is reported through the best of
 -- them, ordered by AlternativeRank.
