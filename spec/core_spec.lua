@@ -460,6 +460,34 @@ describe("Core", function()
             assert.truthy(world.output():find("captures cleared", 1, true))
         end)
 
+        it("prints the bag mark's diagnosis, with no bag hovered and nothing built", function()
+            -- R-2a (WKE-571). The bare command answers: an owner whose mark is
+            -- missing types six letters and reads which of the three places it
+            -- failed in, without a plan, a bag addon or an item link.
+            ns.HandleSlash("glow")
+            local out = world.output()
+            assert.truthy(out:find("adapter: ", 1, true), out)
+            assert.truthy(out:find("map: ", 1, true), out)
+            assert.truthy(out:find(ns.UI.Bags.NO_LINK, 1, true), out)
+        end)
+
+        it("asks about the item a link was shift-clicked into the command", function()
+            ns.HandleSlash("glow |Hitem:99999::::::::80:105::::::|h[Nothing]|h")
+            local out = world.output()
+            assert.truthy(out:find("item: key 99999", 1, true), out)
+            assert.truthy(out:find("item: NOT in the map", 1, true), out)
+            assert.truthy(out:find("item: glow no", 1, true), out)
+        end)
+
+        it("opens the window on the Upgrade Map, which is where the tooltip sends the reader", function()
+            local shown
+            ns.UI.ShowUpgradeMap = function()
+                shown = true
+            end
+            ns.HandleSlash("map")
+            assert.is_true(shown)
+        end)
+
         it("prints status", function()
             ns.HandleSlash("capture env")
             ns.HandleSlash("status")

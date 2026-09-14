@@ -237,10 +237,18 @@ describe("UI.AgeText", function()
             assert.equal(0, ns.UI.AgeSeconds(iso, exportedAt))
             assert.equal(3600, ns.UI.AgeSeconds(iso, exportedAt + 3600))
             assert.equal("just now", ns.UI.AgeText(iso, exportedAt))
-            assert.equal("30 second(s) ago", ns.UI.AgeText(iso, exportedAt + 30))
-            assert.equal("10 minute(s) ago", ns.UI.AgeText(iso, exportedAt + 600))
-            assert.equal("3 hour(s) ago", ns.UI.AgeText(iso, exportedAt + 3 * 3600))
-            assert.equal("4 day(s) ago", ns.UI.AgeText(iso, exportedAt + 4 * 86400))
+            assert.equal("30 seconds ago", ns.UI.AgeText(iso, exportedAt + 30))
+            assert.equal("10 minutes ago", ns.UI.AgeText(iso, exportedAt + 600))
+            assert.equal("3 hours ago", ns.UI.AgeText(iso, exportedAt + 3 * 3600))
+            assert.equal("4 days ago", ns.UI.AgeText(iso, exportedAt + 4 * 86400))
+            -- One of anything is singular, which is the whole of the rule the
+            -- "(s)" was standing in for (R-2a, WKE-571). The bands above never
+            -- produce a 1 - the minute band runs to 90 minutes and each band
+            -- rounds into the next at 1.5 - so the rule is asserted where it
+            -- lives rather than through a moment that cannot happen.
+            assert.equal("1 hour", ns.UI.Plural(1, "hour"))
+            assert.equal("4 hours", ns.UI.Plural(4, "hour"))
+            assert.equal("0 days", ns.UI.Plural(0, "day"))
         end
     end)
 
@@ -722,6 +730,24 @@ describe("the window's three tabs", function()
         assert.is_true(frame.equipPanel:IsShown())
         assert.is_false(frame.upgradeMapPanel:IsShown())
         assert.is_false(frame.vaultPanel:IsShown())
+    end)
+
+    it("opens on the Upgrade Map when the tooltip's last line sends a reader there", function()
+        -- R-2a (WKE-571): the tooltip's "Why this?" cannot be clicked, so it
+        -- names `/lootpath map`, and this is the destination it names. It
+        -- SHOWS rather than toggles - a reader who typed it from a tooltip
+        -- asked to see the tab, never to close a window.
+        frame:Hide()
+        assert.equal(frame, ns.UI.ShowUpgradeMap())
+        assert.is_true(frame:IsShown())
+        assert.equal(2, frame.selectedTab)
+        assert.is_true(frame.upgradeMapPanel:IsShown())
+        -- Typed a second time with the window already open on that tab: still
+        -- open, still that tab.
+        ns.UI.ShowUpgradeMap()
+        assert.is_true(frame:IsShown())
+        assert.equal(2, frame.selectedTab)
+        assert.is_truthy(ns.UI.Tooltip.WHY:find("/lootpath map", 1, true))
     end)
 
     it("shows exactly one panel per tab clicked", function()
@@ -1519,7 +1545,7 @@ describe("the status strip (M5-2)", function()
         end
 
         assert.equal(
-            "companion: wrote 3 minute(s) ago",
+            "companion: wrote 3 minutes ago",
             clause({
                 state = "idle",
                 verdictWrittenAt = "2026-09-13T22:48:00Z",
@@ -1569,7 +1595,7 @@ describe("the status strip (M5-2)", function()
         verdict.companionWrittenAt = "2026-09-09T12:00:00.000Z"
         local now = ns.EpochFromISO("2026-09-09T12:04:00.000Z")
         local model = ns.UI.StatusStripModel(now)
-        assert.is_truthy(model.text:find("companion, written 4 minute(s) ago", 1, true))
+        assert.is_truthy(model.text:find("companion, written 4 minutes ago", 1, true))
         -- and not the exported age as well: the source says one age, not two
         assert.is_nil(model.text:find("exported", 1, true))
     end)

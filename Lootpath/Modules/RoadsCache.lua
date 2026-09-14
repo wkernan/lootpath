@@ -40,7 +40,7 @@ Cache.EVENTS = {
 -- answers all of them. A bag sort fires BAG_UPDATE_DELAYED once per bag.
 Cache.DEBOUNCE_SECONDS = 0.5
 
-local state = { map = nil, pending = false, deferred = false, listener = nil }
+local state = { map = nil, pending = false, deferred = false, listener = nil, named = {} }
 
 -- ---------------------------------------------------------------------------
 -- Building.
@@ -297,12 +297,46 @@ function Cache.Rebuild()
     end
     state.map = Cache.Build(model)
     state.map.builtAt = time()
+    Cache.RequestNames(state.map)
     -- A bag that is already open is showing the old map until something tells
     -- it otherwise. Which bag that is, this file does not know.
     if ns.UI and ns.UI.Bags then
         ns.UI.Bags.Refresh()
     end
     return state.map
+end
+
+-- A road whose item the client has not named yet (R-2a, WKE-571: the owner read
+-- "item 244572 (331)" on a Crafted road, 2026-09-14). The surfaces cannot be
+-- told the name because nothing asked the client for it: a crafted row's item
+-- ID comes out of the export, never off a link the player has held, so it was
+-- never in the client's cache. `ns.ItemData.Request` is the one-shot the drawn
+-- rows already use; here it fires once per item ID for the session and rebuilds
+-- the map when the name lands, which is what puts the name on the tooltip.
+--
+-- Not in `Build`: that function is pure and stays so. This is the one place
+-- that reads the client on the cache's behalf, and it runs after the build.
+function Cache.RequestNames(map)
+    if not (ns.ItemData and ns.ItemData.Request) then
+        return 0
+    end
+    local asked = 0
+    for _, slot in ipairs(map.slots or {}) do
+        for _, group in ipairs(ns.Roads.GROUP_ORDER) do
+            for _, road in ipairs(((map.bySlot[slot] or {}).groups or {})[group] or {}) do
+                local item = road.item
+                local itemID = type(item) == "table" and item.itemID or nil
+                if itemID and not item.name and not state.named[itemID] then
+                    state.named[itemID] = true
+                    asked = asked + 1
+                    ns.ItemData.Request(itemID, function()
+                        Cache.Changed()
+                    end)
+                end
+            end
+        end
+    end
+    return asked
 end
 
 -- Ask for a rebuild. Several events in one burst produce one build, because a
@@ -367,6 +401,7 @@ function Cache.Reset()
     state.map = nil
     state.pending = false
     state.deferred = false
+    state.named = {}
 end
 
 ns.onReady[#ns.onReady + 1] = function()

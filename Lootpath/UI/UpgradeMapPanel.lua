@@ -1600,29 +1600,55 @@ end
 -- string; nothing here is assembled out of a field name.
 function Panel.RoadFacts(road)
     local facts = {}
+    for _, entry in ipairs(Panel.RoadFactEntries(road)) do
+        facts[#facts + 1] = entry.text
+    end
+    return facts
+end
+
+-- The same list, each entry saying whether the TOOLTIP may carry it (R-2a,
+-- WKE-571). Two of them may not, and for the same reason in two shapes: the
+-- surface the clause is true on is not the surface the reader is looking at.
+--
+--   * a cost clause ("crest type and cost not readable") is 568's vendor-window
+--     gate. On the Upgrade Map row it answers "what will this cost me", beside
+--     the crest counts the reader can see. On a tooltip nobody asked, there are
+--     no counts beside it, and it can never become readable.
+--   * a rival clause ("the same charge as the vault Spaulders road") is a
+--     reference to another row. Principle 6's own rule is that a reference is
+--     never to a road that is not on the same screen - and a tooltip about one
+--     item is never that screen.
+--
+-- The panel carries both, because on the panel both referents are visible.
+function Panel.RoadFactEntries(road)
+    local facts = {}
     if type(road) ~= "table" then
         return facts
     end
+    local function note(text, offTooltip)
+        if text then
+            facts[#facts + 1] = { text = text, offTooltip = offTooltip or nil }
+        end
+    end
     local rating = road.rating
     if rating and rating.referent then
-        facts[#facts + 1] = rating.referent
+        note(rating.referent)
     end
     for _, also in ipairs((rating and rating.alsoAt) or {}) do
         if also.label and also.level and also.badge then
             local shape = Panel.ROAD_ALSO_AT_TEXT[also.label] or Panel.ROAD_ALSO_AT_DEFAULT
-            facts[#facts + 1] = string.format(shape, also.label, also.level, also.badge)
+            note(string.format(shape, also.label, also.level, also.badge))
         end
     end
-    if road.rivalText then
-        facts[#facts + 1] = road.rivalText
+    note(road.rivalText, true)
+    local cost = {}
+    for _, text in ipairs(ns.Roads.CostFacts(road)) do
+        cost[text] = true
     end
     for _, text in ipairs(ns.Roads.Facts(road)) do
-        facts[#facts + 1] = text
+        note(text, cost[text])
     end
-    local reset = ns.Roads.ResetText(road.resetSeconds)
-    if reset then
-        facts[#facts + 1] = reset
-    end
+    note(ns.Roads.ResetText(road.resetSeconds))
     return facts
 end
 
@@ -1660,7 +1686,15 @@ end
 -- "this row has no button" and "this row says exactly these words" are headless
 -- assertions.
 function Panel.RoadRow(road, previewMythicPlusLevel)
-    local facts = Panel.RoadFacts(road)
+    local entries = Panel.RoadFactEntries(road)
+    local facts, tooltipFacts = {}, {}
+    for _, entry in ipairs(entries) do
+        facts[#facts + 1] = entry.text
+        if not entry.offTooltip then
+            tooltipFacts[#tooltipFacts + 1] = entry.text
+        end
+    end
+    local cost = ns.Roads.CostFacts(road)
     local badge = road.rating and road.rating.badge or road.phrase
     local row = {
         road = road,
@@ -1678,6 +1712,14 @@ function Panel.RoadRow(road, previewMythicPlusLevel)
         badge = badge and { text = badge, tone = Panel.RoadBadgeTone(road) } or nil,
         facts = facts,
         factsText = #facts > 0 and table.concat(facts, Panel.ROAD_SEPARATOR) or nil,
+        -- What the cost clauses say on their own, so a surface can name them
+        -- without re-deriving which of the facts they were (R-2a, WKE-571).
+        costFacts = cost,
+        costText = #cost > 0 and table.concat(cost, Panel.ROAD_SEPARATOR) or nil,
+        -- The facts a tooltip may carry: everything above minus the cost and
+        -- rival clauses, whose referents are only on the panel.
+        tooltipFacts = tooltipFacts,
+        tooltipFactsText = #tooltipFacts > 0 and table.concat(tooltipFacts, Panel.ROAD_SEPARATOR) or nil,
         todo = road.todo,
         verb = road.verb,
     }

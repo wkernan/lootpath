@@ -88,6 +88,16 @@ function UI.AgeSeconds(iso, now)
     return (now or time()) - epoch
 end
 
+-- "1 hour", "4 hours". English's own plural, written once, because every
+-- surface that prints an age reads it through `UI.AgeText` and the voice rule
+-- is that it sounds like a person: "4 hour(s) ago" is a format string that
+-- escaped onto a screen (R-2a, WKE-571; the owner read it on a tooltip,
+-- 2026-09-14). Only the four nouns below are ever counted here, and none of
+-- them is irregular, so an "s" is the whole rule.
+function UI.Plural(count, noun)
+    return string.format("%d %s", count, count == 1 and noun or (noun .. "s"))
+end
+
 function UI.AgeText(iso, now)
     local seconds = UI.AgeSeconds(iso, now)
     if not seconds then
@@ -97,15 +107,15 @@ function UI.AgeText(iso, now)
         return "just now"
     end
     if seconds < 90 then
-        return string.format("%d second(s) ago", math.floor(seconds))
+        return UI.Plural(math.floor(seconds), "second") .. " ago"
     end
     if seconds < 5400 then
-        return string.format("%d minute(s) ago", math.floor(seconds / 60 + 0.5))
+        return UI.Plural(math.floor(seconds / 60 + 0.5), "minute") .. " ago"
     end
     if seconds < 172800 then
-        return string.format("%d hour(s) ago", math.floor(seconds / 3600 + 0.5))
+        return UI.Plural(math.floor(seconds / 3600 + 0.5), "hour") .. " ago"
     end
-    return string.format("%d day(s) ago", math.floor(seconds / 86400 + 0.5))
+    return UI.Plural(math.floor(seconds / 86400 + 0.5), "day") .. " ago"
 end
 
 -- The two exports the paste box takes, and what each is called on screen. The
@@ -304,7 +314,7 @@ function UI.ActiveUpgradeFinderDocuments()
 end
 
 -- Which import is on screen and where it came from - "pasted", or "companion,
--- written 4 minute(s) ago" (C-2). The source is on the line the window keeps,
+-- written 4 minutes ago" (C-2). The source is on the line the window keeps,
 -- not the status line the next paste overwrites.
 function UI.VerdictNoteText(now)
     local verdict, contentType, fellBack = UI.ActiveVerdict()
@@ -1130,6 +1140,20 @@ function UI.Frame()
     end
 
     frame:Hide()
+    return frame
+end
+
+-- The destination the tooltip's last line names (R-2a, WKE-571). "Why this?"
+-- cannot be clicked on a tooltip, so it says `/lootpath map` instead, and this
+-- is where that goes: the window, open, on the Upgrade Map. It shows rather
+-- than toggles, because a reader who typed the command from a tooltip asked to
+-- see the tab, never to close a window he was not looking at.
+UI.UPGRADE_MAP_TAB = 2
+
+function UI.ShowUpgradeMap()
+    local frame = UI.Frame()
+    frame:Show()
+    UI.SelectTab(frame, UI.UPGRADE_MAP_TAB)
     return frame
 end
 

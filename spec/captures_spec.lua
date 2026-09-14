@@ -18,11 +18,13 @@ describe("captures", function()
         H.unload()
     end)
 
-    it("registers env, inventory, vault, currencies and journal in that order", function()
+    it("registers env, inventory, vault, currencies, glow and journal in that order", function()
         -- `journal` registers in Modules/Journal.lua, which the .toc loads
         -- after this file, so it comes last. R-0's `spike` was the sixth and
-        -- went away with R-2 (WKE-563), which is the surface it measured.
-        assert.same({ "env", "inventory", "vault", "currencies", "journal" }, ns.captureOrder)
+        -- went away with R-2 (WKE-563), which is the surface it measured;
+        -- `glow` is R-2a's (WKE-571) and registers here, at the end of this
+        -- file.
+        assert.same({ "env", "inventory", "vault", "currencies", "glow", "journal" }, ns.captureOrder)
     end)
 
     describe("env", function()

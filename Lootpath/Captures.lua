@@ -436,3 +436,71 @@ ns.RegisterCapture("currencies", "the currency list with its headers, and the fu
         byID = byID,
     }
 end)
+
+-- R-2a (WKE-571). The bag mark did not appear on any slot of the owner's real
+-- screen, and three different causes produce that same blank: the adapter never
+-- installed, the bag addon never draws the widget, or the lookup answers false
+-- for every key. `/lootpath glow` says which for ONE item, on screen; this
+-- records the same four facts for EVERY bag slot at once, so a transcript can
+-- settle whether the key a bag hands over is the key the map was built from.
+--
+-- Only reads, and only the two container functions named here - the same two
+-- `Modules/Inventory.lua` already scans with. Nothing acts on the character,
+-- its items or its money.
+ns.RegisterCapture(
+    "glow",
+    "every bag slot: the link, the key it makes, whether the map has it, and what the mark answers",
+    function()
+        local slots = {}
+        local C = C_Container
+        if C and C.GetContainerNumSlots and C.GetContainerItemLink then
+            for bag = 0, (NUM_BAG_SLOTS or 4) do
+                local count = ns.Safe(C.GetContainerNumSlots(bag))
+                for slotIndex = 1, (type(count) == "number" and count or 0) do
+                    local link = ns.Safe(C.GetContainerItemLink(bag, slotIndex))
+                    if type(link) == "string" and link ~= "" then
+                        local parsed = ns.ParseItemLink(link)
+                        local key = parsed and parsed.key or nil
+                        local answer = key and ns.RoadsCache.Lookup(key) or nil
+                        local own = answer and answer.own or nil
+                        slots[#slots + 1] = {
+                            bag = bag,
+                            slotIndex = slotIndex,
+                            link = link,
+                            key = key,
+                            inMap = answer ~= nil,
+                            glow = key ~= nil and ns.Glow.Wants(key) or false,
+                            ownKind = own and own.kind or nil,
+                            ownGroup = own and own.group or nil,
+                            isForward = own ~= nil and ns.Roads.IsForward(own) or false,
+                            phrase = answer and answer.phrase or nil,
+                            sentence = answer and answer.sentence or nil,
+                        }
+                    end
+                end
+            end
+        end
+        local map = ns.RoadsCache.Map()
+        local adapter = ns.UI.Bags.Chosen()
+        return {
+            adapter = adapter and adapter.name or nil,
+            adapterLabel = adapter and adapter.label or nil,
+            statusText = ns.UI.Bags.StatusText(),
+            baganatorCorner = ns.UI.Bags.Baganator.Corner(),
+            mapReason = map and map.reason or "no map",
+            mapKeys = map and map.counts.keys or 0,
+            mapGlowing = map and map.counts.glowing or 0,
+            -- The map's own keys, so a transcript can be diffed against the
+            -- keys the bags made without asking the client twice.
+            mapKeyList = (function()
+                local keys = {}
+                for key in pairs((map and map.byKey) or {}) do
+                    keys[#keys + 1] = key
+                end
+                table.sort(keys)
+                return keys
+            end)(),
+            slots = slots,
+        }
+    end
+)
