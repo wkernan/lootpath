@@ -26,11 +26,15 @@ Modules\QEImport.lua
 Modules\UFImport.lua
 Modules\Companion.lua
 Modules\Match.lua
-Modules\Spike.lua
 Modules\Roads.lua
+Modules\RoadsCache.lua
 UI\ItemLine.lua
 UI\EquipPanel.lua
 UI\Options.lua
 UI\MainFrame.lua
 UI\UpgradeMapPanel.lua
 UI\VaultPanel.lua
+UI\Tooltip.lua
+UI\Bags.lua
+UI\Bags\Baganator.lua
+UI\Bags\Blizzard.lua

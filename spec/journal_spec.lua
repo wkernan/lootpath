@@ -469,10 +469,10 @@ describe("capture journal", function()
         return final, immediate
     end
 
-    -- `spike` registers after it: Modules/Spike.lua is the last capture the
-    -- .toc loads, and it is temporary (R-0, WKE-561).
+    -- It is the LAST capture now: R-0's `spike` registered after it until R-2
+    -- (WKE-563) built the surface it was measuring for and deleted it.
     it("is registered after env, inventory, vault and currencies", function()
-        assert.same({ "env", "inventory", "vault", "currencies", "journal", "spike" }, ns.captureOrder)
+        assert.same({ "env", "inventory", "vault", "currencies", "journal" }, ns.captureOrder)
         assert.is_true(ns.captures.journal.async)
     end)
 

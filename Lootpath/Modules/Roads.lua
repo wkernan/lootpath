@@ -1376,7 +1376,21 @@ function Roads.ForItem(key, inputs)
         answer.phrase = Roads.PHRASE_NOT_RATED_NEW
         return answer
     end
-    local slotRoads = Roads.ForSlot(slot, inputs)
+    return Roads.ForItemIn(Roads.ForSlot(slot, inputs), key, inputs)
+end
+
+-- The same answer, over a slot's roads that have already been built. R-2's
+-- cache builds every slot once per verdict and then asks this for every key it
+-- holds, so a hover is a table lookup and never a walk: `ForItem` above is the
+-- one-shot caller and this is the body both of them share. Nothing here reads
+-- `inputs` except to name the phrase for an item no road carries.
+function Roads.ForItemIn(slotRoads, key, inputs)
+    inputs = type(inputs) == "table" and inputs or {}
+    local answer = { others = {} }
+    if type(slotRoads) ~= "table" or type(slotRoads.groups) ~= "table" or type(key) ~= "string" then
+        return answer
+    end
+    local slot = slotRoads.slot
     answer.slot = slot
     answer.slotRoads = slotRoads
 
@@ -1611,6 +1625,62 @@ function Roads.PlanSentence(week)
         return { sentence = Roads.NO_PLAN_SENTENCE, footnote = nil, plan = Roads.PlanName(entry.scenario) }
     end
     return { sentence = sentence(parts), footnote = footnote, plan = Roads.PlanName(entry.scenario) }
+end
+
+-- The hovered item's own part of the plan, in the same chat voice as the week's
+-- sentence and the slot's (principle 16). One or two clauses, never a label, a
+-- percentage or an item level: those are on the road line under it.
+--
+-- **It answers only for a road the plan is ABOUT**, which is the set group: a
+-- piece you hold, a Catalyst clone of one, a vault option, or what you wear.
+-- A journal drop, a crafted row or a delve row is in the `item` group and the
+-- plan takes no position on it at all, so there is no sentence to write - and
+-- "Skip this one" on a dungeon drop would read as "skip the dungeon", which is
+-- a thing to do that no document said. Those hovers open on their road line
+-- instead (R-2, 2026-09-14; ARCHITECTURE.md §7).
+function Roads.ItemSentence(answer)
+    local own = type(answer) == "table" and answer.own or nil
+    if type(own) ~= "table" or own.group ~= Roads.GROUP_SET then
+        return nil
+    end
+    if own.planPick then
+        if own.kind == Roads.KIND_VAULT then
+            if own.rating and own.rating.level and own.arrivesAt and own.rating.level > own.arrivesAt then
+                return "Grab this from the vault and crest it."
+            end
+            return "Grab this from the vault."
+        elseif own.kind == Roads.KIND_CATALYST then
+            return "Catalyst this one."
+        elseif own.kind == Roads.KIND_KEEP then
+            return "Keep this on."
+        end
+        return "Put this on."
+    end
+
+    -- Not the pick. What the plan does instead is the other half of the
+    -- sentence, and it is named only when the pick is on the same screen -
+    -- principle 6's rule, applied to the plan: a reference to a road the
+    -- reader cannot see is not a reference.
+    local pick
+    for _, road in ipairs((answer.slotRoads and answer.slotRoads.groups or {})[Roads.GROUP_SET] or {}) do
+        pick = pick or (road.planPick and road or nil)
+    end
+    local name = pick and Roads.ShortName(pick.item) or nil
+    if not name then
+        return "Skip this one."
+    end
+    -- Whose the pick is decides the possessive, and nothing else does: a
+    -- Catalyst road converts a piece you hold and a Keep road is what you have
+    -- on, so both are "your"; a vault option is not yours until you take it, so
+    -- it is "the vault ...".
+    local bare = name:gsub("^the ", "")
+    if pick.kind == Roads.KIND_VAULT then
+        return string.format("Skip this one, the plan uses the vault %s.", bare)
+    end
+    if pick.kind == Roads.KIND_KEEP then
+        return string.format("Skip this one, the plan keeps your %s on.", bare)
+    end
+    return string.format("Skip this one, the plan uses your %s.", bare)
 end
 
 -- A clause that opens a sentence, built from the same string the row's last

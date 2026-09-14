@@ -183,6 +183,12 @@ local function endEpisode(itemID, resolved)
         return
     end
     ItemData.episodes[itemID] = nil
+    -- An item whose data has just arrived is an item a road can finally name,
+    -- so the hover map is asked to rebuild (R-2). Debounced there, because a
+    -- bag full of cold items ends its episodes in one burst.
+    if resolved and ns.RoadsCache then
+        ns.RoadsCache.Changed()
+    end
     if not resolved then
         for _, handle in ipairs(episode.watchers) do
             if not handle.cancelled and handle.onGiveUp then

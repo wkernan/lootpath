@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+### R-2 (WKE-563) - In place: the plan on the tooltip, and a glow that means one thing
+
+- **Blizzard's own item tooltip gains a Lootpath block.** Hover a piece in
+  your bags, in Lootpath's vault cell or in the Adventure Guide and the
+  tooltip the client was already drawing gains a header with the slot and the
+  rating's age, the item's part of this week's plan in the words a guildmate
+  would type (`Catalyst this one.`, `Grab this from the vault and crest it.`,
+  `Skip this one, the plan uses your Lynx shoulders.`), the item's own road,
+  up to two more under `Other roads for this slot`, and `Why this?` last.
+  Three roads, never a fourth. When nothing rated the item the honesty phrase
+  takes the road's place, with the tail that says which cure it has.
+- **A bag glow that fires only for a road worth taking.** A slot is marked
+  when the plan rates that item, or something it can become, as in your best
+  set or a positive percent. Rated-and-behind does not glow; not rated does
+  not glow.
+- **One glow interface, one adapter per bag window.** Lootpath draws the mark
+  in Baganator's window through its public corner-widget API, so an upgrade
+  arrow you already have keeps its place, and in the client's own bag frames
+  otherwise. A bag addon Lootpath has no adapter for gets no mark and loses
+  nothing on the tooltip; the status strip says which window the mark is in.
+- **Nothing is computed and nothing runs in combat.** Every line is a road
+  from the model and every number is a document's. The hover is a table lookup
+  into a map built once per verdict and rebuilt when your bags, your gear, the
+  vault, your currencies, an item's data or the companion's answer changes; in
+  combat the tooltip adds nothing, the marks keep their last state and nothing
+  is rebuilt until combat ends.
+- **Removed:** the temporary `/lootpath spike tooltip` measurement command and
+  its capture. It existed to measure this surface before it was built, and
+  this is the surface.
 ### R-3a (WKE-570) - a road rated behind what you wear never tells you to take it
 
 - **No "do:" on a road the plan is not going forward on.** A second copy of the

@@ -384,7 +384,9 @@ describe("the source-free voice (V-1, WKE-569)", function()
         end
 
         walkStrings(c.check, "Options", ns.UI.Options)
-        c.report(29)
+        -- 29 until R-2 (WKE-563) removed R-0's `/lootpath spike` help line with
+        -- the module it drove.
+        c.report(28)
     end)
 
     it("says nothing of a source in any panel's string table", function()
@@ -394,6 +396,13 @@ describe("the source-free voice (V-1, WKE-569)", function()
         walkStrings(c.check, "VaultPanel", ns.VaultPanel)
         walkStrings(c.check, "Roads", ns.Roads)
         walkStrings(c.check, "ItemLine", ns.UI.ItemLine)
+        -- Surface 1's own words (R-2, WKE-563): the tooltip block's header,
+        -- sub-header and last line, and what the status strip says about which
+        -- bag window the mark is drawn in.
+        walkStrings(c.check, "Tooltip", ns.UI.Tooltip)
+        walkStrings(c.check, "Bags", ns.UI.Bags)
+        walkStrings(c.check, "Bags.Blizzard", ns.UI.Bags.Blizzard)
+        walkStrings(c.check, "Bags.Baganator", ns.UI.Bags.Baganator)
         -- The importers' and Match's own pinned wording, alongside the
         -- refusals exercised above.
         walkStrings(c.check, "UFImport", ns.UFImport)
