@@ -1618,7 +1618,7 @@ local CHIP_GAP = 12
 -- the badge uses. Read from the constant rather than written out again, so the
 -- accent has exactly one definition in this addon.
 local function toneRGB(hex)
-    return tonumber(hex:sub(1, 2), 16) / 255, tonumber(hex:sub(3, 4), 16) / 255, tonumber(hex:sub(5, 6), 16) / 255
+    return ns.UI.ItemLine.RGB(hex)
 end
 
 -- A flat 1-pixel texture Blizzard ships and every addon tints; used for the

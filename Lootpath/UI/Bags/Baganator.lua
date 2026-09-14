@@ -34,12 +34,42 @@ local Adapter = {
     label = "drawn in Baganator's bag window, beside whatever else marks a slot",
 }
 
--- Lootpath's OWN texture, never Blizzard's `UpgradeIcon` and never another
--- addon's: the atlas below is the gold selection edge the Great Vault's own
--- frame uses, which is the mark the Vault tab already draws on a cell (M5-4),
--- so the two surfaces mean the same thing with the same picture.
-Adapter.ATLAS = "evergreen-weeklyrewards-reward-selected"
+-- Lootpath's OWN picture, never Blizzard's `UpgradeIcon` and never another
+-- addon's.
+--
+-- **Why it is not an atlas any more (R-2b, WKE-575).** R-2 drew
+-- `evergreen-weeklyrewards-reward-selected` - the Great Vault's own selection
+-- glow, which is what the Vault tab puts on the picked cell (M5-4) - into this
+-- 15-point frame with `SetAllPoints`, so that the bag and the Vault tab shared
+-- one picture. The owner measured that atlas on his own client with
+-- `C_Texture.GetAtlasInfo`, 2026-09-14: **214 x 121**. It is a wide,
+-- soft-edged banner made to sit BEHIND a vault cell, and at 15 points it is
+-- squeezed to a seventh of its width and an eighth of its height. That is what
+-- his second night showed: the widget answered `glow yes` on the helmet, the
+-- corner was `top_right`, and the slot had nothing in it. Two surfaces sharing
+-- a picture was R-2's wish, not a rule, and a picture that cannot be seen
+-- shares nothing. The Vault tab keeps its glow, at the size it was drawn for.
+--
+-- **No other atlas is guessed at in its place.** Every candidate would be a
+-- name whose size, shape and alpha nobody here has read, and this file has now
+-- cost the owner two nights of exactly that. A corner badge has to read at 15
+-- points over any icon art, and the addon can draw one itself with no client
+-- lookup at all: Blizzard's flat `WHITE8X8`, the same 1-pixel texture the
+-- Vault tab's fallback border tints, in two layers -
+--
+--   * a near-black square filling the frame, which is the 1-point edge, so the
+--     mark still has a shape over pale icon art;
+--   * the accent square inset by 1 point inside it, fully opaque.
+--
+-- The accent is `ItemLine.TONE.better`'s hex, which is the one definition of
+-- this addon's gold and is the tone the Vault tab's own pick is edged with, so
+-- the two surfaces still mean the same thing in the same colour - only at a
+-- size each of them can actually be seen at.
+Adapter.TEXTURE = [[Interface\Buttons\WHITE8X8]]
 Adapter.SIZE = 15
+Adapter.EDGE_INSET = 1
+Adapter.EDGE_COLOR = { 0.05, 0.05, 0.06, 1 }
+Adapter.FILL_HEX = ns.UI.ItemLine.TONE.better.hex
 
 -- WHICH corner, and why it is not the one R-2 chose (R-2a, WKE-571). Read off
 -- the installed copy, which is the only place these two facts are written:
@@ -70,24 +100,69 @@ function Adapter.Available()
         and type(Baganator.API.RegisterCornerWidget) == "function"
 end
 
--- The widget, one per item button, made once and kept by Baganator.
+-- The widget, one per item button, made once and kept by Baganator. Two
+-- textures, the edge under the fill; both are the flat 1-point texture with a
+-- tint over it, so there is nothing here for a missing atlas to take away.
 function Adapter.OnInit(itemButton)
     local widget = CreateFrame("Frame", nil, itemButton)
     widget:SetSize(Adapter.SIZE, Adapter.SIZE)
-    local texture = widget:CreateTexture(nil, "OVERLAY")
-    texture:SetAllPoints()
-    if type(texture.SetAtlas) == "function" then
-        texture:SetAtlas(Adapter.ATLAS)
-    end
-    widget.texture = texture
+
+    local edge = widget:CreateTexture(nil, "OVERLAY")
+    edge:SetAllPoints()
+    edge:SetTexture(Adapter.TEXTURE)
+    edge:SetVertexColor(unpack(Adapter.EDGE_COLOR))
+
+    local inset = Adapter.EDGE_INSET
+    local fill = widget:CreateTexture(nil, "OVERLAY", nil, 1)
+    fill:SetPoint("TOPLEFT", widget, "TOPLEFT", inset, -inset)
+    fill:SetPoint("BOTTOMRIGHT", widget, "BOTTOMRIGHT", -inset, inset)
+    fill:SetTexture(Adapter.TEXTURE)
+    fill:SetVertexColor(ns.UI.ItemLine.RGB(Adapter.FILL_HEX))
+
+    widget.edge = edge
+    widget.fill = fill
     return widget
 end
 
+-- ---------------------------------------------------------------------------
+-- What the widget was asked, and what it said (R-2b, WKE-575).
+--
+-- The one number the owner's two nights could not produce. `/lootpath glow`
+-- could say the widget was registered, which corner Baganator puts it in, and
+-- what the map answers for one link - and still not say whether Baganator ever
+-- CALLED the thing. Zero calls after the bags have been opened means the mark
+-- was never asked for and no picture can fix it; a count with a `yes` in it
+-- means the answer path ran and the eye is the only thing left.
+--
+-- Session-lived, on the adapter rather than in SavedVariables: it is a fact
+-- about this login, and the sentence says so.
+Adapter.calls = 0
+Adapter.lastLink = nil
+Adapter.lastAnswer = nil
+
+function Adapter.ResetCalls()
+    Adapter.calls = 0
+    Adapter.lastLink = nil
+    Adapter.lastAnswer = nil
+end
+
 -- Shown or not, for one slot. `BGR.itemLink` is Baganator's own field; every
--- value read from it passes `ns.Safe` on its way through `ns.Glow.WantsLink`.
+-- value read from it passes `ns.Safe` on its way through `ns.Glow.WantsLink`,
+-- and the copy kept for the diagnosis is `ns.Safe`'s, never the raw field.
+--
+-- The answer is forced to a plain boolean. Baganator's `ItemButton.lua:140`
+-- branches on `show == nil` to QUEUE a slot rather than hide it, so anything
+-- but `true` or `false` out of here would put the slot in a queue it does not
+-- belong in; `ns.Glow.WantsLink` already answers a boolean, and `== true` is
+-- what keeps that true of this callback whatever it grows into.
 function Adapter.OnUpdate(_, cacheData)
     local link = type(cacheData) == "table" and cacheData.itemLink or nil
-    return ns.Glow.WantsLink(link)
+    local answer = ns.Glow.WantsLink(link) == true
+    local safe = ns.Safe(link)
+    Adapter.calls = Adapter.calls + 1
+    Adapter.lastLink = type(safe) == "string" and safe ~= "" and safe or nil
+    Adapter.lastAnswer = answer
+    return answer
 end
 
 function Adapter.Install()
@@ -147,6 +222,42 @@ function Adapter.StatusNote()
     return Adapter.STATUS_NOTE
 end
 
+-- What the count comes to, in words. `NEVER_ASKED` is the whole finding when
+-- it is zero and the bags have been opened: the mark was never asked for, so
+-- nothing about the picture, the map or the lookup can be the cause.
+Adapter.NEVER_ASKED = "Baganator asked the widget 0 times this session."
+    .. " If the bags have been opened, Baganator never called it and the cause is upstream of the picture."
+Adapter.CALLS_LINE = "Baganator asked the widget %d times this session, last answer: %s for %s"
+Adapter.UNNAMED_ITEM = "an item it gave no link for"
+
+-- The name inside a link, which is the only part of it a reader recognises.
+-- Read off the link's own `|h[...]|h`, never from the client: this is a
+-- diagnosis line, and a name that needed a load would be blank exactly when
+-- the reader most wants it.
+function Adapter.LinkName(link)
+    if type(link) ~= "string" then
+        return nil
+    end
+    local name = link:match("|h%[(.-)%]|h")
+    if name and name ~= "" then
+        return name
+    end
+    local parsed = ns.ParseItemLink(link)
+    return parsed and parsed.key and string.format("item %s", parsed.key) or nil
+end
+
+function Adapter.CallsText()
+    if Adapter.calls <= 0 then
+        return Adapter.NEVER_ASKED
+    end
+    return string.format(
+        Adapter.CALLS_LINE,
+        Adapter.calls,
+        Adapter.lastAnswer and "yes" or "no",
+        Adapter.LinkName(Adapter.lastLink) or Adapter.UNNAMED_ITEM
+    )
+end
+
 function Adapter.DiagnosisLines()
     local lines = {}
     if not Adapter.Available() then
@@ -159,6 +270,7 @@ function Adapter.DiagnosisLines()
     else
         lines[#lines + 1] = Adapter.NOT_IN_A_CORNER
     end
+    lines[#lines + 1] = Adapter.CallsText()
     return lines
 end
 

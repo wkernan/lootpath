@@ -66,6 +66,21 @@ local SEEDPODS = "250022:3174:6652:12806:13340:13440:13574"
 local VAULT_SPAULDERS = "251146:6652:12699:12842:13440:13662"
 local VAULT_WORLDROOT = "251935:6652:12841"
 
+-- A link the plan will never point at, taken out of R-2a's own `glow` capture
+-- rather than written here: bag 0 slot 1 of the owner's 2026-09-14 bags, which
+-- that transcript records as `inMap = false`, `glow = false`. R-2b's guard that
+-- the widget answers exactly `false` needs a real negative, and this is his.
+local GLOW_CAPTURE = "spec/fixtures/captures/Lootpath-20260914-171359.lua"
+local HEARTHSTONE_LINK = (function()
+    local slots = R.snapshot("glow", 1, GLOW_CAPTURE).data.slots
+    for _, slot in ipairs(slots) do
+        if slot.key == "6948" then
+            return slot.link
+        end
+    end
+    error("the glow capture no longer carries the Hearthstone slot")
+end)()
+
 -- The verdict's own time, and a moment five hours after it, so the header's age
 -- is a figure of the fixture rather than of the clock the tests run on.
 local EXPORTED_AT = "2026-09-09T19:22:44.178Z"
@@ -740,6 +755,102 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         assert.is_true(ns.UI.Bags.Baganator.OnUpdate(widget, { itemLink = linkFor(LYNX) }))
         assert.is_false(ns.UI.Bags.Baganator.OnUpdate(widget, { itemLink = linkFor(MISTSTALKER) }))
         assert.is_false(ns.UI.Bags.Baganator.OnUpdate(widget, {}))
+    end)
+
+    -- -----------------------------------------------------------------------
+    -- The picture, and whether the widget is ever asked (R-2b, WKE-575).
+    --
+    -- The owner's second night: `/lootpath glow` said `adapter: baganator`,
+    -- `Baganator draws the widget in its top right corner`, `glow yes` for the
+    -- helmet - and the slot on screen had nothing in it. The answer path is
+    -- right; what was drawn was `evergreen-weeklyrewards-reward-selected`,
+    -- which he then measured with `C_Texture.GetAtlasInfo` at **214 x 121**,
+    -- squeezed by `SetAllPoints` into a 15-point square. These are the guards
+    -- on the two things that night could not settle from a screenshot.
+
+    it("draws a mark it can draw itself, at the widget's own size, never a stretched atlas", function()
+        local Adapter = ns.UI.Bags.Baganator
+        local button = world.newContainerFrame(0, 1).Items[1]
+        local widget = Adapter.OnInit(button)
+
+        assert.equal(Adapter.SIZE, widget.width)
+        assert.equal(Adapter.SIZE, widget.height)
+
+        -- Both layers are a texture, and NEITHER is an atlas: the stub clears
+        -- one when the other is set, so an atlas creeping back in fails here.
+        assert.equal(Adapter.TEXTURE, widget.edge:GetTexture())
+        assert.equal(Adapter.TEXTURE, widget.fill:GetTexture())
+        assert.is_nil(widget.edge:GetAtlas())
+        assert.is_nil(widget.fill:GetAtlas())
+
+        -- The edge fills the frame; the fill is inset inside it by one point on
+        -- every side, which is what gives the mark its own outline over pale
+        -- icon art.
+        assert.same({ "ALL" }, widget.edge.points[1])
+        assert.same({ "TOPLEFT", widget, "TOPLEFT", Adapter.EDGE_INSET, -Adapter.EDGE_INSET }, widget.fill.points[1])
+        assert.same(
+            { "BOTTOMRIGHT", widget, "BOTTOMRIGHT", -Adapter.EDGE_INSET, Adapter.EDGE_INSET },
+            widget.fill.points[2]
+        )
+
+        -- The accent is the one this addon already defines, not a second gold.
+        assert.equal(ns.UI.ItemLine.TONE.better.hex, Adapter.FILL_HEX)
+        local r, g, b = ns.UI.ItemLine.RGB(Adapter.FILL_HEX)
+        assert.same({ r, g, b, nil }, widget.fill.vertexColor)
+        assert.same(Adapter.EDGE_COLOR, widget.edge.vertexColor)
+    end)
+
+    it("answers Baganator with exactly true or exactly false, never a truthy value", function()
+        local Adapter = ns.UI.Bags.Baganator
+        local button = world.newContainerFrame(0, 1).Items[1]
+        local widget = Adapter.OnInit(button)
+
+        -- `ItemButton.lua:140` branches on `show == nil` to QUEUE the slot
+        -- rather than hide it, so anything but the two booleans puts a slot in
+        -- a queue it does not belong in.
+        assert.equal(true, Adapter.OnUpdate(widget, { itemLink = linkFor(LYNX) }))
+        assert.equal(false, Adapter.OnUpdate(widget, { itemLink = HEARTHSTONE_LINK }))
+        assert.equal(false, Adapter.OnUpdate(widget, {}))
+    end)
+
+    it("counts what Baganator asked it, and says so when it was never asked", function()
+        local Adapter = ns.UI.Bags.Baganator
+        _G.Baganator = {
+            API = {
+                RegisterCornerWidget = function() end,
+                RequestItemButtonsRefresh = function() end,
+                GetCurrentCornerForWidget = function()
+                    return "top_right"
+                end,
+            },
+        }
+        ns.UI.Bags.Reset()
+        assert.is_true((ns.UI.Bags.Install()))
+
+        Adapter.ResetCalls()
+        local said = table.concat(Adapter.DiagnosisLines(), "\n")
+        assert.is_truthy(said:find(Adapter.NEVER_ASKED, 1, true), said)
+
+        local button = world.newContainerFrame(0, 1).Items[1]
+        local widget = Adapter.OnInit(button)
+        Adapter.OnUpdate(widget, { itemLink = HEARTHSTONE_LINK })
+        Adapter.OnUpdate(widget, { itemLink = linkFor(LYNX) })
+
+        assert.equal(2, Adapter.calls)
+        assert.equal(true, Adapter.lastAnswer)
+        said = table.concat(ns.UI.Bags.DiagnosisLines(linkFor(LYNX)), "\n")
+        assert.is_truthy(
+            said:find("Baganator asked the widget 2 times this session, last answer: yes for ", 1, true),
+            said
+        )
+        assert.is_falsy(said:find(Adapter.NEVER_ASKED, 1, true), said)
+
+        -- The name comes out of the link's own brackets, with no client read.
+        assert.equal("Hearthstone", Adapter.LinkName(HEARTHSTONE_LINK))
+
+        Adapter.ResetCalls()
+        _G.Baganator = nil
+        ns.UI.Bags.Reset()
     end)
 
     it("names the bag window the mark is in on the status strip's tooltip", function()
