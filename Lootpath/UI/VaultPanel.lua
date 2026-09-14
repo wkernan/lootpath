@@ -1720,9 +1720,21 @@ local function buildScenarioDropdown(frame)
     dropdown:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
     -- The words on the closed dropdown. `SetDefaultText` belongs to
     -- DropdownSelectionTextMixin, which WowStyle1DropdownTemplate mixes in
-    -- through its own XML; Blizzard's generated annotations do not record that
-    -- inheritance, and a template's own method is a thing to call defensively
-    -- in any case - a dropdown with no caption is still a dropdown.
+    -- through its own XML (`mixin="WowStyle1DropdownMixin"`,
+    -- Blizzard_Menu/Mainline/MenuTemplates.xml:3; MenuTemplates.lua:753
+    -- composes that mixin from ButtonStateBehaviorMixin and
+    -- DropdownSelectionTextMixin). **The annotations DO record it** - the T-1
+    -- audit read it there - so the earlier note here, that they do not, was
+    -- wrong; what they do not record is the inheritance in the GENERATED API
+    -- documentation, which covers intrinsics and widget classes and not
+    -- FrameXML's templates. The pcall stays for the one client this panel must
+    -- still work on: a build old enough, or an environment stripped far enough,
+    -- that `WowStyle1DropdownTemplate` is not defined at all - there
+    -- `CreateFrame` above already returned nil and we never reach here, and if
+    -- a future template kept the name but dropped the mixin, a dropdown with no
+    -- caption is still a dropdown and the Settings page still carries the
+    -- setting. The headless stub cannot paper over either case since T-1: it
+    -- gives the caption only to the template whose mixin chain has it.
     pcall(dropdown.SetDefaultText, dropdown, Panel.SCENARIO_DROPDOWN_LABEL)
     dropdown:SetupMenu(function(_, rootDescription)
         if type(rootDescription) ~= "table" or type(rootDescription.CreateRadio) ~= "function" then

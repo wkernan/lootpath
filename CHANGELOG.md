@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+### T-1 (WKE-560) - the headless stub models one widget's mixin chain per widget
+
+Nothing in the addon changed. This is the test harness, and it is the class of
+bug that hid the Upgrade Map crash behind 761 green tests.
+
+- **Every kind and every template `spec/stubs/wow.lua` models was diffed,
+  method by method, against Blizzard's exported annotations** (Ketho's, under
+  `.luals/`), and each block now names the file and line it was read from.
+- **The leak was the constructor, not the templates.** One `newRegion` built
+  every widget out of the union of `Region`, `FontString` and `Texture`, and
+  `newFrame` added `ScrollFrame`'s scroll setters on top - so a plain `Frame`
+  answered `SetText`, `SetTexture`, `SetTexCoord` and `SetScrollChild`, a
+  `FontString` answered `SetAtlas`, and a `Texture` answered `SetText`.
+  Nineteen method names left the widgets that do not have them.
+- **A template is added to, never subtracted from.** The dropdown fix that
+  shipped in PR #72 handed `SetDefaultText` to every `DropdownButton` and took
+  it back inside `attachTemplate`; a dropdown built with no template never
+  reached the subtraction and answered it anyway. The caption surface is now
+  attached only to `WowStyle1DropdownTemplate`, whose mixin actually has it.
+- **Nothing that is not the client's sits in a Blizzard method slot.** The
+  stub's own test affordances moved to `widget.stub`: `button.stub:Enter()`,
+  `dropdown.stub:Pick(2)`, `box.stub:Acquire()`, `world.tooltip.stub:Text()`.
+  `Pick` was the dangerous one - the client has a real `Pick` that takes a menu
+  description, not an index.
+- **A released scroll-box row stops answering for its old data**, the way the
+  real view clears `GetElementData` when it puts a frame back in the pool.
+- **New `spec/stubs_spec.lua`** locks all of it: every removal is asserted
+  absent on the widget that does not have it and present on the one that does.
 ### C-9 (WKE-559) - the companion is visible from inside the game
 
 - **A log file next to the verdict.** `Data\companion.log` carries every line

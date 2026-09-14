@@ -492,7 +492,7 @@ describe("UpgradeMapPanel frames", function()
         -- ...and the shut dropdown says which one it is narrowed to.
         assert.equal(mythicPlus.text, frame.difficultyDropdown:GetText())
 
-        frame.difficultyDropdown:SelectByText(ns.UpgradeMapPanel.DIFFICULTY_ALL_LABEL)
+        frame.difficultyDropdown.stub:SelectByText(ns.UpgradeMapPanel.DIFFICULTY_ALL_LABEL)
         assert.is_nil(frame.difficultyIDs)
         assert.is_true(frame.model.counts.candidates > model.counts.candidates / 2)
         assert.equal(ns.UpgradeMapPanel.DIFFICULTY_ALL_LABEL, frame.difficultyDropdown:GetText())
