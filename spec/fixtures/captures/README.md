@@ -64,3 +64,13 @@ with every loop rather than by request.
   the link (`|h[]|h`), keys intact; progress Dungeons 1/1 (level 8), 1/4, 1/8,
   Concession 5/3; `hasAvailableRewards` true, `canClaimRewards` false. Every
   earlier snapshot repeats. No secrets.
+- Lootpath-20260914-113012.lua - R-0's in-client run (WKE-561), the owner's
+  spike session 2026-09-14 11:27:49 to 11:30 local on `main` at `78938ad`, with
+  no `/lootpath refresh` in between (so its `env` snapshot is the 2026-09-10
+  one and carries no keystone or bag-frame line yet). Its `spike` snapshot 1 is
+  the measurement: 2,566 item-tooltip post-calls in 133,146 ms (1,156 per
+  minute), per call min 0.009 / avg 0.015 / max 0.082 ms, 39 ms in total; the
+  hyperlink present on every call, never nil, never a secret value, 0 errors,
+  0 combat returns; by frame `ShoppingTooltip1` 1,490, `ShoppingTooltip2` 706,
+  `GameTooltip` 250, `PawnPrivateTooltip1` 120. Every earlier snapshot
+  repeats. No secrets.

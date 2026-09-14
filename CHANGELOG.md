@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fix (2026-09-14)
+
+- **`tools\sync.ps1` writes a `Data\` placeholder the game lacks.** After C-9
+  added `Data\CompanionStatus.lua` to the `.toc`, a sync that found the
+  companion's `QEVerdict.lua` kept the whole folder and never added the new
+  file, and the client raised "Error loading ..." at login. A file the game has
+  is still never overwritten.
+
 ### R-4 (WKE-565) - Crafting and Delves as runs, and what the export knows
 
 - **The by-run view gains the two sources the loot map cannot walk.** Every
