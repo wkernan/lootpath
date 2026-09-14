@@ -59,12 +59,29 @@ function Push-Addon {
         if ($child.Name -eq 'Data') { continue }
         Copy-Item -Path $child.FullName -Destination $gameAddon -Recurse -Force
     }
-    $gameVerdict = Join-Path $gameAddon 'Data\QEVerdict.lua'
-    $gameStatus = Join-Path $gameAddon 'Data\CompanionStatus.lua'
-    $companionWrote = (Test-Path $gameVerdict) -or (Test-Path $gameStatus)
-    if ($IncludeData -or -not $companionWrote) {
+    if ($IncludeData) {
         Copy-Item -Path (Join-Path $repoAddon 'Data') -Destination $gameAddon -Recurse -Force
         Write-Host ("[{0}] pushed to {1} (Data included)" -f (Get-Date -Format 'HH:mm:ss'), $gameAddon)
+        return
+    }
+    # A Data\ file the game already has is the companion's and is kept. A Data\
+    # file the game LACKS is written from the repo's placeholder, because the
+    # .toc lists it and the client raises "Error loading ..." at login for a
+    # listed file that is missing - measured 2026-09-14 11:26 when C-9 added
+    # Data\CompanionStatus.lua to the .toc and the first sync after it kept the
+    # game's Data\ (QEVerdict.lua was there) without adding the new file.
+    $gameData = Join-Path $gameAddon 'Data'
+    New-Item -ItemType Directory -Force -Path $gameData | Out-Null
+    $added = @()
+    foreach ($file in Get-ChildItem -Path (Join-Path $repoAddon 'Data') -File) {
+        $target = Join-Path $gameData $file.Name
+        if (-not (Test-Path $target)) {
+            Copy-Item -Path $file.FullName -Destination $target
+            $added += $file.Name
+        }
+    }
+    if ($added.Count -gt 0) {
+        Write-Host ("[{0}] pushed to {1}; kept the companion's Data\ and added the missing placeholder(s) {2}" -f (Get-Date -Format 'HH:mm:ss'), $gameAddon, ($added -join ', '))
         return
     }
     Write-Host ("[{0}] pushed to {1}; kept the companion's Data\ (-IncludeData overwrites it)" -f (Get-Date -Format 'HH:mm:ss'), $gameAddon)
