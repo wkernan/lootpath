@@ -46,7 +46,7 @@ local Panel = ns.UpgradeMapPanel
 local UI = ns.UI
 
 -- Pinned wording (decision 2026-09-05). A test asserts this string exactly.
-Panel.NOTE = "Values shown are QE Live's, for items it has ranked. Other drops are listed by item level only."
+Panel.NOTE = "Rated drops show their value. Other drops are listed by item level only."
 
 -- Pinned too, because getting it wrong is the one way this panel can lie about
 -- an item: a row the client had not sent yet is unknown, never zero.
@@ -61,7 +61,24 @@ Panel.EMPTY_NOTE = "No loot map yet. Run /lootpath capture journal out of combat
 -- carries at the walk's level, which is a narrower and more honest figure than
 -- it was: the owner can see the remaining disagreement rather than wonder why
 -- an import changed nothing (ARCHITECTURE.md 11).
-Panel.LEVEL_MISMATCH_NOTE = "%d drops are ranked by QE Live at another item level, so they show no value."
+Panel.LEVEL_MISMATCH_NOTE = "%d drops are rated at another item level, so they show no value."
+
+-- Every sentence the two badge builders below can write, in one place, in the
+-- source-free voice (V-1, WKE-569). They are named constants rather than
+-- literals inside the branches because `spec/voice_spec.lua` walks this table:
+-- a branch the committed fixtures never reach - a zero percent, a rating with
+-- no delta - would otherwise be the one place a source could creep back in
+-- unwatched.
+Panel.BADGE_IN_BEST_SET = "in your best set"
+Panel.BADGE_NO_DELTA = "rated, no delta given"
+Panel.BADGE_DELTA = "%s%s by %.2f%% (%+.1f score)"
+Panel.BADGE_PERCENT = "%s%s by %.2f%%"
+Panel.BADGE_NO_VALUE = "rated, no value given"
+Panel.BADGE_NO_CHANGE = "no change"
+Panel.BADGE_UPGRADE_PERCENT = "%s by %.2f%%"
+Panel.BADGE_BETTER = "better"
+Panel.BADGE_WORSE = "worse"
+Panel.BADGE_LEAD = "%s: "
 
 -- The Adventure Guide lists cosmetic and quest drops beside real loot, and
 -- C_Item.GetDetailedItemLevelInfo answers 1 for them: measured over the
@@ -202,10 +219,11 @@ end
 -- raw hardScore delta (verified 2026-09-06, ARCHITECTURE.md 9). Calling it HPS
 -- on screen would be this addon inventing a healing number.
 --
--- `prefix` names who is speaking and defaults to "QE Live", which is still the
--- only answer this function ever renders. The Vault tab passes a scenario's name
--- instead (C-6, WKE-540): there the whole panel is his, and what each line has
--- to say is WHICH of the three questions it answers.
+-- `prefix` is a lead the caller may put in front of the rating, and there is
+-- none by default: no surface names where a rating came from (the 2026-09-11
+-- decision, ARCHITECTURE.md 7). The Vault tab passes a scenario's name (C-6,
+-- WKE-540), because what each of its lines has to say is WHICH of the
+-- questions it answers.
 -- Since M5-3 this is the text half of Panel.ValueBadge below, so the words on
 -- a drawn badge and the words `/lootpath status` prints cannot drift apart:
 -- there is one place they are written.
@@ -224,23 +242,23 @@ function Panel.ValueBadge(coverage, prefix)
     if type(coverage) ~= "table" then
         return nil
     end
-    local who = type(prefix) == "string" and prefix or "QE Live"
+    local lead = type(prefix) == "string" and string.format(Panel.BADGE_LEAD, prefix) or ""
     if coverage.where == "topSet" then
-        return { text = who .. ": in your best set", tone = "neutral" }
+        return { text = lead .. Panel.BADGE_IN_BEST_SET, tone = "neutral" }
     end
     local percent = tonumber(coverage.scorePercent)
     local hps = tonumber(coverage.hpsDifference)
     if not percent then
-        return { text = who .. ": ranked, no delta given", tone = "none" }
+        return { text = lead .. Panel.BADGE_NO_DELTA, tone = "none" }
     end
-    local direction = coverage.isBetter and "better" or "worse"
+    local direction = coverage.isBetter and Panel.BADGE_BETTER or Panel.BADGE_WORSE
     if hps then
         return {
-            text = string.format("%s: %s by %.2f%% (%+.1f score)", who, direction, math.abs(percent), hps),
+            text = string.format(Panel.BADGE_DELTA, lead, direction, math.abs(percent), hps),
             tone = direction,
         }
     end
-    return { text = string.format("%s: %s by %.2f%%", who, direction, math.abs(percent)), tone = direction }
+    return { text = string.format(Panel.BADGE_PERCENT, lead, direction, math.abs(percent)), tone = direction }
 end
 
 -- The line an Upgrade-Finder-ranked row shows. QE Live's percentage, his sign,
@@ -286,17 +304,17 @@ function Panel.UpgradeBadge(entry, keyLevel)
     local note = label and string.format("(at %s)", label) or nil
     local percent = tonumber(entry.upgradePercent)
     if not percent then
-        return { text = "QE Live: ranked, no value given", note = note, tone = "none" }
+        return { text = Panel.BADGE_NO_VALUE, note = note, tone = "none" }
     end
     if percent == 0 then
         -- 94 of the 357 drops in the 2026-09-07 Dungeon export sit here. "No
         -- change" is what his zero says; "worse by 0.00%" would be this panel
         -- inventing a direction he did not give.
-        return { text = "QE Live: no change", note = note, tone = "none" }
+        return { text = Panel.BADGE_NO_CHANGE, note = note, tone = "none" }
     end
-    local direction = ns.UFImport.IsUpgrade(entry) and "better" or "worse"
+    local direction = ns.UFImport.IsUpgrade(entry) and Panel.BADGE_BETTER or Panel.BADGE_WORSE
     return {
-        text = string.format("QE Live: %s by %.2f%%", direction, math.abs(percent)),
+        text = string.format(Panel.BADGE_UPGRADE_PERCENT, direction, math.abs(percent)),
         note = note,
         tone = direction,
     }
@@ -741,7 +759,7 @@ function Panel.Lines(model)
         return lines
     end
     if not model.hasVerdict then
-        add("No QE Live import yet, so no drop carries a value. Paste a Top Gear export to change that.")
+        add("No import yet, so no drop carries a value. Paste a Top Gear export to change that.")
     end
     -- Which Upgrade Finder documents these rows were joined against (M3-10).
     -- Above the rows, because it is true of all of them; which document a
@@ -848,21 +866,21 @@ Panel.SORT_LABEL = { [Panel.SORT_BEST] = "best upgrade", [Panel.SORT_COUNT] = "m
 Panel.SORTS = { Panel.SORT_BEST, Panel.SORT_COUNT }
 Panel.MODES = { Panel.MODE_SLOT, Panel.MODE_RUN }
 
-Panel.RUN_NOTE = "Two facts side by side: QE Live's best single upgrade in a run, and how many of that run's drops he "
-    .. "rates as upgrades. Neither is weighted by drop chance - the Adventure Guide gives none, and Lootpath will not "
+Panel.RUN_NOTE = "Two facts side by side: the best single upgrade in a run, and how many of that run's drops are "
+    .. "rated upgrades. Neither is weighted by drop chance - the Adventure Guide gives none, and Lootpath will not "
     .. "invent one - so the odds are yours to judge."
 
 Panel.RUN_NO_IMPORT_NOTE =
-    "No QE Live Upgrade Finder import yet, so no run can be ranked. Paste an Upgrade Finder export to change that."
+    "No Upgrade Finder import yet, so no run can be ranked. Paste an Upgrade Finder export to change that."
 
 -- The denominator is every drop the journal lists for the run, so the reader
 -- can see how thin a "best upgrade" is spread.
 Panel.RUN_COUNT_TEXT = "%d of %d drops rated upgrades"
-Panel.RUN_NO_UPGRADE_TEXT = "no drop rated by QE Live yet"
+Panel.RUN_NO_UPGRADE_TEXT = "no drop rated yet"
 
 Panel.RUN_HEADLINE_BEST = "Best run right now (by best upgrade): %s - %+.2f%% for %s."
 Panel.RUN_HEADLINE_COUNT = "Best run right now (by most upgrades): %s - %s."
-Panel.RUN_HEADLINE_NONE = "No run in this map has a drop QE Live rates as an upgrade."
+Panel.RUN_HEADLINE_NONE = "No run in this map has a drop rated as an upgrade."
 
 -- One key level exists today: the one the walk previewed. The companion now
 -- asks QE Live at several of them (C-7) and each drop is valued by whichever
@@ -871,7 +889,7 @@ Panel.RUN_HEADLINE_NONE = "No run in this map has a drop QE Live rates as an upg
 -- one level. This line says which, rather than inventing item levels for the
 -- others; a walk per key level is its own question (ARCHITECTURE.md 11).
 Panel.KEY_LEVEL_NOTE = "Mythic Keystone runs are shown at key %s, which is what the walk previewed. "
-    .. "A key level with no walk and no QE Live export of its own is not shown."
+    .. "A key level with no walk and no export of its own is not shown."
 
 -- The keystone level a run's item levels mean nothing without. Only the Mythic
 -- Keystone difficulty has one, and it comes from the entry itself when the
@@ -1676,7 +1694,7 @@ function Panel.Elements(model, state)
         return elements
     end
     if not model.hasVerdict then
-        note("No QE Live import yet, so no drop carries a value. Paste a Top Gear export to change that.")
+        note("No import yet, so no drop carries a value. Paste a Top Gear export to change that.")
     end
     note(model.upgradeDocumentsNote)
 

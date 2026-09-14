@@ -117,12 +117,12 @@ describe("VaultPanel over the committed vault transcript", function()
         assert.equal(1, model.counts.covered)
         assert.equal(key, reward.key)
         assert.equal("topSet", reward.qe.where)
-        assert.equal("QE Live: in your best set", reward.value)
+        assert.equal("in your best set", reward.value)
         assert.is_true(reward.best)
         assert.equal(reward, model.best)
         local highlighted = 0
         for _, line in ipairs(ns.VaultPanel.Lines(model)) do
-            if line:find("<- QE Live's pick", 1, true) then
+            if line:find("<- the pick", 1, true) then
                 highlighted = highlighted + 1
             end
         end
@@ -143,8 +143,8 @@ describe("VaultPanel over the committed vault transcript", function()
         local model = ns.VaultPanel.Model({ vault = ns.Vault.Options(), verdict = verdict, now = 1788700000 })
         assert.equal(2, model.counts.covered)
         assert.equal(betterKey, model.best.key)
-        assert.equal("QE Live: better by 1.00% (+200.0 score)", model.best.value)
-        assert.equal("QE Live: worse by 3.00% (-600.0 score)", model.options[1].rewards[1].value)
+        assert.equal("better by 1.00% (+200.0 score)", model.best.value)
+        assert.equal("worse by 3.00% (-600.0 score)", model.options[1].rewards[1].value)
 
         -- A top-set option outranks any alternative: QE Live already put it in
         -- the set it recommends.
@@ -212,12 +212,12 @@ describe("VaultPanel over the after-reset vault and the export that ranked it", 
         end
         assert.is_not_nil(weapon)
         assert.equal("topSet", weapon.qe.where)
-        assert.equal("QE Live: in your best set", weapon.value)
+        assert.equal("in your best set", weapon.value)
         assert.is_true(weapon.best)
         assert.equal(weapon, model.best)
         local highlighted = 0
         for _, line in ipairs(ns.VaultPanel.Lines(model)) do
-            if line:find("<- QE Live's pick", 1, true) then
+            if line:find("<- the pick", 1, true) then
                 highlighted = highlighted + 1
             end
         end
@@ -308,7 +308,7 @@ describe("VaultPanel against the real reward shape (WKE-538)", function()
         -- line under it is that scenario's own line. This export names none, so
         -- it is `asOffered` - what the character has now.
         assert.equal(
-            "Lightgrasp Worldroot (305; QE Live valued it at 321) + Mythic Keystone  <- QE Live's pick (as offered)",
+            "Lightgrasp Worldroot (305; rated at 321) + Mythic Keystone  <- the pick (as offered)",
             world2.rewards[1].text
         )
         assert.same({ "as offered: in your best set" }, world2.rewards[1].verdictLines)
@@ -435,7 +435,7 @@ describe("VaultPanel against the real reward shape (WKE-538)", function()
         local weapon = optionByID(m, 208).rewards[1]
         assert.equal(305, weapon.itemLevel)
         assert.equal(321, weapon.qeLevel)
-        assert.equal("305; QE Live valued it at 321", weapon.levelText)
+        assert.equal("305; rated at 321", weapon.levelText)
         -- Both figures reach the line, and neither replaces the other.
         local line
         for _, text in ipairs(ns.VaultPanel.Lines(m)) do
@@ -449,22 +449,16 @@ describe("VaultPanel against the real reward shape (WKE-538)", function()
 
     it("names the QE Live setting that produced its level when the companion recorded it", function()
         local withVault = model({ autoUpgradeVault = true, autoUpgradeAll = false })
-        assert.equal(
-            "305; QE Live valued it at 321 with vault upgrades assumed",
-            optionByID(withVault, 208).rewards[1].levelText
-        )
+        assert.equal("305; rated at 321 with vault upgrades assumed", optionByID(withVault, 208).rewards[1].levelText)
         local both = model({ autoUpgradeVault = true, autoUpgradeAll = true })
         assert.equal(
-            "305; QE Live valued it at 321 with vault and all upgrades assumed",
+            "305; rated at 321 with vault and all upgrades assumed",
             optionByID(both, 208).rewards[1].levelText
         )
         -- Both off and the levels still differ: that is worth saying too, and it
         -- is read from the file rather than inferred from the difference.
         local neither = model({ autoUpgradeVault = false, autoUpgradeAll = false })
-        assert.equal(
-            "305; QE Live valued it at 321 with no upgrades assumed",
-            optionByID(neither, 208).rewards[1].levelText
-        )
+        assert.equal("305; rated at 321 with no upgrades assumed", optionByID(neither, 208).rewards[1].levelText)
         -- Half a pair, or a pair that is not booleans, says nothing at all.
         assert.is_nil(ns.VaultPanel.SettingsPhrase({ autoUpgradeVault = true }))
         assert.is_nil(ns.VaultPanel.SettingsPhrase({ autoUpgradeVault = "true", autoUpgradeAll = false }))
@@ -483,7 +477,7 @@ describe("VaultPanel against the real reward shape (WKE-538)", function()
         -- And a pair that agrees says it once: LevelText is the one place the
         -- two numbers are ever compared.
         assert.equal("308", ns.VaultPanel.LevelText(308, 308, nil))
-        assert.equal("305; QE Live valued it at 321", ns.VaultPanel.LevelText(305, 321, nil))
+        assert.equal("305; rated at 321", ns.VaultPanel.LevelText(305, 321, nil))
     end)
 end)
 
@@ -640,7 +634,7 @@ describe("VaultPanel frames", function()
         end
         assert.equal(#notes, #frame.lines)
         assert.equal(ns.VaultPanel.NOTE, frame.note:GetText())
-        assert.equal("QE Live: in your best set", model.best.value)
+        assert.equal("in your best set", model.best.value)
         -- Three rows of three cells, and the option the export covers is drawn
         -- in one of them with QE Live's own line on it (M5-4).
         assert.equal(3, #frame.gridRows)
@@ -679,7 +673,7 @@ describe("VaultPanel frames", function()
         ns.db.profile.settings.contentType = "Raid"
         local covered = frame:Refresh()
         assert.equal(1, covered.counts.covered)
-        assert.equal("QE Live: in your best set", covered.best.value)
+        assert.equal("in your best set", covered.best.value)
     end)
 
     it("hides the rows and the cells a shorter render does not use", function()
@@ -876,24 +870,24 @@ describe("VaultPanel over the three named scenarios (WKE-540)", function()
         assert.equal("asOffered", offered.highlightScenario)
         assert.is_false(offered.highlightFellBack)
         assert.equal(WEAPON_KEY, offered.best.key)
-        assert.is_truthy(offered.best.text:find("<- QE Live's pick (as offered)", 1, true))
+        assert.is_truthy(offered.best.text:find("<- the pick (as offered)", 1, true))
 
         local catalyzed = model({ highlightScenario = "catalyzed" })
         assert.equal(SPAULDERS_KEY, catalyzed.best.key)
         assert.is_true(catalyzed.best.qeViaCatalyst)
-        assert.equal("QE Live: in your best set", catalyzed.best.value)
-        assert.is_truthy(catalyzed.best.text:find("<- QE Live's pick (catalyzed)", 1, true))
+        assert.equal("in your best set", catalyzed.best.value)
+        assert.is_truthy(catalyzed.best.text:find("<- the pick (catalyzed)", 1, true))
 
         local maxed = model({ highlightScenario = "maxed" })
         assert.equal(WEAPON_KEY, maxed.best.key)
-        assert.is_truthy(maxed.best.text:find("<- QE Live's pick (everything upgraded)", 1, true))
+        assert.is_truthy(maxed.best.text:find("<- the pick (everything upgraded)", 1, true))
     end)
 
     it("draws exactly one pick, whichever scenario it follows", function()
         for _, name in ipairs({ "asOffered", "catalyzed", "maxed" }) do
             local highlighted = 0
             for _, line in ipairs(ns.VaultPanel.Lines(model({ highlightScenario = name }))) do
-                if line:find("<- QE Live's pick", 1, true) then
+                if line:find("<- the pick", 1, true) then
                     highlighted = highlighted + 1
                 end
             end
@@ -940,7 +934,7 @@ describe("VaultPanel over the three named scenarios (WKE-540)", function()
 end)
 
 -- ---------------------------------------------------------------------------
--- M3-9 (WKE-544): the tab leads with QE Live's pick and the steps to get there.
+-- M3-9 (WKE-544): the tab leads with the pick and the steps to get there.
 --
 -- The owner's words after the first in-game run, 2026-09-08: the tab "doesn't do
 -- a good job of telling me what my top pick is and why - the catalyst example:
@@ -1032,7 +1026,7 @@ describe("VaultPanel's headline block (WKE-544)", function()
     it("leads with the pick under the owner's scenario and answers every question under it", function()
         local m = model({ highlightScenario = "catalyzed", currencies = knownCurrencies() })
         assert.same({
-            "QE Live's pick this week (catalyzed): Scavenger's Spaulders (Dungeons 1)",
+            "The pick this week (catalyzed): Scavenger's Spaulders (Dungeons 1)",
             "  as offered: nothing in the vault beats your set",
             "  catalyzed, as tier: in your best set - needs a Catalyst charge (you have 1)"
                 .. " - and catalyze the vault's Scavenger's Spaulders (308) into the tier shoulder",
@@ -1056,12 +1050,12 @@ describe("VaultPanel's headline block (WKE-544)", function()
     -- three sentences, two different items - all of them his answers.
     it("leads with whichever scenario the owner asked for", function()
         assert.equal(
-            "QE Live's pick this week (as offered): none - nothing in the vault beats your set; "
+            "The pick this week (as offered): none - nothing in the vault beats your set; "
                 .. "closest: Lightgrasp Worldroot (World 2)",
             model({ highlightScenario = "asOffered", currencies = knownCurrencies() }).headline.text
         )
         assert.equal(
-            "QE Live's pick this week (everything upgraded): Lightgrasp Worldroot (World 2)",
+            "The pick this week (everything upgraded): Lightgrasp Worldroot (World 2)",
             model({ highlightScenario = "maxed", currencies = knownCurrencies() }).headline.text
         )
         local m = model({ highlightScenario = "catalyzed", currencies = knownCurrencies() })
@@ -1237,7 +1231,7 @@ describe("VaultPanel's headline block (WKE-544)", function()
         for _, name in ipairs({ "asOffered", "catalyzed", "maxed" }) do
             local m = model({ highlightScenario = name, currencies = knownCurrencies() })
             assert.equal(m.best, m.headline.pick)
-            assert.is_truthy(m.best.text:find("<- QE Live's pick", 1, true))
+            assert.is_truthy(m.best.text:find("<- the pick", 1, true))
         end
     end)
 
@@ -1367,13 +1361,10 @@ describe("VaultPanel over the fresh-login vault (M3-12, WKE-547)", function()
         -- QE Live's own level for the exact key is still his fact, and it is
         -- shown beside the pending client level, not instead of it.
         assert.equal(308, spaulders.qeLevel)
-        assert.is_truthy(spaulders.levelText:find("^level pending; QE Live valued it at 308", 1))
+        assert.is_truthy(spaulders.levelText:find("^level pending; rated at 308", 1))
         -- The headline uses the same words as the row.
         -- Measured: activity 213 is `index = 1` of the Dungeons row in snapshot 13.
-        assert.equal(
-            "QE Live's pick this week (catalyzed): name pending (item 251146) (Dungeons 1)",
-            model.headline.text
-        )
+        assert.equal("The pick this week (catalyzed): name pending (item 251146) (Dungeons 1)", model.headline.text)
         local lines = ns.VaultPanel.Lines(model)
         assertNoBracketsOrNil(lines)
         -- And the "instead" naming in the other scenarios' lines, too.
@@ -1420,12 +1411,12 @@ describe("VaultPanel over the fresh-login vault (M3-12, WKE-547)", function()
 
     it("says the level is pending rather than 0, nil or a snapshot's level", function()
         assert.equal("level pending", ns.VaultPanel.LevelText(nil, nil, nil, true))
-        -- QE Live's level is his fact about the exact key and is still shown.
-        assert.equal("level pending; QE Live valued it at 305", ns.VaultPanel.LevelText(nil, 305, nil, true))
+        -- rated at is his fact about the exact key and is still shown.
+        assert.equal("level pending; rated at 305", ns.VaultPanel.LevelText(nil, 305, nil, true))
         assert.equal("305", ns.VaultPanel.LevelText(305, 305, nil, false))
         assert.equal("level unknown", ns.VaultPanel.LevelText(nil, nil, nil, false))
         assert.equal(
-            "level pending; QE Live valued it at 321 with vault and all upgrades assumed",
+            "level pending; rated at 321 with vault and all upgrades assumed",
             ns.VaultPanel.LevelText(nil, 321, { autoUpgradeVault = true, autoUpgradeAll = true }, true)
         )
     end)
@@ -1616,7 +1607,7 @@ describe("VaultPanel over the fourth scenario (M3-13, WKE-548)", function()
     -- also convert the vault's Spaulders.
     it("leads with the fourth question and says both halves of his answer", function()
         assert.same({
-            "QE Live's pick this week (vault upgraded, Catalyst used): Lightgrasp Worldroot (World 2)",
+            "The pick this week (vault upgraded, Catalyst used): Lightgrasp Worldroot (World 2)",
             "  as offered: nothing in the vault beats your set",
             "  catalyzed, as tier: Scavenger's Spaulders instead - in your best set"
                 .. " - needs a Catalyst charge (you have 1)"
@@ -1630,8 +1621,7 @@ describe("VaultPanel over the fourth scenario (M3-13, WKE-548)", function()
                 .. " - needs a Catalyst charge (you have 1) and crests (you have Placeholder Crest 42)"
                 .. " - and catalyze your Venom-Cursed Lynx's Spaulders (295) into the tier shoulder"
                 .. " and your Hide of Pestilence (302) into the tier chest",
-            "  one charge (this week, Catalyst used once):"
-                .. " not in QE Live's export - no set he ranked spends the charge just once",
+            "  one charge (this week, Catalyst used once):" .. " no rating - no rated set spends the charge just once",
         }, headlineLines(model({ currencies = currencies() })))
     end)
 
@@ -1697,8 +1687,8 @@ describe("VaultPanel over the fourth scenario (M3-13, WKE-548)", function()
         local m = model({ inventory = { ok = true, records = records }, currencies = currencies() })
         assert.is_truthy(
             m.headline.lines[3].text:find(
-                "and catalyze a shoulder you own (QE Live did not say which)"
-                    .. " and a chest you own (QE Live did not say which)",
+                "and catalyze a shoulder you own (which one is not said)"
+                    .. " and a chest you own (which one is not said)",
                 1,
                 true
             )
@@ -1826,8 +1816,7 @@ describe("VaultPanel's fifth line, one charge (M3-14, WKE-555)", function()
     it("reads the Dungeon answer off his own alternatives", function()
         local m = model()
         assert.equal(
-            "one charge (this week, Catalyst used once):"
-                .. " not in QE Live's export - no set he ranked spends the charge just once",
+            "one charge (this week, Catalyst used once):" .. " no rating - no rated set spends the charge just once",
             oneChargeText(m)
         )
         -- The absence carries no figure at all, which is the strongest form of
@@ -1847,8 +1836,7 @@ describe("VaultPanel's fifth line, one charge (M3-14, WKE-555)", function()
     -- Spaulders too.
     it("reads the Raid answer off the Raid document", function()
         assert.equal(
-            "one charge (this week, Catalyst used once):"
-                .. " not in QE Live's export - no set he ranked spends the charge just once",
+            "one charge (this week, Catalyst used once):" .. " no rating - no rated set spends the charge just once",
             oneChargeText(model({ thisWeekFile = THIS_WEEK_RAID }))
         )
     end)
@@ -1905,7 +1893,7 @@ describe("VaultPanel's fifth line, one charge (M3-14, WKE-555)", function()
         )
         assert.equal(
             "one charge (this week, Catalyst used once):"
-                .. " catalyze a shoulder the vault is offering (QE Live did not say which) - 0.90% behind",
+                .. " catalyze a shoulder the vault is offering (which one is not said) - 0.90% behind",
             line({ slot = "Shoulder", item = { itemID = 271526 }, fromVault = true })
         )
     end)
@@ -1939,8 +1927,7 @@ describe("VaultPanel's fifth line, one charge (M3-14, WKE-555)", function()
     it("says so plainly when no set of his spends the charge once", function()
         local line = ns.VaultPanel.OneChargeLine({})
         assert.equal(
-            "one charge (this week, Catalyst used once):"
-                .. " not in QE Live's export - no set he ranked spends the charge just once",
+            "one charge (this week, Catalyst used once):" .. " no rating - no rated set spends the charge just once",
             line.text
         )
         assert.is_nil(line.candidate)
@@ -1960,7 +1947,7 @@ describe("VaultPanel's fifth line, one charge (M3-14, WKE-555)", function()
         })
         assert.equal(
             "one charge (this week, Catalyst used once):"
-                .. " catalyze a shoulder you own (QE Live did not say which) - 0.34% behind",
+                .. " catalyze a shoulder you own (which one is not said) - 0.34% behind",
             line.text
         )
     end)
@@ -2202,7 +2189,7 @@ describe("VaultPanel's grid (WKE-553)", function()
         -- client's - and M3-7's rule puts both numbers on the line.
         local upgraded = model("maxed").grid.rows[3].cells[2]
         assert.is_truthy(upgraded.second:find("305", 1, true))
-        assert.is_truthy(upgraded.second:find("QE Live valued it at 321", 1, true))
+        assert.is_truthy(upgraded.second:find("rated at 321", 1, true))
     end)
 
     -- A locked cell says what the client says it needs. Blizzard's own frame
@@ -2236,7 +2223,7 @@ describe("VaultPanel's grid (WKE-553)", function()
     end)
 
     -- Deliverable 2: the pick.
-    it("glows the cell QE Live's pick names, under each scenario", function()
+    it("glows the cell the pick names, under each scenario", function()
         local function selected(m)
             local found = {}
             for rowIndex, gridRow in ipairs(m.grid.rows) do
@@ -2261,7 +2248,7 @@ describe("VaultPanel's grid (WKE-553)", function()
 
     it("labels the pick, and labels the closest instead when nothing beats the set", function()
         local catalyzed = model("catalyzed")
-        assert.equal("QE Live's pick", catalyzed.grid.rows[2].cells[1].label)
+        assert.equal("the pick", catalyzed.grid.rows[2].cells[1].label)
         assert.is_false(catalyzed.grid.rows[2].cells[1].closest)
         assert.is_false(catalyzed.headline.closest)
 
@@ -2336,7 +2323,7 @@ describe("VaultPanel's grid (WKE-553)", function()
             end
         end
         assert.is_not_nil(unranked)
-        assert.equal("not ranked by QE Live in any scenario", unranked.verdictText)
+        assert.equal("no rating in any scenario", unranked.verdictText)
         assert.equal("none", unranked.verdictTone)
         assert.same({}, unranked.tags)
     end)
@@ -2530,7 +2517,7 @@ describe("VaultPanel's grid, drawn (WKE-553)", function()
         assert.is_false(cellFor(maxed, SPAULDERS_KEY).selectedTexture:IsShown())
         assert.is_true(cellFor(maxed, WEAPON_KEY).selectedTexture:IsShown())
         local pickLabel = cellFor(maxed, WEAPON_KEY).label:GetText()
-        assert.equal("QE Live's pick", (pickLabel:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")))
+        assert.equal("the pick", (pickLabel:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")))
 
         local offered = refresh("asOffered")
         for _, gridRow in ipairs(frame.gridRows) do
@@ -2686,7 +2673,7 @@ describe("VaultPanel and the items QE Live never saw", function()
         { slot = "Finger", name = "Band of Whatever", level = 678 },
     }
 
-    it("prints the line under the notes, in the aside grey, and never without a verdict", function()
+    it("prints the line under the notes, in the aside grey, and never with no rating", function()
         local verdict = realVerdict(ns)
         verdict.excluded = EXCLUDED
         ns.QEImport.Store(verdict)

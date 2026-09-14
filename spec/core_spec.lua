@@ -465,7 +465,7 @@ describe("Core", function()
             ns.HandleSlash("status")
             local out = world.output()
             assert.truthy(out:find("env=1", 1, true))
-            assert.truthy(out:find("QE Live import: none", 1, true))
+            assert.truthy(out:find("import: none", 1, true))
         end)
 
         it("prints help for anything else", function()

@@ -468,8 +468,8 @@ frame:SetScript("OnEvent", function(self, event, arg1)
 end)
 
 local HELP = {
-    "/lootpath - open the frame: paste QE Live's Top Gear JSON, then Equip Now",
-    "/lootpath options - the settings page (which content type's verdict to show)",
+    "/lootpath - open the frame: paste your Top Gear JSON, then Equip Now",
+    "/lootpath options - the settings page (which content type's rating to show)",
     "/lootpath refresh - capture gear, bags and vault, then reload for the companion (and read what it wrote)",
     "/lootpath capture <name> - record raw client returns; then /reload and run tools\\sync.ps1 -Pull",
     "/lootpath capture - list the capture commands",
@@ -526,7 +526,7 @@ local function statusCommand()
     ns.Log("captures stored: %s", #parts > 0 and table.concat(parts, " ") or "none")
     local import = ns.db.char.qeImport
     ns.Log(
-        "QE Live import: %s%s",
+        "import: %s%s",
         (import and import.exportedAt) and ("exported " .. tostring(import.exportedAt)) or "none",
         import and (" (" .. ns.Companion.SourceText(import) .. ")") or ""
     )

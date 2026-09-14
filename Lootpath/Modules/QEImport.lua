@@ -698,7 +698,7 @@ end
 
 function QEImport.Parse(text)
     if type(text) ~= "string" or text:match("^%s*$") then
-        return refuse("nothing to import: paste QE Live's Top Gear JSON (its Download JSON button) here")
+        return refuse("nothing to import: paste the Top Gear JSON export (its Download JSON button) here")
     end
     local decoded
     do
@@ -709,18 +709,18 @@ function QEImport.Parse(text)
         decoded = result
     end
     if type(decoded) ~= "table" then
-        return refuse("that JSON is %s, not a QE Live export", shown(decoded))
+        return refuse("that JSON is %s, not a Top Gear export", shown(decoded))
     end
     if decoded.schema ~= QEImport.SCHEMA then
         return refuse(
-            'not a QE Live Top Gear export: its schema is %s, Lootpath reads "%s"',
+            'this is not a Top Gear export: its schema is %s, Lootpath reads "%s"',
             shown(decoded.schema),
             QEImport.SCHEMA
         )
     end
     if type(decoded.version) ~= "number" or decoded.version ~= QEImport.VERSION then
         return refuse(
-            "this export is %s version %s; Lootpath reads version %d. Re-export from QE Live, or update Lootpath.",
+            "this export is %s version %s; Lootpath reads version %d. Re-export it, or update Lootpath.",
             QEImport.SCHEMA,
             shown(decoded.version),
             QEImport.VERSION
@@ -729,7 +729,7 @@ function QEImport.Parse(text)
     local topSet = decoded.topSet
     if type(topSet) ~= "table" then
         return refuse(
-            "this export has no topSet (it is %s): run Top Gear on QE Live and download the JSON from its report",
+            "this export has no topSet (it is %s): run Top Gear and download the JSON from its report",
             shown(topSet)
         )
     end
@@ -864,7 +864,7 @@ end
 
 function QEImport.Store(verdict)
     if type(verdict) ~= "table" then
-        return { ok = false, reason = "no verdict to store" }
+        return { ok = false, reason = "no rating to store" }
     end
     if not ns.db then
         return { ok = false, reason = "database not loaded yet" }

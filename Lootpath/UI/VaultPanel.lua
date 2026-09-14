@@ -30,7 +30,7 @@ local _, ns = ...
 ns.VaultPanel = {}
 local Panel = ns.VaultPanel
 
-Panel.NOTE = "Values shown are QE Live's, for options it has ranked. Other options are listed by item level only."
+Panel.NOTE = "Rated options show their value. Other options are listed by item level only."
 
 -- The game's own words for the vault's rows. The owner's Great Vault screenshot
 -- (2026-09-08) names them "Dungeons" ("Complete 1/4/8 Heroic, Mythic, or
@@ -99,7 +99,7 @@ Panel.SELECTED_HEX = "FFDF14"
 -- What the mark on that cell says. The grey one is the `nothing beats your
 -- set` case: the closest option is still named, and is still not called a pick
 -- on a screen that says there is not one.
-Panel.PICK_LABEL = "QE Live's pick"
+Panel.PICK_LABEL = "the pick"
 Panel.CLOSEST_LABEL = "closest"
 
 -- The cell's own last line. A cell whose option has more than one scenario to
@@ -107,7 +107,7 @@ Panel.CLOSEST_LABEL = "closest"
 -- lines `Panel.ScenarioLine` built, so the cell and the text panel cannot
 -- disagree about what QE Live said.
 Panel.CELL_HOVER_TEXT = "hover for the other scenarios"
-Panel.CELL_NO_VERDICT_TEXT = "not ranked by QE Live in any scenario"
+Panel.CELL_NO_VERDICT_TEXT = "no rating in any scenario"
 Panel.CELL_SECOND_SEPARATOR = " - "
 -- A row the client generated more than one gear reward for. Not measured on
 -- any transcript (every rewarded activity carried exactly one), so the cell
@@ -150,7 +150,7 @@ Panel.UNLOCKED_TEXT = "unlocked"
 -- both. Measured 2026-09-08: the vault's Lightgrasp Worldroot is 305 in the
 -- client's own link and 321 in the export that ranked it, because QE Live's
 -- SimC importer had "auto-upgrade vault" on.
-Panel.QE_LEVEL_TEXT = "QE Live valued it at %d"
+Panel.QE_LEVEL_TEXT = "rated at %d"
 
 -- Which of QE Live's two upgrade assumptions produced that number, when the
 -- companion recorded them (`qeSettings` in Data/QEVerdict.lua, C-5/WKE-539). A
@@ -178,7 +178,7 @@ Panel.SCENARIO_LABEL = {
 }
 
 -- The same names inside the headline's own first line, which already says "this
--- week" in its own words: "QE Live's pick this week (this week (vault upgraded,
+-- week" in its own words: "The pick this week (this week (vault upgraded,
 -- Catalyst used))" is what the plain label produced, and a stutter inside nested
 -- brackets is not a sentence anyone reads. Only the scenarios that need a
 -- shorter form are here; the rest fall through to SCENARIO_LABEL.
@@ -198,9 +198,9 @@ Panel.CATALYZED_SUFFIX = ", as tier"
 -- does not want to.
 Panel.NOT_CATALYZED_TEXT = "the Catalyst run made no tier version of this item"
 
--- Which scenario the "<- QE Live's pick" highlight follows, said on the line, so
+-- Which scenario the "<- the pick" highlight follows, said on the line, so
 -- a pick that came from a what-if is never mistaken for what you have now.
-Panel.PICK_TEXT = "  <- QE Live's pick (%s)"
+Panel.PICK_TEXT = "  <- the pick (%s)"
 
 -- ---------------------------------------------------------------------------
 -- The headline block (M3-9, WKE-544). The owner's words, 2026-09-08, after the
@@ -210,20 +210,20 @@ Panel.PICK_TEXT = "  <- QE Live's pick (%s)"
 -- many charges I have), then upgrade with crests (which we should know how many
 -- the player has and what type)".
 --
--- So the block leads with QE Live's pick under the scenario the owner asked for,
+-- So the block leads with the pick under the scenario the owner asked for,
 -- and then lists every scenario he has an answer for, in QE Live's own order,
 -- with what that answer assumed and how many of the thing it assumed the player
 -- has. Three kinds of words and no others: a QE Live verdict, a client number,
 -- and a fixed phrase naming what a scenario assumed. Nothing is computed - not a
 -- cost, not a count of upgrades a pile of crests would buy, not a preference
 -- between two of his answers.
-Panel.HEADLINE_TEXT = "QE Live's pick this week (%s): %s"
+Panel.HEADLINE_TEXT = "The pick this week (%s): %s"
 Panel.HEADLINE_WHERE = " (%s)"
-Panel.HEADLINE_NO_PICK = "QE Live's pick this week (%s): no option in this vault is in his answer"
+Panel.HEADLINE_NO_PICK = "The pick this week (%s): no option in this vault is in the answer"
 -- When the best he said about any option under the highlighted scenario is
 -- still "worse than your set", it is not a pick, and the first line must not
 -- call it one on the same screen that says nothing beats the set.
-Panel.HEADLINE_CLOSEST = "QE Live's pick this week (%s): none - nothing in the vault beats your set; closest: %s"
+Panel.HEADLINE_CLOSEST = "The pick this week (%s): none - nothing in the vault beats your set; closest: %s"
 
 -- What one scenario's own pick is, said in his terms. "In your best set" is the
 -- top-set case; anything else is an alternative, and an alternative in a Top
@@ -286,7 +286,7 @@ Panel.NEEDS_PARTS = {
 -- does this.
 Panel.CATALYZE_OWNED_LEAD = "and catalyze "
 Panel.CATALYZE_OWNED_TEXT = "your %s (%s) into the tier %s"
-Panel.CATALYZE_OWNED_UNKNOWN = "a %s you own (QE Live did not say which)"
+Panel.CATALYZE_OWNED_UNKNOWN = "a %s you own (which one is not said)"
 Panel.CATALYZE_OWNED_SLOT_UNKNOWN = "item"
 
 -- The same sentence for the other side of the same charge (M3-15, WKE-556). The
@@ -295,7 +295,7 @@ Panel.CATALYZE_OWNED_SLOT_UNKNOWN = "item"
 -- never mention - and the count of charges on screen would understate what he
 -- told the owner to do. The words differ only in whose item it is.
 Panel.CATALYZE_VAULT_TEXT = "the vault's %s (%s) into the tier %s"
-Panel.CATALYZE_VAULT_UNKNOWN = "a %s the vault is offering (QE Live did not say which)"
+Panel.CATALYZE_VAULT_UNKNOWN = "a %s the vault is offering (which one is not said)"
 
 -- The fifth question (M3-14, WKE-555). The line above says his `thisWeek` best
 -- set catalyzes two of the owner's items; the owner holds one charge. So: with
@@ -320,7 +320,7 @@ Panel.ONE_CHARGE_LABEL = "one charge (this week, Catalyst used once)"
 Panel.ONE_CHARGE_LEAD = "catalyze "
 Panel.ONE_CHARGE_IN_BEST_SET = "in your best set"
 Panel.ONE_CHARGE_BEHIND = "%.2f%% behind"
-Panel.ONE_CHARGE_NONE = "not in QE Live's export - no set he ranked spends the charge just once"
+Panel.ONE_CHARGE_NONE = "no rating - no rated set spends the charge just once"
 
 -- The client's count beside the assumption, or the honest absence of one.
 -- `/lootpath capture currencies` has to have run for there to be a number, and
@@ -360,9 +360,8 @@ Panel.PENDING_NOTE = "%d reward(s) are waiting for the client to load their item
 
 Panel.NO_REWARDS_NOTE =
     "The vault has not generated this week's rewards yet. Progress is shown so you can see what is still unearned."
-Panel.NO_VERDICT_NOTE = "No QE Live import yet, so no option carries a value. Paste a Top Gear export to change that."
-Panel.STALE_NOTE =
-    "This QE Live export predates this week's vault reset, so it does not know these options. Re-export it."
+Panel.NO_VERDICT_NOTE = "No import yet, so no option carries a value. Paste a Top Gear export to change that."
+Panel.STALE_NOTE = "This export predates this week's vault reset, so it does not know these options. Re-export it."
 
 -- A reset week, in seconds. Used only to place an export before or after the
 -- most recent reset; the client's own GetSecondsUntilWeeklyReset supplies the

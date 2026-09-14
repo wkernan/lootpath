@@ -95,7 +95,7 @@ EquipPanel.STATUS_BADGE = {
     swap = { text = "swap" },
     best_in_vault = { text = "in the vault" },
     best_not_owned = { text = "not owned" },
-    no_verdict = { text = "not ranked" },
+    no_verdict = { text = "no rating" },
 }
 
 -- The five counts, in the order SummaryText says them, as the chips above the
@@ -105,7 +105,7 @@ EquipPanel.CHIP_ORDER = {
     { key = "swap", label = "to swap" },
     { key = "best_in_vault", label = "in the Great Vault" },
     { key = "best_not_owned", label = "not owned" },
-    { key = "no_verdict", label = "without a verdict" },
+    { key = "no_verdict", label = "no rating" },
 }
 
 local NOTHING_EQUIPPED = "(nothing equipped)"
@@ -136,12 +136,12 @@ function EquipPanel.RecordName(record)
     return nil
 end
 
--- A verdict item as text. QE Live names an item by id, bonus IDs and level
+-- A rated item as text. The rating names an item by id, bonus IDs and level
 -- only, so there is no link to show; the name is asked of the client and is
 -- absent whenever the item is not cached, which is honest rather than guessed.
 function EquipPanel.VerdictItemText(item)
     if type(item) ~= "table" then
-        return "an item QE Live did not name"
+        return "an item the rating did not name"
     end
     local name
     if C_Item and C_Item.GetItemInfo and item.itemID then
@@ -156,7 +156,7 @@ function EquipPanel.VerdictItemText(item)
     return name
 end
 
--- The line under a `best_in_vault` row. It quotes QE Live's own item level and
+-- The line under a `best_in_vault` row. It quotes the rating's own item level and
 -- sends the reader to the tab that shows the vault: Lootpath never computes a
 -- healer value, so this line says where the number came from and stops.
 function EquipPanel.VaultNoteText(item)
@@ -169,9 +169,9 @@ function EquipPanel.VaultNoteText(item)
     end
     local level = type(item) == "table" and item.level or nil
     if level then
-        name = string.format("%s (QE Live's level %s)", name, tostring(level))
+        name = string.format("%s (rated at %s)", name, tostring(level))
     end
-    return string.format("QE Live's best set has a Great Vault option in this slot: %s - see the Vault tab", name)
+    return string.format("Your best set has a Great Vault option in this slot: %s - see the Vault tab", name)
 end
 
 local function whereText(record)
@@ -266,16 +266,12 @@ function EquipPanel.Describe(row)
         -- the right-hand edge of the frame.
         note = colored(status, tostring(row.reason))
         local level = type(row.verdictItem) == "table" and row.verdictItem.level or nil
-        second = level and string.format("QE Live's level %s", tostring(level)) or "named by QE Live"
+        second = level and string.format("rated at %s", tostring(level)) or "in your best set"
         item = EquipPanel.ItemFromVerdict(row.verdictItem)
         worn = EquipPanel.ItemFromRecord(row.equipped)
     else
-        text = string.format(
-            "%s - %s",
-            EquipPanel.RecordText(row.equipped),
-            colored(status, "QE Live's set does not name this slot")
-        )
-        second = "QE Live's set does not name this slot"
+        text = string.format("%s - %s", EquipPanel.RecordText(row.equipped), colored(status, "no rating"))
+        second = "no rating"
         item = EquipPanel.ItemFromRecord(row.equipped)
     end
     if row.matchedBy == ns.Match.MATCHED_BY_ID_LEVEL then
@@ -362,7 +358,7 @@ end
 -- drawn panel splits it into the chips and NoteText.
 function EquipPanel.SummaryText(match)
     if type(match) ~= "table" then
-        return "Paste a QE Live Top Gear export above to fill this panel."
+        return "Paste a Top Gear export above to fill this panel."
     end
     if not match.ok then
         if match.reason == "combat" then
@@ -377,7 +373,7 @@ function EquipPanel.SummaryText(match)
     end
     local line = prefix
         .. string.format(
-            "%d already best, %d to swap, %d waiting in the Great Vault, %d not owned, %d without a verdict",
+            "%d already best, %d to swap, %d waiting in the Great Vault, %d not owned, %d with no rating",
             counts.equipped_is_best,
             counts.swap,
             counts.best_in_vault or 0,
@@ -395,7 +391,7 @@ end
 -- themselves are the chips' (M5-1), so nothing on screen says them twice.
 function EquipPanel.NoteText(match)
     if type(match) ~= "table" then
-        return "Paste a QE Live Top Gear export above to fill this panel."
+        return "Paste a Top Gear export above to fill this panel."
     end
     if not match.ok then
         return EquipPanel.SummaryText(match)
@@ -579,7 +575,7 @@ function EquipPanel.Create(parent)
             ns.Log("%s", EquipPanel.COMBAT_TOOLTIP)
             return
         end
-        ns.Log("equipped %d item(s) from QE Live's set.", result.equipped)
+        ns.Log("equipped %d item(s) from your best set.", result.equipped)
         EquipPanel.Refresh(panel, panel.match)
     end)
     panel.equipAll:SetScript("OnEnter", function(button)

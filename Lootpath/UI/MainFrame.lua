@@ -60,7 +60,7 @@ UI.WIDTH = 620
 UI.HEIGHT = 640
 UI.DIALOG_WIDTH = 520
 UI.DIALOG_HEIGHT = 260
-UI.PASTE_INSTRUCTIONS = "Paste your QE Live Top Gear or Upgrade Finder JSON here"
+UI.PASTE_INSTRUCTIONS = "Paste your Top Gear or Upgrade Finder JSON here"
 
 -- One tab per promise, in the order the product states them (ARCHITECTURE.md
 -- 1). `key` is the field on the frame that holds that tab's panel; `refresh` is
@@ -308,7 +308,7 @@ end
 function UI.VerdictNoteText(now)
     local verdict, contentType, fellBack = UI.ActiveVerdict()
     if not verdict then
-        return "No QE Live export on this character yet."
+        return "No export on this character yet."
     end
     local source = ns.Companion.SourceText(verdict, now)
     if fellBack then
@@ -329,11 +329,11 @@ end
 -- five facts read as five; whether it renders on the owner's screen is an eye
 -- test (M5-5, WKE-554), not something this file can claim.
 UI.SEPARATOR = " \194\183 "
-UI.NO_VERDICT_STRIP = "QE Live \194\183 no export on this character yet \194\183 Import... to paste one"
+UI.NO_VERDICT_STRIP = "No export on this character yet \194\183 Import... to paste one"
 UI.STALE_STRIP_TOOLTIP =
     "This export was made before the last weekly reset. If the companion is running it should be newer than that."
 
--- Which of QE Live's named scenarios the Vault tab's pick follows, in the
+-- Which named scenario the Vault tab's pick follows, in the
 -- strip's words. The setting is C-6's (WKE-540); the strip only says it.
 UI.SCENARIO_TAG = {
     asOffered = "vault pick: as offered",
@@ -405,7 +405,6 @@ function UI.StatusStripModel(now)
     end
     local scenario = ns.UI.Options.GetVaultScenario()
     local parts = {
-        "QE Live",
         verdict.spec or "unknown spec",
         string.format("%s %s", contentType or "unknown content type", kind),
         source,
@@ -630,7 +629,7 @@ local function buildImportDialog(frame)
     dialog:SetScript("OnDragStart", dialog.StartMoving)
     dialog:SetScript("OnDragStop", dialog.StopMovingOrSizing)
     if dialog.TitleText then
-        dialog.TitleText:SetText("Import a QE Live export")
+        dialog.TitleText:SetText("Import an export")
     end
 
     local label = dialog:CreateFontString(nil, "ARTWORK", "GameFontNormal")

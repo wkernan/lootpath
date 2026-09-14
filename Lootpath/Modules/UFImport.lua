@@ -181,7 +181,7 @@ end
 
 function UFImport.Parse(text)
     if type(text) ~= "string" or text:match("^%s*$") then
-        return refuse("nothing to import: paste QE Live's Upgrade Finder JSON (its Download JSON button) here")
+        return refuse("nothing to import: paste the Upgrade Finder JSON export (its Download JSON button) here")
     end
     local decoded
     do
@@ -192,11 +192,11 @@ function UFImport.Parse(text)
         decoded = result
     end
     if type(decoded) ~= "table" then
-        return refuse("that JSON is %s, not a QE Live export", shown(decoded))
+        return refuse("that JSON is %s, not an Upgrade Finder export", shown(decoded))
     end
     if decoded.schema ~= UFImport.SCHEMA then
         return refuse(
-            'not a QE Live Upgrade Finder export: its schema is %s, Lootpath reads "%s"',
+            'this is not an Upgrade Finder export: its schema is %s, Lootpath reads "%s"',
             shown(decoded.schema),
             UFImport.SCHEMA
         )
@@ -206,7 +206,7 @@ function UFImport.Parse(text)
     -- 2026-09-06, the same pin QEImport carries).
     if type(decoded.version) ~= "number" or decoded.version ~= UFImport.VERSION then
         return refuse(
-            "this export is %s version %s; Lootpath reads version %d. Re-export from QE Live, or update Lootpath.",
+            "this export is %s version %s; Lootpath reads version %d. Re-export it, or update Lootpath.",
             UFImport.SCHEMA,
             shown(decoded.version),
             UFImport.VERSION
@@ -214,7 +214,7 @@ function UFImport.Parse(text)
     end
     if type(decoded.items) ~= "table" then
         return refuse(
-            "this export has no items (it is %s): run the Upgrade Finder on QE Live, then Export > Download JSON",
+            "this export has no items (it is %s): run the Upgrade Finder, then Export > Download JSON",
             shown(decoded.items)
         )
     end
@@ -409,7 +409,7 @@ end
 
 function UFImport.Store(verdict)
     if type(verdict) ~= "table" then
-        return { ok = false, reason = "no verdict to store" }
+        return { ok = false, reason = "no rating to store" }
     end
     if not ns.db then
         return { ok = false, reason = "database not loaded yet" }
@@ -640,11 +640,11 @@ end
 
 -- The sentence the panel puts under its header: which documents are being
 -- joined, so a reader knows the numbers on the rows came from several runs of
--- QE Live's Upgrade Finder and which ones. It replaces C-7's "these numbers are
+-- the Upgrade Finder and which ones. It replaces C-7's "these numbers are
 -- its +8 run" line, because no single run is what is on screen any more.
-UFImport.DOCUMENTS_NOTE = "QE Live's Upgrade Finder at %s (%d document%s)."
-UFImport.DOCUMENTS_NOTE_UNNAMED = "QE Live's Upgrade Finder, with no Mythic+ key level named (%d document%s)."
-UFImport.DOCUMENTS_NOTE_MIXED = "QE Live's Upgrade Finder at %s, and %d that name no key level (%d documents)."
+UFImport.DOCUMENTS_NOTE = "Upgrade Finder at %s (%d document%s)."
+UFImport.DOCUMENTS_NOTE_UNNAMED = "Upgrade Finder, with no Mythic+ key level named (%d document%s)."
+UFImport.DOCUMENTS_NOTE_MIXED = "Upgrade Finder at %s, and %d that name no key level (%d documents)."
 UFImport.DOCUMENTS_JOIN_SENTENCE =
     " A drop takes its number from whichever of them values it at the item level the loot map lists."
 

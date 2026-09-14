@@ -96,7 +96,7 @@ describe("Match.Build refusals", function()
     it("refuses when nothing has been imported", function()
         local result = ns.Match.Build({ ok = true, records = {} }, nil)
         assert.is_false(result.ok)
-        assert.is_truthy(result.reason:find("no QE Live verdict", 1, true))
+        assert.is_truthy(result.reason:find("no rating imported", 1, true))
     end)
 end)
 
@@ -296,7 +296,7 @@ end)
 -- owner actually saw on 2026-09-08: the inventory snapshot `/lootpath refresh`
 -- took at 12:45:26 (snapshot 7 of that transcript, the same refresh as the vault
 -- snapshot the M3-7 panel tests replay) and the export the companion wrote from
--- it, which put the vault's Lightgrasp Worldroot at QE Live's level 321 in the
+-- it, which put the vault's Lightgrasp Worldroot at rated at 321 in the
 -- top set while the owner was wearing the 305 copy of the same staff.
 describe("Match.Build over the 2026-09-08 vault export (WKE-541)", function()
     local ns, world, match

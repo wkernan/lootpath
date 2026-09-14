@@ -413,7 +413,7 @@ describe("the Equip Now panel", function()
         ns.UI.Frame()
         ns.UI.Refresh()
         local fresh = ns.UI.frame.equipPanel
-        assert.is_truthy(fresh.summary:GetText():find("Paste a QE Live", 1, true))
+        assert.is_truthy(fresh.summary:GetText():find("Paste a Top Gear", 1, true))
         assert.is_false(fresh.equipAll:IsShown())
     end)
 end)
@@ -421,7 +421,7 @@ end)
 -- WKE-541 (M2-4): the row the owner saw on his first day. The 2026-09-08
 -- inventory snapshot `/lootpath refresh` took at 12:45:26 (snapshot 7) joined
 -- to the export the companion wrote from it, which put the Great Vault's
--- Lightgrasp Worldroot at QE Live's level 321 in the top set while the owner
+-- Lightgrasp Worldroot at rated at 321 in the top set while the owner
 -- was wearing the 305 copy. The tab used to render that as a red failed swap
 -- with the explanation running off the frame; it is now the staff he wears,
 -- with a line underneath naming the vault option and the tab that shows it.
@@ -430,8 +430,8 @@ describe("the Equip Now panel on a Great Vault option in the top set (WKE-541)",
     local AFTER_RESET = "spec/fixtures/captures/Lootpath-20260908-124527.lua"
     local VAULT_EXPORT = "spec/fixtures/qe/qe-droptimizer-Hotornot-uliwcyoomcub.json"
     local WEAPON_ID = 251935
-    local EXPECTED_NOTE = "QE Live's best set has a Great Vault option in this slot: "
-        .. "Lightgrasp Worldroot (QE Live's level 321) - see the Vault tab"
+    local EXPECTED_NOTE = "Your best set has a Great Vault option in this slot: "
+        .. "Lightgrasp Worldroot (rated at 321) - see the Vault tab"
 
     local function vaultRow()
         for _, frameRow in ipairs(panel.rows) do
@@ -1196,9 +1196,22 @@ describe("the Upgrade Map tab with an Upgrade Finder export", function()
         assert.is_true(panel.model.hasUpgrades)
         assert.equal(30, panel.model.counts.ranked)
         assert.equal(151, panel.model.counts.rankedAtAnotherLevel)
+        -- A valued row is one whose line carries one of the four sentences
+        -- `Panel.UpgradeBadge` writes. The badge no longer leads with a name,
+        -- so there is no prefix left to count by (V-1, WKE-569); a pasted
+        -- export names no key level either, so there is no "(at +10)" note on
+        -- these rows. Nothing else on this map says these words: the export
+        -- behind it has no Top Gear coverage, so no `ValueBadge` sentence is
+        -- drawn (`counts.covered` is zero, asserted below).
+        local function valuedLine(line)
+            return line:find("better by ", 1, true)
+                or line:find("worse by ", 1, true)
+                or line:find("no change", 1, true)
+                or line:find("rated, no value given", 1, true)
+        end
         local valued, badged = 0, 0
         for _, line in ipairs(panel.lines) do
-            if line:find("QE Live: ", 1, true) then
+            if valuedLine(line) then
                 valued = valued + 1
             end
         end
@@ -1473,7 +1486,9 @@ describe("the status strip (M5-2)", function()
         assert.equal(expected, frame.stripText:GetText())
     end)
 
-    it("names QE Live, the spec, the export, the scenario and the companion over a pasted one", function()
+    -- Five facts since V-1 (WKE-569), not six: the strip used to lead with the
+    -- engine's name and no surface names a source any more.
+    it("names the spec, the export, the scenario and the companion over a pasted one", function()
         importDungeon()
         local model = ns.UI.RefreshStrip(frame)
         assert.is_false(model.stale)
@@ -1481,15 +1496,14 @@ describe("the status strip (M5-2)", function()
         for part in (model.text .. ns.UI.SEPARATOR):gmatch("(.-)\194\183") do
             parts[#parts + 1] = (part:gsub("^%s+", ""):gsub("%s+$", ""))
         end
-        assert.equal(6, #parts)
-        assert.equal("QE Live", parts[1])
-        assert.equal("Restoration Druid", parts[2])
-        assert.equal("Dungeon Top Gear", parts[3])
-        assert.is_truthy(parts[4]:find("^pasted, exported "))
+        assert.equal(5, #parts)
+        assert.equal("Restoration Druid", parts[1])
+        assert.equal("Dungeon Top Gear", parts[2])
+        assert.is_truthy(parts[3]:find("^pasted, exported "))
         -- the default highlight is M3-13's `thisWeek` (WKE-548)
         assert.equal(ns.UI.SCENARIO_TAG[ns.QEImport.DEFAULT_SCENARIO], "vault pick: as offered")
-        assert.equal("vault pick: this week", parts[5])
-        assert.equal(ns.Companion.STATUS_NEVER, parts[6])
+        assert.equal("vault pick: this week", parts[4])
+        assert.equal(ns.Companion.STATUS_NEVER, parts[5])
     end)
 
     -- The five states of the companion's own file, on the line the owner is

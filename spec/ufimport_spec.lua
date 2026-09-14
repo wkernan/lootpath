@@ -793,16 +793,16 @@ describe("UFImport.LookupAcrossLevels over the five committed key levels", funct
     it("names the documents it joined against, and only says how when there are several", function()
         local list = documents()
         assert.equal(
-            "QE Live's Upgrade Finder at +2, +4, +6, +8, +10 (5 documents)."
+            "Upgrade Finder at +2, +4, +6, +8, +10 (5 documents)."
                 .. " A drop takes its number from whichever of them values it at the item level the loot map lists.",
             ns.UFImport.DocumentsNote(list)
         )
         assert.equal(
-            "QE Live's Upgrade Finder at +6 (1 document).",
+            "Upgrade Finder at +6 (1 document).",
             ns.UFImport.DocumentsNote({ { verdict = {}, keyLevel = 6 } })
         )
         assert.equal(
-            "QE Live's Upgrade Finder, with no Mythic+ key level named (1 document).",
+            "Upgrade Finder, with no Mythic+ key level named (1 document).",
             ns.UFImport.DocumentsNote({ { verdict = {} } })
         )
         assert.matches(

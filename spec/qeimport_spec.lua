@@ -80,7 +80,7 @@ describe("QEImport.Parse refusals", function()
     it("refuses JSON that is not an object", function()
         local result = ns.QEImport.Parse("1234")
         assert.is_false(result.ok)
-        assert.matches("not a QE Live export", result.reason, 1, true)
+        assert.matches("not a Top Gear export", result.reason, 1, true)
     end)
 
     it("refuses another tool's JSON by schema, naming what it saw", function()
@@ -348,7 +348,7 @@ describe("QEImport.Parse over the companion's export with a vault option in the 
         assert.is_not_nil(option)
         assert.is_true(option.isVault)
         assert.equal("2H Weapon", option.slot)
-        -- QE Live's level for the option, not the client's 305 (ARCHITECTURE.md 9, 2026-09-08).
+        -- rated at for the option, not the client's 305 (ARCHITECTURE.md 9, 2026-09-08).
         assert.equal(321, option.level)
         assert.equal(option, v.topSet.items[key])
     end)
@@ -481,7 +481,7 @@ describe("QEImport storage", function()
         ns, world = H.load()
         ns.QEImport.Import(readFile(SAMPLE_PATH))
         ns.HandleSlash("status")
-        assert.matches("QE Live import: exported 2026-09-06T18:22:41.113Z", world.output(), 1, true)
+        assert.matches("import: exported 2026-09-06T18:22:41.113Z", world.output(), 1, true)
     end)
 end)
 
