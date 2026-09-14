@@ -133,33 +133,46 @@ local snapshot = R.snapshot("journal", R.JOURNAL_TWO_READ_COLD, R.JOURNAL_TWO_RE
 local sources, summary = ns.Journal:Build({ snapshot = snapshot })
 assert(summary.ok, "journal build failed")
 
+-- By slot these rows are ns.Roads' own (R-3 draws every one the export ranks
+-- for a slot under `Other rated sources`), so what is printed here is the list
+-- the roads are built from: ns.UFImport.SourceRows, per slot and per kind.
 local function report(label, documents)
     local model = ns.UpgradeMapPanel.Model({ sources = sources, summary = summary, upgradeDocuments = documents })
-    say(
-        string.format(
-            "%s: %d slot sections, %d Crafted/Delves rows shown, %d crafted and %d delve rows ranked for those slots",
-            label,
-            model.counts.slots,
-            model.counts.exportRows,
-            model.counts.craftedRanked,
-            model.counts.delvesRanked
-        )
-    )
+    local crafted, delves, slotsWithRows = 0, 0, 0
     for _, section in ipairs(model.slots) do
-        for _, row in ipairs(section.exportRows or {}) do
-            say(
-                string.format(
-                    "    %-10s %-6s item %d (%d) - %s - %s",
-                    section.slot,
-                    row.sourceKind,
-                    row.itemID,
-                    row.itemLevel,
-                    row.second,
-                    tostring(row.upgradeValue)
+        local craftRows = ns.UFImport.SourceRows(documents, ns.UFImport.SOURCE_KIND_CRAFT, section.slot)
+        local delveRows = ns.UFImport.SourceRows(documents, ns.UFImport.SOURCE_KIND_DELVE, section.slot)
+        crafted = crafted + #craftRows
+        delves = delves + #delveRows
+        if #craftRows + #delveRows > 0 then
+            slotsWithRows = slotsWithRows + 1
+        end
+        for _, pair in ipairs({ { "craft", craftRows }, { "delve", delveRows } }) do
+            for _, held in ipairs(pair[2]) do
+                say(
+                    string.format(
+                        "    %-10s %-6s item %d (%d) %+.3f%%%s",
+                        section.slot,
+                        pair[1],
+                        held.entry.itemID,
+                        held.entry.level,
+                        held.entry.upgradePercent,
+                        held.crafted and held.crafted.stats and (" - " .. held.crafted.stats) or ""
+                    )
                 )
-            )
+            end
         end
     end
+    say(
+        string.format(
+            "%s: %d slot sections, %d of them with rows, %d crafted and %d delve rows ranked for them",
+            label,
+            model.counts.slots,
+            slotsWithRows,
+            crafted,
+            delves
+        )
+    )
     local runs = ns.UpgradeMapPanel.RunModel({
         sources = sources,
         summary = summary,
