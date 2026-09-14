@@ -158,6 +158,14 @@ Roads.CREST_NOT_READ = "crest type and cost not read"
 Roads.CRAFT_NOT_READ = "spark and materials not read"
 Roads.DELVE_NOT_READ = "not read"
 
+-- What a crafted road's rating assumed about the item: the stats line the
+-- export was run with (`settings.craftedStats`, R-4). It is said because a
+-- crafted item's stats are the crafter's choice and the number on the badge is
+-- about one pair of them; it is never guessed, and the crafted LEVEL beside it
+-- in the same settings is an INDEX rather than an item level and is never
+-- shown at all (ns.UFImport.CraftedSettings).
+Roads.CRAFT_STATS = "the rating assumes %s"
+
 -- Who ticks a step. Anything the client can confirm is the client's; only the
 -- unknowable is the player's (principle 8).
 Roads.DONE_CLIENT = "client"
@@ -1070,34 +1078,23 @@ function Roads.ForSlot(slot, inputs)
     end
 
     -- ---- the item group: the Crafted and Delves rows the export carries ----
-    local crafted, delves = {}, {}
-    for _, document in ipairs(documents) do
-        local verdict = type(document) == "table" and document.verdict or nil
-        if type(verdict) == "table" then
-            for _, item in pairs(type(verdict.items) == "table" and verdict.items or {}) do
-                if item.slot == slot then
-                    local list = (item.dropLoc == "Crafted" and crafted) or (item.dropLoc == "Delves" and delves) or nil
-                    if list and list[item.key] == nil then
-                        list[item.key] = { item = item, keyLevel = document.keyLevel, exportedAt = verdict.exportedAt }
-                    end
-                end
-            end
-        end
-    end
-    local function addExportRows(list, kind, tag)
-        local rows = {}
-        for _, held in pairs(list) do
-            rows[#rows + 1] = held
-        end
-        table.sort(rows, function(left, right)
-            local leftPercent, rightPercent = tonumber(left.item.upgradePercent), tonumber(right.item.upgradePercent)
-            if (leftPercent or 0) ~= (rightPercent or 0) then
-                return (leftPercent or 0) > (rightPercent or 0)
-            end
-            return left.item.key < right.item.key
-        end)
-        for _, held in ipairs(rows) do
-            local item = held.item
+    --
+    -- `ns.UFImport.SourceRows` is the one place these rows are found, ordered
+    -- and deduplicated (R-4): every document's rows for the kind, his own
+    -- percent best first, the first document that carries a row winning. This
+    -- file used to walk the documents itself; the walk moved there when the
+    -- Upgrade Map's by-run view needed the same list, so one shape of row
+    -- cannot be read two ways.
+    --
+    -- A road carries no key level for one of these: measured over the
+    -- committed companion run, all five key-level documents value the same 51
+    -- Crafted and Delves rows identically and only a Raid export differs, so
+    -- naming a key would claim a dependency his own files deny. `disagrees` is
+    -- the case where two stored documents really do differ, and then the row
+    -- names the document it took (ARCHITECTURE.md 7, 2026-09-13).
+    local function addExportRows(kind, tag)
+        for _, held in ipairs(ns.UFImport.SourceRows(documents, kind, slot)) do
+            local item = held.entry
             local road = newRoad(kind, Roads.GROUP_ITEM, slot, itemFacts(item))
             road.tag = tag
             road.arrivesAt = item.level
@@ -1108,12 +1105,19 @@ function Roads.ForSlot(slot, inputs)
                 badge = Roads.ItemBadge(item.upgradePercent),
                 arrivesAt = item.level,
                 level = item.level,
-                keyLevel = held.keyLevel,
+                keyLevel = held.disagrees and held.keyLevel or nil,
             }
             if (tonumber(item.upgradePercent) or 0) <= 0 then
                 road.phrase = Roads.PHRASE_NOT_IN_BEST_SET
             end
             if kind == Roads.KIND_CRAFT then
+                -- What the number assumed, when the export says: the stats a
+                -- crafting order would have to ask for to be the item he
+                -- ranked. A fact, not a step - there is nothing to tick.
+                local stats = held.crafted and held.crafted.stats or nil
+                if stats then
+                    road.steps[#road.steps + 1] = step(string.format(Roads.CRAFT_STATS, stats), nil, true)
+                end
                 road.steps[#road.steps + 1] = step(Roads.CRAFT_NOT_READ, nil, true)
                 road.todo = "do: get the spark, then order it"
             else
@@ -1129,8 +1133,8 @@ function Roads.ForSlot(slot, inputs)
             add(road)
         end
     end
-    addExportRows(crafted, Roads.KIND_CRAFT, Roads.TAG_CRAFTED)
-    addExportRows(delves, Roads.KIND_DELVE, Roads.TAG_DELVES)
+    addExportRows(Roads.KIND_CRAFT, Roads.TAG_CRAFTED)
+    addExportRows(Roads.KIND_DELVE, Roads.TAG_DELVES)
 
     -- One group, one scale, one order: the rated sources are every road the
     -- Upgrade Finder documents value, in the order of the percent HE gave, best

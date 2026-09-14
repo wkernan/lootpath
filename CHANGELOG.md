@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+### R-4 (WKE-565) - Crafting and Delves as runs, and what the export knows
+
+- **The by-run view gains the two sources the loot map cannot walk.** Every
+  Upgrade Finder export the companion writes carries 33 `Delves` rows and 18
+  `Crafted` ones beside its drops, and the by-run view had nowhere to put them:
+  it lists what the Adventure Guide walk found, and the walk finds no crafting
+  order and no delve. There is now a `Crafting` card and a `Delves` card beside
+  the instance cards, ranked by the same two orders every run uses - best
+  upgrade, most upgrades - and never by a combined score. Open one and it lists
+  every ranked item it has.
+- **By slot they are already there**, as the roads R-3 draws under
+  `Other rated sources`: one road per crafted and per delve item the export
+  ranks for the slot. This release points that list at the one place these rows
+  are found and ordered, and gives the crafted road the line its rating
+  assumed - `the rating assumes Crit / Haste` - beside `spark and materials not
+  read`.
+- **A card's denominator says "ranked items", not "drops".** A run's count is
+  out of every drop the Adventure Guide lists for it; these two have no loot
+  table behind them, only the items the export ranks, and the wording says so.
+- **They carry no difficulty, so no difficulty filter hides them**, and the
+  difficulty dropdown gains no entry for them. Said once under the list.
+- **What cannot be read is said, not guessed:** a crafted row reads
+  `Crafted, Crit / Haste - spark and materials not read` (the crafted LEVEL in
+  the same settings is an index, not an item level, and is never shown), and a
+  delve row reads `Delves - key and Bountiful state not read`.
+- **No row names a Mythic+ key**, because the key is not what values them:
+  measured over one companion run, all five key-level documents carry these 51
+  rows with identical numbers and only a Raid export differs. A row says which
+  document it came from only when two stored documents disagree about it.
+- The export carries no item names, so a row asks the client for one and fills
+  itself in when the answer arrives, exactly as a Great Vault reward does.
+- Not one number on the tab changed: every percentage is the export's own, and
+  the walk's own counts, rows and rankings are what they were.
 ### V-1 (WKE-569) - no screen names where a rating came from
 
 The owner decided on 2026-09-11 that player-facing text names no source: not

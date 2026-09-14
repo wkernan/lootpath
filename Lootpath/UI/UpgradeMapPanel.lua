@@ -464,7 +464,9 @@ end
 -- Finder verdict takes it - it is the one about THIS drop at THIS item level -
 -- and the Top Gear sentence joins the second line rather than being dropped.
 function Panel.FinishRow(row)
-    local second = Panel.SourceSecondText(row)
+    -- A Crafted or Delves row (R-4) has no boss and no difficulty to name, so
+    -- its second line says what it is and what has not been read instead.
+    local second = row.sourceKind and Panel.ExportSecondText(row) or Panel.SourceSecondText(row)
     local badge = row.upgrade and Panel.UpgradeBadge(row.upgrade, row.upgradeKeyLevel) or nil
     if badge then
         if row.value then
@@ -480,6 +482,131 @@ function Panel.FinishRow(row)
         row.tags = { "owned" }
     end
     return row
+end
+
+-- ---------------------------------------------------------------------------
+-- Crafting and Delves as runs (R-4, WKE-565).
+--
+-- The by-run view lists what the Encounter Journal walk found, because a boss
+-- drop is the only thing the walk can find. Every Upgrade Finder document the
+-- companion writes also carries rows the walk never sees - 18 `Crafted` and 33
+-- `Delves` in each of the eight committed exports - and nothing ever asked the
+-- view about them. BY SLOT they are ns.Roads' own rows and R-3 draws them
+-- (ns.Roads.ForSlot builds a craft and a delve road per slot, and the slot's
+-- `Other rated sources` group renders them); this file adds the half R-3 does
+-- not have, which is the two CARDS the by-run view was missing.
+--
+-- What is new here is a PLACE for them, never a number: the rows are his, the
+-- percent on a badge is his, and a card's order is his percent's. Nothing is
+-- added, averaged or scaled.
+--
+-- What these cards cannot say, and say so instead:
+--   * no boss, no instance, no difficulty - the export gives none, so they
+--     carry no difficulty, gain no entry in the difficulty dropdown and are
+--     shown whatever it is filtered to (there is nothing to filter them by),
+--     and the card draws the plain dark strip where art would be.
+--   * no crafting cost: the spark count is readable only once its item ID is
+--     captured, and materials and orders need the crafter's own open window
+--     (docs/ROADS-UX.md Buildability).
+--   * no delve key and no Bountiful state: the key is a currency whose ID no
+--     capture has read, and no `C_DelvesUI` function exposes which delves are
+--     Bountiful. R-1 says the same thing on a road's step; this is the by-run
+--     view's wording of it.
+--   * no name of its own: an Upgrade Finder row is an itemID and an item level
+--     and nothing else, so a drawn row asks the client for the name through
+--     ns.ItemData (the M3-12 pending pattern, inside UI/ItemLine) and the
+--     printed line says `item 237849` until the client answers.
+
+-- The tag a row leads its second line with. R-1's own words for the two
+-- sources (ns.Roads.TAG_CRAFTED / TAG_DELVES), so a Roads row and an Upgrade
+-- Map row cannot end up calling one source two things.
+Panel.SOURCE_TAG = {
+    [ns.UFImport.SOURCE_KIND_CRAFT] = ns.Roads.TAG_CRAFTED,
+    [ns.UFImport.SOURCE_KIND_DELVE] = ns.Roads.TAG_DELVES,
+}
+
+-- What the by-run card is called. "Crafting" rather than "Crafted" because the
+-- card names the thing you would go and do, the way "Ara-Kara, City of Echoes"
+-- does; a row's tag stays the export's own word.
+Panel.SOURCE_RUN_NAME = {
+    [ns.UFImport.SOURCE_KIND_CRAFT] = "Crafting",
+    [ns.UFImport.SOURCE_KIND_DELVE] = "Delves",
+}
+
+-- The second line of a Crafted row under a card, with and without the stats
+-- line the export's own settings name. `spark and materials not read` is R-1's
+-- ns.Roads.CRAFT_NOT_READ, shared rather than retyped.
+Panel.CRAFT_SECOND = "%s - " .. ns.Roads.CRAFT_NOT_READ
+Panel.CRAFT_SECOND_STATS = "%s, %s - " .. ns.Roads.CRAFT_NOT_READ
+
+-- The second line of a Delves row. R-1's step under its Delves tag is the bare
+-- "not read"; on a row that is read on its own the two things that are not
+-- read are named, because "Delves - not read" does not say what was not.
+Panel.DELVE_SECOND = "%s - key and Bountiful state not read"
+
+Panel.EXPORT_NOTE = "Crafting and Delves are ranked in QE Live's export rather than walked in the Adventure "
+    .. "Guide: they carry no difficulty, so they are shown whatever the difficulty filter is set to, and their "
+    .. "counts are of the items he ranked rather than of a run's drops."
+
+-- A run card's denominator is every drop the journal lists for the run. These
+-- two have no journal behind them, so theirs is every row the export ranks -
+-- which is not every crafted item or every delve reward in the game, and the
+-- wording says "ranked" rather than "drops" for exactly that reason.
+Panel.EXPORT_RUN_COUNT_TEXT = "%d of %d ranked items are upgrades"
+
+-- The second line of the two cards: what the source is and what is not read
+-- about it, the same facts their rows carry.
+Panel.EXPORT_RUN_SECOND = {
+    [ns.UFImport.SOURCE_KIND_CRAFT] = "No difficulty - " .. ns.Roads.CRAFT_NOT_READ,
+    [ns.UFImport.SOURCE_KIND_DELVE] = "No difficulty - key and Bountiful state not read",
+}
+
+-- The second line of one Crafted or Delves row: the source, what the export
+-- says about it, and what has not been read.
+function Panel.ExportSecondText(row)
+    local tag = Panel.SOURCE_TAG[row.sourceKind] or tostring(row.sourceKind)
+    if row.sourceKind == ns.UFImport.SOURCE_KIND_CRAFT then
+        return row.craftedStats and string.format(Panel.CRAFT_SECOND_STATS, tag, row.craftedStats)
+            or string.format(Panel.CRAFT_SECOND, tag)
+    end
+    return string.format(Panel.DELVE_SECOND, tag)
+end
+
+-- One entry of ns.UFImport.SourceRows as a row of the same shape a journal
+-- candidate has, so a card's list and a run's list treat them alike. No
+-- instance, no encounter and no difficulty, because the export carries none;
+-- no name, because it carries none of those either.
+function Panel.ExportRow(kind, held, owned)
+    local entry = held.entry
+    local ownedRecord = owned and owned[entry.itemID] or nil
+    -- The grey "(at +6)" on a drop row names WHICH stored document valued it,
+    -- because for a drop that is a real choice between documents. It is not one
+    -- here: every document of one companion run carries these rows identically
+    -- (ns.UFImport.SourceRows), so naming a key level would tell the reader a
+    -- crafted item's value depends on a Mythic+ key, which his own files deny.
+    -- The note comes back the moment two stored documents really do disagree.
+    local keyLevel = held.disagrees and held.keyLevel or nil
+    local row = {
+        itemID = entry.itemID,
+        itemLevel = entry.level,
+        slot = entry.slot,
+        sourceKind = kind,
+        sourceLabel = Panel.SOURCE_TAG[kind] or tostring(kind),
+        -- Carried, never rendered: an index into QE Live's own profession
+        -- table, which this addon does not restate (ns.UFImport, R-4).
+        professionIndex = entry.professionIndex,
+        craftedStats = held.crafted and held.crafted.stats or nil,
+        upgrade = entry,
+        upgradeKeyLevel = keyLevel,
+        -- The document this row came from, named or not: the age and the
+        -- provenance are facts even when the row does not print them.
+        documentKeyLevel = held.keyLevel,
+        documentsCarrying = held.documents,
+        upgradeValue = Panel.UpgradeText(entry, keyLevel),
+        owned = ownedRecord ~= nil or nil,
+        ownedItemLevel = ownedRecord and ownedRecord.itemLevel or nil,
+    }
+    return Panel.FinishRow(row)
 end
 
 -- Which difficulties a map holds and how many rows each carries. The counts are
@@ -995,6 +1122,86 @@ local function runComparator(sort)
     end
 end
 
+-- One run's own figures, once every drop it can give has been looked at. Both
+-- kinds of card come through here - the walk's runs and R-4's two export cards
+-- - so a card says its best and its count the same way whatever produced it.
+-- The only difference is the denominator's WORDING: a walked run counts the
+-- drops the Adventure Guide lists for it, and an export card counts the rows
+-- the export ranks, which is not the same claim (Panel.EXPORT_RUN_COUNT_TEXT).
+local function finishRun(model, run)
+    sortRunUpgrades(run.upgrades)
+    run.best = run.upgrades[1]
+    run.bestPercent = run.best and tonumber(run.best.upgrade.upgradePercent) or nil
+    run.countText = run.sourceKind and string.format(Panel.EXPORT_RUN_COUNT_TEXT, run.rated, run.drops)
+        or string.format(Panel.RUN_COUNT_TEXT, run.rated, run.drops)
+    if run.best then
+        local what = run.best.name or ("item " .. tostring(run.best.itemID))
+        if run.best.slot then
+            what = what .. ", " .. run.best.slot
+        end
+        -- His sign, his magnitude, and no direction word: only a drop his
+        -- own IsUpgrade calls an upgrade ever reaches this line.
+        run.bestText = string.format("best %+.2f%% (%s)", run.bestPercent, what)
+        run.text = string.format("%s: %s; %s", run.label, run.bestText, run.countText)
+        -- The card's badge, in his gold: only a drop his own IsUpgrade
+        -- calls an upgrade ever reaches a run's list, so a run with a best
+        -- is a run whose best is better, and there is no other tone to
+        -- pick between.
+        run.badge = { text = string.format("best %+.2f%%", run.bestPercent), tone = "better" }
+        model.counts.ratedRuns = model.counts.ratedRuns + 1
+    else
+        run.text = string.format("%s: %s; %s", run.label, Panel.RUN_NO_UPGRADE_TEXT, run.countText)
+        run.badge = { text = Panel.RUN_NO_UPGRADE_TEXT, tone = "none" }
+    end
+    model.runs[#model.runs + 1] = run
+    model.counts.runs = model.counts.runs + 1
+    return run
+end
+
+-- The two cards the export gives and the walk never can (R-4): one for
+-- Crafting and one for Delves, built out of the rows every Upgrade Finder
+-- document carries beside its drops. They sit beside the instance cards and
+-- sort against them under both orders, because the question the view answers -
+-- what is the best thing I could go and do right now - is not about bosses.
+--
+-- Neither card has a difficulty, so neither is filtered by one: the difficulty
+-- dropdown is built from the walk's own difficulties and gains no entry here,
+-- and these two are shown whatever it is set to.
+local function exportRuns(model, documents, owned)
+    for _, kind in ipairs(ns.UFImport.SOURCE_KINDS) do
+        local held = ns.UFImport.SourceRows(documents, kind)
+        if #held > 0 then
+            local name = Panel.SOURCE_RUN_NAME[kind]
+            local run = {
+                key = "export:" .. kind,
+                sourceKind = kind,
+                instanceName = name,
+                label = name,
+                name = name,
+                difficultyLabel = Panel.EXPORT_RUN_SECOND[kind],
+                isRaid = false,
+                -- The denominator: every row the export ranks for this source,
+                -- which is not every crafted item or every delve reward in the
+                -- game. No instance art, because there is no instance.
+                drops = #held,
+                pendingDrops = 0,
+                rated = 0,
+                upgrades = {},
+            }
+            for _, entry in ipairs(held) do
+                -- The one path to a number here is the slot view's own: HIS
+                -- number, and his own IsUpgrade saying it means better.
+                if ns.UFImport.IsUpgrade(entry.entry) then
+                    run.rated = run.rated + 1
+                    run.upgrades[#run.upgrades + 1] = Panel.ExportRow(kind, entry, owned)
+                end
+            end
+            finishRun(model, run)
+            model.counts.exportRuns = model.counts.exportRuns + 1
+        end
+    end
+end
+
 -- RunModel(opts) takes exactly what Model does, plus opts.runSort, and is pure
 -- over it in the same way. It walks `sources` itself rather than regrouping
 -- Model's output, because the denominator has to be every drop the journal
@@ -1030,7 +1237,20 @@ function Panel.RunModel(opts)
         runs = {},
         difficulties = {},
         keyLevels = {},
-        counts = { runs = 0, ratedRuns = 0, drops = 0, rated = 0, keyLevels = 0, upgradeDocuments = #documents },
+        -- `runs` and `ratedRuns` count every card on screen, R-4's two
+        -- included; `exportRuns` says how many of them the export gave rather
+        -- than the walk. `drops` and `rated` stay the WALK's own figures: an
+        -- export row is not a drop the Adventure Guide lists, and adding it to
+        -- that total would make the denominator mean two things.
+        counts = {
+            runs = 0,
+            ratedRuns = 0,
+            drops = 0,
+            rated = 0,
+            keyLevels = 0,
+            upgradeDocuments = #documents,
+            exportRuns = 0,
+        },
     }
 
     local itemIDs = {}
@@ -1117,32 +1337,15 @@ function Panel.RunModel(opts)
     end
 
     for _, key in ipairs(order) do
-        local run = runs[key]
-        sortRunUpgrades(run.upgrades)
-        run.best = run.upgrades[1]
-        run.bestPercent = run.best and tonumber(run.best.upgrade.upgradePercent) or nil
-        run.countText = string.format(Panel.RUN_COUNT_TEXT, run.rated, run.drops)
-        if run.best then
-            local what = run.best.name or ("item " .. tostring(run.best.itemID))
-            if run.best.slot then
-                what = what .. ", " .. run.best.slot
-            end
-            -- His sign, his magnitude, and no direction word: only a drop his
-            -- own IsUpgrade calls an upgrade ever reaches this line.
-            run.bestText = string.format("best %+.2f%% (%s)", run.bestPercent, what)
-            run.text = string.format("%s: %s; %s", run.label, run.bestText, run.countText)
-            -- The card's badge, in his gold: only a drop his own IsUpgrade
-            -- calls an upgrade ever reaches a run's list, so a run with a best
-            -- is a run whose best is better, and there is no other tone to
-            -- pick between.
-            run.badge = { text = string.format("best %+.2f%%", run.bestPercent), tone = "better" }
-            model.counts.ratedRuns = model.counts.ratedRuns + 1
-        else
-            run.text = string.format("%s: %s; %s", run.label, Panel.RUN_NO_UPGRADE_TEXT, run.countText)
-            run.badge = { text = Panel.RUN_NO_UPGRADE_TEXT, tone = "none" }
-        end
-        model.runs[#model.runs + 1] = run
-        model.counts.runs = model.counts.runs + 1
+        finishRun(model, runs[key])
+    end
+    -- Only when there IS a walk, for the reason Panel.Model gives: with no map
+    -- this view stops at EMPTY_NOTE and draws no card at all.
+    if model.hasMap then
+        exportRuns(model, documents, owned)
+    end
+    if model.counts.exportRuns > 0 then
+        model.exportNote = Panel.EXPORT_NOTE
     end
     table.sort(model.runs, runComparator(sort))
 
@@ -1195,6 +1398,9 @@ function Panel.RunLines(model)
     end
     if model.keyLevelNote then
         add(model.keyLevelNote)
+    end
+    if model.exportNote then
+        add(model.exportNote)
     end
     -- The walk's key level is one thing; the keys QE LIVE was run at are
     -- another, and they differ (M3-10: his +10 dungeon rows are 311, the walk's
@@ -1811,6 +2017,7 @@ function Panel.RunElements(model, state)
         note(Panel.RUN_NO_IMPORT_NOTE)
     end
     note(model.keyLevelNote)
+    note(model.exportNote)
     note(model.upgradeDocumentsNote)
 
     for _, run in ipairs(model.runs) do

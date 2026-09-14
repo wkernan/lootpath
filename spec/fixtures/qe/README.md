@@ -224,6 +224,28 @@ is a different run, with QE Live's default upgrade checkboxes rather than C-5's
 explicit pair, and the specs that read it are testing the parser and the
 single-document paste path.
 
+## What every Upgrade Finder export carries besides drops (R-4, WKE-565)
+
+Measured over all eight of the files above by `tools/measure-delves-crafted.lua`
+(2026-09-13): each one holds **18 rows with `dropLoc: "Crafted"` over 14 slots
+and 33 with `dropLoc: "Delves"` over 15**, beside its 201/134 Dungeon and 105
+Raid rows. On all 51, `dropType` is null and `dropDifficulty` is the empty
+string; the `source` is a sentinel rather than an instance (`-98 / -98` for a
+delve, `-4 / <profession index>` for a crafted row); crafted rows arrive at 331
+and delve rows at 321.
+
+**The five dungeon documents of the 2026-09-08 companion run carry all 51 with
+identical `upgradePercent`** - a Mythic+ key does not value a crafted item -
+**and the Raid document differs on 33 of them**, so it is the content type that
+moves these numbers. That measurement is why neither an Upgrade Map row for one of
+them nor its road names a key level (ARCHITECTURE.md §7, 2026-09-14). The owner's own two-hander
+slot is the example the R-4 issue was filed on: crafted `237849 @331` is
+`+3.634%` in the 2026-09-07 Dungeon export and `+3.627%` in all five 2026-09-08
+dungeon documents, and delve `272273 @321` is `+2.176%` and `+2.171%`.
+
+`spec/ufimport_spec.lua`, `spec/upgrademap_spec.lua` and `spec/roadsrow_spec.lua`
+read these rows in their R-4 blocks.
+
 ## `sample-upgradefinder-v1.json` - hand-built, not from QE Live
 
 Written for M3-6 (WKE-535) by mirroring the fork's exporter field for field.

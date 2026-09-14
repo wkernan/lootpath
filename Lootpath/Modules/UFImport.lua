@@ -121,9 +121,85 @@ local function stringOrNumber(value)
     return stringOrNil(value) or tonumber(value)
 end
 
+-- ---------------------------------------------------------------------------
+-- The rows that are not a boss drop (R-4, WKE-565).
+--
+-- Every committed Upgrade Finder export carries, beside its Dungeon and Raid
+-- rows, 33 rows whose `dropLoc` is "Delves" and 18 whose `dropLoc` is
+-- "Crafted" (measured over all eight, tools/measure-delves-crafted.lua). The
+-- addon parsed them from the first day - they are entries like any other, and
+-- UFImport.Lookup has always found them - but nothing ASKED for them: the
+-- Upgrade Map draws what the Encounter Journal walk found, and the walk finds
+-- neither a crafting order nor a delve. So his answer about the two sources
+-- the season gears through fastest was in the file and off the screen.
+--
+-- These rows differ from a drop in three ways, and each one is why they get a
+-- kind of their own rather than a `dropLoc` string read at every call site:
+--   * `dropType` is null and `dropDifficulty` is the empty string, so neither
+--     the drop/max/bonus tie-break nor a difficulty filter says anything here.
+--   * the `source` is a sentinel, not an instance: `{ -98, -98 }` on every
+--     delve row, `{ -4, <n> }` on a crafted one, where `n` is an index into QE
+--     Live's own profession table (1, 2, 3, 4, 5 and 7 appear). The index is
+--     carried and NEVER turned into a profession name here: that mapping is
+--     his data, exactly as `settings.dungeon` is (see KeyLevelOf above), and
+--     restating it would be this addon inventing his table.
+--   * the item level is the one his settings assume for the source
+--     (331 crafted, 321 delve in every committed export), not one the client
+--     previews anywhere.
+UFImport.DROP_LOC_DELVES = "Delves"
+UFImport.DROP_LOC_CRAFTED = "Crafted"
+UFImport.SOURCE_KIND_DELVE = "delve"
+UFImport.SOURCE_KIND_CRAFT = "craft"
+UFImport.SOURCE_KINDS = { UFImport.SOURCE_KIND_CRAFT, UFImport.SOURCE_KIND_DELVE }
+
+-- The sentinel instance IDs the two sources carry, measured over the committed
+-- exports rather than read from his InstanceDB (the fork lives on the owner's
+-- machine and was not read this session, ARCHITECTURE.md 9). They are recorded
+-- because they are a fact about his files; the KIND is decided by `dropLoc`,
+-- which is the field the exporter sets deliberately.
+UFImport.DELVE_INSTANCE_ID = -98
+UFImport.CRAFTED_INSTANCE_ID = -4
+
+-- "Delves" -> "delve", "Crafted" -> "craft", anything else (including the
+-- number his own unit-test fixture uses) -> nil. A row that is not one of
+-- these two is a drop and belongs to the journal's half of the panel.
+function UFImport.SourceKind(dropLoc)
+    if dropLoc == UFImport.DROP_LOC_DELVES then
+        return UFImport.SOURCE_KIND_DELVE
+    end
+    if dropLoc == UFImport.DROP_LOC_CRAFTED then
+        return UFImport.SOURCE_KIND_CRAFT
+    end
+    return nil
+end
+
+-- What an export says about the crafted rows it carries: the stats line the
+-- report was run with, and the INDEX of the crafted level it assumed. The
+-- index is never shown and never converted - `craftedLevel` is 2 in every
+-- committed export while those rows arrive at item level 331, so 2 is a row of
+-- his table and not an item level, a rank or a tier. The level on screen is
+-- the row's own `level`, which is his number for that item.
+function UFImport.CraftedSettings(verdict)
+    local settings = type(verdict) == "table" and type(verdict.settings) == "table" and verdict.settings or nil
+    if not settings then
+        return nil
+    end
+    local stats = stringOrNil(settings.craftedStats)
+    local levelIndex = tonumber(settings.craftedLevel)
+    if not stats and not levelIndex then
+        return nil
+    end
+    return { stats = stats, levelIndex = levelIndex }
+end
+
 -- One export item -> one verdict entry, or nil when it carries no usable
 -- identity. `dropDifficulty` is a number in a real export and the empty string
 -- on a crafted or Delve drop, which tonumber turns into nil - absent, not zero.
+--
+-- `sourceKind` (R-4) is set for exactly the two `dropLoc` values that are not
+-- a boss drop, and `professionIndex` is the crafted row's `source.encounterId`
+-- - an index into QE Live's own profession table, carried and never named. See
+-- the R-4 block below for both.
 function UFImport.Item(raw)
     if type(raw) ~= "table" then
         return nil
@@ -133,6 +209,8 @@ function UFImport.Item(raw)
         return nil
     end
     local source = type(raw.source) == "table" and raw.source or {}
+    local dropLoc = stringOrNumber(raw.dropLoc)
+    local sourceKind = UFImport.SourceKind(dropLoc)
     return {
         key = key,
         itemID = tonumber(raw.id),
@@ -140,7 +218,9 @@ function UFImport.Item(raw)
         slot = stringOrNil(raw.slot),
         instanceID = tonumber(source.instanceId),
         encounterID = tonumber(source.encounterId),
-        dropLoc = stringOrNumber(raw.dropLoc),
+        sourceKind = sourceKind,
+        professionIndex = sourceKind == UFImport.SOURCE_KIND_CRAFT and tonumber(source.encounterId) or nil,
+        dropLoc = dropLoc,
         dropType = stringOrNumber(raw.dropType),
         dropDifficulty = tonumber(raw.dropDifficulty),
         upgradePercent = tonumber(raw.upgradePercent),
@@ -636,6 +716,70 @@ function UFImport.LevelsAcrossLevels(documents, itemID)
     end
     table.sort(levels)
     return levels
+end
+
+-- Every row of one kind these documents carry, deduplicated by `itemID@level`
+-- and ordered by the percentage HE gave, best first, with the key behind it so
+-- the same documents always produce the same list.
+--
+-- Deduplicated ACROSS documents the way LookupAcrossLevels is, and with the
+-- same rule: the first document that carries the row wins, and `Documents`
+-- hands them over lowest key level first.
+--
+-- `disagrees` is the fact that decides whether a row has any business naming a
+-- key level at all. Measured over the committed run (tools/measure-delves-
+-- crafted.lua): all five dungeon documents, +2 through +10, carry the same 51
+-- Crafted and Delves rows with the same `upgradePercent` on every one of them,
+-- and the Raid document differs on 33 of the 51. So the key level is not what
+-- these rows depend on - the content type is - and a row that said "(at +2)"
+-- would be claiming a dependency his own files deny. It is set when two stored
+-- documents really do disagree about one of these rows, which is what happens
+-- when two runs from different days end up on one shelf; then the first
+-- document wins and the row says which it was.
+--
+-- `slot` narrows to one slot when given. Nothing is computed: the entries are
+-- his, the order is his number's, and a row he did not rank is not here.
+function UFImport.SourceRows(documents, kind, slot)
+    local rows, seen = {}, {}
+    if type(documents) ~= "table" or kind == nil then
+        return rows
+    end
+    for _, document in ipairs(documents) do
+        local verdict = type(document) == "table" and document.verdict or nil
+        if type(verdict) == "table" and type(verdict.items) == "table" then
+            for _, entry in pairs(verdict.items) do
+                if UFImport.SourceKind(entry.dropLoc) == kind and (slot == nil or entry.slot == slot) then
+                    local held = seen[entry.key]
+                    if held then
+                        held.documents = held.documents + 1
+                        if tonumber(held.entry.upgradePercent) ~= tonumber(entry.upgradePercent) then
+                            held.disagrees = true
+                        end
+                    else
+                        held = {
+                            entry = entry,
+                            keyLevel = document.keyLevel,
+                            verdict = verdict,
+                            exportedAt = verdict.exportedAt,
+                            documents = 1,
+                            crafted = kind == UFImport.SOURCE_KIND_CRAFT and UFImport.CraftedSettings(verdict) or nil,
+                        }
+                        seen[entry.key] = held
+                        rows[#rows + 1] = held
+                    end
+                end
+            end
+        end
+    end
+    table.sort(rows, function(left, right)
+        local leftPercent = tonumber(left.entry.upgradePercent) or 0
+        local rightPercent = tonumber(right.entry.upgradePercent) or 0
+        if leftPercent ~= rightPercent then
+            return leftPercent > rightPercent
+        end
+        return left.entry.key < right.entry.key
+    end)
+    return rows
 end
 
 -- The sentence the panel puts under its header: which documents are being

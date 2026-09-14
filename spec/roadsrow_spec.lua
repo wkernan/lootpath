@@ -416,6 +416,97 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
         assert.is_true(header.height > ns.UpgradeMapPanel.SECTION_HEIGHT)
     end)
 
+    -- R-4 (WKE-565): what the Upgrade Finder export knows about its two
+    -- non-drop sources, on the rows R-3 already draws for them. The rows
+    -- themselves are R-3's - `ns.Roads.ForSlot` has built a craft and a delve
+    -- road per slot since R-1 and the test above draws them - so what is
+    -- asserted here is only what R-4 added: the stats line the crafted rating
+    -- assumed, the absence of a key level, and the name the export does not
+    -- carry.
+    it("says what the crafted rating assumed and names no key level", function()
+        local m = model()
+        local rows = {}
+        for _, group in ipairs(section(m, "2H Weapon").roadGroups) do
+            for _, row in ipairs(group.rows) do
+                rows[row.kind] = rows[row.kind] or row
+            end
+        end
+        local craft, delve = rows[ns.Roads.KIND_CRAFT], rows[ns.Roads.KIND_DELVE]
+        assert.is_table(craft)
+        assert.equal(237849, craft.itemID)
+        assert.equal(331, craft.itemLevel)
+        assert.equal("+3.63%", craft.badge.text)
+        -- The stats line is the export's own `settings.craftedStats`, said as
+        -- a fact beside the badge because a crafting order has to ask for it.
+        assert.is_not_nil(craft.factsText:find("the rating assumes Crit / Haste", 1, true))
+        assert.is_not_nil(craft.factsText:find(ns.Roads.CRAFT_NOT_READ, 1, true))
+        assert.equal("do: get the spark, then order it", craft.todo)
+
+        assert.is_table(delve)
+        assert.equal(272273, delve.itemID)
+        assert.equal(321, delve.itemLevel)
+        assert.equal("+2.17%", delve.badge.text)
+        assert.equal(ns.Roads.DELVE_NOT_READ, delve.factsText)
+        -- Neither says "at +2": every document of one companion run values
+        -- these rows identically, so a key level would be a claim his own
+        -- files deny (ns.UFImport.SourceRows, ARCHITECTURE.md 7 2026-09-13).
+        for _, row in ipairs({ craft, delve }) do
+            assert.is_nil(row.second and row.second:find("at +", 1, true))
+            assert.is_nil(row.factsText:find("at +", 1, true))
+        end
+
+        -- Proven red the only way that matters: with no Upgrade Finder
+        -- document at all the slot has neither row.
+        local without = model({ upgradeDocuments = {}, upgrades = nil })
+        for _, group in ipairs(section(without, "2H Weapon").roadGroups) do
+            for _, row in ipairs(group.rows) do
+                assert.is_not.equal(ns.Roads.KIND_CRAFT, row.kind)
+                assert.is_not.equal(ns.Roads.KIND_DELVE, row.kind)
+            end
+        end
+    end)
+
+    -- The export carries an itemID and an item level and no name at all, so
+    -- the row carries none either and the drawn line asks the client for it -
+    -- the M3-12 pending pattern, which R-3's row already goes through.
+    it("asks the client for the name the export does not carry", function()
+        local m = model()
+        local craft
+        for _, group in ipairs(section(m, "2H Weapon").roadGroups) do
+            for _, row in ipairs(group.rows) do
+                craft = craft or (row.kind == ns.Roads.KIND_CRAFT and row or nil)
+            end
+        end
+        assert.is_nil(craft.name)
+        assert.equal(237849, craft.itemID)
+
+        local panel = ns.UpgradeMapPanel.Create()
+        local element = CreateFrame("Frame", nil, panel)
+        ns.UpgradeMapPanel.InitElement(panel, element, {
+            kind = ns.UpgradeMapPanel.ELEMENT_ROAD,
+            height = ns.UpgradeMapPanel.RoadHeight(craft),
+            row = craft,
+        })
+        assert.equal(RETRIEVING_ITEM_INFO, element.roadLine.name:GetText())
+        local asked = false
+        for _, itemID in ipairs(world.itemDataRequests) do
+            asked = asked or itemID == craft.itemID
+        end
+        assert.is_true(asked, "the row never asked the client to name the item")
+        world.items[craft.itemID] = {
+            instant = { craft.itemID, "Weapon", "Staff", "INVTYPE_2HWEAPON", 4242, 2, 10 },
+            info = {
+                "Placeholder Valediction",
+                "|Hitem:" .. craft.itemID .. "|h[Placeholder Valediction]|h",
+                4,
+                n = 3,
+            },
+            level = craft.itemLevel,
+        }
+        world.fireEvent("ITEM_DATA_LOAD_RESULT", craft.itemID, true)
+        assert.is_truthy(element.roadLine.name:GetText():find("Placeholder Valediction", 1, true))
+    end)
+
     it("says nothing under a shut section", function()
         local m = model()
         local state = { slots = {} }
