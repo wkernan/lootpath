@@ -325,8 +325,32 @@ function qeSettings(config) {
     return { autoUpgradeVault: !!config.qeAutoUpgradeVault, autoUpgradeAll: !!config.qeAutoUpgradeAll };
 }
 
+// The three files the companion writes into the addon's own Data folder. The
+// verdict is C-2's contract; the status chunk and the log are C-9's (WKE-559),
+// and they live BESIDE the verdict rather than in the state directory because
+// the addon reads one of them at load and the owner reads the other over the
+// game's shoulder.
+const VERDICT_FILE = 'QEVerdict.lua';
+const STATUS_FILE = 'CompanionStatus.lua';
+const LOG_FILE = 'companion.log';
+// Not in the game folder: the watcher's lock is the companion talking to
+// itself, and nothing the client loads should have to step over it.
+const LOCK_FILE = 'watch.lock';
+
+function dataPath(config, name) {
+    return path.join(config.wowPath, 'Interface', 'AddOns', 'Lootpath', 'Data', name);
+}
+
 function verdictPath(config) {
-    return path.join(config.wowPath, 'Interface', 'AddOns', 'Lootpath', 'Data', 'QEVerdict.lua');
+    return dataPath(config, VERDICT_FILE);
+}
+
+function statusPath(config) {
+    return dataPath(config, STATUS_FILE);
+}
+
+function logPath(config) {
+    return dataPath(config, LOG_FILE);
 }
 
 // WTF\Account\<ACCOUNT>\SavedVariables\Lootpath.lua, discovered the way
@@ -367,7 +391,14 @@ module.exports = {
     scenarioBoxes,
     sameBoxes,
     qeSettings,
+    dataPath,
     verdictPath,
+    statusPath,
+    logPath,
+    VERDICT_FILE,
+    STATUS_FILE,
+    LOG_FILE,
+    LOCK_FILE,
     findSavedVariables,
     maskAccount,
     ConfigError,

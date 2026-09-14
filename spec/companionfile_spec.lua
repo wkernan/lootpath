@@ -257,3 +257,81 @@ describe("the companion's Data/QEVerdict.lua", function()
         end
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- C-9 (WKE-559): the second file the companion writes into the addon folder.
+
+local STATUS_GOLDEN = "spec/fixtures/expected/companionstatus-sample.lua"
+
+describe("the companion's Data/CompanionStatus.lua", function()
+    local function load()
+        local chunk = loadfile(STATUS_GOLDEN)
+        assert.is_function(chunk, "the golden did not even parse as Lua")
+        local ns = {}
+        chunk("Lootpath", ns)
+        return ns
+    end
+
+    it("sets exactly one field on the namespace and nothing else", function()
+        local ns = load()
+        local keys = {}
+        for key in pairs(ns) do
+            keys[#keys + 1] = key
+        end
+        assert.are.same({ "companionStatus" }, keys)
+    end)
+
+    it("says what the last run did, in the types the addon reads", function()
+        local status = load().companionStatus
+        assert.are.equal("idle", status.state)
+        assert.are.equal("2026-09-13T22:48:01Z", status.startedAt)
+        assert.are.equal("2026-09-13T22:48:44Z", status.finishedAt)
+        assert.are.equal("write", status.stage)
+        assert.are.equal("2026-09-13T22:47:31", status.profileCapturedAt)
+        assert.are.equal("2026-09-13T22:48:44Z", status.verdictWrittenAt)
+        assert.are.equal("0.1.0", status.companionVersion)
+        -- A number, not the string "0": the addon compares it and prints it.
+        assert.is_number(status.exitCode)
+        assert.are.equal(0, status.exitCode)
+    end)
+
+    it("carries a hostile message back as the bytes the companion wrote", function()
+        -- A failure message is whatever went wrong; nobody wrote it to be safe.
+        assert.are.equal(
+            'the "Dungeon" run: 8 documents \\ one backslash ]] and a newline\n',
+            load().companionStatus.message
+        )
+    end)
+
+    it("holds no source a client could execute", function()
+        local source = assert(io.open(STATUS_GOLDEN, "rb"))
+        local text = source:read("*a")
+        source:close()
+        for line in text:gmatch("[^\n]+") do
+            local ok = line:match("^%-%-")
+                or line:match("^local _, ns = %.%.%.$")
+                or line:match('^if type%(ns%) ~= "table" then$')
+                or line:match("^%s*return$")
+                or line:match("^end$")
+                or line:match("^ns%.companionStatus = {$")
+                or line:match("^%s*[%w_]+ = ")
+                or line:match("^}$")
+            assert.is_truthy(ok, "unexpected line in a data-only chunk: " .. line)
+        end
+        assert.is_nil(text:find("loadstring", 1, true))
+        assert.is_nil(text:find("os.execute", 1, true))
+    end)
+
+    it("is read by the addon exactly as the client would hand it over", function()
+        -- The .toc loads it; here the same chunk is loaded into the addon's own
+        -- namespace and the strip clause is built off it, with no test-only path
+        -- in between.
+        local H = require("spec.helpers.addon")
+        local ns = H.load()
+        local chunk = assert(loadfile(STATUS_GOLDEN))
+        chunk("Lootpath", ns)
+        local now = ns.EpochFromISO("2026-09-13T22:51:44Z")
+        assert.are.equal("companion: wrote 3 minute(s) ago", ns.Companion.StatusText(ns.companionStatus, now))
+        H.unload()
+    end)
+end)

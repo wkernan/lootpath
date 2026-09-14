@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+### C-9 (WKE-559) - the companion is visible from inside the game
+
+- **A log file next to the verdict.** `Data\companion.log` carries every line
+  the companion prints, with the date the terminal leaves out, and rotates at
+  200 KB keeping one `companion.log.1`. Until now the watcher printed into
+  whichever window started it and nowhere else, so a run that died looked
+  exactly like a run that had nothing to do.
+- **A status chunk the addon reads.** `Data\CompanionStatus.lua` says what the
+  last run did - `state` (`idle` / `running` / `skipped` / `failed`),
+  `startedAt`, `finishedAt`, `stage`, `message`, `profileCapturedAt`,
+  `verdictWrittenAt`, `exitCode` - and is written at every stage change, so a
+  run in progress says so rather than leaving the last one's words on screen.
+  Data and never code, like the verdict chunk, through the same escaper.
+- **The status strip says it in one clause**: `companion: wrote 3 minute(s)
+  ago`, `companion: run started 22:48`, `companion: profile unchanged, no run
+  (23:06)`, `companion: FAILED at profile (21:06) - see companion.log`, or
+  `companion: never seen` with the committed placeholder in place. It is on the
+  line even when nothing has been imported at all, and the companion's own
+  sentence rides in the strip's tooltip.
+- **Start with Windows.** `tools\companion\install-startup.ps1` registers a
+  logon task for the current user that runs `start-companion.ps1`: the fork's
+  dev server if nothing answers it, then `node companion.js --watch`.
+  `uninstall-startup.ps1` removes it; both are idempotent and neither touches a
+  watcher the owner started himself.
+- **Never two watchers, enforced.** The watcher takes a lock file in the state
+  directory and a second one exits 7 naming the pid that holds it. A lock whose
+  process is gone is taken over, so there is never a file to delete by hand.
+- `tools\sync.ps1` keeps the game's `Data\` when EITHER companion file is
+  there, so a status that says why a run died is not replaced by the
+  placeholder.
 ### R-3 (WKE-564) - Roads as the Upgrade Map slot's row, and the week's plan on the Vault tab
 
 - **A slot on the Upgrade Map now opens onto its roads, in three groups.** The

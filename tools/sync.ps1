@@ -12,13 +12,18 @@
 #
 # SavedVariables flush only on /reload or logout: run /reload before -Pull.
 #
-# Lootpath\Data\QEVerdict.lua is the one file in the addon whose GAME copy is
-# the real one (C-2, WKE-534): the local companion writes the owner's QE Live
-# exports there, and the committed copy is a placeholder that sets nothing. A
-# push therefore leaves an existing game copy of Data\ alone, and writes the
-# placeholder only when the game has no QEVerdict.lua at all - which it must
-# have, because the .toc names it. -IncludeData overwrites it anyway, for when
-# the companion's file is the thing that is broken.
+# Lootpath\Data\ holds the files in the addon whose GAME copies are the real
+# ones: QEVerdict.lua, the owner's QE Live exports (C-2, WKE-534), and since C-9
+# (WKE-559) CompanionStatus.lua and companion.log, what the companion last did.
+# The committed copies are placeholders that set nothing. A push therefore leaves
+# an existing game copy of Data\ alone, and writes the placeholders only when the
+# game has NEITHER of the two chunks - which it must have, because the .toc names
+# both. -IncludeData overwrites them anyway, for when the companion's own files
+# are the thing that is broken.
+#
+# Either file is enough to keep the folder: a run that died before it ever wrote
+# a verdict still wrote a status saying so, and a push that replaced that with
+# the placeholder would erase the one thing that says what went wrong.
 [CmdletBinding()]
 param(
     [string]$WowPath = 'C:\World of Warcraft\_retail_',
@@ -55,12 +60,14 @@ function Push-Addon {
         Copy-Item -Path $child.FullName -Destination $gameAddon -Recurse -Force
     }
     $gameVerdict = Join-Path $gameAddon 'Data\QEVerdict.lua'
-    if ($IncludeData -or -not (Test-Path $gameVerdict)) {
+    $gameStatus = Join-Path $gameAddon 'Data\CompanionStatus.lua'
+    $companionWrote = (Test-Path $gameVerdict) -or (Test-Path $gameStatus)
+    if ($IncludeData -or -not $companionWrote) {
         Copy-Item -Path (Join-Path $repoAddon 'Data') -Destination $gameAddon -Recurse -Force
         Write-Host ("[{0}] pushed to {1} (Data included)" -f (Get-Date -Format 'HH:mm:ss'), $gameAddon)
         return
     }
-    Write-Host ("[{0}] pushed to {1}; kept the companion's Data\QEVerdict.lua (-IncludeData overwrites it)" -f (Get-Date -Format 'HH:mm:ss'), $gameAddon)
+    Write-Host ("[{0}] pushed to {1}; kept the companion's Data\ (-IncludeData overwrites it)" -f (Get-Date -Format 'HH:mm:ss'), $gameAddon)
 }
 
 function Pull-Captures {

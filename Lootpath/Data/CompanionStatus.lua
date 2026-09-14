@@ -1,0 +1,39 @@
+-- Lootpath/Data/CompanionStatus.lua (C-9, WKE-559)
+-- The second file the local companion writes into the addon folder, beside
+-- Data\QEVerdict.lua (decision 2026-09-07, docs/ARCHITECTURE.md 7; the second
+-- file is the 2026-09-13 entry). It is listed in the .toc, so the client loads
+-- it at login or /reload exactly like any other addon file.
+--
+-- THIS COMMITTED COPY IS A PLACEHOLDER AND SETS NOTHING. It ships with the
+-- addon so a fresh install has the file its .toc names; the companion
+-- overwrites it on the owner's own machine (temp file + rename), and
+-- tools\sync.ps1 leaves an existing copy alone unless it is passed
+-- -IncludeData. With the placeholder in place the status strip says
+-- "companion: never seen", which is the truth: nothing has run.
+--
+-- Why it exists. The verdict file says what QE Live answered; it cannot say
+-- that the last run DIED, or that it had nothing to do, because a run that
+-- fails writes no verdict at all and leaves yesterday's in place. From inside
+-- the game those two look identical - an export that is a few hours old - and
+-- on 2026-09-09 they were (docs/ARCHITECTURE.md 11). This file is the
+-- companion saying what it last did, in eight fields:
+--
+--   local _, ns = ...
+--   ns.companionStatus = {
+--       state = "idle",                         -- idle | running | skipped | failed
+--       startedAt = "2026-09-13T22:48:01Z",     -- ISO 8601 UTC, when the run began
+--       finishedAt = "2026-09-13T22:48:44Z",    -- ... and when it stopped; absent while running
+--       stage = "write",                        -- the stage it is in, or died at
+--       message = "8 documents",                -- one sentence, for the strip's tooltip
+--       profileCapturedAt = "2026-09-13T22:47:31", -- the capture the profile was built from
+--                                               -- (local, as the client writes it)
+--       verdictWrittenAt = "2026-09-13T22:48:44Z", -- the writtenAt of the verdict it wrote
+--       exitCode = 0,                           -- the code the run returned
+--       companionVersion = "0.1.0",
+--   }
+--
+-- Lua strings, numbers and tables only - no function, no loop, no call, the
+-- same rules Data\QEVerdict.lua is held to. ns.Companion.Status validates every
+-- field of it and ns.Companion.StatusText turns it into the one clause the
+-- window's status strip carries; a field that is missing or unreadable is
+-- silence, never a guess.

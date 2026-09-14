@@ -1464,12 +1464,16 @@ describe("the status strip (M5-2)", function()
         H.unload()
     end)
 
+    -- C-9 (WKE-559): the sixth fact. With the committed placeholder in place -
+    -- which is what every test here loads - the companion has never run, and
+    -- the strip says so rather than leaving the line to be read as "fine".
     it("says there is nothing yet before anything is imported", function()
-        assert.equal(ns.UI.NO_VERDICT_STRIP, ns.UI.RefreshStrip(frame).text)
-        assert.equal(ns.UI.NO_VERDICT_STRIP, frame.stripText:GetText())
+        local expected = ns.UI.NO_VERDICT_STRIP .. ns.UI.SEPARATOR .. ns.Companion.STATUS_NEVER
+        assert.equal(expected, ns.UI.RefreshStrip(frame).text)
+        assert.equal(expected, frame.stripText:GetText())
     end)
 
-    it("names QE Live, the spec, the export and the scenario over a pasted one", function()
+    it("names QE Live, the spec, the export, the scenario and the companion over a pasted one", function()
         importDungeon()
         local model = ns.UI.RefreshStrip(frame)
         assert.is_false(model.stale)
@@ -1477,7 +1481,7 @@ describe("the status strip (M5-2)", function()
         for part in (model.text .. ns.UI.SEPARATOR):gmatch("(.-)\194\183") do
             parts[#parts + 1] = (part:gsub("^%s+", ""):gsub("%s+$", ""))
         end
-        assert.equal(5, #parts)
+        assert.equal(6, #parts)
         assert.equal("QE Live", parts[1])
         assert.equal("Restoration Druid", parts[2])
         assert.equal("Dungeon Top Gear", parts[3])
@@ -1485,6 +1489,64 @@ describe("the status strip (M5-2)", function()
         -- the default highlight is M3-13's `thisWeek` (WKE-548)
         assert.equal(ns.UI.SCENARIO_TAG[ns.QEImport.DEFAULT_SCENARIO], "vault pick: as offered")
         assert.equal("vault pick: this week", parts[5])
+        assert.equal(ns.Companion.STATUS_NEVER, parts[6])
+    end)
+
+    -- The five states of the companion's own file, on the line the owner is
+    -- already reading. Each one is the answer to a question the window could not
+    -- answer before C-9: did it run, is it running, did it die, did it have
+    -- nothing to do.
+    it("says what the companion last did, in one clause per state", function()
+        importDungeon()
+        local now = ns.EpochFromISO("2026-09-13T22:51:00Z")
+        local function clause(status)
+            ns.companionStatus = status
+            return ns.UI.StatusStripModel(now).companion
+        end
+
+        assert.equal(
+            "companion: wrote 3 minute(s) ago",
+            clause({
+                state = "idle",
+                verdictWrittenAt = "2026-09-13T22:48:00Z",
+                finishedAt = "2026-09-13T22:48:01Z",
+            })
+        )
+        assert.equal(
+            "companion: profile unchanged, no run (" .. date("%H:%M", ns.EpochFromISO("2026-09-13T22:06:00Z")) .. ")",
+            clause({ state = "skipped", finishedAt = "2026-09-13T22:06:00Z" })
+        )
+        assert.equal(
+            "companion: FAILED at profile ("
+                .. date("%H:%M", ns.EpochFromISO("2026-09-13T21:06:00Z"))
+                .. ") - see companion.log",
+            clause({ state = "failed", stage = "profile", finishedAt = "2026-09-13T21:06:00Z" })
+        )
+        assert.equal(
+            "companion: run started " .. date("%H:%M", ns.EpochFromISO("2026-09-13T22:48:00Z")),
+            clause({ state = "running", startedAt = "2026-09-13T22:48:00Z", stage = "qe live" })
+        )
+        assert.equal(ns.Companion.STATUS_NEVER, clause(nil))
+        assert.equal(ns.Companion.STATUS_UNREADABLE, clause({ state = "exploded" }))
+
+        -- and the clause really is the last thing on the line, not only a field
+        ns.companionStatus = { state = "failed", stage = "qe live", finishedAt = "2026-09-13T21:06:00Z" }
+        local model = ns.UI.StatusStripModel(now)
+        assert.is_truthy(model.text:find("companion: FAILED at qe live", 1, true))
+        assert.is_truthy(model.text:find(" - see companion.log", 1, true))
+    end)
+
+    it("puts the companion's own sentence in the tooltip, last", function()
+        importDungeon()
+        ns.companionStatus = {
+            state = "failed",
+            stage = "qe live",
+            message = "the fork did not answer http://localhost:3000",
+            finishedAt = "2026-09-13T21:06:00Z",
+        }
+        local model = ns.UI.StatusStripModel(ns.EpochFromISO("2026-09-13T22:51:00Z"))
+        local last = model.tooltip[#model.tooltip]
+        assert.is_truthy(last:find("The companion's last run: the fork did not answer", 1, true))
     end)
 
     it("says the companion wrote it, and how long ago", function()

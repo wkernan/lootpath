@@ -679,6 +679,158 @@ function Companion.Startup(now)
     return result
 end
 
+-- ---------------------------------------------------------------------------
+-- C-9 (WKE-559): what the companion last did.
+--
+-- The verdict file says what QE Live answered. It cannot say that the last run
+-- DIED, or that it had nothing to do, because a failed run writes no verdict at
+-- all and leaves the previous one in place - so from inside the game a companion
+-- that crashed and a companion with nothing to do look identical, which is what
+-- they did on 2026-09-09 (docs/ARCHITECTURE.md 11). `Data\CompanionStatus.lua`
+-- is the companion saying so, and this is the reader.
+--
+-- Same rules as the verdict chunk: it is DATA. Every field goes through
+-- ns.Safe, nothing in it is called, a field that is missing or unreadable is
+-- silence rather than a guess, and a file that is not a table at all is one
+-- clause on the strip instead of an error.
+
+Companion.STATUS_STATES = {
+    idle = true,
+    running = true,
+    skipped = true,
+    failed = true,
+}
+
+-- The clauses, in one place, because the strip is the only thing that says them
+-- and a test that spells them out twice can drift.
+Companion.STATUS_NEVER = "companion: never seen"
+Companion.STATUS_UNREADABLE = "companion: status file not understood"
+Companion.STATUS_LOG_HINT = " - see companion.log"
+
+-- Status(raw) -> { absent = true } for the committed placeholder, which is not
+-- an error; { ok = false, reason } for a file that is there but says nothing
+-- this can read; or the whole record.
+function Companion.Status(raw)
+    if raw == nil then
+        return { absent = true, reason = "the companion has not written a status file yet" }
+    end
+    local safe, sawSecret = ns.Safe(raw)
+    if sawSecret or type(safe) ~= "table" then
+        return { ok = false, reason = string.format("Data\\CompanionStatus.lua set %s, not a table", shown(raw)) }
+    end
+    local state = safeString(safe.state)
+    if not state or not Companion.STATUS_STATES[state] then
+        return {
+            ok = false,
+            reason = string.format(
+                "Data\\CompanionStatus.lua carries state %s, which is not one it can be in",
+                shown(safe.state)
+            ),
+        }
+    end
+    local exitCode
+    local code, codeSecret = ns.Safe(safe.exitCode)
+    if not codeSecret and type(code) == "number" and code >= 0 and code % 1 == 0 then
+        exitCode = code
+    end
+    return {
+        ok = true,
+        state = state,
+        startedAt = safeString(safe.startedAt),
+        finishedAt = safeString(safe.finishedAt),
+        stage = safeString(safe.stage),
+        message = safeString(safe.message),
+        profileCapturedAt = safeString(safe.profileCapturedAt),
+        verdictWrittenAt = safeString(safe.verdictWrittenAt),
+        companionVersion = safeString(safe.companionVersion),
+        exitCode = exitCode,
+    }
+end
+
+-- The wall clock of one of the companion's UTC stamps, in the reader's own
+-- timezone, because "(23:06)" is how a person says when something happened and
+-- an ISO stamp is not. nil for a stamp ns.EpochFromISO cannot read, and the
+-- caller then says the clause without a time rather than with a wrong one.
+local function clockText(iso, now)
+    local epoch = ns.EpochFromISO(iso, now)
+    if not epoch or type(date) ~= "function" then
+        return nil
+    end
+    -- math.floor for the same reason ns.EpochFromISO coerces its fields: an
+    -- epoch second is whole already, and `date`'s declared time parameter is an
+    -- integer, which a plain number fails the type gate on.
+    local text = date("%H:%M", math.floor(epoch))
+    if type(text) ~= "string" then
+        return nil
+    end
+    return text
+end
+
+local function withClock(text, iso, now)
+    local at = clockText(iso, now)
+    if not at then
+        return text
+    end
+    return string.format("%s (%s)", text, at)
+end
+
+-- The one clause the status strip carries (M5-2's UI.StatusStripModel). One
+-- sentence fragment, never two: the strip already says five things.
+--
+--   companion: wrote 3 minute(s) ago
+--   companion: profile unchanged, no run (23:06)
+--   companion: FAILED at profile (21:06) - see companion.log
+--   companion: run started 22:48
+--   companion: never seen
+function Companion.StatusText(raw, now)
+    local status = Companion.Status(raw)
+    if status.absent then
+        return Companion.STATUS_NEVER
+    end
+    if not status.ok then
+        return Companion.STATUS_UNREADABLE
+    end
+    if status.state == "running" then
+        local at = clockText(status.startedAt, now)
+        if not at then
+            return "companion: run started"
+        end
+        return "companion: run started " .. at
+    end
+    if status.state == "skipped" then
+        return withClock("companion: profile unchanged, no run", status.finishedAt, now)
+    end
+    if status.state == "failed" then
+        local where = status.stage and (" at " .. status.stage) or ""
+        return withClock("companion: FAILED" .. where, status.finishedAt, now) .. Companion.STATUS_LOG_HINT
+    end
+    -- idle: a run that finished. The age is the VERDICT's own writtenAt, so the
+    -- strip's "wrote 3 minute(s) ago" and the verdict line's age are one number
+    -- read out of two files rather than two answers.
+    if status.verdictWrittenAt then
+        return "companion: wrote " .. ns.UI.AgeText(status.verdictWrittenAt, now)
+    end
+    return withClock("companion: idle", status.finishedAt, now)
+end
+
+-- The longer sentence for the strip's tooltip, or nil when the file says
+-- nothing the clause did not. The message is the companion's own words for what
+-- happened, carried like every other string it writes.
+function Companion.StatusTooltip(raw, now)
+    local status = Companion.Status(raw)
+    if status.absent then
+        return "The companion has not written a status file yet. Nothing has run, or it is an older companion."
+    end
+    if not status.ok then
+        return status.reason
+    end
+    if not status.message then
+        return nil
+    end
+    local when = status.finishedAt or status.startedAt
+    return withClock(string.format("The companion's last run: %s", status.message), when, now)
+end
+
 -- `/lootpath refresh` - the loop from inside the game, in one word. It takes
 -- the three snapshots the companion's profile is built from, then flushes
 -- SavedVariables by reloading so the companion can read them; the second
