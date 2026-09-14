@@ -474,9 +474,39 @@ local HELP = {
     "/lootpath capture <name> - record raw client returns; then /reload and run tools\\sync.ps1 -Pull",
     "/lootpath capture - list the capture commands",
     "/lootpath capture wipe - clear every stored capture",
+    '/lootpath map - open the window on the Upgrade Map (what the tooltip\'s "Why this?" points at)',
     "/lootpath status - what is stored",
+    "/lootpath glow - why the bag mark is or is not on a slot; shift-click an item in to ask about it",
     "/lootpath help - this list",
 }
+
+-- R-2a (WKE-571). The bag mark can fail in three places and none of them showed
+-- on the owner's screen. This prints all three at once, plus the answer for one
+-- item, which is what the next diagnosis reads instead of a screenshot. The
+-- link is the player's own shift-click; with none given the first bag slot that
+-- holds anything is asked about instead, so the bare command still answers.
+local function firstBagLink()
+    if not (C_Container and type(C_Container.GetContainerItemLink) == "function") then
+        return nil
+    end
+    for bag = 0, 4 do
+        local slots = ns.Safe(C_Container.GetContainerNumSlots(bag))
+        for slotIndex = 1, (type(slots) == "number" and slots or 0) do
+            local link = ns.Safe(C_Container.GetContainerItemLink(bag, slotIndex))
+            if type(link) == "string" and link ~= "" then
+                return link
+            end
+        end
+    end
+    return nil
+end
+
+local function glowCommand(rest)
+    local link = rest ~= "" and rest or firstBagLink()
+    for _, line in ipairs(ns.UI.Bags.DiagnosisLines(link)) do
+        ns.Log("%s", line)
+    end
+end
 
 local function captureCommand(rest)
     local name, args = rest:match("^(%S+)%s*(.-)$")
@@ -546,6 +576,10 @@ function ns.HandleSlash(msg)
         captureCommand(rest)
     elseif cmd == "status" then
         statusCommand()
+    elseif cmd == "map" then
+        ns.UI.ShowUpgradeMap()
+    elseif cmd == "glow" then
+        glowCommand(rest)
     else
         for _, line in ipairs(HELP) do
             ns.Log("%s", line)

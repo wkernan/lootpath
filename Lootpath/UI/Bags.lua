@@ -75,6 +75,15 @@ function Bags.StatusText()
     if not adapter then
         return Bags.NO_ADAPTER
     end
+    -- An adapter that can tell it is installed but NOT drawing says so here
+    -- rather than letting the strip promise a mark the reader cannot see
+    -- (R-2a, WKE-571). Only the adapter knows; the strip only prints.
+    if type(adapter.StatusNote) == "function" then
+        local note = adapter.StatusNote()
+        if type(note) == "string" and note ~= "" then
+            return note
+        end
+    end
     return string.format(Bags.GLOW_LINE, adapter.label)
 end
 
@@ -104,6 +113,95 @@ end
 function Bags.Reset()
     state.chosen = nil
     state.reason = nil
+end
+
+-- ---------------------------------------------------------------------------
+-- The diagnosis (R-2a, WKE-571).
+--
+-- The owner's first real screens showed no mark on any slot, and NOTHING ON
+-- SCREEN told the three possible causes apart: the adapter never installed,
+-- the bag addon never draws the widget, or the lookup answers false. Each of
+-- those is a different fix and a screenshot cannot say which. So the addon says
+-- it itself, in one command, and the next diagnosis is one line rather than
+-- another round of photographs.
+--
+-- Pure over what it is handed: every client read is the caller's (`/lootpath
+-- glow` in Core.lua, which passes the link), so the lines are a headless
+-- assertion and a test can drive them without a bag frame.
+
+Bags.NO_MAP = "map: nothing built yet"
+Bags.MAP_LINE = "map: %d keys, %d of them marked"
+Bags.MAP_EMPTY = "map: nothing built - %s"
+Bags.NO_LINK = "item: no link given; hover a bag slot and shift-click it into the command"
+Bags.BAD_LINK = "item: that is not an item link"
+
+-- What the map says about one link, in the four steps a false answer can fail
+-- at: the key the link makes, whether that key is in the map, what the map
+-- says about it, and whether the item's own road is one the plan points at.
+-- These four are the whole of `ns.Glow.WantsLink`, said out loud.
+function Bags.LinkLines(link)
+    local lines = {}
+    local safe, secret = ns.Safe(link)
+    if secret or type(safe) ~= "string" or safe == "" then
+        lines[#lines + 1] = Bags.NO_LINK
+        return lines
+    end
+    local parsed = ns.ParseItemLink(safe)
+    if not parsed or not parsed.key then
+        lines[#lines + 1] = Bags.BAD_LINK
+        return lines
+    end
+    lines[#lines + 1] = string.format("item: key %s", parsed.key)
+    local answer = ns.RoadsCache.Lookup(parsed.key)
+    lines[#lines + 1] = string.format("item: %s the map", answer and "in" or "NOT in")
+    lines[#lines + 1] = string.format("item: glow %s", ns.Glow.Wants(parsed.key) and "yes" or "no")
+    local own = answer and answer.own or nil
+    if own then
+        lines[#lines + 1] = string.format(
+            "item: its own road is %s, and the plan %s it",
+            tostring(own.kind),
+            ns.Roads.IsForward(own) and "points at" or "does not point at"
+        )
+    elseif answer then
+        lines[#lines + 1] = string.format("item: no road of its own - %s", tostring(answer.phrase))
+    end
+    return lines
+end
+
+-- The whole answer: which adapter, what the bag addon says about it, what the
+-- map holds, and what all of that comes to for one item.
+function Bags.DiagnosisLines(link)
+    local lines = {}
+    local adapter = state.chosen
+    if adapter then
+        lines[#lines + 1] = string.format("adapter: %s - %s", adapter.name, adapter.label)
+    else
+        local names = {}
+        for _, candidate in ipairs(Bags.adapters) do
+            names[#names + 1] = candidate.name
+        end
+        lines[#lines + 1] = string.format(
+            "adapter: none. %s said no.",
+            #names > 0 and table.concat(names, ", ") or "no adapter is registered, which"
+        )
+    end
+    if adapter and type(adapter.DiagnosisLines) == "function" then
+        for _, line in ipairs(adapter.DiagnosisLines()) do
+            lines[#lines + 1] = line
+        end
+    end
+    local map = ns.RoadsCache.Map()
+    if not map then
+        lines[#lines + 1] = Bags.NO_MAP
+    elseif map.reason then
+        lines[#lines + 1] = string.format(Bags.MAP_EMPTY, map.reason)
+    else
+        lines[#lines + 1] = string.format(Bags.MAP_LINE, map.counts.keys, map.counts.glowing)
+    end
+    for _, line in ipairs(Bags.LinkLines(link)) do
+        lines[#lines + 1] = line
+    end
+    return lines
 end
 
 ns.onReady[#ns.onReady + 1] = function()

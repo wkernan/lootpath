@@ -458,8 +458,16 @@ end
 -- all - because a surface shows those beside the badge as muted facts while the
 -- doing steps belong to the footer and the "do:" line (R-3, docs/ROADS-UX.md
 -- surface 2). Nothing else about a step changes with the flag.
-local function step(text, done, fact)
-    return { text = text, done = done, fact = fact or nil }
+--
+-- `cost` marks the one fact a tooltip may not carry: the vendor window's gate
+-- (principle 7). `C_ItemUpgrade.GetItemUpgradeItemInfo` answers only for an
+-- owned item placed in the OPEN vendor window, so on a vault reward or a drop
+-- the cost is not readable at all and never will be. On the Upgrade Map row
+-- that clause is the answer to "what will this cost me"; on a tooltip, where
+-- nobody asked and there is no room, it is noise (R-2a, WKE-571: the owner read
+-- it on both Head roads of one hover, 2026-09-14).
+local function step(text, done, fact, cost)
+    return { text = text, done = done, fact = fact or nil, cost = cost or nil }
 end
 
 -- The footer names the next step nobody has ticked, never a count
@@ -481,6 +489,20 @@ function Roads.Facts(road)
     local facts = {}
     for _, entry in ipairs(type(road) == "table" and road.steps or {}) do
         if entry.fact then
+            facts[#facts + 1] = entry.text
+        end
+    end
+    return facts
+end
+
+-- The subset of those that state what a road COSTS, which is the vendor
+-- window's gate and nothing else. A surface with the vendor row on it says
+-- them; the tooltip does not (R-2a, WKE-571). It is a subset of `Roads.Facts`
+-- rather than a list beside it, so a fact cannot be in one and not the other.
+function Roads.CostFacts(road)
+    local facts = {}
+    for _, entry in ipairs(type(road) == "table" and road.steps or {}) do
+        if entry.fact and entry.cost then
             facts[#facts + 1] = entry.text
         end
     end
@@ -823,7 +845,7 @@ local function finishSetRoad(road, entry, inputs, planVault, charge)
         road.resetSeconds = type(inputs.vault) == "table" and inputs.vault.secondsUntilWeeklyReset or nil
         road.steps[#road.steps + 1] = step("the vault is offering it", Roads.DONE_CLIENT)
         if rating and rating.level and rating.arrivesAt and rating.level > rating.arrivesAt then
-            road.steps[#road.steps + 1] = step(Roads.CREST_NOT_READABLE, nil, true)
+            road.steps[#road.steps + 1] = step(Roads.CREST_NOT_READABLE, nil, true, true)
         end
         road.steps[#road.steps + 1] = step("take it from the Great Vault")
         road.verb = Roads.VERB_SHOW_IN_VAULT
@@ -1105,7 +1127,7 @@ function Roads.ForSlot(slot, inputs)
                     road.rating = { kind = Roads.RATING_NONE, badge = Roads.PHRASE_NO_RATING }
                     road.rankedAtAnotherLevel = ns.UFImport.LevelsAcrossLevels(documents, itemID)
                 end
-                road.steps[#road.steps + 1] = step(Roads.CREST_NOT_READABLE, nil, true)
+                road.steps[#road.steps + 1] = step(Roads.CREST_NOT_READABLE, nil, true, true)
                 road.steps[#road.steps + 1] = step("it drops for you", Roads.DONE_PLAYER)
                 road.verb = Roads.VERB_SHOW_RUN
                 if rated then
@@ -1411,22 +1433,43 @@ function Roads.ForItemIn(slotRoads, key, inputs)
     end
     answer.own = own
 
+    -- The other roads this answer offers, one per remaining group, and RATED
+    -- ONLY (R-2a, WKE-571). The Upgrade Map lists the no-rating group because a
+    -- reader who opened a slot asked for everything it opens onto; a tooltip
+    -- has three lines and the reader asked about one item, so a road nothing
+    -- rated cannot take one of them. A "no rating" road under a best-set pick
+    -- is the shape the owner read on 2026-09-14 and it told him nothing.
+    -- Principle 10's three is a cap, not a quota.
     for _, group in ipairs(Roads.GROUP_ORDER) do
         if group ~= ownGroup and #answer.others < Roads.TOOLTIP_ROADS - 1 then
-            local first = (slotRoads.groups[group] or {})[1]
-            if first then
-                answer.others[#answer.others + 1] = first
+            local forward, rated
+            for _, road in ipairs(slotRoads.groups[group] or {}) do
+                if Roads.IsForward(road) then
+                    forward = forward or road
+                elseif Roads.IsRated(road) then
+                    rated = rated or road
+                end
+            end
+            local pick = forward or rated
+            if pick then
+                answer.others[#answer.others + 1] = pick
             end
         end
     end
 
-    if not own then
-        local item = nil
-        for _, record in ipairs(records(inputs.inventory)) do
-            if record.key == key then
-                item = record
-            end
+    -- Whether the player is carrying this item, which is what decides that the
+    -- plan owes it a sentence (R-2a, WKE-571; `Roads.ItemSentence`). It is read
+    -- off the same records the honesty phrase is read off, so "held" and "the
+    -- item the phrase is about" can never be two different questions.
+    local item = nil
+    for _, record in ipairs(records(inputs.inventory)) do
+        if record.key == key then
+            item = record
         end
+    end
+    answer.held = item ~= nil
+
+    if not own then
         answer.phrase = Roads.NotRatedPhrase(inputs.excluded, item, key)
     elseif own.phrase then
         answer.phrase = own.phrase
@@ -1631,30 +1674,39 @@ end
 -- sentence and the slot's (principle 16). One or two clauses, never a label, a
 -- percentage or an item level: those are on the road line under it.
 --
--- **It answers only for a road the plan is ABOUT**, which is the set group: a
--- piece you hold, a Catalyst clone of one, a vault option, or what you wear.
--- A journal drop, a crafted row or a delve row is in the `item` group and the
--- plan takes no position on it at all, so there is no sentence to write - and
--- "Skip this one" on a dungeon drop would read as "skip the dungeon", which is
--- a thing to do that no document said. Those hovers open on their road line
+-- **Every piece you HOLD gets one, rated or not** (R-2a, WKE-571; the owner
+-- read a bag helmet that opened on "not rated - beyond the rating's item limit"
+-- and no sentence at all, 2026-09-14, against principle 16). The plan takes a
+-- position on everything you own: use it, catalyst it, or skip it. So there are
+-- two ways in - the set group (a Catalyst clone, a vault option, what you wear)
+-- and your bags.
+--
+-- What stays sentence-less is a road to something you do NOT have: a journal
+-- drop, a crafted row, a delve row. The plan takes no position on those at all,
+-- and "Skip this one" on a dungeon drop would read as "skip the dungeon", which
+-- is a thing to do that no document said. Those hovers open on their road line
 -- instead (R-2, 2026-09-14; ARCHITECTURE.md §7).
 function Roads.ItemSentence(answer)
-    local own = type(answer) == "table" and answer.own or nil
-    if type(own) ~= "table" or own.group ~= Roads.GROUP_SET then
+    if type(answer) ~= "table" then
         return nil
     end
-    if own.planPick then
-        if own.kind == Roads.KIND_VAULT then
-            if own.rating and own.rating.level and own.arrivesAt and own.rating.level > own.arrivesAt then
-                return "Grab this from the vault and crest it."
+    local own = answer.own
+    if type(own) == "table" and own.group == Roads.GROUP_SET then
+        if own.planPick then
+            if own.kind == Roads.KIND_VAULT then
+                if own.rating and own.rating.level and own.arrivesAt and own.rating.level > own.arrivesAt then
+                    return "Grab this from the vault and crest it."
+                end
+                return "Grab this from the vault."
+            elseif own.kind == Roads.KIND_CATALYST then
+                return "Catalyst this one."
+            elseif own.kind == Roads.KIND_KEEP then
+                return "Keep this on."
             end
-            return "Grab this from the vault."
-        elseif own.kind == Roads.KIND_CATALYST then
-            return "Catalyst this one."
-        elseif own.kind == Roads.KIND_KEEP then
-            return "Keep this on."
+            return "Put this on."
         end
-        return "Put this on."
+    elseif answer.held ~= true then
+        return nil
     end
 
     -- Not the pick. What the plan does instead is the other half of the

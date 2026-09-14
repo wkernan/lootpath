@@ -1529,14 +1529,14 @@ describe("Companion.StatusText", function()
 
     it("says how long ago the verdict on disk was written", function()
         assert.equal(
-            "companion: wrote 3 minute(s) ago",
+            "companion: wrote 3 minutes ago",
             text({ state = "idle", verdictWrittenAt = "2026-09-13T22:48:00Z" })
         )
         -- The VERDICT's stamp, not the run's own finish: the two are minutes
         -- apart on a real run, and the age on the strip is about the file the
         -- addon read.
         assert.equal(
-            "companion: wrote 6 minute(s) ago",
+            "companion: wrote 6 minutes ago",
             text({
                 state = "idle",
                 verdictWrittenAt = "2026-09-13T22:45:00Z",

@@ -548,7 +548,7 @@ describe("Roads over the owner's week of 2026-09-08", function()
     -- -----------------------------------------------------------------------
     -- The tooltip's at-most-three.
 
-    it("answers for the item under the cursor with its own road and two others", function()
+    it("answers for the item under the cursor with its own road and the rated others", function()
         local key
         for _, record in ipairs(inputs.inventory.records) do
             if record.itemID == 277782 then
@@ -559,12 +559,40 @@ describe("Roads over the owner's week of 2026-09-08", function()
         assert.equal("Shoulder", answer.slot)
         assert.equal(ns.Roads.KIND_CATALYST, answer.own.kind)
         assert.equal("in your best set", answer.own.rating.badge)
-        assert.equal(2, #answer.others)
         -- One per remaining group, in group order, never a second row of the
-        -- group the hovered item is already in.
+        -- group the hovered item is already in - and RATED ONLY (R-2a,
+        -- WKE-571). The Shoulder slot's no-rating group is not empty on this
+        -- week; it took the second line of the owner's tooltip on 2026-09-14
+        -- and told him nothing, so this answer no longer offers it. Principle
+        -- 10's three is a cap, not a quota.
+        assert.equal(1, #answer.others)
         assert.equal(ns.Roads.GROUP_ITEM, answer.others[1].group)
-        assert.equal(ns.Roads.GROUP_NONE, answer.others[2].group)
+        assert.is_true(ns.Roads.IsRated(answer.others[1]))
+        assert.is_true(#(answer.slotRoads.groups[ns.Roads.GROUP_NONE] or {}) > 0)
         assert.is_nil(answer.phrase)
+    end)
+
+    it("offers the forward road of a group before a rated-but-worse one", function()
+        -- Built rather than found: the owner's week has no group whose first
+        -- row is behind a later forward row, and "best-set or positive percent
+        -- first" is a rule of the answer, not of his week.
+        local function road(inGroup, rating)
+            return { group = inGroup, slot = "Shoulder", keys = {}, rating = rating, item = { itemID = 1 } }
+        end
+        local behind = road(ns.Roads.GROUP_ITEM, { kind = ns.Roads.RATING_ITEM, percent = -2 })
+        local forward = road(ns.Roads.GROUP_ITEM, { kind = ns.Roads.RATING_ITEM, percent = 3 })
+        local slotRoads = {
+            slot = "Shoulder",
+            groups = {
+                [ns.Roads.GROUP_SET] = { road(ns.Roads.GROUP_SET, nil) },
+                [ns.Roads.GROUP_ITEM] = { behind, forward },
+                [ns.Roads.GROUP_NONE] = { road(ns.Roads.GROUP_NONE, nil) },
+            },
+        }
+        slotRoads.groups[ns.Roads.GROUP_SET][1].keys = { "the-hovered-one" }
+        local answer = ns.Roads.ForItemIn(slotRoads, "the-hovered-one", {})
+        assert.equal(1, #answer.others)
+        assert.equal(forward, answer.others[1])
     end)
 
     it("hands back the phrase for an item no document has ever seen", function()

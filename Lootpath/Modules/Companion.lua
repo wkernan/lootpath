@@ -623,7 +623,7 @@ function Companion.SourceOf(verdict)
 end
 
 -- The phrase the window and /lootpath status use to say where the verdict on
--- screen came from: "pasted", or "companion, written 4 minute(s) ago" through
+-- screen came from: "pasted", or "companion, written 4 minutes ago" through
 -- the same UI.AgeText every other age on screen goes through. A companion
 -- import whose stamp cannot be read still says who carried it.
 function Companion.SourceText(verdict, now)
@@ -785,7 +785,7 @@ end
 -- The one clause the status strip carries (M5-2's UI.StatusStripModel). One
 -- sentence fragment, never two: the strip already says five things.
 --
---   companion: wrote 3 minute(s) ago
+--   companion: wrote 3 minutes ago
 --   companion: profile unchanged, no run (23:06)
 --   companion: FAILED at profile (21:06) - see companion.log
 --   companion: run started 22:48
@@ -813,7 +813,7 @@ function Companion.StatusText(raw, now)
         return withClock("companion: FAILED" .. where, status.finishedAt, now) .. Companion.STATUS_LOG_HINT
     end
     -- idle: a run that finished. The age is the VERDICT's own writtenAt, so the
-    -- strip's "wrote 3 minute(s) ago" and the verdict line's age are one number
+    -- strip's "wrote 3 minutes ago" and the verdict line's age are one number
     -- read out of two files rather than two answers.
     if status.verdictWrittenAt then
         return "companion: wrote " .. ns.UI.AgeText(status.verdictWrittenAt, now)

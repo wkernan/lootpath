@@ -7,10 +7,10 @@
 --   Lootpath · Shoulder · rated 1d 2h ago
 --   Catalyst this one.
 --   Catalyst · Venom-Cursed Lynx's Spaulders (295) · into the tier shoulders
---       · in your best set · the same charge as the vault Spaulders road
+--       · in your best set
 --   Other roads for this slot
 --   Vault · open now · Scavenger's Spaulders (308) · ... · 1.73% behind ...
---   Why this?
+--   Why this? · /lootpath map
 --
 -- and nothing else. Three roads at most, one sub-header, "Why this?" last,
 -- always (principle 10). Explain adds nothing here (principle 11). No source
@@ -18,8 +18,14 @@
 --
 -- **Every word on it is the Upgrade Map row's own.** `ns.UpgradeMapPanel.RoadRow`
 -- is what builds the parts, so the tooltip and the slot's row that "Why this?"
--- opens cannot say two different things about one road. What the tooltip drops
--- is the "do:" line and the verb button, which belong to the row.
+-- points at cannot say two different things about one road.
+--
+-- **What the tooltip drops** is the "do:" line and the verb button, which are
+-- the row's own - and, since R-2a (WKE-571), every clause whose referent is on
+-- another screen: the crest COST clause (the vendor window's gate), the rival
+-- clause ("the same charge as the vault Spaulders road", which points at a row
+-- this reader cannot see), an item ID standing in for a name, and any road
+-- nothing rated. The Upgrade Map keeps all four, because there they are true.
 --
 -- **The hover path is O(1).** `ns.RoadsCache` holds the answer for every key a
 -- road carries, built once per verdict; this file looks it up and formats it.
@@ -68,7 +74,35 @@ Tooltip.HEADER_HEX = "FFD100"
 Tooltip.SEPARATOR = " · "
 Tooltip.HEADER = "Lootpath"
 Tooltip.OTHER_ROADS = "Other roads for this slot"
-Tooltip.WHY = "Why this?"
+-- Principles 10 and 11 both say the block's last line is "Why this?", always.
+-- On the Upgrade Map row it opens the row; on a tooltip it cannot be clicked,
+-- so on its own it is a question with no destination - which principle 9
+-- forbids ("only where they go somewhere"). It keeps its place and says where
+-- to go instead: `/lootpath map` opens the window on the Upgrade Map, which is
+-- the tab the row is on (R-2a, WKE-571).
+Tooltip.WHY = "Why this? · /lootpath map"
+
+-- What a road whose item the client has not named yet is called ON A TOOLTIP.
+-- The panel may print "item 244572 (331)" - a row the reader can watch fill in
+-- - but a hover is one glance and an item ID is not a name anybody reads
+-- (R-2a, WKE-571: the owner read it on the Crafted road, 2026-09-14). The noun
+-- is the road's own kind and nothing else; the level beside it is still the
+-- road's own figure.
+Tooltip.NAMELESS = {
+    craft = "a crafted piece",
+    drop = "a drop",
+    delve = "a delve reward",
+    vault = "a vault reward",
+    catalyst = "a tier piece",
+    crest = "an upgrade",
+    set = "a piece you own",
+    keep = "what you have on",
+}
+Tooltip.NAMELESS_DEFAULT = "an item"
+
+function Tooltip.NamelessText(kind)
+    return Tooltip.NAMELESS[kind] or Tooltip.NAMELESS_DEFAULT
+end
 Tooltip.RATED = "rated %s"
 -- A verdict with no time on it is the one thing principle 2 forbids a surface
 -- to hide, so the header says the age is missing rather than leaving it off.
@@ -111,15 +145,17 @@ function Tooltip.RoadText(road, previewLevel)
     if row.tag then
         parts[#parts + 1] = row.tag
     end
-    parts[#parts + 1] = string.format("%s (%s)", row.name or ("item " .. tostring(row.itemID)), tostring(row.itemLevel))
+    parts[#parts + 1] = string.format("%s (%s)", row.name or Tooltip.NamelessText(row.kind), tostring(row.itemLevel))
     if row.second then
         parts[#parts + 1] = row.second
     end
     if row.badge then
         parts[#parts + 1] = row.badge.text
     end
-    if row.factsText then
-        parts[#parts + 1] = row.factsText
+    -- The row's facts MINUS the cost and rival clauses, which are true only
+    -- where their referents are (Panel.RoadFactEntries says why).
+    if row.tooltipFactsText then
+        parts[#parts + 1] = row.tooltipFactsText
     end
     return table.concat(parts, Panel.ROAD_SEPARATOR), row
 end

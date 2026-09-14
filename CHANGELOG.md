@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+### R-2a (WKE-571) - the plan takes a position on everything you own, and a missing mark says why
+
+- **A piece in your bags always gets a sentence now, rated or not.** A helmet
+  the rating never reached used to open on `not rated` and nothing else. The
+  plan has a position on everything you own - use it, catalyst it, or skip it -
+  so it says `Skip this one, the plan uses your Lynx shoulders.` and keeps the
+  honesty phrase as its road line underneath. A road to something you do not
+  have - a dungeon drop, a crafted row, a delve row - still gets no sentence,
+  because the plan takes no position on those.
+- **Four things left the tooltip's road lines, and the Upgrade Map kept all
+  four.** The crest cost clause, whose answer is at the vendor; the "same
+  charge as" cross-reference, which points at a row you cannot see from a
+  tooltip; `item 244572`, which is an ID and not a name (the tooltip says
+  `a crafted piece (331)` until the client answers, and it now asks); and a
+  `no rating` road that was taking one of three lines under a best-set pick.
+  Other roads on a tooltip are rated roads only.
+- **`Why this?` goes somewhere.** It reads `Why this? · /lootpath map`, and
+  `/lootpath map` opens the window on the Upgrade Map.
+- **`4 hour(s) ago` is `4 hours ago`.**
+- **The bag mark explains itself.** `/lootpath glow` says which bag window
+  Lootpath is marking and why, what your bag addon is doing with the mark, how
+  much the plan has in it, and - for an item you shift-click into the command,
+  or the first thing in your bags - whether the mark should be there at all.
+  `/lootpath capture glow` records the same for every bag slot.
+- **The mark moved to the top-right corner in Baganator.** Its top-left corner
+  is where your item level is drawn, and a corner shows one mark at a time.
+
 ### R-2 (WKE-563) - In place: the plan on the tooltip, and a glow that means one thing
 
 - **Blizzard's own item tooltip gains a Lootpath block.** Hover a piece in
