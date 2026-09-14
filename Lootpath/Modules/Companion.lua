@@ -673,8 +673,16 @@ function Companion.Startup(now)
     for _, skip in ipairs(result.skipped) do
         ns.Log("companion export %d refused: %s", skip.index, skip.reason)
     end
-    if #result.imported > 0 and ns.UI.frame then
-        ns.UI.Refresh()
+    if #result.imported > 0 then
+        -- A new verdict is a new answer for every hover and every bag slot
+        -- (R-2). The cache is not an event listener for this one: an import is
+        -- not something the client announces.
+        if ns.RoadsCache then
+            ns.RoadsCache.Changed()
+        end
+        if ns.UI.frame then
+            ns.UI.Refresh()
+        end
     end
     return result
 end

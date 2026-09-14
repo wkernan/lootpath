@@ -1989,8 +1989,34 @@ function Panel.ShowCellTooltip(cell)
     if data.moreText then
         GameTooltip:AddLine(data.moreText)
     end
+    -- The same block Blizzard's own tooltip gets (R-2, WKE-563), through the
+    -- same function, so the vault cell and a bag hover cannot say two different
+    -- things about one reward. Appended after this cell's own lines, the way
+    -- it is appended after the client's.
+    Panel.AppendRoads(GameTooltip, data)
     GameTooltip:Show()
     return true
+end
+
+-- The item's part of the plan on a vault cell. The key is the reward's own, so
+-- nothing is parsed and nothing is read from the client here; the cache is the
+-- same one the bag hover reads.
+function Panel.AppendRoads(tooltip, data)
+    if InCombatLockdown() then
+        return false
+    end
+    local key = type(data) == "table" and data.key or nil
+    if type(key) ~= "string" or not (ns.RoadsCache and ns.UI.Tooltip) then
+        return false
+    end
+    local answer = ns.RoadsCache.Lookup(key)
+    if not answer then
+        return false
+    end
+    local map = ns.RoadsCache.Map()
+    return ns.UI.Tooltip.Append(tooltip, answer, {
+        previewMythicPlusLevel = map and map.previewMythicPlusLevel or nil,
+    })
 end
 
 -- "Show in vault" (R-3, the verb table): the Vault tab, that cell, and a mark

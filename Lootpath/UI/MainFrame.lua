@@ -384,7 +384,16 @@ function UI.StatusStripModel(now)
     -- Last in the tooltip, always: the lines above it are about the export on
     -- screen, and a reader looking for why there is no newer one reads down.
     local companionNote = ns.Companion.StatusTooltip(ns.companionStatus, now)
+    -- R-2 (WKE-563): which bag window the mark is drawn in, or that this one is
+    -- not a window Lootpath can mark. It is on the tooltip rather than the line
+    -- because it is about a surface outside this window, and a reader only
+    -- looks for it when the mark is missing; it goes ABOVE the companion's
+    -- sentence, which stays last for the reason given above it.
+    local bagNote = ns.UI.Bags and ns.UI.Bags.StatusText() or nil
     if not verdict then
+        if bagNote then
+            tooltip[#tooltip + 1] = bagNote
+        end
         if companionNote then
             tooltip[#tooltip + 1] = companionNote
         end
@@ -415,6 +424,9 @@ function UI.StatusStripModel(now)
     local other = UI.OtherImportLine(UI.KIND_TOP_GEAR, verdict, now)
     if other then
         tooltip[#tooltip + 1] = other
+    end
+    if bagNote then
+        tooltip[#tooltip + 1] = bagNote
     end
     if companionNote then
         tooltip[#tooltip + 1] = companionNote

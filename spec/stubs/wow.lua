@@ -1358,37 +1358,45 @@ function Stub.install()
     -- `GameTooltip : Frame`) and every method below is one of its own
     -- (SetOwner, SetText, AddLine, SetHyperlink, SetItemByID, ClearLines). The
     -- ONE reader that is not the client's, `Text()`, is on the stub shelf.
-    local tooltip = newFrame("GameTooltip", world)
+    -- Every GameTooltip in the client answers the same six methods, so they are
+    -- attached by a function rather than to the singleton: `ShoppingTooltip1`,
+    -- `ShoppingTooltip2` and another addon's private tooltip are GameTooltips
+    -- too, and R-2's handler is built on telling them apart from this one.
+    local function attachTooltipMethods(f)
+        f.lines = {}
+        function f:SetOwner(owner, anchor)
+            self.owner, self.anchor = owner, anchor
+            self.lines = {}
+        end
+        function f:SetText(text)
+            self.lines = { tostring(text) }
+        end
+        function f:AddLine(text)
+            self.lines[#self.lines + 1] = tostring(text)
+        end
+        function f:SetHyperlink(link)
+            self.hyperlink = link
+            self.itemID = nil
+            self.lines = { tostring(link) }
+        end
+        -- What a row with an id and no link is shown by: QE Live names an item
+        -- by id, so the tooltip has to take one.
+        function f:SetItemByID(itemID)
+            self.itemID = itemID
+            self.hyperlink = nil
+            self.lines = { "item " .. tostring(itemID) }
+        end
+        function f:ClearLines()
+            self.lines = {}
+        end
+        function f.stub.Text()
+            return table.concat(f.lines, "\n")
+        end
+        return f
+    end
+
+    local tooltip = attachTooltipMethods(newFrame("GameTooltip", world))
     world.tooltip = tooltip
-    tooltip.lines = {}
-    function tooltip:SetOwner(owner, anchor)
-        self.owner, self.anchor = owner, anchor
-        self.lines = {}
-    end
-    function tooltip:SetText(text)
-        self.lines = { tostring(text) }
-    end
-    function tooltip:AddLine(text)
-        self.lines[#self.lines + 1] = tostring(text)
-    end
-    function tooltip:SetHyperlink(link)
-        self.hyperlink = link
-        self.itemID = nil
-        self.lines = { tostring(link) }
-    end
-    -- What a row with an id and no link is shown by: QE Live names an item by
-    -- id, so the tooltip has to take one.
-    function tooltip:SetItemByID(itemID)
-        self.itemID = itemID
-        self.hyperlink = nil
-        self.lines = { "item " .. tostring(itemID) }
-    end
-    function tooltip:ClearLines()
-        self.lines = {}
-    end
-    function tooltip.stub.Text()
-        return table.concat(tooltip.lines, "\n")
-    end
     define("GameTooltip", tooltip)
     -- The shopping compare. A FrameXML global, not an exported API, so what is
     -- modelled is only that it was asked for and on whose behalf.
@@ -1429,7 +1437,7 @@ function Stub.install()
     -- A second named tooltip, so a test can prove the spike counts by frame
     -- the way the owner's client will (ItemRefTooltip, Baganator's own, ...).
     function world.newTooltip(name)
-        return attachTooltipData(newFrame("GameTooltip", world), name)
+        return attachTooltipData(attachTooltipMethods(newFrame("GameTooltip", world)), name)
     end
 
     define("TooltipDataProcessor", {
@@ -1794,6 +1802,104 @@ function Stub.install()
             return it and it.id or nil
         end,
     })
+
+    -- `hooksecurefunc`, in both the shapes Blizzard's own FrameXML declares
+    -- (Core/Global/FrameXMLUtil.lua): `hooksecurefunc(functionName, hook)` for
+    -- a global and `hooksecurefunc(table, functionName, hook)` for a method.
+    -- The hook runs AFTER the original with the same arguments and its return
+    -- value is thrown away, which is the whole of the contract R-2's bag
+    -- adapter is built on. Nothing about taint is modelled: headless there is
+    -- none, and a stub that pretended otherwise would be a stub that lies.
+    world.secureHooks = {}
+    define("hooksecurefunc", function(a, b, c)
+        local holder, name, hook
+        if type(a) == "table" then
+            holder, name, hook = a, b, c
+        else
+            holder, name, hook = _G, a, b
+        end
+        local original = holder[name]
+        assert(type(original) == "function", "hooksecurefunc: no function " .. tostring(name))
+        assert(type(hook) == "function", "hooksecurefunc: hook is not a function")
+        world.secureHooks[#world.secureHooks + 1] = { holder = holder, name = name, hook = hook }
+        holder[name] = function(...)
+            local results = { original(...) }
+            hook(...)
+            return unpack(results)
+        end
+    end)
+
+    -- Blizzard's container frames, only the three things R-2's Blizzard bag
+    -- adapter touches, each read from
+    -- `.luals/.../Blizzard_UIPanels_Game/Mainline/ContainerFrame.lua`:
+    --
+    --   ContainerFrameMixin:UpdateItems()             line 1030
+    --   BaseContainerFrameMixin:EnumerateValidItems() line 522, which returns
+    --       `iterator, self, 0` over `container.Items` up to `GetBagSize()`
+    --   ContainerFrameMixin:GetBagID()                line 759, `self:GetID()`
+    --
+    -- `UpdateItems` here does nothing but exist to be hooked: what the real one
+    -- does to a button is Blizzard's business and no test of Lootpath's asks
+    -- about it. Everything else the mixin declares is deliberately absent.
+    local function containerIterator(container, index)
+        index = index + 1
+        if index <= container:GetBagSize() then
+            return index, container.Items[index]
+        end
+    end
+    define("ContainerFrameMixin", {
+        UpdateItems = function() end,
+        GetBagID = function(self)
+            return self:GetID()
+        end,
+        GetBagSize = function(self)
+            return self.size or 0
+        end,
+        SetBagSize = function(self, size)
+            self.size = size
+        end,
+        EnumerateValidItems = function(self)
+            return containerIterator, self, 0
+        end,
+    })
+
+    world.containerFrames = {}
+
+    -- One bag frame with `slots` item buttons, the way the client builds one:
+    -- the frame's ID is the bag, each button's ID is the slot, and both answer
+    -- through the mixin rather than through a field of their own.
+    function world.newContainerFrame(bagID, slots)
+        local frame = newFrame("Frame", world)
+        for name, fn in pairs(ContainerFrameMixin) do
+            frame[name] = fn
+        end
+        frame:SetID(bagID)
+        frame:SetBagSize(slots)
+        frame.Items = {}
+        for slot = 1, slots do
+            local button = newFrame("Button", world)
+            button:SetID(slot)
+            button.GetBagID = function()
+                return bagID
+            end
+            frame.Items[slot] = button
+        end
+        frame:Show()
+        world.containerFrames[#world.containerFrames + 1] = frame
+        return frame
+    end
+
+    -- ContainerFrame.lua:386 walks the open frames through this global.
+    define("ContainerFrameUtil_EnumerateContainerFrames", function()
+        local index = 0
+        return function()
+            index = index + 1
+            local frame = world.containerFrames[index]
+            if frame then
+                return index, frame
+            end
+        end
+    end)
 
     -- Transcript 2026-09-05: Character and Account answer true only while the
     -- bank frame is open; Guild is false either way.

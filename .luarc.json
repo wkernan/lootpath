@@ -11,7 +11,10 @@
         "ColorManager",
         "ITEM_QUALITY_COLORS",
         "RETRIEVING_ITEM_INFO",
-        "GameTooltip_ShowCompareItem"
+        "GameTooltip_ShowCompareItem",
+        "ContainerFrameMixin",
+        "ContainerFrameUtil_EnumerateContainerFrames",
+        "Baganator"
     ],
     "diagnostics.severity": {
         "undefined-global": "Error",

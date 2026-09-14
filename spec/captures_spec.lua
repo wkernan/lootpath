@@ -18,11 +18,11 @@ describe("captures", function()
         H.unload()
     end)
 
-    it("registers env, inventory, vault, currencies, journal and spike in that order", function()
-        -- `journal` registers in Modules/Journal.lua and `spike` in
-        -- Modules/Spike.lua, both of which the .toc loads after this file, so
-        -- they come last. `spike` goes away with R-2 (WKE-563).
-        assert.same({ "env", "inventory", "vault", "currencies", "journal", "spike" }, ns.captureOrder)
+    it("registers env, inventory, vault, currencies and journal in that order", function()
+        -- `journal` registers in Modules/Journal.lua, which the .toc loads
+        -- after this file, so it comes last. R-0's `spike` was the sixth and
+        -- went away with R-2 (WKE-563), which is the surface it measured.
+        assert.same({ "env", "inventory", "vault", "currencies", "journal" }, ns.captureOrder)
     end)
 
     describe("env", function()

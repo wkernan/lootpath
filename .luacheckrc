@@ -128,9 +128,24 @@ read_globals = {
     -- (both read under .luals/). R-0's tooltip measurement (WKE-561) names
     -- AddTooltipPostCall and GetDisplayedItem and nothing else; both are asked
     -- for through a type check, so a client without them still loads. These two
-    -- entries go away with Modules/Spike.lua unless R-2 keeps them.
+    -- R-2 (WKE-563) kept them: the tooltip block is registered through the
+    -- first and reads the hovered item through the second.
     "TooltipDataProcessor",
     "TooltipUtil",
+    -- Blizzard's own bag frames and the hook that goes on them (R-2's Blizzard
+    -- bag adapter). ContainerFrameMixin and ContainerFrameUtil_Enumerate-
+    -- ContainerFrames are Blizzard_UIPanels_Game's, read under .luals/ in
+    -- Mainline/ContainerFrame.lua (lines 1030, 522, 759 and 386); both are
+    -- reached through a type check, so a client without them still loads.
+    "ContainerFrameMixin",
+    "ContainerFrameUtil_EnumerateContainerFrames",
+    "hooksecurefunc",
+    -- **Not Blizzard's.** Baganator is a third-party addon that may or may not
+    -- be loaded, and its global is read ONLY behind
+    -- `type(Baganator) == "table"` in UI/Bags/Baganator.lua. It is listed here
+    -- because the gate cannot otherwise tell a guarded optional global from a
+    -- typo; nothing in Lootpath requires it to exist.
+    "Baganator",
     "UIParent",
     "DifficultyUtil",
     "GetDifficultyInfo",
