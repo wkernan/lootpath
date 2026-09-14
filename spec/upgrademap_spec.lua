@@ -120,7 +120,7 @@ describe("UpgradeMapPanel model over the committed walk", function()
 
     it("pins the note wording the decision fixed", function()
         assert.equal(
-            "Values shown are QE Live's, for items it has ranked. Other drops are listed by item level only.",
+            "Rated drops show their value. Other drops are listed by item level only.",
             ns.UpgradeMapPanel.NOTE
         )
         assert.equal(ns.UpgradeMapPanel.NOTE, ns.UpgradeMapPanel.Model({ sources = sources }).note)
@@ -274,7 +274,7 @@ describe("UpgradeMapPanel is values-free", function()
             if row.value then
                 covered = covered + 1
                 assert.equal(key, row.itemKey)
-                assert.equal("QE Live: better by 1.50% (+1234.5 score)", row.value)
+                assert.equal("better by 1.50% (+1234.5 score)", row.value)
             else
                 uncovered = uncovered + 1
             end
@@ -285,7 +285,7 @@ describe("UpgradeMapPanel is values-free", function()
         assert.is_true(uncovered > 500)
         local rendered = 0
         for _, line in ipairs(ns.UpgradeMapPanel.Lines(model)) do
-            if line:find("QE Live: better by 1.50", 1, true) then
+            if line:find("better by 1.50", 1, true) then
                 rendered = rendered + 1
             end
         end
@@ -301,13 +301,13 @@ describe("UpgradeMapPanel is values-free", function()
             summary = summary,
             verdict = verdictCovering(ns, key, { scorePercent = 2.25, hpsDifference = -900 }),
         })
-        assert.equal("QE Live: worse by 2.25% (-900.0 score)", findRow(worse, 251153).value)
+        assert.equal("worse by 2.25% (-900.0 score)", findRow(worse, 251153).value)
         local better = ns.UpgradeMapPanel.Model({
             sources = sources,
             summary = summary,
             verdict = verdictCovering(ns, key, { scorePercent = -2.25, hpsDifference = 900 }),
         })
-        assert.equal("QE Live: better by 2.25% (+900.0 score)", findRow(better, 251153).value)
+        assert.equal("better by 2.25% (+900.0 score)", findRow(better, 251153).value)
     end)
 
     it("says a top-set item is in the best set and gives it no number", function()
@@ -319,7 +319,7 @@ describe("UpgradeMapPanel is values-free", function()
         })
         local row = findRow(model, 251153)
         assert.equal("topSet", row.qe.where)
-        assert.equal("QE Live: in your best set", row.value)
+        assert.equal("in your best set", row.value)
         assert.is_nil(row.qe.scorePercent)
         assert.is_nil(row.qe.hpsDifference)
     end)
@@ -920,14 +920,14 @@ describe("UpgradeMapPanel joined to the genuine Upgrade Finder export", function
         local row = findRow(model, 268205)
         assert.equal(324, row.itemLevel)
         assert.equal(3.076, row.upgrade.upgradePercent)
-        assert.equal("QE Live: better by 3.08%", row.upgradeValue)
+        assert.equal("better by 3.08%", row.upgradeValue)
     end)
 
     it("says no change where QE Live's number is zero, rather than a direction he did not give", function()
         -- Measured: 268248 (Amani Summoning Shawl, Back) at 318 is ranked 0.
         local row = findRow(model, 268248)
         assert.equal(0, row.upgrade.upgradePercent)
-        assert.equal("QE Live: no change", row.upgradeValue)
+        assert.equal("no change", row.upgradeValue)
     end)
 
     it("shows nothing for a drop he ranked at another item level, and counts it", function()
@@ -955,7 +955,7 @@ describe("UpgradeMapPanel joined to the genuine Upgrade Finder export", function
         local lines = ns.UpgradeMapPanel.Lines(model)
         local valued = 0
         for _, line in ipairs(lines) do
-            if line:find("QE Live: better by", 1, true) or line:find("QE Live: no change", 1, true) then
+            if line:find("better by", 1, true) or line:find("no change", 1, true) then
                 valued = valued + 1
             end
             assert.is_nil(line:find("HPS"), "a line named HPS: " .. line)
@@ -965,7 +965,7 @@ describe("UpgradeMapPanel joined to the genuine Upgrade Finder export", function
     end)
 
     it("says how many drops he ranked at another level, in the pinned wording", function()
-        local note = string.format("%d drops are ranked by QE Live at another item level, so they show no value.", 218)
+        local note = string.format("%d drops are rated at another item level, so they show no value.", 218)
         assert.equal(note, model.levelMismatchNote)
         local found = false
         for _, line in ipairs(ns.UpgradeMapPanel.Lines(model)) do
@@ -997,13 +997,13 @@ describe("UpgradeMapPanel and the hand-built Upgrade Finder sample", function()
         local row = findRow(model, 270162)
         assert.equal(318, row.itemLevel)
         assert.equal(-1.25, row.upgrade.upgradePercent)
-        assert.equal("QE Live: worse by 1.25%", row.upgradeValue)
+        assert.equal("worse by 1.25%", row.upgradeValue)
         assert.is_false(ns.UFImport.IsUpgrade(row.upgrade))
     end)
 
     it("reads a positive percentage on the same map as better", function()
         local row = findRow(model, 268205)
-        assert.equal("QE Live: better by 4.50%", row.upgradeValue)
+        assert.equal("better by 4.50%", row.upgradeValue)
         assert.is_true(ns.UFImport.IsUpgrade(row.upgrade))
     end)
 
@@ -1179,7 +1179,7 @@ describe("UpgradeMapPanel by-run view, joined to the genuine Raid export", funct
                     firstEmpty = firstEmpty or index
                     assert.is_nil(run.best)
                     assert.is_nil(run.bestPercent)
-                    assert.is_not_nil(run.text:find("no drop rated by QE Live yet", 1, true))
+                    assert.is_not_nil(run.text:find("no drop rated yet", 1, true))
                 else
                     assert.is_nil(firstEmpty, "a rated run sorted after an unrated one")
                 end
@@ -1215,8 +1215,8 @@ describe("UpgradeMapPanel by-run view, joined to the genuine Raid export", funct
             end
         end
         assert.is_not_nil(at)
-        assert.equal("  Gaze of the Coiled Watcher (Head, 344) - Ula'tek - QE Live: better by 3.42%", lines[at + 1])
-        assert.equal("  Aqirbane Reliquary (Neck, 344) - Ula'tek - QE Live: better by 1.91%", lines[at + 2])
+        assert.equal("  Gaze of the Coiled Watcher (Head, 344) - Ula'tek - better by 3.42%", lines[at + 1])
+        assert.equal("  Aqirbane Reliquary (Neck, 344) - Ula'tek - better by 1.91%", lines[at + 2])
     end)
 
     it("counts only the drops QE Live's own IsUpgrade calls upgrades", function()
@@ -1257,7 +1257,7 @@ describe("UpgradeMapPanel by-run view, joined to the genuine Raid export", funct
         assert.same({ 10 }, model.keyLevels)
         assert.equal(
             "Mythic Keystone runs are shown at key level 10, which is what the walk previewed. "
-                .. "A key level with no walk and no QE Live export of its own is not shown.",
+                .. "A key level with no walk and no export of its own is not shown.",
             model.keyLevelNote
         )
         local found = false
@@ -1342,7 +1342,7 @@ describe("UpgradeMapPanel by-run view without an Upgrade Finder export", functio
         assert.equal(0, model.counts.rated)
         assert.equal(0, model.counts.ratedRuns)
         assert.equal(48, model.counts.runs)
-        assert.equal("No run in this map has a drop QE Live rates as an upgrade.", model.headline)
+        assert.equal("No run in this map has a drop rated as an upgrade.", model.headline)
         for _, run in ipairs(model.runs) do
             assert.is_nil(run.best)
             assert.is_true(run.drops > 0)
@@ -1433,7 +1433,7 @@ describe("UpgradeMapPanel by-run key levels (the shape WKE-543 fills in)", funct
         assert.same({ 10, 12 }, model.keyLevels)
         assert.equal(
             "Mythic Keystone runs are shown at key levels 10, 12, which is what the walk previewed. "
-                .. "A key level with no walk and no QE Live export of its own is not shown.",
+                .. "A key level with no walk and no export of its own is not shown.",
             model.keyLevelNote
         )
     end)
@@ -1559,7 +1559,7 @@ end)
 -- C-7 asked ONE document - the one run at the level the walk previewed - about
 -- every row, and on real data that answered nothing about dungeons: QE Live's
 -- +10 dungeon rows come back at 311 while the client's own keystone-10 preview
--- lists them at 305, so every dungeon run read "no drop rated by QE Live yet".
+-- lists them at 305, so every dungeon run read "no drop rated yet".
 -- Which of the two is right about +10 is not Lootpath's to decide; what both
 -- sources say without being touched is joined instead.
 --
@@ -1628,7 +1628,7 @@ describe("UpgradeMapPanel joined across every stored key level", function()
         assert.is_not_nil(row)
         assert.equal(6, row.upgradeKeyLevel)
         assert.equal(ns.UFImport.MATCH_ONLY, row.upgradeKeyPick)
-        assert.equal("QE Live: better by 1.83% (at +6)", row.upgradeValue)
+        assert.equal("better by 1.83% (at +6)", row.upgradeValue)
         -- Proven red the only way that matters: with C-7's single document -
         -- the one run at the level the walk previews - this row has no number
         -- at all, which is exactly what the owner saw in game.
@@ -1677,14 +1677,14 @@ describe("UpgradeMapPanel joined across every stored key level", function()
         assert.is_nil(row.upgrade)
         assert.is_nil(row.upgradeValue)
         assert.same({ 295, 298, 305, 308, 311, 321, 334 }, row.rankedAtAnotherLevel)
-        assert.matches("^164 drops are ranked by QE Live at another item level", model.levelMismatchNote)
+        assert.matches("^164 drops are rated at another item level", model.levelMismatchNote)
     end)
 
     it("names the documents on the panel instead of naming one pick", function()
         local documents = storeCompanionRun(UF_KEY_LEVELS)
         local model = ns.UpgradeMapPanel.Model({ sources = sources, summary = summary, upgradeDocuments = documents })
         assert.equal(
-            "QE Live's Upgrade Finder at +2, +4, +6, +8, +10 (5 documents)."
+            "Upgrade Finder at +2, +4, +6, +8, +10 (5 documents)."
                 .. " A drop takes its number from whichever of them values it at the item level the loot map lists.",
             model.upgradeDocumentsNote
         )
@@ -1722,17 +1722,14 @@ describe("UpgradeMapPanel joined across every stored key level", function()
         assert.equal(1, #documents)
         assert.is_nil(documents[1].keyLevel)
         local model = ns.UpgradeMapPanel.Model({ sources = sources, summary = summary, upgradeDocuments = documents })
-        assert.equal(
-            "QE Live's Upgrade Finder, with no Mythic+ key level named (1 document).",
-            model.upgradeDocumentsNote
-        )
+        assert.equal("Upgrade Finder, with no Mythic+ key level named (1 document).", model.upgradeDocumentsNote)
         -- And a row it does value carries no key label, because there is none
         -- to carry: 30 rows rank, all of them raid drops at the levels his raid
         -- setting assumes.
         assert.equal(30, model.counts.ranked)
         local row = rowFor(model, 271875, 344)
         assert.is_not_nil(row)
-        assert.equal("QE Live: better by 3.00%", row.upgradeValue)
+        assert.equal("better by 3.00%", row.upgradeValue)
     end)
 
     it("still joins a raid drop at the level the walk previews, and names the raid document", function()
@@ -1740,11 +1737,11 @@ describe("UpgradeMapPanel joined across every stored key level", function()
         ns.UI.Options.Set("Raid")
         local model = ns.UpgradeMapPanel.Model({ sources = sources, summary = summary, upgradeDocuments = documents })
         assert.equal(30, model.counts.ranked)
-        assert.equal("QE Live's Upgrade Finder at +10 (1 document).", model.upgradeDocumentsNote)
+        assert.equal("Upgrade Finder at +10 (1 document).", model.upgradeDocumentsNote)
         local row = rowFor(model, 271875, 344)
         assert.is_not_nil(row)
         assert.equal(10, row.upgradeKeyLevel)
-        assert.equal("QE Live: better by 3.41% (at +10)", row.upgradeValue)
+        assert.equal("better by 3.41% (at +10)", row.upgradeValue)
     end)
 end)
 
@@ -1811,7 +1808,7 @@ describe("UpgradeMapPanel by-run view across key levels", function()
         local drops = journalDropsPerRun(ns, sources, summary.previewMythicPlusLevel)
         assert.equal(drops[dungeon.key], dungeon.drops)
         -- Proven red against C-7's single document: with only the +10 document
-        -- every dungeon run reads "no drop rated by QE Live yet" and none of
+        -- every dungeon run reads "no drop rated yet" and none of
         -- them is rated at all.
         local only10 = ns.UpgradeMapPanel.RunModel({
             sources = sources,
@@ -1822,7 +1819,7 @@ describe("UpgradeMapPanel by-run view across key levels", function()
         for _, run in ipairs(only10.runs) do
             if not run.isRaid then
                 assert.is_nil(run.best)
-                assert.matches("no drop rated by QE Live yet", run.text)
+                assert.matches("no drop rated yet", run.text)
             end
         end
     end)
@@ -2073,7 +2070,7 @@ describe("UpgradeMapPanel elements, over the committed walk and QE Live's own ex
             end
         end
         assert.is_not_nil(found)
-        assert.equal("QE Live: in your best set", found.badge.text)
+        assert.equal("in your best set", found.badge.text)
         -- A status word, not one of his numbers, so it takes no colour of his.
         assert.equal("neutral", found.badge.tone)
         assert.is_nil(found.badge.note)

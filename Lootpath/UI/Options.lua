@@ -35,16 +35,16 @@ local Options = UI.Options
 
 Options.VARIABLE = "LootpathContentType"
 Options.LABEL = "Content type"
-Options.TOOLTIP = "Which QE Live export the panels read when you have pasted more than one. "
-    .. 'QE Live calls the Mythic+ side "Dungeon"; the value is compared to the export\'s own contentType.'
+Options.TOOLTIP = "Which export the panels read when you have pasted more than one. "
+    .. 'The Mythic+ side is called "Dungeon"; the value is compared to the export\'s own contentType.'
 
 Options.CHOICE_LABEL = {
     Dungeon = "Dungeon (Mythic+)",
     Raid = "Raid",
 }
 
--- The second setting (C-6, WKE-540): which of QE Live's named scenarios the
--- Vault tab's "QE Live's pick" follows. The owner can point the highlight at any
+-- The second setting (C-6, WKE-540): which named scenario the
+-- Vault tab's "the pick" line follows. The owner can point the highlight at any
 -- of them, and the tab says on the line which question the pick came from
 -- whichever it is. It changes the HIGHLIGHT and nothing else - every stored
 -- scenario is shown on the option, whatever this is set to, and `asOffered`
@@ -60,7 +60,7 @@ Options.CHOICE_LABEL = {
 -- highlight falls back to `asOffered` and says so on its own line.
 Options.SCENARIO_VARIABLE = "LootpathVaultScenario"
 Options.SCENARIO_LABEL = "Vault highlight"
-Options.SCENARIO_TOOLTIP = "Which of QE Live's what-if answers the Vault tab's pick follows. "
+Options.SCENARIO_TOOLTIP = "Which what-if answer the Vault tab's pick follows. "
     .. "Every scenario the companion has run is listed on each option whatever this is set to; "
     .. 'Equip Now and the Upgrade Map always read "as offered".'
 

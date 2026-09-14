@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+### V-1 (WKE-569) - no screen names where a rating came from
+
+The owner decided on 2026-09-11 that player-facing text names no source: not
+the engine, not "his", not an address, not "the addon has determined". The
+screen shows the rating and says what to do. The Roads lane was written to that
+rule; the three tabs that existed before it were not. This is the rest of it.
+
+Nothing on screen moved but the words. No number, no ordering, no count and no
+row changed.
+
+- **Ratings speak for themselves.** "QE Live's pick" is now "the pick", "QE Live
+  valued it at 321" is "rated at 321", "QE Live: better by 3.08%" is "better by
+  3.08%", and "QE Live: no change" is "no change". Equip Now's fifth count was
+  "without a verdict" and is "no rating"; a slot the best set does not name said
+  "QE Live's set does not name this slot" and now carries the phrase table's
+  `no rating`.
+- **The status strip is five facts, not six.** It opened with the engine's name;
+  it opens on your spec.
+- **The paste path still tells you what to paste**, because you are holding that
+  file - it is the one place a file format is named. "paste the Top Gear JSON
+  export (its Download JSON button) here"; "this is not a Top Gear export: its
+  schema is %s". The site is not named.
+- **Internal names are untouched**: module names, `qeSettings`, the
+  `qe-live-droptimizer` schema strings, the `no_verdict` status. One
+  player-facing string keeps a listed word by design - the companion's refusals
+  name `Data\QEVerdict.lua`, because a malformed file is no use to a player who
+  is not told which file it is.
+- **A guard that stays**, `spec/voice_spec.lua`. One half drives the real window
+  over the committed fixtures with both genuine exports and reads back every
+  tab's lines, the Vault grid's cells, the strip and its tooltip, the Import
+  dialog, every refusal the two importers and `Match` can produce, the slash help
+  and `/lootpath status`. The other walks the panels' own string tables, so a
+  branch no fixture reaches is caught as well. Each half asserts a floor on how
+  many strings it read, so a surface that goes quiet fails instead of passing
+  empty.
+- **The Upgrade Map's ten badge sentences are named constants now.** Four of them
+  sit in branches no committed fixture reaches, and as literals inside those
+  branches they were the one place a source could come back unwatched.
+- **Two strings were looked at and left, deliberately.** The Vault tab's
+  `this week (vault upgraded, Catalyst used)` scenario label names no source, and
+  its parenthetical is the only place the tab says what that scenario assumed.
+  `ValueBadge`'s optional lead survives because the Vault tab passes a scenario
+  name through it, which is not a source either.
+
 ### T-1 (WKE-560) - the headless stub models one widget's mixin chain per widget
 
 Nothing in the addon changed. This is the test harness, and it is the class of

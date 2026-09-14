@@ -160,7 +160,7 @@ function Match.Build(inventory, verdict)
         return { ok = false, reason = inventory.reason or "the inventory scan failed" }
     end
     if type(verdict) ~= "table" or type(verdict.topSet) ~= "table" then
-        return { ok = false, reason = "no QE Live verdict imported yet" }
+        return { ok = false, reason = "no rating imported yet" }
     end
 
     local records = inventory.records or {}
@@ -184,7 +184,7 @@ function Match.Build(inventory, verdict)
                     row.matchedBy = Match.MATCHED_BY_ID_LEVEL
                     fallbacks[#fallbacks + 1] = string.format(
                         "%s: item %d at level %s matched by itemID and item level, not by key - "
-                            .. "QE Live's bonus IDs are %s, yours are %s",
+                            .. "the rated bonus IDs are %s, yours are %s",
                         row.slot,
                         item.itemID,
                         tostring(level),
