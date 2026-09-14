@@ -487,6 +487,14 @@ ns.RegisterCapture(
             adapterLabel = adapter and adapter.label or nil,
             statusText = ns.UI.Bags.StatusText(),
             baganatorCorner = ns.UI.Bags.Baganator.Corner(),
+            -- How many times Baganator actually called the widget this
+            -- session, and what it last said (R-2b, WKE-575). Zero here with a
+            -- corner named above is the whole finding: the mark was never
+            -- asked for, and nothing about the picture or the map is the
+            -- cause.
+            baganatorCalls = ns.UI.Bags.Baganator.calls,
+            baganatorLastAnswer = ns.UI.Bags.Baganator.lastAnswer,
+            baganatorLastLink = ns.UI.Bags.Baganator.lastLink,
             mapReason = map and map.reason or "no map",
             mapKeys = map and map.counts.keys or 0,
             mapGlowing = map and map.counts.glowing or 0,

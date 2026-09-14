@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### R-2b (WKE-575) - the bag mark is drawn at the size you see it at, and it says how often your bag addon asked for it
+
+- **The mark in your bags is a new picture.** It was the Great Vault's own
+  selection glow, borrowed so that the bag and the Vault tab would mean the
+  same thing with the same picture. That glow is 214 by 121 pixels and is made
+  to sit behind a whole vault cell; in a bag slot's corner it was squeezed into
+  a 15-pixel square and came out as nothing you could see. The corner mark is
+  now a solid gold square with a dark edge, drawn at the size it is shown at,
+  in the same gold the Vault tab edges its pick with. The Vault tab keeps its
+  glow.
+- **`/lootpath glow` says how many times your bag addon actually asked.** It
+  reads `Baganator asked the widget <n> times this session, last answer: yes for
+  <the item>`. If that number is 0 after you have opened your bags, your
+  bag addon never asked for the mark at all - which is a different fault from a
+  mark that is asked for and not drawn, and the command says so in those words.
+  `/lootpath capture glow` records the same.
+
 ### R-2a (WKE-571) - the plan takes a position on everything you own, and a missing mark says why
 
 - **A piece in your bags always gets a sentence now, rated or not.** A helmet

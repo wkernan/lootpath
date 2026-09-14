@@ -111,6 +111,25 @@ local function probe(fn, ...)
     return (ns.Safe(a)), (ns.Safe(b)), (ns.Safe(c)), (ns.Safe(d))
 end
 
+-- One of this addon's own hex tones as the three numbers a texture's tint
+-- takes. The tones above are written as hex because that is how QE Live's own
+-- source writes them; a texture wants 0-1 floats, and every surface that needs
+-- both used to convert it again in its own file. White for anything this
+-- cannot read, because a tint is multiplied over the texture and white is
+-- "leave it alone" - never a guessed colour.
+function ItemLine.RGB(hex)
+    if type(hex) ~= "string" or #hex < 6 then
+        return 1, 1, 1
+    end
+    local r = tonumber(hex:sub(1, 2), 16)
+    local g = tonumber(hex:sub(3, 4), 16)
+    local b = tonumber(hex:sub(5, 6), 16)
+    if not (r and g and b) then
+        return 1, 1, 1
+    end
+    return r / 255, g / 255, b / 255
+end
+
 -- The quality colour, through Blizzard's three answers in the order the 12.1
 -- client itself prefers them. Returns { r, g, b, hex } - hex without the
 -- escape, so a caller can put it either in a colour code or on a texture -
