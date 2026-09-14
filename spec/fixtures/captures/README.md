@@ -64,6 +64,11 @@ with every loop rather than by request.
   the link (`|h[]|h`), keys intact; progress Dungeons 1/1 (level 8), 1/4, 1/8,
   Concession 5/3; `hasAvailableRewards` true, `canClaimRewards` false. Every
   earlier snapshot repeats. No secrets.
+- Lootpath-20260914-171359.lua - R-2a's `glow` capture (WKE-571), the owner's
+  bags 2026-09-14 17:13 local on `main` at `34ea350`: for every bag slot the
+  link, the key, whether the map has it and whether the mark answers; the
+  helmet 271528 is `inMap`, `isForward`, `glow = true` and drew nothing on
+  screen. The evidence WKE-575 (R-2b) is built from.
 - Lootpath-20260914-113012.lua - R-0's in-client run (WKE-561), the owner's
   spike session 2026-09-14 11:27:49 to 11:30 local on `main` at `78938ad`, with
   no `/lootpath refresh` in between (so its `env` snapshot is the 2026-09-10
