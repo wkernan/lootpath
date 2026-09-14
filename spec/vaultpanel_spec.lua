@@ -1044,9 +1044,12 @@ describe("VaultPanel's headline block (WKE-544)", function()
     it("puts the block on screen above the option list", function()
         local m = model({ highlightScenario = "catalyzed", currencies = knownCurrencies() })
         local lines = ns.VaultPanel.Lines(m)
-        assert.equal(m.headline.text, lines[1])
-        assert.equal("  " .. m.headline.lines[1].text, lines[2])
-        assert.equal(m.options[1].headerText, lines[2 + #m.headline.lines])
+        -- The week's plan is the first thing on the tab since R-3 (principle
+        -- 16); the block M3-9 built follows it, and nothing below it moved.
+        assert.equal(m.headline.plan.sentence, lines[1])
+        assert.equal(m.headline.text, lines[2])
+        assert.equal("  " .. m.headline.lines[1].text, lines[3])
+        assert.equal(m.options[1].headerText, lines[3 + #m.headline.lines])
     end)
 
     -- The headline follows the owner's setting and nothing else. Three settings,

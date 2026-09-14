@@ -2,6 +2,78 @@
 
 ## Unreleased
 
+### R-3 (WKE-564) - Roads as the Upgrade Map slot's row, and the week's plan on the Vault tab
+
+- **A slot on the Upgrade Map now opens onto its roads, in three groups.** The
+  slot header carries the slot's own line in chat voice - "Catalyst your Lynx
+  shoulders, skip the vault ones, no crests here." - and under it sit *Your best
+  set* (the pick with a gold edge, then the rated alternatives, each naming what
+  it is measured against), *Other rated sources* (the percents against what you
+  wear, with the scale named once in the header) and *No rating*. The group
+  order is fixed and is not a ranking; inside a group the order is the rating's
+  own.
+- **Every row says the same things in the same order:** where it comes from, the
+  item as it would arrive, the badge with its referent and the level the rating
+  assumed, the muted facts (what you hold, what is not readable, the other road
+  that wants the same charge, the client's own countdown), the thing to do, and
+  one button - but only where the button goes somewhere.
+- **Two verbs are wired.** *Show run* switches to the by-run view, opens that
+  run's card and scrolls to it; *Show in vault* opens the Vault tab and marks
+  the cell for a few seconds. The Catalyst, a craft, a delve and the upgrade
+  vendor have no button, because the client offers no call for them.
+- **The Vault tab opens with the week's plan.** "Grab the Worldroot from the
+  vault and crest it. Catalyst the Lynx shoulders in your bag. Skip the vault
+  shoulders.", with the footnote when the plan wants more Catalyst charges than
+  you hold. Everything the tab already said is still under it, unmoved.
+- **New setting: Explain** (off by default). With it on, one plain sentence
+  appears under the first use of a system word in an expanded slot - track,
+  crest, Catalyst, Bountiful, spark, plan - each saying only what the client
+  says or what the rating names.
+- Nothing here names where a rating came from, and no number in it is
+  Lootpath's. Journal drops the client answers item level 1 for are still
+  hidden and still counted, exactly as before.
+
+### R-1 (WKE-562) - the road model and the plan sentence
+
+- **`ns.Roads`, the one model every Roads surface will render.** A road is one
+  way to get an item into a slot: the vault, the Catalyst, a boss drop, a
+  crafted item, a delve, the piece you already wear, or upgrading it.
+  `ns.Roads.ForSlot(slot, inputs)` answers for a slot, `ns.Roads.ForItem(key,
+  inputs)` answers for the item under the cursor with at most three roads.
+  Nothing is drawn by this change.
+- **Three groups, never one ordering.** Your best set, other rated sources
+  (percents against what you wear) and no rating. A whole-set verdict and a
+  per-item percent are two scales, so they are never sorted together; inside a
+  group the order is the rating's own.
+- **The four honesty phrases and the five verbs are constants**, so three
+  surfaces cannot drift apart about what "not rated" means or where a button
+  goes. A road whose next step is not something the addon may open - the
+  Catalyst, a crafting order, a vendor, a delve - carries no button at all.
+- **Every surface that shows more than one road now has a sentence to open
+  with**, in the words a guildmate would type: "Grab the Worldroot from the
+  vault and crest it. Catalyst the Lynx shoulders in your bag. Skip the vault
+  shoulders." When the plan spends more Catalyst charges than you hold, the
+  sentence says the first and a footnote says the rest - it never picks for you.
+- **No string in it names where a rating came from**, and no number in it is
+  Lootpath's: every badge is a figure one of the companion's documents carries.
+- Crest costs still say "not readable" for a vault reward or a drop and "not
+  read" for a piece you own, a delve row still says "not read", and a crafted
+  row still says "spark and materials not read". None of those is readable from
+  the client.
+### R-0 (WKE-561) - the Roads spike: measure first, show nothing
+
+- **A tooltip counter behind `/lootpath spike tooltip on|off|report`, off unless
+  you turn it on.** It counts how many item tooltips fire, what each call costs,
+  whether the hyperlink was nil or secret, which tooltip frame fired, and how
+  often it returned at once because you were in combat. It reads nothing about
+  the item and draws nothing on any tooltip. The numbers are printed on request
+  and stored as a `spike` capture, so `/reload` keeps them.
+- **Temporary on purpose:** the module, the command and the capture go away when
+  the real tooltip block lands.
+- **`/lootpath capture env` records two more things:** the Mythic+ keystone you
+  own (level, both map IDs, and the dungeon's name) and which bag addons and bag
+  frames are live. Both are recorded for the transcript; neither is displayed.
+
 ### Fix (2026-09-12)
 
 - **The "items left out" note names no source.** The Equip Now and Vault tabs

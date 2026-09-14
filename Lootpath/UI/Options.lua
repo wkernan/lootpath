@@ -90,6 +90,18 @@ Options.COMPACT_VARIABLE = "LootpathCompactRows"
 Options.COMPACT_LABEL = "Compact rows"
 Options.COMPACT_TOOLTIP = "Draw the item rows in a shorter line, so more of them fit without scrolling."
 
+-- Explain (R-3, WKE-564; docs/ROADS-UX.md principle 11). One plain sentence
+-- under the first visible use of a system word in an expanded slot on the
+-- Upgrade Map, in the note colour. Off by default: the default is dense, and a
+-- sentence the reader already knows is noise. Each sentence states only what
+-- the client says or what the rating names - never a cadence and never a
+-- promise - which is why the table lives beside the rows that show it
+-- (`ns.UpgradeMapPanel.EXPLAIN`) rather than here.
+Options.EXPLAIN_VARIABLE = "LootpathExplain"
+Options.EXPLAIN_LABEL = "Explain"
+Options.EXPLAIN_TOOLTIP = "Add one plain sentence under the first use of a system word - track, crest, Catalyst, "
+    .. "Bountiful, spark, plan - in an expanded slot on the Upgrade Map."
+
 function Options.Get()
     local settings = ns.db and ns.db.profile and ns.db.profile.settings
     return (settings and settings.contentType) or ns.DB_DEFAULTS.profile.settings.contentType
@@ -134,6 +146,25 @@ function Options.SetCompactRows(value)
     value = value and true or false
     if ns.db and ns.db.profile and ns.db.profile.settings then
         ns.db.profile.settings.compactRows = value
+    end
+    if UI.Refresh then
+        UI.Refresh()
+    end
+    return value
+end
+
+function Options.GetExplain()
+    local settings = ns.db and ns.db.profile and ns.db.profile.settings
+    if settings and settings.explain ~= nil then
+        return settings.explain and true or false
+    end
+    return ns.DB_DEFAULTS.profile.settings.explain
+end
+
+function Options.SetExplain(value)
+    value = value and true or false
+    if ns.db and ns.db.profile and ns.db.profile.settings then
+        ns.db.profile.settings.explain = value
     end
     if UI.Refresh then
         UI.Refresh()
@@ -252,6 +283,17 @@ function Options.Register()
         )
         Settings.CreateCheckbox(category, compactSetting, Options.COMPACT_TOOLTIP)
         Options.compactSetting = compactSetting
+        local explainSetting = Settings.RegisterProxySetting(
+            category,
+            Options.EXPLAIN_VARIABLE,
+            Settings.VarType.Boolean,
+            Options.EXPLAIN_LABEL,
+            ns.DB_DEFAULTS.profile.settings.explain,
+            Options.GetExplain,
+            Options.SetExplain
+        )
+        Settings.CreateCheckbox(category, explainSetting, Options.EXPLAIN_TOOLTIP)
+        Options.explainSetting = explainSetting
     end
     Settings.RegisterAddOnCategory(category)
     Options.category = category
