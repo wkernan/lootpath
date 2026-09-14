@@ -190,7 +190,10 @@ describe("Roads over the owner's week of 2026-09-08", function()
         assert.equal(271526, road.becomes.itemID)
         assert.is_true(road.catalyzed)
         assert.equal(ns.Roads.VERB_SHOW_IN_VAULT, road.verb)
-        assert.equal("do: take one vault reward", road.todo)
+        -- No imperative: the road is rated behind the plan, and the shoulder
+        -- plan's own pick is the Catalyst road above, not the piece worn, so
+        -- there is nothing this row may tell anyone to do (R-3a, WKE-570).
+        assert.is_nil(road.todo)
     end)
 
     it("names the two roads that want the one charge, on both sides", function()
@@ -241,7 +244,10 @@ describe("Roads over the owner's week of 2026-09-08", function()
         assert.equal("The Hoardmonger", road.source.encounterName)
         assert.equal("Den of Nalorakk", road.source.instanceName)
         assert.equal("Mythic+ 10", road.source.difficultyLabel)
-        assert.equal("do: run the key · tick when it drops", road.todo)
+        -- "not in your best set" is a rating, and it points behind, so the
+        -- row carries no "do: run the key" (R-3a, WKE-570). The shoulder plan
+        -- keeps nothing worn, so nothing replaces it.
+        assert.is_nil(road.todo)
         assert.equal(ns.Roads.VERB_SHOW_RUN, road.verb)
     end)
 
@@ -410,6 +416,108 @@ describe("Roads over the owner's week of 2026-09-08", function()
     end)
 
     -- -----------------------------------------------------------------------
+    -- The head slot: the helm he wears IS the plan, and the second copy of it
+    -- in his bags must never be told to be put on (R-3a, WKE-570). The owner
+    -- read "do: equip it" off a row rated behind his own helm on 2026-09-14.
+
+    it("keeps the worn helm as the head pick and tells the bag copy to stay there", function()
+        local set = group("Head", ns.Roads.GROUP_SET)
+        assert.equal(2, #set)
+        -- The pick is what he already wears, so there is nothing to do at all.
+        local pick = set[1]
+        assert.equal(ns.Roads.KIND_KEEP, pick.kind)
+        assert.is_true(pick.planPick)
+        assert.equal("Enigmatic Dreamwatcher's Somnolent Stare", pick.item.name)
+        assert.equal("in your best set", pick.rating.badge)
+        assert.equal("nothing to do", pick.todo)
+
+        -- The second copy, in his bags, is an alternative rated behind it.
+        local bagCopy = set[2]
+        assert.is_false(bagCopy.planPick)
+        assert.equal(308, bagCopy.arrivesAt)
+        assert.equal(0.954912966995455, bagCopy.rating.scorePercent)
+        assert.equal("0.95% behind", bagCopy.rating.badge)
+        -- No imperative, and the words the slot's own plan opens with.
+        assert.is_nil(bagCopy.todo and bagCopy.todo:match("^do: "))
+        assert.equal("keep what you've got on", bagCopy.todo)
+        assert.equal("Keep what you've got on, no crests here.", ns.Roads.ForSlot("Head", inputs).plan)
+    end)
+
+    it("says the same thing on every head road rated behind the helm he wears", function()
+        local roads = ns.Roads.ForSlot("Head", inputs)
+        local behind = 0
+        for _, name in ipairs(ns.Roads.GROUP_ORDER) do
+            for _, road in ipairs(roads.groups[name]) do
+                if ns.Roads.IsRated(road) and not ns.Roads.IsForward(road) and road.kind ~= ns.Roads.KIND_KEEP then
+                    behind = behind + 1
+                    assert.equal(ns.Roads.TODO_KEEP_WORN, road.todo)
+                end
+            end
+        end
+        -- The bag copy, three Mythic+ drops, a Crafted row and a Delves row.
+        assert.equal(6, behind)
+    end)
+
+    -- The sweep the issue asks for: not one phrasing, every phrasing, over
+    -- every slot of the owner's own week.
+    it("never carries an imperative on a road the plan is not going forward on", function()
+        local slots = {}
+        for _, record in ipairs(inputs.inventory.records) do
+            if record.slot and not slots[record.slot] then
+                slots[record.slot] = true
+            end
+        end
+        local checked, imperatives = 0, 0
+        for slot in pairs(slots) do
+            local roads = ns.Roads.ForSlot(slot, inputs)
+            for _, name in ipairs(ns.Roads.GROUP_ORDER) do
+                for _, road in ipairs(roads.groups[name]) do
+                    checked = checked + 1
+                    if road.todo and road.todo:sub(1, 4) == ns.Roads.TODO_PREFIX then
+                        imperatives = imperatives + 1
+                        assert.is_true(ns.Roads.IsForward(road), (road.todo .. " on " .. slot))
+                    end
+                end
+            end
+        end
+        assert.is_true(checked > 300)
+        assert.is_true(imperatives > 0)
+    end)
+
+    -- Red for the gate: with the helm's own rating turned forward, the same
+    -- road is told to be put on again.
+    it("gives the imperative back the moment the rating points forward", function()
+        local road = { kind = ns.Roads.KIND_EQUIP, todo = ns.Roads.TODO_EQUIP, rating = { kind = ns.Roads.RATING_SET } }
+        local slotRoads = { groups = { set = { road }, item = {}, none = {} } }
+        ns.Roads.GateImperatives(slotRoads)
+        assert.is_nil(road.todo)
+        road.todo, road.rating.inTopSet = ns.Roads.TODO_EQUIP, true
+        ns.Roads.GateImperatives(slotRoads)
+        assert.equal("do: equip it", road.todo)
+    end)
+
+    it("reads the glow's own gate off the rating and nothing else", function()
+        assert.is_false(ns.Roads.IsForward(nil))
+        assert.is_false(ns.Roads.IsForward({}))
+        assert.is_true(ns.Roads.IsForward({ rating = { kind = ns.Roads.RATING_SET, inTopSet = true } }))
+        assert.is_false(ns.Roads.IsForward({ rating = { kind = ns.Roads.RATING_SET, scorePercent = 0.95 } }))
+        assert.is_true(ns.Roads.IsForward({ rating = { kind = ns.Roads.RATING_ITEM, percent = 0.17 } }))
+        assert.is_false(ns.Roads.IsForward({ rating = { kind = ns.Roads.RATING_ITEM, percent = 0 } }))
+        assert.is_false(ns.Roads.IsForward({ rating = { kind = ns.Roads.RATING_ITEM, percent = -0.5 } }))
+        -- Not rated is not a verdict either way.
+        assert.is_false(ns.Roads.IsForward({ rating = { kind = ns.Roads.RATING_NONE } }))
+        assert.is_false(ns.Roads.IsRated({ rating = { kind = ns.Roads.RATING_NONE } }))
+        assert.is_true(ns.Roads.IsRated({
+            rating = { kind = ns.Roads.RATING_NONE },
+            phrase = ns.Roads.PHRASE_NOT_IN_BEST_SET,
+        }))
+        assert.is_false(ns.Roads.IsRated({
+            rating = { kind = ns.Roads.RATING_NONE },
+            phrase = ns.Roads.PHRASE_NOT_RATED_LIMIT,
+        }))
+    end)
+
+    -- -----------------------------------------------------------------------
     -- The groups are three, and they are never one ordering.
 
     it("never mixes a set verdict and a per-item percent into one list", function()
@@ -523,7 +631,8 @@ describe("Roads over the owner's week of 2026-09-08", function()
         assert.equal("Offhand", answer.slot)
         assert.equal(ns.Roads.KIND_VAULT, answer.own.kind)
         assert.equal(ns.Roads.PHRASE_NOT_IN_BEST_SET, answer.phrase)
-        assert.equal("do: take one vault reward", answer.own.todo)
+        -- Rated, and rated behind: no imperative on the row (R-3a, WKE-570).
+        assert.is_nil(answer.own.todo)
     end)
 
     -- -----------------------------------------------------------------------

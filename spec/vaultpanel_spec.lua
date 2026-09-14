@@ -676,6 +676,44 @@ describe("VaultPanel frames", function()
         assert.equal("in your best set", covered.best.value)
     end)
 
+    -- R-3a (WKE-570), the owner's first screen of the drawn vault: the small
+    -- "the pick" label sat on the bottom edge of the Dungeons row above it.
+    -- It was anchored BOTTOMLEFT to the cell's TOPLEFT, so all of it but one
+    -- point lived outside the cell.
+    it("anchors the pick label inside the cell it belongs to", function()
+        generateReward(world, 1, COVERED_ITEM.id, COVERED_ITEM.bonusIDs, COVERED_ITEM.name, 298)
+        ns.QEImport.Store(realVerdict(ns))
+        local frame = ns.VaultPanel.Create()
+        frame:Refresh()
+        local labelled = 0
+        for _, gridRow in ipairs(frame.gridRows) do
+            for _, cell in ipairs(gridRow.cells) do
+                local point = cell.label.points[1]
+                assert.is_not_nil(point)
+                -- point, relativeTo, relativePoint, x, y
+                assert.equal("TOPLEFT", point[1])
+                assert.equal(cell, point[2])
+                assert.equal("TOPLEFT", point[3])
+                assert.is_true(point[4] >= 0)
+                -- Down from the cell's own top edge, never up past it.
+                assert.is_true(point[5] <= 0)
+                -- And the whole label, not just its anchor, is inside: every
+                -- cell reserves a band above its item line for it, whether or
+                -- not this cell is the one that is labelled. 14 is the band
+                -- (12) plus the label's own 2-point inset.
+                local line = cell.line.points[1]
+                assert.equal("TOPLEFT", line[1])
+                assert.is_true(line[5] <= -14)
+                if cell.label:IsShown() then
+                    labelled = labelled + 1
+                end
+            end
+        end
+        -- The pick's own cell is labelled, so the assertions above ran on a
+        -- label that is actually drawn.
+        assert.equal(1, labelled)
+    end)
+
     it("hides the rows and the cells a shorter render does not use", function()
         ns.QEImport.Store(realVerdict(ns))
         local frame = ns.VaultPanel.Create()

@@ -79,6 +79,33 @@ Roads.PHRASES = {
     Roads.PHRASE_NO_RATING,
 }
 
+-- The phrasing table for a row's last column: every imperative a road can end
+-- with, written out here rather than at the place that happens to build it,
+-- because principle 16 bounds them all the same way and a phrasing scattered
+-- through the builders is a phrasing that escapes the bound.
+--
+-- The bound (R-3a, WKE-570, after the owner read "do: equip it" on a Head row
+-- rated 0.95% behind the helm he was wearing): an imperative belongs only to a
+-- road the plan is going forward on. `Roads.TODO_PREFIX` is what marks one, so
+-- `Roads.GateImperatives` can find every one of them without knowing which
+-- builder wrote it.
+Roads.TODO_PREFIX = "do: "
+Roads.TODO_TAKE_VAULT = "do: take it"
+Roads.TODO_TAKE_VAULT_CREST = "do: take it · rated at %d, crests not readable"
+Roads.TODO_TAKE_ONE_VAULT = "do: take one vault reward"
+Roads.TODO_CATALYST = "do: Catalyst it"
+Roads.TODO_CATALYST_CHARGE = "do: Catalyst it · charge %s"
+Roads.TODO_EQUIP = "do: equip it"
+Roads.TODO_RAID = "do: raid it · tick when it drops"
+Roads.TODO_KEY = "do: run the key · tick when it drops"
+Roads.TODO_CRAFT = "do: get the spark, then order it"
+-- Not imperatives, and so outside the gate. The first is the Keep row's own
+-- line; the second is what a road rated behind says instead of a "do:", in the
+-- plan's own words (`Roads.SlotSentence` opens with the same clause, from the
+-- same string, so the header and the row cannot drift).
+Roads.TODO_NOTHING = "nothing to do"
+Roads.TODO_KEEP_WORN = "keep what you've got on"
+
 -- The whole verb table (docs/ROADS-UX.md principle 9). A road whose next step
 -- is not something the addon may open - the Catalyst, a crafting order, a
 -- vendor, a delve - carries no verb at all: the client offers no call for those
@@ -282,6 +309,47 @@ function Roads.ItemBadge(percent)
         return Roads.PHRASE_NOT_IN_BEST_SET
     end
     return string.format("%+.2f%%", value)
+end
+
+-- ---------------------------------------------------------------------------
+-- The one gate, asked twice.
+--
+-- Principle 12 is the glow's rule: it means "rated as in your best set or a
+-- positive percent, under the highlighted plan", and a rated-but-worse item
+-- does not glow. Principle 16 bounds the imperative to the road's own next
+-- step, and a road rated behind what you wear has no next step - the plan is
+-- to keep what you wear. That is the same test, so it is one function; the
+-- glow (R-2) and `Roads.GateImperatives` below both call it and cannot drift.
+--
+-- True only for a rating. A road nothing rated is not "forward": not knowing
+-- is not a verdict.
+function Roads.IsForward(road)
+    local rating = type(road) == "table" and road.rating or nil
+    if type(rating) ~= "table" then
+        return false
+    end
+    if rating.kind == Roads.RATING_SET then
+        return rating.inTopSet == true
+    end
+    if rating.kind == Roads.RATING_ITEM then
+        return (tonumber(rating.percent) or 0) > 0
+    end
+    return false
+end
+
+-- Whether anything rated this road at all, which is a different question from
+-- which way the rating points. "Rated, and not in the best set" is a rating
+-- (it is the third honesty phrase); the two "not rated" tails are not, and
+-- neither is "no rating".
+function Roads.IsRated(road)
+    if type(road) ~= "table" then
+        return false
+    end
+    local rating = road.rating
+    if type(rating) == "table" and (rating.kind == Roads.RATING_SET or rating.kind == Roads.RATING_ITEM) then
+        return true
+    end
+    return road.phrase == Roads.PHRASE_NOT_IN_BEST_SET
 end
 
 -- ---------------------------------------------------------------------------
@@ -762,15 +830,15 @@ local function finishSetRoad(road, entry, inputs, planVault, charge)
         -- The vault hands over one reward, so a road for an option the plan did
         -- not pick must not read as a second thing to take. It never names the
         -- other road either (the copy rule): the options are in the badges.
-        road.todo = (planVault and road.planPick) and "do: take it" or "do: take one vault reward"
+        road.todo = (planVault and road.planPick) and Roads.TODO_TAKE_VAULT or Roads.TODO_TAKE_ONE_VAULT
         if
-            road.todo == "do: take it"
+            road.todo == Roads.TODO_TAKE_VAULT
             and rating
             and rating.level
             and rating.arrivesAt
             and rating.level > rating.arrivesAt
         then
-            road.todo = string.format("do: take it · rated at %d, crests not readable", rating.level)
+            road.todo = string.format(Roads.TODO_TAKE_VAULT_CREST, rating.level)
         end
     elseif road.kind == Roads.KIND_CATALYST then
         road.tag = Roads.TAG_CATALYST
@@ -782,7 +850,7 @@ local function finishSetRoad(road, entry, inputs, planVault, charge)
             road.steps[#road.steps + 1] = step("charge " .. chargeText, charge.held > 0 and Roads.DONE_CLIENT or nil)
         end
         road.steps[#road.steps + 1] = step("convert it at the Catalyst")
-        road.todo = chargeText and ("do: Catalyst it · charge " .. chargeText) or "do: Catalyst it"
+        road.todo = chargeText and string.format(Roads.TODO_CATALYST_CHARGE, chargeText) or Roads.TODO_CATALYST
         road.resource = charge
                 and {
                     name = charge.name,
@@ -792,12 +860,12 @@ local function finishSetRoad(road, entry, inputs, planVault, charge)
             or nil
     elseif road.kind == Roads.KIND_KEEP then
         road.tag = Roads.TAG_KEEP
-        road.todo = "nothing to do"
+        road.todo = Roads.TODO_NOTHING
     else
         road.tag = Roads.TAG_EQUIP
         road.steps[#road.steps + 1] = step("it is in your bags", Roads.DONE_CLIENT)
         road.steps[#road.steps + 1] = step("put it on")
-        road.todo = "do: equip it"
+        road.todo = Roads.TODO_EQUIP
     end
     road.nextStep = Roads.NextStep(road)
     return road
@@ -953,7 +1021,7 @@ function Roads.ForSlot(slot, inputs)
             road.steps[#road.steps + 1] = step("the vault is offering it", Roads.DONE_CLIENT)
             road.steps[#road.steps + 1] = step("take it from the Great Vault")
             road.verb = Roads.VERB_SHOW_IN_VAULT
-            road.todo = "do: take one vault reward"
+            road.todo = Roads.TODO_TAKE_ONE_VAULT
             road.nextStep = Roads.NextStep(road)
             if reward.key then
                 road.keys[#road.keys + 1] = reward.key
@@ -1045,8 +1113,7 @@ function Roads.ForSlot(slot, inputs)
                     -- imperative does not repeat it: the client's own label for
                     -- this walk is "Mythic raid", and "do: raid Mythic raid" is
                     -- not a sentence anybody types.
-                    road.todo = source.isRaid and "do: raid it · tick when it drops"
-                        or "do: run the key · tick when it drops"
+                    road.todo = source.isRaid and Roads.TODO_RAID or Roads.TODO_KEY
                 end
                 road.nextStep = Roads.NextStep(road)
                 if source.itemKey then
@@ -1119,7 +1186,7 @@ function Roads.ForSlot(slot, inputs)
                     road.steps[#road.steps + 1] = step(string.format(Roads.CRAFT_STATS, stats), nil, true)
                 end
                 road.steps[#road.steps + 1] = step(Roads.CRAFT_NOT_READ, nil, true)
-                road.todo = "do: get the spark, then order it"
+                road.todo = Roads.TODO_CRAFT
             else
                 -- No delve step until a delve capture exists: the key's
                 -- currency ID is in no capture and no client call says which
@@ -1158,8 +1225,53 @@ function Roads.ForSlot(slot, inputs)
     -- ---- the resources two roads on this screen both want ----
     Roads.NameRivals(result, charge)
 
+    -- ---- principle 16's bound on the imperative ----
+    Roads.GateImperatives(result)
+
     result.plan = Roads.SlotSentence(result)
     return result
+end
+
+-- Takes the "do:" off every road of a slot the plan is not going forward on,
+-- over the finished slot rather than inside each builder, so that no phrasing
+-- can be added in one of them and escape the bound (R-3a, WKE-570).
+--
+-- The gate is `Roads.IsForward`, which is the glow's own rule. What a gated
+-- road says instead is the plan's next step for THIS slot, and the plan has
+-- words for that in exactly one case: when its pick is the piece already on
+-- the character, the answer is "keep what you've got on". When the plan picks
+-- some other road in the slot, the row does not get an imperative pointing at
+-- it - principle 16 forbids an imperative that is a choice between roads, and
+-- the badge's own referent ("taking the vault weapon instead") has already
+-- said where the plan went. The row then ends after its facts.
+--
+-- A road nothing rated keeps no imperative either and gains no phrase: not
+-- knowing is not a verdict, so it cannot tell anyone to keep what they wear.
+function Roads.GateImperatives(slotRoads)
+    if type(slotRoads) ~= "table" or type(slotRoads.groups) ~= "table" then
+        return slotRoads
+    end
+    local keepsWorn = false
+    for _, road in ipairs(slotRoads.groups[Roads.GROUP_SET] or {}) do
+        keepsWorn = keepsWorn or (road.planPick == true and road.kind == Roads.KIND_KEEP)
+    end
+    for _, group in ipairs({ Roads.GROUP_SET, Roads.GROUP_ITEM, Roads.GROUP_NONE }) do
+        for _, road in ipairs(slotRoads.groups[group] or {}) do
+            if not Roads.IsForward(road) then
+                local imperative = type(road.todo) == "string"
+                    and road.todo:sub(1, #Roads.TODO_PREFIX) == Roads.TODO_PREFIX
+                if keepsWorn and Roads.IsRated(road) and road.kind ~= Roads.KIND_KEEP then
+                    -- Every rated-behind road of the slot says the one thing,
+                    -- whether or not the builder gave it an imperative: two
+                    -- rows carrying the same verdict must not end differently.
+                    road.todo = Roads.TODO_KEEP_WORN
+                elseif imperative then
+                    road.todo = nil
+                end
+            end
+        end
+    end
+    return slotRoads
 end
 
 -- Any road that spends a weekly resource names the other road that wants it,
@@ -1501,6 +1613,13 @@ function Roads.PlanSentence(week)
     return { sentence = sentence(parts), footnote = footnote, plan = Roads.PlanName(entry.scenario) }
 end
 
+-- A clause that opens a sentence, built from the same string the row's last
+-- column uses. One string, two places, so the slot's header and the rows under
+-- it cannot say the plan two different ways.
+local function capitalised(text)
+    return text:sub(1, 1):upper() .. text:sub(2)
+end
+
 -- The slot's own line, in the same voice: what this slot's part of the plan is.
 -- Built from the slot's roads, so the header and the rows under it cannot
 -- disagree.
@@ -1528,7 +1647,7 @@ function Roads.SlotSentence(slotRoads)
     elseif pick.kind == Roads.KIND_CATALYST then
         clauses[#clauses + 1] = string.format("Catalyst your %s", (name or "item"):gsub("^the ", ""))
     elseif pick.kind == Roads.KIND_KEEP then
-        clauses[#clauses + 1] = "Keep what you've got on"
+        clauses[#clauses + 1] = capitalised(Roads.TODO_KEEP_WORN)
     else
         clauses[#clauses + 1] = string.format("Put on %s", name or "it")
     end

@@ -240,7 +240,7 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
             "Vault · open now · Scavenger's Spaulders (308) · into the tier shoulders · upgraded to 321"
                 .. " · 1.73% behind · taking the vault weapon instead"
                 .. " · the same charge as the Catalyst road: one of these, not both"
-                .. " · crest type and cost not readable · reset in 6d 21h · do: take one vault reward",
+                .. " · crest type and cost not readable · reset in 6d 21h",
             lineOf(groups[1], 2)
         )
         -- The pick carries the gold edge and the other row does not.
@@ -248,12 +248,65 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
         assert.is_false(groups[1].rows[2].planPick)
     end)
 
+    -- -----------------------------------------------------------------------
+    -- The head slot, drawn: R-3a's defect as the owner saw it (WKE-570).
+
+    it("ends the head row rated behind the worn helm with the plan's own words", function()
+        local head = section(model(), "Head")
+        assert.equal("Keep what you've got on, no crests here.", head.plan)
+        local groups = head.roadGroups
+        assert.equal(2, #groups[1].rows)
+        assert.equal(
+            "Keep (what you wear) · Enigmatic Dreamwatcher's Somnolent Stare (308) · what you wear now"
+                .. " · in your best set · nothing to do",
+            lineOf(groups[1], 1)
+        )
+        -- The second copy of it, in his bags. This row used to end
+        -- "do: equip it": the defect, on a row rated 0.95% behind the helm
+        -- the row above says to keep. (The headless client knows no name for
+        -- this key, so the row says the item ID; on the owner's screen it was
+        -- the helm's own name.)
+        assert.equal(
+            "In your bags · item 271528 (308) · 0.95% behind · keep what you've got on",
+            lineOf(groups[1], 2)
+        )
+    end)
+
+    it("draws no imperative anywhere on a row the plan is not going forward on", function()
+        local m = model()
+        local rows, imperatives = 0, 0
+        for _, entry in ipairs(m.slots) do
+            for _, group in ipairs(entry.roadGroups or {}) do
+                for _, row in ipairs(group.rows) do
+                    rows = rows + 1
+                    local line = ns.UpgradeMapPanel.RoadLineText(row)
+                    if line:find(" · do: ", 1, true) then
+                        imperatives = imperatives + 1
+                        assert.is_true(ns.Roads.IsForward(row.road), line)
+                    end
+                end
+            end
+        end
+        assert.is_true(rows > 300)
+        assert.is_true(imperatives > 0)
+        -- The one line the owner photographed is gone from the whole screen.
+        for _, entry in ipairs(m.slots) do
+            for _, group in ipairs(entry.roadGroups or {}) do
+                for _, row in ipairs(group.rows) do
+                    if row.todo == "do: equip it" then
+                        assert.is_true(ns.Roads.IsForward(row.road), lineOf(group, 1))
+                    end
+                end
+            end
+        end
+    end)
+
     it("values the shoulder Mythic+ row at the level the client previews", function()
         local groups = section(model(), "Shoulder").roadGroups
         assert.equal(
             "Mythic+ · Scavenger's Spaulders (305) · The Hoardmonger - Den of Nalorakk, Mythic+ 10"
                 .. " · not in your best set · upgraded 321 at +0.38%"
-                .. " · crest type and cost not readable · do: run the key · tick when it drops",
+                .. " · crest type and cost not readable",
             lineOf(groups[2], 5)
         )
     end)

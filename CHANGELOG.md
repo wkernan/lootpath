@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### R-3a (WKE-570) - a road rated behind what you wear never tells you to take it
+
+- **No "do:" on a road the plan is not going forward on.** A second copy of the
+  helm you are wearing, rated 0.95% behind it, ended its row with
+  `do: equip it`. Every imperative a row can carry is now one entry in a
+  phrasing table, and one gate decides whether the row gets it: the rating is
+  "in your best set", or it is a percent above zero. That gate is the same one
+  the bag glow uses, so the two cannot come apart.
+- **What a gated row says instead is the plan's own words.** Where the plan for
+  the slot is to keep the piece you are wearing, every road rated behind it
+  ends `keep what you've got on` - the same clause the slot's header opens
+  with. Where the plan picks another road in the slot, the row ends after its
+  facts; the badge already says what the plan does instead
+  ("taking the vault weapon instead"). A road nothing rated says neither: not
+  knowing is not a verdict.
+- **The Keep row is unchanged**: `nothing to do` is not an imperative.
+- **The "the pick" label sits inside its cell.** On the Vault tab it was drawn
+  above the cell's top edge and landed on the bottom of the row above it. Every
+  cell now reserves a band at its top for the label, so the pick can move
+  without anything else moving.
+
+
 ### Fix (2026-09-14)
 
 - **`tools\sync.ps1` writes a `Data\` placeholder the game lacks.** After C-9

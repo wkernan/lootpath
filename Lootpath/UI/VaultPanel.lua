@@ -1601,7 +1601,14 @@ local PANEL_HEIGHT = 420
 
 local ROW_LABEL_WIDTH = 74
 local CELL_GAP = 8
-local CELL_HEIGHT = 92
+local CELL_HEIGHT = 104
+-- The band at the top of every cell that the "the pick" label lives in. It is
+-- reserved on every cell, not only the one that has a label: a label drawn
+-- above the cell's top edge sat on the bottom of the row above it on the
+-- owner's own screen (R-3a, WKE-570), and a band that appears only when there
+-- is a label would move a cell's contents as the pick moves. The height is the
+-- label's own font row plus the two points it is inset by.
+local LABEL_BAND = 12
 local GRID_ROW_GAP = 8
 local CELL_ICON_SIZE = 32
 local CHIP_ICON_SIZE = 14
@@ -1896,8 +1903,12 @@ local function createCell(parent)
     cell.flash:SetVertexColor(1, 0.8745, 0.0784, 0.22)
     cell.flash:Hide()
 
+    -- Inside the cell's own top edge, in the band reserved above the item
+    -- line. Anchored TOPLEFT to TOPLEFT so that nothing about this label can
+    -- reach a pixel above the cell it belongs to.
     cell.label = cell:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    cell.label:SetPoint("BOTTOMLEFT", cell, "TOPLEFT", 4, -1)
+    cell.label:SetPoint("TOPLEFT", cell, "TOPLEFT", 4, -2)
+    cell.label:SetHeight(LABEL_BAND - 2)
     cell.label:SetJustifyH("LEFT")
     cell.label:SetWordWrap(false)
     cell.label:Hide()
@@ -1906,7 +1917,7 @@ local function createCell(parent)
     -- badge beside the name, so the verdict is its own line underneath, which
     -- is also where Blizzard's own vault cell puts its progress.
     cell.line = ns.UI.ItemLine.Create(cell, { size = CELL_ICON_SIZE, badgeWidth = 0 })
-    cell.line:SetPoint("TOPLEFT", cell, "TOPLEFT", 6, -6)
+    cell.line:SetPoint("TOPLEFT", cell, "TOPLEFT", 6, -(LABEL_BAND + 6))
     cell.line:SetPoint("RIGHT", cell, "RIGHT", -6, 0)
 
     cell.tags = cell:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
@@ -2018,7 +2029,8 @@ local function gridRow(frame, index)
     local rowFrame = CreateFrame("Frame", nil, frame.content)
     rowFrame:SetHeight(CELL_HEIGHT)
     rowFrame.label = rowFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    rowFrame.label:SetPoint("TOPLEFT", rowFrame, "TOPLEFT", 0, -6)
+    -- Level with the item names beside it, which the label band pushed down.
+    rowFrame.label:SetPoint("TOPLEFT", rowFrame, "TOPLEFT", 0, -(LABEL_BAND + 6))
     rowFrame.label:SetWidth(ROW_LABEL_WIDTH)
     rowFrame.label:SetJustifyH("LEFT")
     rowFrame.label:SetWordWrap(false)
