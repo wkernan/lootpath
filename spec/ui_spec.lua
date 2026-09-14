@@ -795,8 +795,15 @@ describe("the Upgrade Map tab", function()
             assert.is_nil(line:find("QE Live: ", 1, true))
         end
         -- Not on a badge either, which is where a drawn row carries a number.
+        -- Since R-3 the slot's rows are its roads and every one of them has a
+        -- badge, so the assertion is what a badge may SAY: one of the phrases,
+        -- never a percentage and never a source.
         for _, element in ipairs(panel.elements) do
-            assert.is_nil(element.row and element.row.badge)
+            local badge = element.row and element.row.badge
+            if badge then
+                assert.is_nil(badge.text:find("%%"))
+                assert.is_nil(badge.text:find("QE Live", 1, true))
+            end
         end
     end)
 
@@ -845,22 +852,34 @@ describe("the Upgrade Map tab", function()
 
         frame.tabs[2]:Click()
         -- The Dungeon export covers the journal's three rows for 251153; the
-        -- Raid one covers nothing at all.
+        -- Raid one covers nothing at all. The join itself is unchanged by R-3.
         assert.equal(3, panel.model.counts.covered)
-        local covered, badged = 0, 0
-        for _, line in ipairs(panel.lines) do
-            if line:find("QE Live: in your best set", 1, true) then
-                covered = covered + 1
+        -- What is on screen is the Dungeon answer, said by the roads: the Feet
+        -- slot's set group is headed by THAT document's plan name and holds the
+        -- item it put in the best set. A panel reading the last paste would
+        -- have no set group here at all, because the Raid answer covers nothing.
+        local feet
+        for _, section in ipairs(panel.model.slots) do
+            if section.slot == "Feet" then
+                feet = section
             end
         end
+        assert.is_table(feet)
+        local setGroup = feet.roadGroups[1]
+        assert.equal(ns.Roads.GROUP_SET, setGroup.group)
+        assert.equal("Your best set · as offered · the pick first, then the rated alternatives", setGroup.header)
+        assert.equal(1, #setGroup.rows)
+        assert.equal(251153, setGroup.rows[1].itemID)
+        assert.equal("in your best set", setGroup.rows[1].badge.text)
+        -- ...and the same row is drawn, through the element list.
+        local badged = 0
         for _, element in ipairs(panel.elements) do
             local badge = element.row and element.row.badge
-            if badge and badge.text == "QE Live: in your best set" then
+            if badge and badge.text == "in your best set" then
                 badged = badged + 1
             end
         end
-        assert.equal(3, covered)
-        assert.equal(3, badged)
+        assert.is_true(badged >= 1)
     end)
 end)
 
@@ -1781,7 +1800,8 @@ describe("the scale and compact-rows settings (M5-2)", function()
     end)
 
     it("registers a compact-rows checkbox and stores what it is set to", function()
-        assert.equal(1, #world.settings.checkboxes)
+        -- Two checkboxes since R-3: compact rows, then Explain.
+        assert.equal(2, #world.settings.checkboxes)
         local checkbox = world.settings.checkboxes[1]
         assert.equal("LootpathCompactRows", checkbox.setting.variable)
         assert.equal("boolean", checkbox.setting.variableType)

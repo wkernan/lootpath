@@ -1427,6 +1427,19 @@ function Panel.Model(opts)
         model.headline = {
             scenario = highlight,
             pick = pick,
+            -- The week's plan, first, in the words a guildmate would type
+            -- (principle 16, R-3/WKE-564). It is `ns.Roads.PlanSentence` over
+            -- exactly the answer this block is already about - the same
+            -- scenarios, the same highlight, the same scan and the same vault -
+            -- so the sentence and the lines under it cannot describe two
+            -- different weeks. Nothing below it moves.
+            plan = ns.Roads.PlanSentence({
+                verdicts = scenarios,
+                highlightedScenario = highlight,
+                inventory = opts.inventory,
+                vault = vault,
+                currencies = opts.currencies,
+            }),
             closest = closest and true or false,
             text = Panel.HeadlineText(highlight, pick, headlineCoverage),
             lines = {},
@@ -1544,6 +1557,13 @@ function Panel.Lines(model)
     -- The answer first, the evidence under it (M3-9). The option list below is
     -- unchanged; this block is what the owner reads before scrolling.
     if model.headline then
+        local plan = model.headline.plan
+        if plan and plan.sentence then
+            add(plan.sentence)
+            if plan.footnote then
+                add("  " .. plan.footnote)
+            end
+        end
         add(model.headline.text)
         for _, line in ipairs(model.headline.lines) do
             add("  " .. line.text)
@@ -1598,6 +1618,20 @@ end
 -- A flat 1-pixel texture Blizzard ships and every addon tints; used for the
 -- fallback border, and only ever with SetVertexColor over it.
 local WHITE_TEXTURE = [[Interface\Buttons\WHITE8X8]]
+-- The gap under the plan sentence, which is the only thing above the pick, and
+-- roughly how many characters of the headline's large font fit on one line of
+-- the panel. Headless there is no font to ask, and a two-sentence plan that
+-- wrapped onto the pick would be the one way this block can overlap itself, so
+-- the estimate is deliberate and generous rather than absent.
+local PLAN_GAP = 6
+Panel.PLAN_CHARS_PER_LINE = 56
+
+function Panel.PlanHeight(text, rowHeight)
+    if type(text) ~= "string" or text == "" then
+        return 0
+    end
+    return math.max(1, math.ceil(#text / Panel.PLAN_CHARS_PER_LINE)) * rowHeight
+end
 
 local function colored(hex, text)
     return "|cff" .. hex .. tostring(text) .. "|r"
@@ -1745,6 +1779,20 @@ function Panel.Create(parent)
     headline:SetPoint("TOPLEFT", frame.content, "TOPLEFT", 0, 0)
     headline:SetPoint("RIGHT", frame.content, "RIGHT", 0, 0)
     headline:SetHeight(1)
+    -- The week's plan, above everything (R-3): one or two short sentences in
+    -- chat voice, then the footnote when a resource is wanted twice. Nothing
+    -- below them moved; they were put in front.
+    headline.plan = headline:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    headline.plan:SetPoint("TOPLEFT", headline, "TOPLEFT", 0, 0)
+    headline.plan:SetPoint("RIGHT", headline, "RIGHT", 0, 0)
+    headline.plan:SetJustifyH("LEFT")
+    headline.plan:SetWordWrap(true)
+    headline.planFootnote = headline:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+    headline.planFootnote:SetPoint("TOPLEFT", headline.plan, "BOTTOMLEFT", 0, -2)
+    headline.planFootnote:SetPoint("RIGHT", headline, "RIGHT", 0, 0)
+    headline.planFootnote:SetJustifyH("LEFT")
+    headline.planFootnote:SetWordWrap(true)
+
     headline.icon = ns.UI.ItemLine.CreateIcon(headline, { size = CELL_ICON_SIZE })
     headline.icon:SetPoint("TOPLEFT", headline, "TOPLEFT", 0, 0)
     headline.text = headline:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
@@ -1827,6 +1875,15 @@ local function createCell(parent)
     cell.edges[4]:SetPoint("TOPRIGHT", cell, "TOPRIGHT", 0, 0)
     cell.edges[4]:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", 0, 0)
     cell.edges[4]:SetWidth(2)
+
+    -- The transient mark a "Show in vault" leaves (R-3). Its own texture, not
+    -- the pick's edges: a cell that is pointed at has not become the pick, and
+    -- the mark goes away on its own.
+    cell.flash = cell:CreateTexture(nil, "OVERLAY")
+    cell.flash:SetAllPoints()
+    cell.flash:SetTexture(WHITE_TEXTURE)
+    cell.flash:SetVertexColor(1, 0.8745, 0.0784, 0.22)
+    cell.flash:Hide()
 
     cell.label = cell:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     cell.label:SetPoint("BOTTOMLEFT", cell, "TOPLEFT", 4, -1)
@@ -1911,6 +1968,34 @@ function Panel.ShowCellTooltip(cell)
         GameTooltip:AddLine(data.moreText)
     end
     GameTooltip:Show()
+    return true
+end
+
+-- "Show in vault" (R-3, the verb table): the Vault tab, that cell, and a mark
+-- on it that fades by itself. Nine cells fit on the tab, so nothing scrolls.
+-- The key is the reward's, never its name.
+Panel.POINT_SECONDS = 4
+
+function Panel.ShowReward(key)
+    if type(key) ~= "string" or key == "" then
+        return false
+    end
+    Panel.pointedAt = key
+    if ns.UI and ns.UI.SelectTab then
+        ns.UI.SelectTab(ns.UI.frame, ns.UI.VAULT_TAB)
+    elseif Panel.frame then
+        Panel.Refresh(Panel.frame)
+    end
+    if C_Timer and C_Timer.After then
+        C_Timer.After(Panel.POINT_SECONDS, function()
+            if Panel.pointedAt == key then
+                Panel.pointedAt = nil
+                if Panel.frame and Panel.frame:IsShown() then
+                    Panel.Refresh(Panel.frame)
+                end
+            end
+        end)
+    end
     return true
 end
 
@@ -2024,6 +2109,10 @@ local function bindCell(cell, data, cellWidth)
         cell.label:Hide()
     end
     markCell(cell, data.selected == true)
+    -- Pointed at by a "Show in vault" a moment ago. Compared on the item key,
+    -- because two rewards of one week can share a name and only the key is
+    -- identity.
+    cell.flash:SetShown(Panel.pointedAt ~= nil and data.reward ~= nil and data.reward.key == Panel.pointedAt)
 end
 
 function Panel.Refresh(self, opts)
@@ -2062,6 +2151,22 @@ function Panel.Refresh(self, opts)
     local block = model.headline
     if block then
         headline:Show()
+        -- The plan first, then the icon under it. The icon's anchor is set on
+        -- every refresh rather than once, because whether there is a sentence
+        -- above it is a fact about the week and not about the frame.
+        local plan = block.plan or {}
+        headline.plan:SetText(plan.sentence or "")
+        headline.plan:SetShown(plan.sentence ~= nil)
+        headline.planFootnote:SetText(plan.footnote or "")
+        headline.planFootnote:SetShown(plan.footnote ~= nil)
+        headline.icon:ClearAllPoints()
+        if plan.footnote then
+            headline.icon:SetPoint("TOPLEFT", headline.planFootnote, "BOTTOMLEFT", 0, -PLAN_GAP)
+        elseif plan.sentence then
+            headline.icon:SetPoint("TOPLEFT", headline.plan, "BOTTOMLEFT", 0, -PLAN_GAP)
+        else
+            headline.icon:SetPoint("TOPLEFT", headline, "TOPLEFT", 0, 0)
+        end
         if block.pick then
             ns.UI.ItemLine.SetIcon(headline.icon, {
                 itemID = block.pick.itemID,
@@ -2098,11 +2203,19 @@ function Panel.Refresh(self, opts)
             headline.lines[index]:SetText("")
             headline.lines[index]:Hide()
         end
+        if plan.sentence then
+            height = height + Panel.PlanHeight(plan.sentence, ROW_HEIGHT + 4) + PLAN_GAP
+        end
+        if plan.footnote then
+            height = height + Panel.PlanHeight(plan.footnote, ROW_HEIGHT) + 2
+        end
         headline:SetHeight(height + 8)
         used = used + height + 8
     else
         headline:Hide()
         ns.UI.ItemLine.ClearIcon(headline.icon)
+        headline.plan:SetText("")
+        headline.planFootnote:SetText("")
         headline.text:SetText("")
         for _, fontString in ipairs(headline.lines) do
             fontString:SetText("")

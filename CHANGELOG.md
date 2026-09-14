@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+### R-3 (WKE-564) - Roads as the Upgrade Map slot's row, and the week's plan on the Vault tab
+
+- **A slot on the Upgrade Map now opens onto its roads, in three groups.** The
+  slot header carries the slot's own line in chat voice - "Catalyst your Lynx
+  shoulders, skip the vault ones, no crests here." - and under it sit *Your best
+  set* (the pick with a gold edge, then the rated alternatives, each naming what
+  it is measured against), *Other rated sources* (the percents against what you
+  wear, with the scale named once in the header) and *No rating*. The group
+  order is fixed and is not a ranking; inside a group the order is the rating's
+  own.
+- **Every row says the same things in the same order:** where it comes from, the
+  item as it would arrive, the badge with its referent and the level the rating
+  assumed, the muted facts (what you hold, what is not readable, the other road
+  that wants the same charge, the client's own countdown), the thing to do, and
+  one button - but only where the button goes somewhere.
+- **Two verbs are wired.** *Show run* switches to the by-run view, opens that
+  run's card and scrolls to it; *Show in vault* opens the Vault tab and marks
+  the cell for a few seconds. The Catalyst, a craft, a delve and the upgrade
+  vendor have no button, because the client offers no call for them.
+- **The Vault tab opens with the week's plan.** "Grab the Worldroot from the
+  vault and crest it. Catalyst the Lynx shoulders in your bag. Skip the vault
+  shoulders.", with the footnote when the plan wants more Catalyst charges than
+  you hold. Everything the tab already said is still under it, unmoved.
+- **New setting: Explain** (off by default). With it on, one plain sentence
+  appears under the first use of a system word in an expanded slot - track,
+  crest, Catalyst, Bountiful, spark, plan - each saying only what the client
+  says or what the rating names.
+- Nothing here names where a rating came from, and no number in it is
+  Lootpath's. Journal drops the client answers item level 1 for are still
+  hidden and still counted, exactly as before.
+
 ### R-1 (WKE-562) - the road model and the plan sentence
 
 - **`ns.Roads`, the one model every Roads surface will render.** A road is one

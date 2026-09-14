@@ -677,6 +677,49 @@ function Panel.Model(opts)
     end
 
     model.difficulties = difficultyList(difficultyCounts, difficultyLabels, wanted, previewLevel)
+
+    -- Roads (R-3, WKE-564). A road is a way into a slot, and the set group of
+    -- one is the plan's own answer for it, so the roads are built only when the
+    -- caller has said which plans are stored: with no plan there is no set
+    -- group, and the tab is exactly the list M5-3 shipped. `Panel.Gather` always
+    -- hands the scenarios over, so in the client the roads are always there.
+    local scenarios = type(opts.scenarios) == "table" and opts.scenarios or {}
+    if #scenarios > 0 then
+        -- The difficulty dropdown narrows the roads exactly as it narrows the
+        -- candidates above: a reader who filtered to one difficulty is asking
+        -- one question, and a road from a difficulty they filtered out would be
+        -- a second answer to it.
+        local roadSources = sources
+        if wanted then
+            roadSources = {}
+            for _, itemID in ipairs(itemIDs) do
+                local kept = {}
+                for _, entry in ipairs(sources[itemID]) do
+                    if wanted[entry.difficultyID] then
+                        kept[#kept + 1] = entry
+                    end
+                end
+                if #kept > 0 then
+                    roadSources[itemID] = kept
+                end
+            end
+        end
+        local inputs = Panel.RoadInputs(opts, {
+            ufDocuments = documents,
+            sources = roadSources,
+            difficultyLabels = difficultyLabels,
+        })
+        model.hasRoads = true
+        model.roadInputs = inputs
+        model.chargeText = ns.Roads.ChargeText(ns.Roads.Charge(opts.currencies))
+        for _, section in ipairs(model.slots) do
+            section.roads = ns.Roads.ForSlot(section.slot, inputs)
+            -- The slot's own line, in the same voice as the week's: built from
+            -- the slot's roads, so the header and the rows cannot disagree.
+            section.plan = section.roads.plan
+            section.roadGroups = Panel.RoadGroups(section.roads, previewLevel)
+        end
+    end
     return model
 end
 
@@ -711,28 +754,48 @@ function Panel.Lines(model)
         for _, record in ipairs(section.equipped) do
             add(string.format("  equipped: %s (%s)", record.name or record.link or "?", tostring(record.itemLevel)))
         end
-        for _, row in ipairs(section.candidates) do
-            local text = string.format(
-                "  %s (%s) - %s, %s",
-                row.name or ("item " .. tostring(row.itemID)),
-                tostring(row.itemLevel),
-                row.sourceLabel,
-                row.difficultyLabel
-            )
-            if row.owned then
-                text = text .. string.format(" [owned %s]", tostring(row.ownedItemLevel))
+        -- Roads (R-3). When the slot has them they ARE the slot's rows, here
+        -- and on screen: the same sentence, the same three headers, the same
+        -- rows in the same order, so the printed and the drawn views cannot
+        -- drift. The candidate list below is what a map with no stored plan
+        -- still prints.
+        if section.roadGroups then
+            if section.plan then
+                add("  " .. section.plan)
             end
-            if row.value then
-                text = text .. " - " .. row.value
+            for _, group in ipairs(section.roadGroups) do
+                add("  " .. group.header)
+                for _, row in ipairs(group.rows) do
+                    add("    " .. Panel.RoadLineText(row))
+                end
             end
-            -- Both numbers can be true of one row at once (you own a copy of a
-            -- drop AND QE Live ranked the drop), and neither is derived from
-            -- the other, so both are shown rather than one being picked.
-            if row.upgradeValue then
-                text = text .. " - " .. row.upgradeValue
+        else
+            for _, row in ipairs(section.candidates) do
+                local text = string.format(
+                    "  %s (%s) - %s, %s",
+                    row.name or ("item " .. tostring(row.itemID)),
+                    tostring(row.itemLevel),
+                    row.sourceLabel,
+                    row.difficultyLabel
+                )
+                if row.owned then
+                    text = text .. string.format(" [owned %s]", tostring(row.ownedItemLevel))
+                end
+                if row.value then
+                    text = text .. " - " .. row.value
+                end
+                -- Both numbers can be true of one row at once (you own a copy
+                -- of a drop AND QE Live ranked the drop), and neither is
+                -- derived from the other, so both are shown rather than one
+                -- being picked.
+                if row.upgradeValue then
+                    text = text .. " - " .. row.upgradeValue
+                end
+                add(text)
             end
-            add(text)
         end
+        -- The one thing neither list carries, said the way it always was
+        -- (WKE-530 finding 4).
         if section.hiddenNote then
             add("  " .. section.hiddenNote)
         end
@@ -1143,6 +1206,363 @@ function Panel.RunLines(model)
 end
 
 -- ---------------------------------------------------------------------------
+-- Roads, as the slot's row (R-3, WKE-564; docs/ROADS-UX.md surface 2).
+--
+-- `ns.Roads.ForSlot` is the model and this is the only thing that turns it into
+-- words. Every string a road row shows is the road's own - its tag, its badge,
+-- its steps, its "do:" line - or one of the constants below, and nothing here
+-- reads a document, joins a key or computes a figure. The three groups are
+-- rendered in `ns.Roads.GROUP_ORDER` and never sorted: a whole-set verdict and a
+-- per-item percent are two scales (principle 2), so the order of the groups is
+-- fixed and is not a ranking.
+--
+-- NO SOURCE IS NAMED IN ANY STRING BELOW (owner's decision, 2026-09-11,
+-- ARCHITECTURE.md 7). The older wording on this tab - Panel.NOTE, the value
+-- badges - is 569's (V-1) sweep and is deliberately left alone here; what this
+-- issue adds says the rating, its plan and what to do, and names nobody.
+
+Panel.ELEMENT_GROUP = "group"
+Panel.ELEMENT_ROAD = "road"
+
+-- The one part of a group header that belongs to THIS surface: the middle
+-- group's header already names its scale (ns.Roads.GROUP_HEADER), and the set
+-- group's says which plan it is under and how its rows are arranged.
+Panel.GROUP_SET_TAIL = "the pick first, then the rated alternatives"
+Panel.ROAD_SEPARATOR = " · "
+
+-- The muted second figures a rated row carries, in his own words for them:
+-- `bonus` is the upgraded listing and `max` is the track's cap for that run
+-- (ns.Roads' `extraLevelLabel`). "upgraded 321 at +0.38%" reads with the "at";
+-- "at its cap 334 +4.70%" reads without one, so the label chooses the sentence.
+Panel.ROAD_ALSO_AT_TEXT = {
+    ["upgraded"] = "%s %d at %s",
+    ["at its cap"] = "%s %d %s",
+}
+Panel.ROAD_ALSO_AT_DEFAULT = "%s %d %s"
+
+-- What a road's second line says about the item on its way in. Every clause is
+-- a fact of the road: what it becomes, the level the rating assumed when that is
+-- above what it arrives at, and where it drops.
+Panel.ROAD_BECOMES_TEXT = "into the tier %s"
+Panel.ROAD_UPGRADED_TEXT = "upgraded to %d"
+Panel.ROAD_WORN_TEXT = "what you wear now"
+
+-- Explain (principle 11). One plain sentence under the FIRST VISIBLE USE of a
+-- system word in the expanded slot, in the note colour, off by default. Each
+-- says only what the client says or what the rating names: no cadence, no
+-- promise, no deadline, and no source.
+Panel.EXPLAIN_WORDS = { "plan", "Catalyst", "crest", "track", "spark", "Bountiful" }
+Panel.EXPLAIN = {
+    plan = "plan: which assumptions a rating was made under: as offered, catalyzed, this week's plan,"
+        .. " everything upgraded.",
+    Catalyst = "Catalyst: converts one piece into your tier set and spends one charge.",
+    crest = "crest: what an upgrade costs at the upgrade vendor; the type and the cost are not read from the client.",
+    track = "track: how far a piece can be upgraded; the client does not say which track an item here is on.",
+    spark = "spark: the crafting item a high-level craft needs; its count is not read.",
+    Bountiful = "Bountiful: a delve that hands over a better reward; which delves are Bountiful is not read.",
+}
+-- The one figure an Explain sentence is allowed to carry, because the client
+-- answered it: "1 held, 8 max". Absent when no currency read did.
+Panel.EXPLAIN_CHARGE = " The client says %s."
+Panel.EXPLAIN_TONE = "explain"
+
+-- The sentence for one word, with the client's own charge count behind the
+-- Catalyst's when there is one. A word this table does not know has no
+-- sentence, which is how a new word reaches the screen unexplained rather than
+-- explained wrongly.
+function Panel.ExplainText(word, chargeText)
+    local sentence = Panel.EXPLAIN[word]
+    if not sentence then
+        return nil
+    end
+    if word == "Catalyst" and type(chargeText) == "string" and chargeText ~= "" then
+        return sentence .. string.format(Panel.EXPLAIN_CHARGE, chargeText)
+    end
+    return sentence
+end
+
+-- Whether a piece of text uses a word as a word. The frontier pattern is what
+-- keeps "crest" out of "crested" and "plan" out of "planned"; the comparison is
+-- lowercased so "Catalyst it" and "the catalyzed shoulders" are one word to the
+-- reader and one word here.
+function Panel.UsesWord(text, word)
+    if type(text) ~= "string" or type(word) ~= "string" then
+        return false
+    end
+    return text:lower():find("%f[%a]" .. word:lower() .. "%f[%A]") ~= nil
+end
+
+-- The header over a group. The middle and last groups carry exactly what the
+-- road model says; the set group's names the plan its rows were read under and
+-- how they are arranged, which is true of this surface and of no other.
+function Panel.GroupHeaderText(group, plan)
+    local head = ns.Roads.GROUP_HEADER[group]
+    if not head then
+        return nil
+    end
+    if group ~= ns.Roads.GROUP_SET then
+        return head
+    end
+    local parts = { head }
+    if type(plan) == "string" and plan ~= "" then
+        parts[#parts + 1] = plan
+    end
+    parts[#parts + 1] = Panel.GROUP_SET_TAIL
+    return table.concat(parts, Panel.ROAD_SEPARATOR)
+end
+
+-- The plain name of the plan the slot's set group was read under, off the roads
+-- themselves rather than off the setting, so the header and the rows under it
+-- can never disagree about which answer is on screen.
+function Panel.RoadPlanName(roads)
+    for _, road in ipairs(type(roads) == "table" and roads.groups and roads.groups[ns.Roads.GROUP_SET] or {}) do
+        if road.plan then
+            return road.plan
+        end
+    end
+    return nil
+end
+
+-- The row's leading word, with the vault's own "open now" behind it: the vault
+-- is open NOW and the countdown is the client's, which is the whole of what
+-- principle 5 allows a vault road to say about time.
+function Panel.RoadTag(road)
+    local tag = type(road) == "table" and road.tag or nil
+    if not tag then
+        return nil
+    end
+    if road.openNow then
+        return tag .. Panel.ROAD_SEPARATOR .. road.openNow
+    end
+    return tag
+end
+
+-- The grey line under the name: what the item becomes, the level the rating
+-- assumed when it is above the level it arrives at, and where it comes from.
+function Panel.RoadSecond(road)
+    if type(road) ~= "table" then
+        return nil
+    end
+    local parts = {}
+    if road.becomes and road.catalyzed then
+        parts[#parts + 1] = string.format(Panel.ROAD_BECOMES_TEXT, ns.Roads.SlotWord(road.slot) or "piece")
+    end
+    local rating = road.rating
+    if rating and rating.level and road.arrivesAt and rating.level > road.arrivesAt then
+        parts[#parts + 1] = string.format(Panel.ROAD_UPGRADED_TEXT, rating.level)
+    end
+    if road.kind == ns.Roads.KIND_KEEP then
+        parts[#parts + 1] = Panel.ROAD_WORN_TEXT
+    end
+    if road.source then
+        parts[#parts + 1] = Panel.SourceSecondText({
+            encounterName = road.source.encounterName,
+            encounterID = road.source.encounterID,
+            instanceName = road.source.instanceName,
+            instanceID = road.source.instanceID,
+            difficultyLabel = road.source.difficultyLabel,
+        })
+    end
+    if #parts == 0 then
+        return nil
+    end
+    return table.concat(parts, Panel.ROAD_SEPARATOR)
+end
+
+-- Everything muted that rides beside the badge: what a "behind" is measured
+-- against, the other item levels this one run values it at, the road that wants
+-- the same weekly resource, what the client says you hold and what is not
+-- readable, and the client's own countdown. Every entry is the road's own
+-- string; nothing here is assembled out of a field name.
+function Panel.RoadFacts(road)
+    local facts = {}
+    if type(road) ~= "table" then
+        return facts
+    end
+    local rating = road.rating
+    if rating and rating.referent then
+        facts[#facts + 1] = rating.referent
+    end
+    for _, also in ipairs((rating and rating.alsoAt) or {}) do
+        if also.label and also.level and also.badge then
+            local shape = Panel.ROAD_ALSO_AT_TEXT[also.label] or Panel.ROAD_ALSO_AT_DEFAULT
+            facts[#facts + 1] = string.format(shape, also.label, also.level, also.badge)
+        end
+    end
+    if road.rivalText then
+        facts[#facts + 1] = road.rivalText
+    end
+    for _, text in ipairs(ns.Roads.Facts(road)) do
+        facts[#facts + 1] = text
+    end
+    local reset = ns.Roads.ResetText(road.resetSeconds)
+    if reset then
+        facts[#facts + 1] = reset
+    end
+    return facts
+end
+
+-- Which of QE Live's two colours the badge is in, by the same rule the rest of
+-- this panel uses (Panel.ValueBadge): a verdict that carries no delta is a
+-- status word and stays grey, a zero is not a direction, and everything else
+-- takes the sign he gave it.
+function Panel.RoadBadgeTone(road)
+    local rating = type(road) == "table" and road.rating or nil
+    if type(rating) ~= "table" or rating.kind == ns.Roads.RATING_NONE then
+        return "none"
+    end
+    if rating.kind == ns.Roads.RATING_SET then
+        return rating.inTopSet and "neutral" or "worse"
+    end
+    local percent = tonumber(rating.percent)
+    if not percent or percent == 0 then
+        return "none"
+    end
+    return percent > 0 and "better" or "worse"
+end
+
+-- The run a "Show run" goes to, as the by-run view's own key, so the verb can
+-- never point at a run that view does not have. nil for a road that is not a
+-- drop, which is exactly the set of rows that carry no button.
+function Panel.RoadRunKey(road, previewMythicPlusLevel)
+    local source = type(road) == "table" and road.source or nil
+    if type(source) ~= "table" or source.difficultyID == nil then
+        return nil
+    end
+    return Panel.RunKey(source, Panel.RunKeyLevel(source.difficultyID, previewMythicPlusLevel))
+end
+
+-- One road, as the row that is drawn and as the line that is printed. Pure, so
+-- "this row has no button" and "this row says exactly these words" are headless
+-- assertions.
+function Panel.RoadRow(road, previewMythicPlusLevel)
+    local facts = Panel.RoadFacts(road)
+    local badge = road.rating and road.rating.badge or road.phrase
+    local row = {
+        road = road,
+        kind = road.kind,
+        group = road.group,
+        slot = road.slot,
+        tag = Panel.RoadTag(road),
+        planPick = road.planPick == true,
+        itemID = road.item and road.item.itemID or nil,
+        name = road.item and road.item.name or nil,
+        icon = road.item and road.item.icon or nil,
+        quality = road.item and road.item.quality or nil,
+        itemLevel = road.arrivesAt,
+        second = Panel.RoadSecond(road),
+        badge = badge and { text = badge, tone = Panel.RoadBadgeTone(road) } or nil,
+        facts = facts,
+        factsText = #facts > 0 and table.concat(facts, Panel.ROAD_SEPARATOR) or nil,
+        todo = road.todo,
+        verb = road.verb,
+    }
+    if road.verb == ns.Roads.VERB_SHOW_RUN then
+        row.runKey = Panel.RoadRunKey(road, previewMythicPlusLevel)
+        -- A verb that cannot go anywhere is not a verb (principle 9): with no
+        -- run to scroll to there is no button, only the words.
+        if not row.runKey then
+            row.verb = nil
+        end
+    elseif road.verb == ns.Roads.VERB_SHOW_IN_VAULT then
+        row.vaultKey = road.item and road.item.key or road.keys[1] or nil
+        if not row.vaultKey then
+            row.verb = nil
+        end
+    end
+    return row
+end
+
+-- The row as one printed line, so `/lootpath status` and the drawn row read the
+-- same strings in the same order and a forbidden word cannot hide in one of
+-- them.
+function Panel.RoadLineText(row)
+    local parts = {}
+    if row.tag then
+        parts[#parts + 1] = row.tag
+    end
+    parts[#parts + 1] = string.format("%s (%s)", row.name or ("item " .. tostring(row.itemID)), tostring(row.itemLevel))
+    if row.second then
+        parts[#parts + 1] = row.second
+    end
+    if row.badge then
+        parts[#parts + 1] = row.badge.text
+    end
+    if row.factsText then
+        parts[#parts + 1] = row.factsText
+    end
+    if row.todo then
+        parts[#parts + 1] = row.todo
+    end
+    return table.concat(parts, Panel.ROAD_SEPARATOR)
+end
+
+-- The slot's roads as the groups a surface walks: three of them, in the model's
+-- fixed order, each with its header and its rows. A group with no road is left
+-- out entirely rather than headed and empty.
+--
+-- The one filter is the owner's own (WKE-530 finding 4): a journal drop the
+-- client answers item level 1 for is a cosmetic or a quest item, and the
+-- section says how many it hid rather than listing them. Nothing else is
+-- dropped and nothing is re-sorted.
+function Panel.RoadGroups(roads, previewMythicPlusLevel)
+    local groups = {}
+    if type(roads) ~= "table" or type(roads.groups) ~= "table" then
+        return groups
+    end
+    local plan = Panel.RoadPlanName(roads)
+    for _, group in ipairs(ns.Roads.GROUP_ORDER) do
+        local rows = {}
+        for _, road in ipairs(roads.groups[group] or {}) do
+            if not (road.kind == ns.Roads.KIND_DROP and road.arrivesAt == Panel.HIDDEN_ITEM_LEVEL) then
+                rows[#rows + 1] = Panel.RoadRow(road, previewMythicPlusLevel)
+            end
+        end
+        if #rows > 0 then
+            groups[#groups + 1] = { group = group, header = Panel.GroupHeaderText(group, plan), rows = rows }
+        end
+    end
+    return groups
+end
+
+-- How many roads a slot opens onto, over all three groups.
+function Panel.RoadCount(groups)
+    local count = 0
+    for _, group in ipairs(groups or {}) do
+        count = count + #group.rows
+    end
+    return count
+end
+
+-- Everything `ns.Roads.ForSlot` and `ns.Roads.PlanSentence` need, gathered from
+-- what this panel was already handed. Pure and separate so the Vault tab and
+-- the tooltip can be given the same table and cannot end up reading a different
+-- week from the one on screen.
+function Panel.RoadInputs(opts, extra)
+    extra = extra or {}
+    local inputs = {
+        verdicts = opts.scenarios,
+        highlightedScenario = opts.highlightScenario,
+        ufDocuments = extra.ufDocuments,
+        inventory = opts.inventory,
+        vault = opts.vault,
+        currencies = opts.currencies,
+        journal = { sources = extra.sources, summary = opts.summary },
+        difficultyLabels = extra.difficultyLabels,
+        excluded = opts.excluded,
+        now = opts.now,
+    }
+    -- The leftover list belongs to the document the roads are read under, and
+    -- it travels on that document: taking it from anywhere else would be a
+    -- second answer to "was this item left out" (C-10, WKE-567).
+    if inputs.excluded == nil then
+        local entry = ns.Roads.Plan(inputs)
+        inputs.excluded = entry and entry.verdict and entry.verdict.excluded or nil
+    end
+    return inputs
+end
+
+-- ---------------------------------------------------------------------------
 -- The list as ELEMENTS (M5-3, WKE-552).
 --
 -- Panel.Lines and Panel.RunLines above stay exactly what they were: the pure
@@ -1164,6 +1584,15 @@ Panel.ELEMENT_NOTE = "note"
 Panel.ELEMENT_RUN = "run"
 
 Panel.SECTION_HEIGHT = 30
+-- A road row is built out of its parts, because a row with a wrapping fact
+-- line and a button is twice the height of one with neither and the scroll box
+-- asks for the extent before it has a frame to measure.
+Panel.GROUP_HEIGHT = 20
+Panel.ROAD_TAG_HEIGHT = 14
+Panel.ROAD_ITEM_HEIGHT = 38
+Panel.ROAD_TODO_HEIGHT = 14
+Panel.ROAD_VERB_HEIGHT = 22
+Panel.ROAD_PADDING = 6
 -- The item line's own icon (M5-1) plus the gap under it.
 Panel.ITEM_HEIGHT = 42
 Panel.NOTE_LINE_HEIGHT = 14
@@ -1181,6 +1610,33 @@ Panel.PENDING_SECTION = "Unidentified drops"
 function Panel.NoteHeight(text)
     local lines = math.max(1, math.ceil(#tostring(text or "") / Panel.NOTE_CHARS_PER_LINE))
     return lines * Panel.NOTE_LINE_HEIGHT + 4
+end
+
+-- A slot header is the worn item plus, since R-3, the slot's own plan sentence
+-- under it. A slot with no sentence is the header M5-3 shipped, exactly.
+function Panel.SectionHeight(plan)
+    if type(plan) ~= "string" or plan == "" then
+        return Panel.SECTION_HEIGHT
+    end
+    return Panel.SECTION_HEIGHT + Panel.NoteHeight(plan)
+end
+
+function Panel.GroupHeight(text)
+    return math.max(Panel.GROUP_HEIGHT, Panel.NoteHeight(text))
+end
+
+function Panel.RoadHeight(row)
+    local height = Panel.ROAD_TAG_HEIGHT + Panel.ROAD_ITEM_HEIGHT + Panel.ROAD_PADDING
+    if row.factsText then
+        height = height + Panel.NoteHeight(row.factsText)
+    end
+    if row.todo then
+        height = height + Panel.ROAD_TODO_HEIGHT
+    end
+    if row.verb then
+        height = height + Panel.ROAD_VERB_HEIGHT
+    end
+    return height
 end
 
 -- Which slot sections are collapsed and which runs are expanded. Kept per
@@ -1224,18 +1680,65 @@ function Panel.Elements(model, state)
     end
     note(model.upgradeDocumentsNote)
 
+    -- Explain (principle 11), when the reader has asked for it: one sentence
+    -- under the first VISIBLE use of a system word in the expanded slot. "First
+    -- visible" is why this is counted here, over the elements as they are added,
+    -- rather than off the model: a collapsed slot shows nothing and explains
+    -- nothing, and the word that earns the sentence is whichever one the reader
+    -- meets first.
+    local explained = {}
+    local function explain(...)
+        if not state.explain then
+            return
+        end
+        for _, word in ipairs(Panel.EXPLAIN_WORDS) do
+            if not explained[word] then
+                for index = 1, select("#", ...) do
+                    local text = (select(index, ...))
+                    if Panel.UsesWord(text, word) then
+                        local sentence = Panel.ExplainText(word, model.chargeText)
+                        if sentence then
+                            explained[word] = true
+                            note(sentence, Panel.EXPLAIN_TONE)
+                        end
+                        break
+                    end
+                end
+            end
+        end
+    end
+
     for _, section in ipairs(model.slots) do
         local shut = collapsed[section.slot] == true
         add({
             kind = Panel.ELEMENT_SECTION,
-            height = Panel.SECTION_HEIGHT,
+            height = Panel.SectionHeight(not shut and section.plan or nil),
             slot = section.slot,
             worn = section.worn,
-            count = #section.candidates,
+            -- The count names what the section opens onto: its roads once it
+            -- has them, the drops it listed before.
+            count = section.roadGroups and Panel.RoadCount(section.roadGroups) or #section.candidates,
+            plan = not shut and section.plan or nil,
             collapsed = shut,
             section = section,
         })
-        if not shut then
+        if not shut and section.roadGroups then
+            explain(section.plan)
+            for _, group in ipairs(section.roadGroups) do
+                add({
+                    kind = Panel.ELEMENT_GROUP,
+                    height = Panel.GroupHeight(group.header),
+                    group = group.group,
+                    text = group.header,
+                })
+                explain(group.header)
+                for _, row in ipairs(group.rows) do
+                    add({ kind = Panel.ELEMENT_ROAD, height = Panel.RoadHeight(row), row = row })
+                    explain(row.tag, row.second, row.badge and row.badge.text or nil, row.factsText, row.todo)
+                end
+            end
+            note(section.hiddenNote)
+        elseif not shut then
             for _, row in ipairs(section.candidates) do
                 add({ kind = Panel.ELEMENT_ITEM, height = Panel.ITEM_HEIGHT, row = row })
             end
@@ -1311,6 +1814,11 @@ end
 -- panel built on its own, which is what the render tests do.
 local PANEL_WIDTH = 560
 local PANEL_HEIGHT = 420
+local WHITE_TEXTURE = [[Interface\Buttons\WHITE8X8]]
+
+-- The gold the Vault tab marks its pick with (ns.VaultPanel.SELECTED_HEX,
+-- FFDF14), as the three components a texture takes.
+Panel.ROAD_PICK_COLOR = { 1, 0.8745, 0.0784 }
 
 local function fontString(parent, template)
     local text = parent:CreateFontString(nil, "ARTWORK", template or "GameFontHighlightSmall")
@@ -1347,6 +1855,25 @@ local function activeUpgradeDocuments()
     return ns.UFImport.Documents(ns.UFImport.ContentTypeKey(ns.UFImport.Current()))
 end
 
+-- The plans the window is showing and which of them it is following, both
+-- through the window's own resolvers so that every tab is reading one answer.
+-- The direct calls are the fallback for a panel built without the window around
+-- it, exactly as activeVerdict above.
+local function activeScenarios()
+    if ns.UI and ns.UI.ActiveVerdictScenarios then
+        return (ns.UI.ActiveVerdictScenarios())
+    end
+    local current = ns.QEImport.Current()
+    return current and ns.QEImport.Scenarios(ns.QEImport.ContentTypeKey(current)) or {}
+end
+
+local function activeHighlight()
+    if ns.UI and ns.UI.Options and ns.UI.Options.GetVaultScenario then
+        return ns.UI.Options.GetVaultScenario()
+    end
+    return ns.QEImport.DEFAULT_SCENARIO
+end
+
 -- The newest journal walk the addon has stored. `capture journal` is the only
 -- thing that produces one today (M3-1), so the panel says so when there is none
 -- rather than rendering an empty map as if the season had no loot.
@@ -1373,6 +1900,15 @@ function Panel.Gather(opts)
         sources, summary = ns.Journal:Build({ snapshot = snapshot, db = opts.db })
     end
     local inventory = ns.Inventory.Scan()
+    -- Everything the roads are read over (R-3). The scenarios and the highlight
+    -- are the Vault tab's own - `ns.VaultPanel.HighlightScenario` resolves the
+    -- setting against what is actually stored - so the slot's plan sentence and
+    -- the Vault tab's headline can never be about two different answers. The
+    -- vault and the currencies are read here for the same reason they are read
+    -- there: a road that spends a charge says what the client says you hold.
+    local scenarios = activeScenarios()
+    local vault = ns.Vault.Options()
+    local currencies = ns.Currencies.Read()
     return {
         sources = sources,
         summary = type(summary) == "table" and summary.ok and summary or nil,
@@ -1380,6 +1916,10 @@ function Panel.Gather(opts)
         verdict = activeVerdict(),
         upgradeDocuments = activeUpgradeDocuments(),
         difficultyIDs = opts.difficultyIDs,
+        scenarios = scenarios,
+        highlightScenario = (ns.VaultPanel.HighlightScenario(scenarios, activeHighlight())),
+        vault = vault.ok and vault or nil,
+        currencies = currencies.ok and currencies or nil,
         inCombat = inventory.ok ~= true and inventory.reason == "combat" or nil,
     }
 end
@@ -1661,23 +2201,31 @@ local function ensureSection(element)
         button:SetPoint("BOTTOMRIGHT", element, "BOTTOMRIGHT", 0, 0)
         element.sectionButton = button
 
+        -- Anchored to the TOP of the section rather than its middle, because
+        -- since R-3 the section is as tall as its plan sentence and the worn
+        -- item has to stay where it was above it.
+        element.sectionIcon = UI.ItemLine.CreateIcon(button, { size = Panel.SECTION_ICON_SIZE })
+        element.sectionIcon:SetPoint("TOPLEFT", button, "TOPLEFT", 16, -3)
+
         element.sectionMark = button:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-        element.sectionMark:SetPoint("LEFT", button, "LEFT", 2, 0)
+        element.sectionMark:SetPoint("RIGHT", element.sectionIcon, "LEFT", -4, 0)
         element.sectionMark:SetWidth(12)
         element.sectionMark:SetJustifyH("CENTER")
-
-        -- The worn item, drawn as an item: the same icon, quality border and
-        -- corner level as every other item on the tab (M5-1).
-        element.sectionIcon = UI.ItemLine.CreateIcon(button, { size = Panel.SECTION_ICON_SIZE })
-        element.sectionIcon:SetPoint("LEFT", element.sectionMark, "RIGHT", 4, 0)
 
         element.sectionName = button:CreateFontString(nil, "ARTWORK", "GameFontNormal")
         element.sectionName:SetPoint("LEFT", element.sectionIcon, "RIGHT", 6, 0)
         element.sectionName:SetJustifyH("LEFT")
 
         element.sectionCount = button:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-        element.sectionCount:SetPoint("RIGHT", button, "RIGHT", -4, 0)
+        element.sectionCount:SetPoint("TOPRIGHT", button, "TOPRIGHT", -4, -8)
         element.sectionCount:SetJustifyH("RIGHT")
+
+        -- The slot's own part of this week's plan, in chat voice (principle 16).
+        element.sectionPlan = button:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+        element.sectionPlan:SetPoint("TOPLEFT", element.sectionIcon, "BOTTOMLEFT", 0, -2)
+        element.sectionPlan:SetPoint("RIGHT", button, "RIGHT", -4, 0)
+        element.sectionPlan:SetJustifyH("LEFT")
+        element.sectionPlan:SetWordWrap(true)
     end
     return element.sectionButton
 end
@@ -1734,6 +2282,63 @@ local function ensureRun(element)
     return element.runButton
 end
 
+-- A group header: one line of words over the roads it heads, in the panel's
+-- normal font so the three groups read as three groups rather than as notes.
+local function ensureGroup(element)
+    if not element.groupText then
+        element.groupText = element:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        element.groupText:SetPoint("TOPLEFT", element, "TOPLEFT", 4, -4)
+        element.groupText:SetPoint("RIGHT", element, "RIGHT", -4, 0)
+        element.groupText:SetJustifyH("LEFT")
+        element.groupText:SetWordWrap(true)
+    end
+    return element.groupText
+end
+
+-- One road. The tag over an M5-1 item line, the muted facts under it, the
+-- "do:" line under those, and - only where a verb goes somewhere - one button.
+-- Every region is re-anchored on every bind, because which of them a road has
+-- is what decides where the next one sits.
+local function ensureRoad(element)
+    if not element.roadFrame then
+        local frame = CreateFrame("Frame", nil, element)
+        frame:SetPoint("TOPLEFT", element, "TOPLEFT", 0, 0)
+        frame:SetPoint("BOTTOMRIGHT", element, "BOTTOMRIGHT", 0, 0)
+        element.roadFrame = frame
+
+        -- The plan's own pick, marked the way the Vault tab marks it: one edge
+        -- in the same gold, and never colour alone - the row also says "in your
+        -- best set" in its badge (principle 14).
+        element.roadEdge = frame:CreateTexture(nil, "OVERLAY")
+        element.roadEdge:SetTexture(WHITE_TEXTURE)
+        element.roadEdge:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+        element.roadEdge:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
+        element.roadEdge:SetWidth(2)
+        element.roadEdge:SetVertexColor(unpack(Panel.ROAD_PICK_COLOR))
+        element.roadEdge:Hide()
+
+        element.roadTag = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        element.roadTag:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -2)
+        element.roadTag:SetJustifyH("LEFT")
+        element.roadTag:SetWordWrap(false)
+
+        element.roadLine = UI.ItemLine.Create(frame, { badgeWidth = Panel.BADGE_WIDTH })
+
+        element.roadFacts = frame:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+        element.roadFacts:SetJustifyH("LEFT")
+        element.roadFacts:SetWordWrap(true)
+
+        element.roadTodo = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+        element.roadTodo:SetJustifyH("LEFT")
+        element.roadTodo:SetWordWrap(false)
+
+        element.roadVerb = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+        element.roadVerb:SetHeight(Panel.ROAD_VERB_HEIGHT - 4)
+        element.roadVerb:Hide()
+    end
+    return element.roadFrame
+end
+
 local function hideKinds(element, keep)
     if element.noteText and keep ~= Panel.ELEMENT_NOTE then
         element.noteText:SetText("")
@@ -1747,6 +2352,15 @@ local function hideKinds(element, keep)
     end
     if element.runButton and keep ~= Panel.ELEMENT_RUN then
         element.runButton:Hide()
+    end
+    if element.groupText and keep ~= Panel.ELEMENT_GROUP then
+        element.groupText:SetText("")
+        element.groupText:Hide()
+    end
+    if element.roadFrame and keep ~= Panel.ELEMENT_ROAD then
+        UI.ItemLine.Clear(element.roadLine)
+        element.roadVerb:Hide()
+        element.roadFrame:Hide()
     end
 end
 
@@ -1781,6 +2395,8 @@ function Panel.InitElement(panel, element, data)
         end
         element.sectionName:SetText(data.slot)
         element.sectionCount:SetText(string.format("%d drop(s)", data.count or 0))
+        element.sectionPlan:SetText(data.plan or "")
+        element.sectionPlan:SetShown(data.plan ~= nil)
         button:SetScript("OnClick", function()
             local state = Panel.CollapseState(panel.db)
             state.slots[data.slot] = (state.slots[data.slot] ~= true) or nil
@@ -1798,6 +2414,12 @@ function Panel.InitElement(panel, element, data)
             badge = row.badge,
             tags = row.tags,
         })
+    elseif data.kind == Panel.ELEMENT_GROUP then
+        local text = ensureGroup(element)
+        text:SetText(data.text or "")
+        text:Show()
+    elseif data.kind == Panel.ELEMENT_ROAD then
+        Panel.InitRoad(panel, element, data.row or {})
     elseif data.kind == Panel.ELEMENT_RUN then
         local run = data.run or {}
         local button = ensureRun(element)
@@ -1825,11 +2447,110 @@ function Panel.InitElement(panel, element, data)
     return element
 end
 
+-- One road on one pooled frame. Every region is anchored here rather than in
+-- `ensureRoad` because which of them this road has decides where the next one
+-- sits: a road with no facts closes the gap, a road with no verb has no button.
+function Panel.InitRoad(panel, element, row)
+    local frame = ensureRoad(element)
+    element.roadEdge:SetShown(row.planPick == true)
+    element.roadTag:SetText(row.tag or "")
+
+    local anchor, gap = element.roadTag, -2
+    element.roadLine:ClearAllPoints()
+    element.roadLine:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, gap)
+    element.roadLine:SetPoint("RIGHT", frame, "RIGHT", -4, 0)
+    UI.ItemLine.Set(element.roadLine, {
+        itemID = row.itemID,
+        name = row.name,
+        itemLevel = row.itemLevel,
+        icon = row.icon,
+        quality = row.quality,
+        second = row.second,
+        badge = row.badge,
+    })
+    anchor = element.roadLine
+
+    element.roadFacts:ClearAllPoints()
+    element.roadFacts:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -2)
+    element.roadFacts:SetPoint("RIGHT", frame, "RIGHT", -4, 0)
+    element.roadFacts:SetText(row.factsText or "")
+    element.roadFacts:SetShown(row.factsText ~= nil)
+    if row.factsText then
+        anchor = element.roadFacts
+    end
+
+    element.roadTodo:ClearAllPoints()
+    element.roadTodo:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -2)
+    element.roadTodo:SetPoint("RIGHT", frame, "RIGHT", -4, 0)
+    element.roadTodo:SetText(row.todo or "")
+    element.roadTodo:SetShown(row.todo ~= nil)
+    if row.todo then
+        anchor = element.roadTodo
+    end
+
+    -- One verb, and only where it goes somewhere (principle 9). A road whose
+    -- next step is the Catalyst, a craft, a delve or a vendor has no button at
+    -- all: the client offers no call for those and a dead button is worse.
+    local verb = element.roadVerb
+    verb:ClearAllPoints()
+    verb:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -2)
+    if row.verb then
+        verb:SetText(row.verb)
+        verb:SetWidth(math.max(Panel.CONTROL_MIN_WIDTH, math.ceil(labelWidth(verb, row.verb))))
+        verb:SetScript("OnClick", function()
+            Panel.FollowVerb(panel, row)
+        end)
+        verb:Show()
+    else
+        verb:SetScript("OnClick", nil)
+        verb:Hide()
+    end
+    frame:Show()
+    return element
+end
+
+-- Where a verb goes. Both destinations are Lootpath's own screens; neither
+-- touches the character, its items or its money.
+function Panel.FollowVerb(panel, row)
+    if row.verb == ns.Roads.VERB_SHOW_RUN and row.runKey then
+        return Panel.ShowRun(panel, row.runKey)
+    end
+    if row.verb == ns.Roads.VERB_SHOW_IN_VAULT and row.vaultKey then
+        return ns.VaultPanel.ShowReward(row.vaultKey)
+    end
+    return false
+end
+
+-- "Show run": the by-run view, opened at that run. The card is expanded first
+-- so the run's own drops are under it when the box scrolls, and the scroll is
+-- asked for by predicate over the data provider the refresh has just set -
+-- `ScrollBoxListMixin:ScrollToElementDataByPredicate`, which is the call
+-- Blizzard's own collections use for exactly this.
+function Panel.ShowRun(panel, runKey)
+    panel = panel or Panel.frame
+    if not (panel and runKey) then
+        return false
+    end
+    local state = Panel.CollapseState(panel.db)
+    state.runs[runKey] = true
+    Panel.Refresh(panel, { mode = Panel.MODE_RUN })
+    panel.scrollBox:ScrollToElementDataByPredicate(function(elementData)
+        return type(elementData) == "table"
+            and elementData.kind == Panel.ELEMENT_RUN
+            and elementData.run
+            and elementData.run.key == runKey
+    end)
+    return true
+end
+
 -- A frame going back to the pool waits for nothing: an item line's pending
 -- request is cancelled, so a late answer never redraws a row that has moved on.
 function Panel.ResetElement(element)
     if element.line then
         UI.ItemLine.Clear(element.line)
+    end
+    if element.roadLine then
+        UI.ItemLine.Clear(element.roadLine)
     end
     if element.sectionIcon then
         UI.ItemLine.ClearIcon(element.sectionIcon)
@@ -1883,6 +2604,9 @@ function Panel.Refresh(self, opts)
     -- element list beside it.
     local lines = (mode == Panel.MODE_RUN) and Panel.RunLines(model) or Panel.Lines(model)
     local state = Panel.CollapseState(self.db)
+    -- Explain is a profile setting, not per-character state, so it rides on the
+    -- table the element list already takes rather than becoming a third argument.
+    state.explain = ns.UI.Options and ns.UI.Options.GetExplain and ns.UI.Options.GetExplain() or false
     local elements = (mode == Panel.MODE_RUN) and Panel.RunElements(model, state) or Panel.Elements(model, state)
     if gathered.inCombat then
         lines = { "Lootpath does not read the client in combat. Leave combat and reopen this panel." }
