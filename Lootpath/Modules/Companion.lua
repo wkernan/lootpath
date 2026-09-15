@@ -785,12 +785,22 @@ end
 -- The one clause the status strip carries (M5-2's UI.StatusStripModel). One
 -- sentence fragment, never two: the strip already says five things.
 --
+--   waiting for the vault
 --   companion: wrote 3 minutes ago
 --   companion: profile unchanged, no run (23:06)
 --   companion: FAILED at profile (21:06) - see companion.log
 --   companion: run started 22:48
 --   companion: never seen
+--
+-- The vault wait comes first and replaces the rest (M3-16): while it lasts,
+-- what the companion did on its LAST run is a stale answer to "what is
+-- happening", and the refresh that is still going is the live one. It clears
+-- itself the moment the refresh reloads or gives up, and the bound is a few
+-- seconds, so nothing can leave the strip stuck on it.
 function Companion.StatusText(raw, now)
+    if Companion.waitingForVault then
+        return Companion.WAITING_FOR_VAULT
+    end
     local status = Companion.Status(raw)
     if status.absent then
         return Companion.STATUS_NEVER
@@ -881,7 +891,21 @@ Companion.REFRESH_COMBAT_REASON = "/lootpath refresh does nothing in combat: rel
     .. "are the captures. Try again once the fight is over."
 Companion.REFRESH_NO_RELOAD_REASON = "this client has no ReloadUI"
 
--- What the three snapshots hold, in the owner's words rather than the capture
+-- M3-16 (WKE-557): what the strip and the chat frame say while the vault
+-- capture is holding the refresh open. The wait is bounded by
+-- `ns.VAULT_INTERACT_TIMEOUT_SECONDS` and happens only when the client says
+-- rewards are waiting and lists none of them, so most refreshes never show it.
+Companion.WAITING_FOR_VAULT = "waiting for the vault"
+Companion.REFRESH_WAITING_LINE = "waiting for the vault: the client is holding the rewards back, so Lootpath "
+    .. "asked for them the way the Great Vault window does. The reload follows."
+
+-- True from the moment the vault capture starts waiting until the refresh
+-- reloads or gives up. `ns.UI.StatusStripModel` reads it through
+-- `Companion.StatusText`, which is why it lives on the module rather than in a
+-- local: the strip has no other way to say that the refresh is still going.
+Companion.waitingForVault = false
+
+-- What the four snapshots hold, in the owner's words rather than the capture
 -- names. The bank half is read back out of the snapshot that was just taken -
 -- `C_Bank.CanViewBank` for the character's own bank, which the 2026-09-05
 -- transcript showed answers true only while the bank frame is open - rather
@@ -901,32 +925,77 @@ function Companion.RefreshSummary(snapshots)
     return string.format("gear, bags, bank (%s), vault, currencies", bank)
 end
 
-function Companion.Refresh()
+-- The captures run one after another and the reload is the LAST thing, after
+-- all four (M3-16): `vault` is asynchronous now - when the client says rewards
+-- are waiting and lists none of them it asks for them and waits a bounded few
+-- seconds for `WEEKLY_REWARDS_UPDATE` - and a `ReloadUI()` in the middle of
+-- that wait would throw away the very snapshot the refresh exists to take. So
+-- the chain is captures, then the vault's wait, then `ReloadUI`, never
+-- `ReloadUI` mid-wait.
+--
+-- `Refresh` therefore returns `{ ok = true, pending = true }` when it is still
+-- waiting, the way `ns.RunCapture` does, and `onDone` (optional) is called with
+-- the final result exactly once either way. Every synchronous path is
+-- unchanged: with nothing to ask for, all four captures finish inside this call
+-- and it returns the reloaded result as it always did.
+function Companion.Refresh(onDone)
+    Companion.waitingForVault = false
+    local settled
+    local function done(result)
+        if settled then
+            return settled
+        end
+        settled = result
+        Companion.waitingForVault = false
+        if onDone then
+            onDone(result)
+        end
+        return result
+    end
     if InCombatLockdown() then
         ns.Log("%s", Companion.REFRESH_COMBAT_REASON)
-        return { ok = false, reason = "combat" }
+        return done({ ok = false, reason = "combat" })
     end
-    -- Checked before anything is captured: three snapshots the owner cannot
-    -- flush are three snapshots written for nothing.
+    -- Checked before anything is captured: four snapshots the owner cannot
+    -- flush are four snapshots written for nothing.
     if type(ReloadUI) ~= "function" then
         ns.Log("%s", Companion.REFRESH_NO_RELOAD_REASON)
-        return { ok = false, reason = Companion.REFRESH_NO_RELOAD_REASON }
+        return done({ ok = false, reason = Companion.REFRESH_NO_RELOAD_REASON })
     end
     local snapshots = {}
-    for _, name in ipairs(Companion.REFRESH_CAPTURES) do
-        local result = ns.RunCapture(name)
-        local ok = type(result) == "table" and result.ok == true
-        if not ok then
-            local reason = (type(result) == "table" and result.reason) or "no result"
-            ns.Log(Companion.REFRESH_REFUSED_LINE, name, tostring(reason))
-            return { ok = false, reason = reason, capture = name, captured = snapshots }
+    local index = 0
+    local function step()
+        index = index + 1
+        local name = Companion.REFRESH_CAPTURES[index]
+        if not name then
+            Companion.waitingForVault = false
+            ns.Log(Companion.REFRESH_CAPTURED_LINE, Companion.RefreshSummary(snapshots))
+            ns.Log("%s", Companion.REFRESH_SECOND_LINE)
+            ReloadUI()
+            return done({ ok = true, reloaded = true, captured = snapshots })
         end
-        snapshots[name] = result.snapshot
+        local result = ns.RunCapture(name, function(final)
+            if not final.ok then
+                local reason = final.reason or "no result"
+                ns.Log(Companion.REFRESH_REFUSED_LINE, name, tostring(reason))
+                return done({ ok = false, reason = reason, capture = name, captured = snapshots })
+            end
+            snapshots[name] = final.snapshot
+            step()
+        end)
+        -- A capture that has not answered yet is the vault asking the server
+        -- for the rewards. Said out loud, once, because the refresh looks
+        -- stopped otherwise and the reload is genuinely still coming.
+        if type(result) == "table" and result.pending and not settled then
+            Companion.waitingForVault = true
+            ns.Log("%s", Companion.REFRESH_WAITING_LINE)
+            if ns.UI and ns.UI.RefreshStrip then
+                ns.UI.RefreshStrip()
+            end
+        end
     end
-    ns.Log(Companion.REFRESH_CAPTURED_LINE, Companion.RefreshSummary(snapshots))
-    ns.Log("%s", Companion.REFRESH_SECOND_LINE)
-    ReloadUI()
-    return { ok = true, reloaded = true, captured = snapshots }
+    step()
+    return settled or { ok = true, pending = true }
 end
 
 ns.onReady[#ns.onReady + 1] = function()

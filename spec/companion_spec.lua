@@ -625,6 +625,105 @@ describe("/lootpath refresh", function()
         assert.same({ built = true }, ns.db.global.journalCache.sentinel)
     end)
 
+    -- M3-16 (WKE-557). The vault capture is asynchronous now: when the client
+    -- says rewards are waiting and lists none of them it asks for them and
+    -- waits for WEEKLY_REWARDS_UPDATE. A ReloadUI in the middle of that wait
+    -- would throw away the snapshot the refresh exists to take, so the order is
+    -- captures, then the wait, then the reload.
+    describe("when the vault capture has to ask the client", function()
+        local VAULT_ITEM = "|cffa335ee|Hitem:210003::::::::80:105::13:2:7:8::::::|h[Vault Chest]|h|r"
+
+        before_each(function()
+            world.vault.hasAvailable = true
+            world.vault.currentPeriod = false
+            world.vault.generated = true
+            world.vault.activities = {
+                { type = 1, index = 1, threshold = 1, progress = 2, id = 11, level = 1, rewards = {} },
+            }
+            world.vault.answerOnInteract = {
+                activities = {
+                    {
+                        type = 1,
+                        index = 1,
+                        threshold = 1,
+                        progress = 2,
+                        id = 11,
+                        level = 10,
+                        rewards = { { type = 1, id = 210003, quantity = 1, itemDBID = "9001" } },
+                    },
+                },
+                links = { ["9001"] = VAULT_ITEM },
+                examples = { [11] = { VAULT_ITEM } },
+            }
+            world.vault.answerDelaySeconds = 0.4
+        end)
+
+        it("does not reload while the vault is still being asked", function()
+            local result = ns.Companion.Refresh()
+            assert.is_true(result.pending)
+            assert.equal(0, world.reloads)
+            -- The two before it are stored; `currencies` has not run yet,
+            -- because the chain is one capture at a time.
+            assert.equal(1, #ns.db.global.captures.env)
+            assert.equal(1, #ns.db.global.captures.inventory)
+            assert.is_nil(ns.db.global.captures.vault)
+            assert.is_nil(ns.db.global.captures.currencies)
+        end)
+
+        it("reloads once the client answers, with all four snapshots taken", function()
+            local final
+            ns.Companion.Refresh(function(result)
+                final = result
+            end)
+            world.runTimers(10)
+            assert.is_true(final.ok)
+            assert.is_true(final.reloaded)
+            assert.equal(1, world.reloads)
+            assert.equal(1, #ns.db.global.captures.vault)
+            assert.equal(1, #ns.db.global.captures.currencies)
+            assert.equal(1, #ns.db.global.captures.vault[1].data.interact.after.rewardLinks)
+            for _, name in ipairs(ns.Companion.REFRESH_CAPTURES) do
+                assert.equal(ns.db.global.captures[name][1], final.captured[name])
+            end
+        end)
+
+        it("reloads after the bound when the client never answers", function()
+            world.vault.answerOnInteract = nil
+            local final
+            ns.Companion.Refresh(function(result)
+                final = result
+            end)
+            assert.equal(0, world.reloads)
+            world.runTimers(ns.VAULT_INTERACT_TIMEOUT_SECONDS + 1)
+            assert.equal(1, world.reloads)
+            assert.is_true(final.reloaded)
+            assert.is_true(ns.db.global.captures.vault[1].data.interact.timedOut)
+        end)
+
+        -- The strip's own clause, and the chat line under it. Proven red by
+        -- deleting the `Companion.waitingForVault` check in StatusText: the
+        -- strip goes back to saying what the companion did last, which is a
+        -- stale answer to what is happening right now.
+        it("says it is waiting for the vault while it waits, and stops saying it after", function()
+            ns.Companion.Refresh()
+            assert.is_true(ns.Companion.waitingForVault)
+            assert.equal("waiting for the vault", ns.Companion.StatusText(nil))
+            assert.equal("waiting for the vault", ns.UI.StatusStripModel().companion)
+            assert.is_truthy(world.output():find("waiting for the vault: the client is holding", 1, true))
+            world.runTimers(10)
+            assert.is_false(ns.Companion.waitingForVault)
+            assert.equal(ns.Companion.STATUS_NEVER, ns.Companion.StatusText(nil))
+        end)
+
+        it("stops saying it when the wait times out too", function()
+            world.vault.answerOnInteract = nil
+            ns.Companion.Refresh()
+            assert.is_true(ns.Companion.waitingForVault)
+            world.runTimers(ns.VAULT_INTERACT_TIMEOUT_SECONDS + 1)
+            assert.is_false(ns.Companion.waitingForVault)
+        end)
+    end)
+
     it("is listed in /lootpath help", function()
         ns.HandleSlash("help")
         assert.is_truthy(world.output():find("/lootpath refresh", 1, true))

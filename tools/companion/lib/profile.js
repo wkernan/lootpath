@@ -13,7 +13,7 @@
 //  - the spec check, which is C-1's own finding (see specMismatch below).
 'use strict';
 
-const { readTranscript, buildProfile } = require('./simc-profile');
+const { readTranscript, buildProfile, snapshotRewardLinks } = require('./simc-profile');
 
 // The capture the addon does not write yet: one snapshot carrying the header
 // facts outright instead of the companion inferring them from `env`. Named in
@@ -47,7 +47,7 @@ function build(text, options) {
     const warnings = built.missing.map(
         (field) => `the SavedVariables carry no ${field}; the line is left out rather than written empty`
     );
-    if (!transcript.vault || !Object.keys((transcript.vault.data || {}).rewardLinks || {}).length) {
+    if (!transcript.vault || !Object.keys(snapshotRewardLinks(transcript.vault) || {}).length) {
         warnings.push('no generated Great Vault reward in the SavedVariables, so the profile has no vault section');
     }
 
