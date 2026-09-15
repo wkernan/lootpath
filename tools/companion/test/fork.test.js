@@ -311,11 +311,51 @@ function fakeTopGearPage(cards, cap) {
                 }),
             };
         },
-        async evaluate() {
+        // `readCardRows` is the only evaluate that hands back anything: it is
+        // the one that passes his card selector. `goTo`'s two are history
+        // pushes and answer nothing.
+        async evaluate(fn, arg) {
+            if (arg !== forkLib.CARD) return undefined;
             return state.map(rowFor);
         },
+        // Everything a whole Top Gear run touches beyond the grid (C-11): the
+        // route change, Go!, and the Copy JSON dialog. The document each pass
+        // gets back names the pass and the pool it was run over, so a test can
+        // tell two passes apart without parsing QE Live.
+        exports: [],
+        async waitForURL() {},
+        keyboard: { async press() {} },
+        getByRole(role, options) {
+            const name = options && options.name;
+            if (name === 'Go!') {
+                return {
+                    first: () => ({ async click() {} }),
+                    async click() {
+                        page.exports.push(page.cards.filter((c) => c.active).map((c) => c.name).sort());
+                    },
+                };
+            }
+            if (name === 'Export' || name === 'Copy JSON') {
+                return { first: () => ({ async click() {} }), async click() {} };
+            }
+            throw new Error(`unexpected role ${role}/${name}`);
+        },
         locator(selector) {
-            if (selector !== forkLib.CARD) throw new Error(`unexpected selector ${selector}`);
+            if (selector === '.MuiDialog-root textarea') {
+                return {
+                    first: () => ({
+                        async waitFor() {},
+                        async inputValue() {
+                            const pool = page.exports[page.exports.length - 1] || [];
+                            return JSON.stringify({ pass: page.exports.length, pool });
+                        },
+                    }),
+                };
+            }
+            if (selector !== forkLib.CARD) {
+                // `goTo` looks for a nav link first and falls back to history.
+                return { first: () => ({ async count() { return 0; } }) };
+            }
             return {
                 nth(i) {
                     return {
@@ -559,4 +599,149 @@ test('C-8: what the driver reports as excluded is exactly what the verdict write
     assert.ok(text.includes(`slot = ${JSON.stringify(first.slot)}, name = ${JSON.stringify(first.name)}, level = ${first.level}`));
     // C-10: and the identity the addon builds its key from survives the writer.
     assert.ok(text.includes(`itemID = ${first.itemID}, bonusIDs = { ${first.bonusIDs.join(', ')} }`), text.slice(0, 900));
+});
+
+// -------------------------------------------------------------------------
+// C-11 (WKE-572): the passes that rate what the thirty left out.
+//
+// The owner's 2026-09-14 11:42 run logged "30/30 of 63 (20 active, 10 clicked,
+// 33 left out)", and 22 of the 33 were trinket rows. Every one of them read
+// "not rated - beyond the rating's item limit" in game. A Top Gear run is
+// therefore a SEQUENCE of passes now: each later pass keeps the cards QE Live
+// made active at import, drops the bag items the previous pass clicked, and
+// spends the room on cards nothing has asked about yet.
+//
+// Nothing below opens a browser. The fake page obeys his cap rule, so a driver
+// that tried to hold 31 items would be caught by his own counter.
+
+test('C-11: the baseline is the import-time active set, and a later pass keeps all of it', () => {
+    const cards = ownersPage({ clones: 6 });
+    const baseline = forkLib.baselineOf(cards);
+    assert.strictEqual(baseline.size, 20, '15 equipped + 4 vault + 1 active clone');
+    const first = forkLib.chooseSelection(cards, 30, { baseline });
+    assert.strictEqual(first.keep.length, 20);
+    assert.strictEqual(first.activate.length, 10);
+    assert.deepStrictEqual(first.deselect, [], 'pass 1 of a fresh import deselects nothing');
+
+    // The page as pass 1 left it: the ten it clicked are active too.
+    const after = cards.map((c) => ({ ...c }));
+    for (const one of first.activate) after[one.index].active = true;
+    const done = new Set(first.activate.map(forkLib.cardIdent));
+    const second = forkLib.chooseSelection(after, 30, { baseline, done });
+    assert.strictEqual(second.keep.length, 20, 'the baseline is still every one of the twenty');
+    assert.strictEqual(second.deselect.length, 10, "pass 1's ten bag items make the room");
+    for (const one of second.deselect) {
+        assert.ok(!baseline.has(forkLib.cardIdent(one)), `${one.name} is baseline and must never be deselected`);
+    }
+    for (const one of second.activate) {
+        assert.ok(!done.has(forkLib.cardIdent(one)), `${one.name} was already asked about in pass 1`);
+    }
+});
+
+test('C-11: a whole run asks about every card, each non-baseline card in exactly one pass', async () => {
+    const cards = ownersPage({ clones: 6 });
+    const baseline = forkLib.baselineOf(cards);
+    const page = fakeTopGearPage(cards, 30);
+    const passes = await forkLib.runTopGear(page, quietLog(), { baseline, maxPasses: 8 });
+
+    assert.ok(passes.length > 1, `63 cards and a cap of 30 need more than one pass, saw ${passes.length}`);
+    const seen = new Map();
+    for (const one of passes) {
+        assert.ok(one.considered.length <= 30, `pass ${one.pass} held ${one.considered.length} cards, past his cap`);
+        for (const entry of one.considered) {
+            seen.set(entry.name, (seen.get(entry.name) || 0) + 1);
+        }
+    }
+    // Every card the character owns was asked about, and the last pass has
+    // nothing left over - so no surface can honestly say "beyond the rating's
+    // item limit" about any of them.
+    assert.strictEqual(seen.size, cards.length, 'every card was in some pass');
+    assert.deepStrictEqual(passes[passes.length - 1].excluded, [], 'nothing is left out at the end');
+    const baseNames = new Set(cards.filter((one) => one.active).map((one) => one.name));
+    for (const [name, count] of seen) {
+        if (baseNames.has(name)) {
+            assert.strictEqual(count, passes.length, 'a baseline card is in every pass, which is what makes the passes comparable');
+        } else {
+            assert.strictEqual(count, 1, `${name} was asked about ${count} times`);
+        }
+    }
+});
+
+test('C-11: each pass is its own document over its own pool, and nothing is merged', async () => {
+    const cards = ownersPage({ clones: 6 });
+    const page = fakeTopGearPage(cards, 30);
+    const passes = await forkLib.runTopGear(page, quietLog(), { baseline: forkLib.baselineOf(cards), maxPasses: 8 });
+    passes.forEach((one, index) => {
+        assert.strictEqual(one.pass, index + 1);
+        const said = JSON.parse(one.json);
+        assert.strictEqual(said.pass, index + 1, 'one Go! per pass');
+        assert.deepStrictEqual(
+            said.pool.slice().sort(),
+            one.considered.map((entry) => entry.name).sort(),
+            'the document QE Live produced is over exactly the pool the driver reported'
+        );
+    });
+});
+
+test('C-11: the bound stops the run and leaves the rest on the excluded list', async () => {
+    const cards = ownersPage({ clones: 6 });
+    const page = fakeTopGearPage(cards, 30);
+    const passes = await forkLib.runTopGear(page, quietLog(), { baseline: forkLib.baselineOf(cards), maxPasses: 2 });
+    assert.strictEqual(passes.length, 2);
+    assert.ok(passes[1].excluded.length > 0, 'a bounded run still says what it never asked about');
+});
+
+test('C-11: a baseline that fills the cap makes no second document rather than a repeat of the first', async () => {
+    // Thirty active cards and four in the bags: there is no room to ask about
+    // anything, so a second pass would export the first pass's own pool again.
+    const cards = [];
+    for (let i = 0; i < 30; i++) cards.push(card(i, 'Trinket', `equipped ${i}`, { active: true }));
+    for (let i = 0; i < 4; i++) cards.push(card(30 + i, 'Trinket', `bag ${i}`));
+    const page = fakeTopGearPage(cards, 30);
+    const passes = await forkLib.runTopGear(page, quietLog(), { baseline: forkLib.baselineOf(cards), maxPasses: 4 });
+    assert.strictEqual(passes.length, 1);
+    assert.strictEqual(passes[0].excluded.length, 4);
+});
+
+test('C-11: a grid that moved between passes is a named failure, not a click by position', async () => {
+    const cards = ownersPage({ clones: 6 });
+    const page = fakeTopGearPage(cards, 30);
+    const baseline = forkLib.baselineOf(cards);
+    const first = await forkLib.selectItems(page, quietLog(), { pass: 1, baseline, done: new Set() });
+    page.cards.pop();
+    await assert.rejects(
+        () => forkLib.selectItems(page, quietLog(), { pass: 2, baseline, done: new Set(first.activated), expect: first.idents }),
+        (e) => {
+            assert.strictEqual(e.code, forkLib.DRIVE);
+            assert.match(e.message, /grid changed between pass 1 and pass 2/);
+            return true;
+        }
+    );
+});
+
+test('C-11: what a pass says it considered is exactly what the verdict writer accepts', async () => {
+    const cards = ownersPage({ clones: 6 });
+    const page = fakeTopGearPage(cards, 30);
+    const passes = await forkLib.runTopGear(page, quietLog(), { baseline: forkLib.baselineOf(cards), maxPasses: 4 });
+    const settings = { autoUpgradeAll: false, autoUpgradeVault: false, autoCatalyze: false };
+    const text = luaWriter.render({
+        writtenAt: '2026-09-14T00:00:00Z',
+        companionVersion: '0.1.0',
+        qeSettings: { autoUpgradeAll: false, autoUpgradeVault: false },
+        excluded: passes[passes.length - 1].excluded,
+        documents: passes.map((one) => ({
+            kind: 'topgear',
+            contentType: 'Dungeon',
+            scenario: 'asOffered',
+            pass: one.pass,
+            considered: one.considered,
+            excluded: one.excluded,
+            qeSettings: settings,
+            json: one.json,
+        })),
+    });
+    assert.ok(text.includes('            pass = 2,'), 'the pass number travels');
+    assert.ok(text.includes('            considered = {'), 'and so does the pool it saw');
+    const first = passes[1].considered[0];
+    assert.ok(text.includes(`slot = ${JSON.stringify(first.slot)}, name = ${JSON.stringify(first.name)}, level = ${first.level}`));
 });

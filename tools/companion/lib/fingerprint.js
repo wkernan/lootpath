@@ -125,20 +125,37 @@ function scenariosLine(scenarios) {
     return '# scenarios ' + (canonical.length ? canonical.join(',') : 'none');
 }
 
-function fingerprint(profileText, qeSettings, keyLevels, scenarios) {
+// How many Top Gear passes one import may make (WKE-572, C-11), for the same
+// reason as the two lines above: raising the bound asks QE Live about items the
+// last run never showed it, and lowering it drops documents the verdict file is
+// still carrying. Either has to cost a run.
+//
+// Absent - every caller before C-11 - is not "1": it is the line the hash has
+// always had, which is no line at all, so an old state file still matches a run
+// that does not pass one.
+function passesLine(passes) {
+    if (passes === undefined || passes === null) return null;
+    return '# topGearPasses ' + String(passes);
+}
+
+function fingerprint(profileText, qeSettings, keyLevels, scenarios, topGearPasses) {
     const { kept, dropped } = stripVolatile(profileText);
     const line = settingsLine(qeSettings);
     const levels = keyLevelsLine(keyLevels);
     const named = scenariosLine(scenarios);
+    const passes = passesLine(topGearPasses);
+    const lines = [line, levels, named];
+    if (passes !== null) lines.push(passes);
     return {
         hash: crypto
             .createHash('sha256')
-            .update(kept.concat([line, levels, named]).join('\n'), 'utf8')
+            .update(kept.concat(lines).join('\n'), 'utf8')
             .digest('hex'),
         dropped,
         settingsLine: line,
         keyLevelsLine: levels,
         scenariosLine: named,
+        passesLine: passes,
     };
 }
 
@@ -204,6 +221,7 @@ module.exports = {
     settingsLine,
     keyLevelsLine,
     scenariosLine,
+    passesLine,
     stripVolatile,
     readState,
     writeState,

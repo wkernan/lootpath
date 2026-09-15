@@ -161,7 +161,7 @@ async function once(config, log, args, deps) {
     // hash, through the profile.
     const hasVaultGear = profile.counts.vault > 0;
     const planned = configLib.plannedScenarios(config, { hasVaultGear, force: args.force });
-    const print = fingerprintLib.fingerprint(profile.text, wanted, config.upgradeFinderKeyLevels, planned);
+    const print = fingerprintLib.fingerprint(profile.text, wanted, config.upgradeFinderKeyLevels, planned, config.topGearPasses);
     if (!args.force) {
         const stored = fingerprintLib.readState(stateDir);
         if (!stored.ok && !stored.absent) {
@@ -198,7 +198,10 @@ async function once(config, log, args, deps) {
             (gated.length
                 ? ` (${gated.map((pass) => `${pass.scenario} asked only if ${GATE_WORDS[pass.gate.kind]}`).join(', ')})`
                 : ' (every one of them asked outright)') +
-            ` - up to ${passes.length} imports, ${plan.length} documents`
+            ` - up to ${passes.length} imports, ${plan.length} planned documents` +
+            (config.topGearPasses > 1
+                ? ` (a Top Gear run makes up to ${config.topGearPasses} passes and each pass is its own document)`
+                : '')
     );
     log.info(
         `QE Live Upgrade Finder import settings: autoUpgradeVault=${wanted.autoUpgradeVault}, autoUpgradeAll=${wanted.autoUpgradeAll}` +

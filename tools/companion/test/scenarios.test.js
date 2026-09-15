@@ -487,3 +487,83 @@ test('adding the fourth scenario moves the fingerprint', () => {
 test('the writer knows exactly the scenarios the config does', () => {
     assert.deepStrictEqual([...luawriterLib.SCENARIOS].sort(), [...configLib.SCENARIO_ORDER].sort());
 });
+
+// --- the passes inside one scenario (C-11, WKE-572) -------------------------
+//
+// A scenario is one IMPORT; a Top Gear run inside it is a sequence of PASSES.
+// The two dimensions are independent and must stay so: four scenarios asked
+// twice over is eight documents, and every one of them says which question it
+// answers AND which pass it is, because the addon files them by both.
+
+test('the pass bound is a whole number of passes and defaults to four', () => {
+    assert.strictEqual(configLib.load(null).topGearPasses, 4);
+    assert.strictEqual(loadWith({ topGearPasses: 1 }).topGearPasses, 1);
+    assert.throws(() => loadWith({ topGearPasses: 0 }), /at least 1/);
+    assert.throws(() => loadWith({ topGearPasses: 2.5 }), /whole number of passes/);
+    assert.throws(() => loadWith({ topGearPasses: 'four' }), /should be a number/);
+});
+
+test('raising or lowering the pass bound is a new question and costs a run', () => {
+    const profile = 'druid="Hotornot"\nlevel=80\n';
+    const settings = { autoUpgradeVault: false, autoUpgradeAll: false };
+    const scenarios = ['asOffered'];
+    const one = fingerprintLib.fingerprint(profile, settings, [2], scenarios, 1).hash;
+    const four = fingerprintLib.fingerprint(profile, settings, [2], scenarios, 4).hash;
+    assert.notStrictEqual(one, four);
+    assert.strictEqual(four, fingerprintLib.fingerprint(profile, settings, [2], scenarios, 4).hash);
+    // A caller from before C-11 passes nothing, and nothing is not "1": the
+    // hash it gets is the one it has always got, so the owner's state file does
+    // not go stale on an upgrade that changed no question.
+    assert.strictEqual(
+        fingerprintLib.fingerprint(profile, settings, [2], scenarios).hash,
+        fingerprintLib.fingerprint(profile, settings, [2], scenarios, undefined).hash
+    );
+    assert.notStrictEqual(fingerprintLib.fingerprint(profile, settings, [2], scenarios).hash, one);
+    assert.strictEqual(fingerprintLib.passesLine(4), '# topGearPasses 4');
+    assert.strictEqual(fingerprintLib.passesLine(undefined), null);
+});
+
+test('every pass of every scenario is one document, filed by scenario AND pass', () => {
+    // Two scenarios, each a Top Gear run that needs three passes over the same
+    // 63-card pool. What must not happen is two documents that the addon cannot
+    // tell apart: the writer is the thing that decides that, so it is what is
+    // asked here.
+    const settings = { autoUpgradeAll: false, autoUpgradeVault: false, autoCatalyze: false };
+    const documents = [];
+    for (const scenario of ['asOffered', 'catalyzed']) {
+        for (const pass of [1, 2, 3]) {
+            documents.push({
+                kind: 'topgear',
+                contentType: 'Dungeon',
+                scenario,
+                pass,
+                qeSettings: settings,
+                considered: [{ slot: 'Trinket', name: `${scenario} ${pass}`, level: 300, itemID: 1000 + pass, bonusIDs: [7] }],
+                json: '{}',
+            });
+        }
+    }
+    const text = luawriterLib.render({
+        writtenAt: '2026-09-14T00:00:00Z',
+        companionVersion: '0.1.0',
+        qeSettings: { autoUpgradeAll: false, autoUpgradeVault: false },
+        documents,
+    });
+    const scenarioLines = text.split('\n').filter((line) => line.includes('scenario = '));
+    const passLines = text.split('\n').filter((line) => line.trim().startsWith('pass = '));
+    assert.strictEqual(scenarioLines.length, 6);
+    assert.strictEqual(passLines.length, 6);
+    assert.deepStrictEqual(
+        passLines.map((line) => line.trim()),
+        ['pass = 1,', 'pass = 2,', 'pass = 3,', 'pass = 1,', 'pass = 2,', 'pass = 3,']
+    );
+});
+
+test('only a Top Gear document has a pass past the first, and a pass is never zero', () => {
+    const settings = { autoUpgradeAll: false, autoUpgradeVault: false, autoCatalyze: false };
+    const base = { kind: 'upgradefinder', contentType: 'Dungeon', qeSettings: settings, json: '{}' };
+    assert.strictEqual(luawriterLib.passOf({ ...base, pass: 1 }), 1);
+    assert.throws(() => luawriterLib.passOf({ ...base, pass: 2 }), /only a Top Gear run makes more than one pass/);
+    assert.throws(() => luawriterLib.passOf({ ...base, pass: 0 }), /not a whole pass number/);
+    assert.strictEqual(luawriterLib.passOf(base), null, 'saying nothing is pass 1 and is written as nothing');
+});

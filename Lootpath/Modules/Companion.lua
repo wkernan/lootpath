@@ -124,6 +124,18 @@ local function safeKeyLevel(value)
     return safe
 end
 
+-- Which Top Gear pass a document is (C-11, WKE-572). Whole numbers from 1;
+-- anything else is nil, which means pass 1 the way a missing scenario means
+-- `asOffered`: every file written before C-11 says nothing and every one of
+-- them is a first pass.
+local function safePass(value)
+    local safe, sawSecret = ns.Safe(value)
+    if sawSecret or type(safe) ~= "number" or safe < 1 or safe % 1 ~= 0 then
+        return nil
+    end
+    return safe
+end
+
 -- Which of QE Live's own import settings produced the exports in the file
 -- (C-5, WKE-539: the companion sets both checkboxes explicitly and records what
 -- it asked for). Optional: a file written before C-5, and the committed
@@ -293,6 +305,14 @@ function Companion.IsExcluded(excluded, key, item)
         end
     end
     return nil
+end
+
+-- Was this item one of the ones the pass WAS shown (C-11, WKE-572)? The same
+-- question, the same join and the same two ways of recognising an item: a pool
+-- is one list of cards, and asking "did this pass see it" differently from "did
+-- this pass leave it out" would be two answers to one question.
+function Companion.IsConsidered(considered, key, item)
+    return Companion.IsExcluded(considered, key, item)
 end
 
 -- One left-out item as words: "Lynx Spaulders (Shoulder, 678)". The slot and
@@ -468,6 +488,18 @@ function Companion.Entry(raw, index)
         -- never had. A document that does not carry a list falls back to the
         -- file's, which is every file written before C-8.
         excluded = Companion.Excluded(safe.excluded),
+        -- Which Top Gear pass produced this document, and what that pass was
+        -- shown (C-11, WKE-572). A run over a character with more than thirty
+        -- cards is a sequence of passes: pass 1 is the pool C-8 chooses, and
+        -- each later pass keeps the import-time baseline and spends the room on
+        -- the cards no pass has asked about yet. An item's rating is read off
+        -- the pass that CONSIDERED it, and the plan sentence and the best set
+        -- are read off pass 1 and nothing else.
+        --
+        -- A document that names no pass is pass 1, which is every file written
+        -- before C-11 and every paste.
+        pass = safePass(safe.pass),
+        considered = Companion.Excluded(safe.considered),
         json = json,
     }
 end
@@ -545,6 +577,12 @@ function Companion.ImportAll(raw, now)
                 -- type AND scenario, so three answers over one content type read
                 -- as three repeats of the first and two would be thrown away.
                 verdict.scenario = entry.scenario
+                -- Set before Existing for the third time and the third reason
+                -- (C-11): a Top Gear verdict is identified by content type,
+                -- scenario AND pass, so a pass-2 answer that did not carry its
+                -- number would look like a repeat of pass 1 and replace the set
+                -- the plan is drawn from.
+                verdict.pass = entry.pass
                 local contentType = importer.ContentTypeKey(verdict)
                 -- The counterpart of the SAME kind, never the other kind's:
                 -- a Top Gear import and an Upgrade Finder import for one
@@ -592,6 +630,10 @@ function Companion.ImportAll(raw, now)
                     -- never inherits the file's list.
                     if entry.schema == Companion.TOP_GEAR_SCHEMA then
                         verdict.excluded = entry.excluded or file.excluded
+                        -- What this pass was shown (C-11). Never the file's:
+                        -- the file has no such list, and a pool is a property
+                        -- of the pass that chose it and of nothing else.
+                        verdict.considered = entry.considered
                         -- Carried for the same reason and by the same rule
                         -- (C-12): the Vault tab's plan sentence is drawn off
                         -- whichever verdict is on screen, and it is the one
@@ -610,6 +652,7 @@ function Companion.ImportAll(raw, now)
                             contentType = contentType,
                             keyLevel = entry.keyLevel,
                             scenario = entry.scenario,
+                            pass = entry.pass,
                             spec = verdict.spec,
                             items = count,
                             noun = noun,
@@ -670,12 +713,13 @@ function Companion.Startup(now)
     end
     for _, entry in ipairs(result.imported) do
         ns.Log(
-            "companion import: %s, %s, %s%s%s, %d %s, written %s.",
+            "companion import: %s, %s, %s%s%s%s, %d %s, written %s.",
             ns.UI.KIND_LABEL[Companion.KIND_OF[entry.schema]] or entry.schema,
             entry.spec or "unknown spec",
             entry.contentType,
             entry.keyLevel and string.format(" +%d", entry.keyLevel) or "",
             entry.scenario and string.format(" (%s)", entry.scenario) or "",
+            (entry.pass and entry.pass > 1) and string.format(" pass %d", entry.pass) or "",
             entry.items,
             entry.noun or "items",
             ns.UI.AgeText(result.writtenAt, now)

@@ -219,6 +219,7 @@ the defaults, which are the owner's machine. Every key is optional.
 | `documents` | Top Gear and Upgrade Finder, Dungeon then Raid | `contentType` is QE Live's own string; it has no "Mythic+" |
 | `upgradeFinderKeyLevels` | `[2, 4, 6, 8, 10]` | key levels, sorted and deduplicated; the dungeon Upgrade Finder is run once per level |
 | `scenarios` | `["asOffered", "catalyzed", "thisWeek", "maxed"]` | the named what-ifs Top Gear is run under; must include `asOffered`. Each what-if is asked when its own question has an answer (C-12, below) |
+| `topGearPasses` | `4` | how many Top Gear passes one import may make over one content type; each pass is its own document (C-11, below) |
 | `includeBank` | `true` | bank items only reach the profile if the bank was open when the capture ran |
 | `qeAutoUpgradeVault` | `false` | QE Live's "Upgrade Vault to Max Level" box **for the Upgrade Finder**; Top Gear takes its boxes from the scenario |
 | `qeAutoUpgradeAll` | `false` | his "Upgrade ALL to Max Level" box, likewise |
@@ -404,6 +405,74 @@ and, on every Upgrade Finder document, the key level it was run at:
         { schema = "qe-live-upgradefinder", contentType = "Dungeon", keyLevel = 2, ... },
 ```
 
+
+### The Top Gear passes (C-11, WKE-572)
+
+A non-patron's Top Gear answers a question about **thirty** items
+(`TopGear.tsx:177`, `topGearCap = patronCaps[patronStatus] || 30`), and the owner
+owns more. C-8 chose which thirty and said out loud which ones it did not, and
+that honesty was the whole of the problem: on the 2026-09-14 11:42 run the log
+read `30/30 of 63 (20 active, 10 clicked, 33 left out)`, **22 of the 33 were
+trinket rows**, and every one of them showed in game as `not rated · beyond the
+rating's item limit`. A verdict that cannot speak about gear the player is
+holding makes the honest phrases look like the addon's fault.
+
+So a Top Gear run is a SEQUENCE of passes now, and the fork's cap is still never
+edited (§7, 2026-09-07: the fork is read and driven, never changed in what it
+decides).
+
+* **The baseline** is the cards QE Live made active at IMPORT, read once per
+  import before anything is clicked. His own engine says what they are: a vault
+  item is active from the moment it is imported (`SimCImportEngine.ts:712`) and a
+  Catalyst clone inherits its source's flag (`Item.ts:174`), so the baseline is
+  the equipped set, the vault options, and the clones of those. It is in every
+  pass, and nothing here ever deselects one.
+* **Pass 1** is exactly C-8's pool: the baseline, then the room spent on the
+  vault, the clones and the bags, a slot at a time.
+* **Each later pass** keeps the baseline, deselects the bag items the previous
+  pass clicked, and spends the room on cards no pass has asked about yet. No card
+  outside the baseline is ever asked about twice.
+* **Every pass is its own document**, over its own pool. Nothing is merged and no
+  two numbers are ever combined: Lootpath never computes a healer value.
+
+The loop stops on the first of three things: nothing left out, no room past the
+baseline to make progress with, or `topGearPasses`. A run that hits the bound
+says so in the log and leaves the rest on the file's `excluded` list, which is
+then the one list that honestly still means "beyond the rating's item limit".
+
+Each Top Gear document says which pass it is and what that pass was shown:
+
+```lua
+        {
+            schema = "qe-live-droptimizer", contentType = "Dungeon",
+            scenario = "asOffered",
+            pass = 2,
+            qeSettings = { autoUpgradeVault = false, autoUpgradeAll = false, autoCatalyze = false },
+            considered = {
+                { slot = "Trinket", name = "Seed of Radiant Hope", level = 308, itemID = 251234, bonusIDs = { 42 } },
+            },
+            excluded = { ... },
+            ...
+        },
+```
+
+`pass` absent means pass 1, so every file written before C-11 and every paste
+still says exactly what it said. `considered` is the same shape as `excluded`,
+because the addon asks the same identity question of both lists (C-10) and a
+second shape would be a second answer to it.
+
+**What the addon does with them.** Pass 1 is the plan and nothing else is: Equip
+Now, the Upgrade Map, the plan sentence and the best set read pass 1, and a later
+pass is filed on a shelf none of them can reach (`ns.QEImport.Passes`). An item's
+RATING comes from the pass that considered it. A later pass's pool has no vault
+option and no Catalyst clone in it, so a later pass's percents are against that
+pass's own top set and no percent from one is ever printed beside a pass-1 row;
+what the addon says instead is `rated · better than what you wear` when the pass
+put the item in its own best set, and `not in your best set` when it did not.
+
+The bound is in the fingerprint (C-4), for the same reason the scenarios and the
+key levels are: raising it asks QE Live about items the last run never showed
+him, and lowering it drops documents the verdict file is still carrying.
 ## What it is made of
 
 | file | what it does |

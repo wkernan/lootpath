@@ -10,6 +10,7 @@
   ],
   "upgradeFinderKeyLevels": [2, 4, 6, 8, 10],
   "scenarios": ["asOffered", "catalyzed", "thisWeek", "maxed"],
+  "topGearPasses": 4,
   "includeBank": true,
   "qeAutoUpgradeVault": false,
   "qeAutoUpgradeAll": false,

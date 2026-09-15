@@ -396,13 +396,56 @@ function cardText(card) {
     return parts.join(' ');
 }
 
-// The pure half: cards in, { keep, activate, excluded } out. No page, no
-// clicking, no scoring - three named groups and then a fair walk over the rest.
+// -------------------------------------------------------------------------
+// Which pass is which (WKE-572, C-11).
+//
+// One Top Gear run answers a question about thirty items and the character owns
+// more; C-8 chose which thirty and said out loud which ones it did not. That
+// left 22 trinket rows and a pile of belts, boots and rings reading "not rated
+// - beyond the rating's item limit" on the owner's 2026-09-14 run, which is a
+// verdict that cannot speak about gear the player is holding.
+//
+// So a document is no longer the end of a Top Gear run: a run is a SEQUENCE of
+// passes. Pass 1 is exactly what C-8 built. Each later pass keeps the same
+// baseline - the cards QE Live made active at import, which his own engine says
+// are the equipped set, the vault options and any clone of one of those
+// (SimCImportEngine.ts:712, Item.ts:174) - deselects the bag items the previous
+// pass activated, and spends the room on the cards no pass has seen yet. Every
+// pass is its own document over its own pool. NOTHING is merged and no two
+// numbers are ever combined: Lootpath never computes a healer value.
+//
+// A card's identity across the passes of one import. The index is his grid's
+// own order, and the ID and the sorted bonus list are what the card carries;
+// all three, because two rings of one ID at one level are two cards and a pass
+// that confused them would rate one twice and the other never.
+function cardIdent(card) {
+    const id = card && (card.itemID === null || card.itemID === undefined) ? '?' : card.itemID;
+    const bonus = card && Array.isArray(card.bonusIDs) ? card.bonusIDs.join(':') : '';
+    return [card ? card.index : '?', id, bonus].join('|');
+}
+
+// Every card's ident in page order, which is what a later pass checks the grid
+// against: his page rebuilds it on each navigation, and a pass that clicked by
+// position on a grid that had moved would choose a pool nobody named.
+function identsOf(cards) {
+    return cards.map(cardIdent);
+}
+
+// The cards QE Live made active at import. Read once per import, before any
+// document, because after the first pass "active" means "pass 1 clicked it".
+function baselineOf(cards) {
+    return new Set(cards.filter((card) => card.active).map(cardIdent));
+}
+
+// The pure half: cards in, { keep, activate, deselect, excluded } out. No page,
+// no clicking, no scoring - three named groups and then a fair walk over the
+// rest.
 //
 // The order:
-//   1. every card that is already active stays active. That is the character's
+//   1. every card in the baseline stays active. That is the character's
 //      equipped set, his vault options, and any clone of one of those - the
-//      three things the scenarios exist to ask about.
+//      three things the scenarios exist to ask about. With no baseline given
+//      the baseline is "whatever is active", which is what pass 1 reads.
 //   2. a vault item that is somehow NOT active. His import engine makes this
 //      group empty today; it is first anyway, because if that line ever changes
 //      the vault must not be the thing that falls out.
@@ -414,9 +457,19 @@ function cardText(card) {
 //      weapons unasked; a round over the slots gives every slot its best-placed
 //      card before any slot gets a second, and inside a slot his own order is
 //      kept. This is not a ranking: it is a queue that cannot starve a slot.
-function chooseSelection(cards, cap) {
-    const keep = cards.filter((card) => card.active);
-    const rest = cards.filter((card) => !card.active);
+//
+// `options.done` is every non-baseline card an earlier pass already considered,
+// by ident. They are out of `rest`, so no card is asked about twice and every
+// pass moves forward. `deselect` is what the previous pass left active and this
+// one does not want: empty on pass 1 of a fresh import by construction, since
+// the baseline IS the active set there.
+function chooseSelection(cards, cap, options) {
+    const opts = options || {};
+    const baseline = opts.baseline || null;
+    const done = opts.done || null;
+    const isBase = (card) => (baseline ? baseline.has(cardIdent(card)) : card.active);
+    const keep = cards.filter(isBase);
+    const rest = cards.filter((card) => !isBase(card) && !(done && done.has(cardIdent(card))));
     const vault = rest.filter((card) => card.vault);
     const catalyst = rest.filter((card) => !card.vault && card.catalyst);
     const bags = rest.filter((card) => !card.vault && !card.catalyst);
@@ -443,7 +496,21 @@ function chooseSelection(cards, cap) {
 
     const wanted = [...vault, ...catalyst, ...rounds];
     const room = Math.max(0, cap - keep.length);
-    return { keep: keep, activate: wanted.slice(0, room), excluded: wanted.slice(room), room: room, cap: cap };
+    const activate = wanted.slice(0, room);
+    const wantedActive = new Set([...keep, ...activate].map(cardIdent));
+    return {
+        keep: keep,
+        activate: activate,
+        // Everything the page has active that this pass's pool does not hold.
+        // The room for a later pass's cards has to come from somewhere, and the
+        // only cards it may come from are the ones an earlier pass CLICKED: a
+        // baseline card is the character's own gear or a vault option and is
+        // never deselected here (C-8's reading of SimCImportEngine.ts:712).
+        deselect: cards.filter((card) => card.active && !wantedActive.has(cardIdent(card))),
+        excluded: wanted.slice(room),
+        room: room,
+        cap: cap,
+    };
 }
 
 // What the verdict file and the addon call one left-out card. `level` is QE
@@ -457,7 +524,12 @@ function chooseSelection(cards, cap) {
 // beyond the rating's item limit" about one item and not about its twin.
 // `originalItem` is the item a Catalyst clone was made from, carried because
 // the clone's own ID is a tier piece the character does not own.
-function excludedFrom(cards) {
+//
+// Since C-11 (WKE-572) the same shape carries the other half of the pool: the
+// cards a pass DID consider. One shape for both, because the addon asks the
+// same identity question of each list and a second shape would be a second
+// answer to it.
+function entriesFrom(cards) {
     return cards.map((card) => ({
         slot: card.slot || '',
         name: card.name || '',
@@ -474,7 +546,15 @@ function excludedFrom(cards) {
 // counter back after each one, and refuses a click that did not move it: a card
 // whose state was misread would otherwise be DEselected here, and the run would
 // export a document about a pool nobody chose.
-async function selectItems(page, log) {
+//
+// `options.baseline` is the ident set read at import; `options.done` is what
+// earlier passes already asked about; `options.expect` is the ident list the
+// previous pass read the grid as, checked before anything is clicked because
+// every click here is by POSITION and a grid that moved would select the wrong
+// cards in silence.
+async function selectItems(page, log, options) {
+    const opts = options || {};
+    const pass = opts.pass || 1;
     const counter = page.getByText(/Selected Items:\s*\d+\/\d+/).first();
     await counter.waitFor({ timeout: 10000 });
     const readCount = async () => {
@@ -489,14 +569,40 @@ async function selectItems(page, log) {
             DRIVE
         );
     }
-    const plan = chooseSelection(cards, cap);
-    if (plan.keep.length !== n && log) {
+    const idents = identsOf(cards);
+    if (opts.expect && opts.expect.join(',') !== idents.join(',')) {
+        throw new ForkError(
+            `QE Live's Top Gear grid changed between pass ${pass - 1} and pass ${pass} (${opts.expect.length} cards then, ${idents.length} now);` +
+                ` refusing to click by position on a grid that moved`,
+            DRIVE
+        );
+    }
+    const plan = chooseSelection(cards, cap, { baseline: opts.baseline || null, done: opts.done || null });
+    if (plan.keep.length !== n && log && pass === 1) {
         // Not fatal: his counter is `getSelectedItems().length` over the whole
         // player and the cards are what this page drew, so a difference is
-        // worth saying rather than worth stopping for.
+        // worth saying rather than worth stopping for. Only on pass 1: later
+        // passes deliberately hold a pool the import-time count never had.
         log.warn(`  QE Live's counter says ${n} selected, and ${plan.keep.length} of the ${cards.length} cards look active`);
     }
     const locators = page.locator(CARD);
+    // Deselect first, then select: the cap is a hard stop in his own page
+    // (TopGear.tsx line 739 lets a card become active only while
+    // `selectedItemCount < topGearCap`), so a click that wants room has to be
+    // made after the room exists.
+    let dropped = 0;
+    for (const card of plan.deselect) {
+        const before = n;
+        await locators.nth(card.index).click();
+        ({ n, cap } = await readCount());
+        if (n !== before - 1) {
+            throw new ForkError(
+                `deselecting "${cardText(card)}" moved QE Live's counter from ${before} to ${n}, not to ${before - 1}; refusing to run Top Gear over a pool the driver did not choose`,
+                DRIVE
+            );
+        }
+        dropped++;
+    }
     let clicked = 0;
     for (const card of plan.activate) {
         const before = n;
@@ -510,18 +616,35 @@ async function selectItems(page, log) {
         }
         clicked++;
     }
-    const excluded = excludedFrom(plan.excluded);
+    const excluded = entriesFrom(plan.excluded);
+    const considered = entriesFrom([...plan.keep, ...plan.activate]);
     if (log) {
         const vaults = excluded.filter((card) => card.vault).length;
         const clones = excluded.filter((card) => card.catalyst).length;
         log.info(
-            `  top gear pool: ${n}/${cap} selected of ${cards.length} cards` +
-                ` (${plan.keep.length} active on import, ${clicked} clicked, ${excluded.length} left out` +
+            `  top gear pool (pass ${pass}): ${n}/${cap} selected of ${cards.length} cards` +
+                ` (${plan.keep.length} baseline, ${clicked} clicked, ${dropped} deselected, ${excluded.length} still to ask about` +
                 `${vaults ? `, ${vaults} of them vault items` : ''}${clones ? `, ${clones} of them Catalyst clones` : ''})`
         );
-        for (const card of plan.excluded) log.info(`    not considered: ${cardText(card)}`);
+        for (const card of plan.activate) log.info(`    pass ${pass} considers: ${cardText(card)}`);
+        for (const card of plan.excluded) log.info(`    not considered yet: ${cardText(card)}`);
     }
-    return { selected: n, cap: cap, cards: cards.length, clicked: clicked, active: plan.keep.length, excluded: excluded };
+    return {
+        pass: pass,
+        selected: n,
+        cap: cap,
+        cards: cards.length,
+        clicked: clicked,
+        deselected: dropped,
+        active: plan.keep.length,
+        idents: idents,
+        // The idents this pass spent its room on, which is what the NEXT pass
+        // adds to `done`. The baseline is not in it: the baseline is in every
+        // pass's pool by design, and calling it done would empty the pool.
+        activated: plan.activate.map(cardIdent),
+        considered: considered,
+        excluded: excluded,
+    };
 }
 
 // TopGear/Report/MenuDropdown.tsx opens Download JSON / Copy JSON; Copy JSON
@@ -537,15 +660,58 @@ async function readJson(page) {
     return text;
 }
 
+// Every Top Gear document one import produces, in pass order (C-11, WKE-572).
+//
 // The document AND the pool it was produced over (C-8): a Top Gear answer that
 // left items out has to be able to say which, so `excluded` travels with the
-// JSON from here all the way to the addon's own note.
-async function runTopGear(page, log) {
-    await goTo(page, '/topgear');
-    const selection = await selectItems(page, log);
-    await page.getByRole('button', { name: 'Go!' }).click();
-    await page.waitForURL((u) => /\/report\/[a-z0-9]+/.test(u.pathname), { timeout: 120000 });
-    return { json: await readJson(page), excluded: selection.excluded };
+// JSON from here all the way to the addon's own note - and since C-11 so does
+// `considered`, because an item's rating comes from the pass that saw it and a
+// document that cannot say what it saw cannot be asked.
+//
+// The loop stops on the first of three things: nothing left out, no room past
+// the baseline to make progress with, or the configured bound. The bound is
+// logged when it is reached, because leftovers after the last pass are the one
+// case where "not rated - beyond the rating's item limit" is still the truth.
+async function runTopGear(page, log, options) {
+    const opts = options || {};
+    const baseline = opts.baseline || null;
+    const maxPasses = Math.max(1, Number(opts.maxPasses) || 1);
+    const done = new Set();
+    const passes = [];
+    let expect = null;
+    for (let pass = 1; pass <= maxPasses; pass++) {
+        await goTo(page, '/topgear');
+        const selection = await selectItems(page, log, { pass, baseline, done, expect });
+        expect = selection.idents;
+        if (pass > 1 && !selection.activated.length) {
+            // The baseline fills the cap on its own, so no later pass can ask
+            // about anything new. Saying so beats producing a second document
+            // over the first document's pool.
+            if (log) {
+                log.warn(
+                    `  pass ${pass} has no room past the ${selection.active} baseline cards in QE Live's ${selection.cap}-item limit;` +
+                        ` ${selection.excluded.length} cards stay unasked`
+                );
+            }
+            break;
+        }
+        for (const ident of selection.activated) done.add(ident);
+        await page.getByRole('button', { name: 'Go!' }).click();
+        await page.waitForURL((u) => /\/report\/[a-z0-9]+/.test(u.pathname), { timeout: 120000 });
+        passes.push({
+            pass: pass,
+            json: await readJson(page),
+            considered: selection.considered,
+            excluded: selection.excluded,
+        });
+        if (!selection.excluded.length) break;
+        if (pass === maxPasses && log) {
+            log.warn(
+                `  stopping at pass ${maxPasses} (the configured bound) with ${selection.excluded.length} cards still unasked`
+            );
+        }
+    }
+    return passes;
 }
 
 // The pool one pass's import built, read and nothing else (C-12, WKE-577).
@@ -762,12 +928,20 @@ async function run(config, profileText, log, options) {
             // settle its own gate; for the base pass, because the upgrade gate
             // is "higher than the base pass valued it at" and that is the only
             // pass that can say what that was.
+            //
+            // Read for a third reason since C-11 (WKE-572): a pass that
+            // produces Top Gear documents needs the cards QE Live made ACTIVE
+            // at import, before anything is clicked, because that set is the
+            // baseline every later pass keeps and after pass 1 "active" means
+            // "pass 1 clicked it".
             let cards = null;
-            if (pass.gate || (needBase && pass.scenario === configLib.DEFAULT_SCENARIO)) {
+            const topGearHere = pass.documents.some((planned) => planned.kind === 'topgear');
+            if (pass.gate || topGearHere || (needBase && pass.scenario === configLib.DEFAULT_SCENARIO)) {
                 done = log.stage(`  pool (${asked})`);
                 cards = await probePool(page);
                 timings.push([`pool (${asked})`, done(`${cards.length} cards`)]);
             }
+            const baseline = cards ? baselineOf(cards) : null;
             if (cards && pass.scenario === configLib.DEFAULT_SCENARIO) {
                 baseLevels = configLib.levelsByItem(cards);
             }
@@ -796,30 +970,39 @@ async function run(config, profileText, log, options) {
                 done = log.stage(`  ${label}`);
                 // Only a Top Gear run chooses a pool, so only a Top Gear
                 // document carries one; an Upgrade Finder document is about
-                // drops and has nothing to leave out (C-8).
+                // drops and has nothing to leave out (C-8). A Top Gear run is a
+                // sequence of passes since C-11 and each pass is its own
+                // document; an Upgrade Finder run is one document and pass 1.
                 const produced =
                     planned.kind === 'topgear'
-                        ? await runTopGear(page, log)
-                        : { json: await runUpgradeFinder(page, planned.keyLevel, log), excluded: null };
-                const json = produced.json;
-                timings.push([`${label} (${json.length} chars)`, done(`${json.length} chars`)]);
-                // The file-level list is the base pass's, for the same reason
-                // the file-level checkbox pair is: it is the pool the answer
-                // the Equip Now tab draws was produced over.
-                if (produced.excluded && (!excluded || pass.scenario === configLib.DEFAULT_SCENARIO)) {
-                    excluded = produced.excluded;
+                        ? await runTopGear(page, log, { baseline, maxPasses: config.topGearPasses })
+                        : [{ pass: 1, json: await runUpgradeFinder(page, planned.keyLevel, log), considered: null, excluded: null }];
+                const chars = produced.reduce((total, one) => total + one.json.length, 0);
+                timings.push([`${label} (${produced.length} pass${produced.length === 1 ? '' : 'es'}, ${chars} chars)`, done(`${chars} chars`)]);
+                for (const one of produced) {
+                    // The file-level list is the base pass's LAST pass: it is
+                    // what nothing in this run was ever asked about, and that is
+                    // the only list "not rated - beyond the rating's item limit"
+                    // may be read off now (C-11). The file-level checkbox pair
+                    // is chosen the same way and for the same reason.
+                    if (one.excluded && (!excluded || pass.scenario === configLib.DEFAULT_SCENARIO)) {
+                        excluded = one.excluded;
+                    }
+                    documents.push({
+                        kind: planned.kind,
+                        contentType: planned.contentType,
+                        keyLevel: planned.keyLevel,
+                        scenario: planned.scenario,
+                        pass: one.pass,
+                        considered: one.considered,
+                        excluded: one.excluded,
+                        // What the page reported after the click, not what the
+                        // pass asked for, so a document says how it was really
+                        // produced.
+                        qeSettings: settings,
+                        json: one.json,
+                    });
                 }
-                documents.push({
-                    kind: planned.kind,
-                    contentType: planned.contentType,
-                    keyLevel: planned.keyLevel,
-                    scenario: planned.scenario,
-                    excluded: produced.excluded,
-                    // What the page reported after the click, not what the pass
-                    // asked for, so a document says how it was really produced.
-                    qeSettings: settings,
-                    json,
-                });
             }
         }
     } catch (e) {
@@ -846,6 +1029,11 @@ module.exports = {
     cardFromRow,
     chooseSelection,
     selectItems,
+    runTopGear,
+    cardIdent,
+    identsOf,
+    baselineOf,
+    entriesFrom,
     cardText,
     setUpgradeCheckboxes,
     settingsFrom,

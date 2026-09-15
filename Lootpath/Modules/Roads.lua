@@ -65,18 +65,32 @@ Roads.RATING_SET = "set"
 Roads.RATING_ITEM = "item"
 Roads.RATING_NONE = "none"
 
--- The four honesty phrases, fixed, each meaning one thing, each with its own
--- cure (docs/ROADS-UX.md principle 3 and the canvas's phrase table). A line
--- never says "not rated" without one of the two tails.
+-- The honesty phrases, fixed, each meaning one thing, each with its own cure
+-- (docs/ROADS-UX.md principle 3 and the canvas's phrase table). A line never
+-- says "not rated" without one of the two tails.
 Roads.PHRASE_NOT_RATED_NEW = "not rated · new since the last refresh"
 Roads.PHRASE_NOT_RATED_LIMIT = "not rated · beyond the rating's item limit"
 Roads.PHRASE_NOT_IN_BEST_SET = "not in your best set"
 Roads.PHRASE_NO_RATING = "no rating"
+-- The fifth, and the one C-11 (WKE-572) exists to make possible: an item the
+-- plan's own pass never saw, rated by a LATER pass over the same baseline plus
+-- the leftovers, which put it in that pass's best set.
+--
+-- It does not say "in your best set", and that is the whole care of it. Your
+-- best set is pass 1's, built over the vault options and the Catalyst clones as
+-- well, and this item was not in the pool that built it. What a later pass
+-- proves is exactly what this phrase says and no more: over the gear the
+-- character is wearing, QE Live picked this item. No percent goes beside it
+-- either - a later pass's differentials are against that pass's own top set,
+-- and a number read against one set and printed beside another is a wrong
+-- answer that looks right.
+Roads.PHRASE_RATED_LATER = "rated · better than what you wear"
 Roads.PHRASES = {
     Roads.PHRASE_NOT_RATED_NEW,
     Roads.PHRASE_NOT_RATED_LIMIT,
     Roads.PHRASE_NOT_IN_BEST_SET,
     Roads.PHRASE_NO_RATING,
+    Roads.PHRASE_RATED_LATER,
 }
 
 -- The phrasing table for a row's last column: every imperative a road can end
@@ -839,10 +853,66 @@ function Roads.Excluded(excluded, item, key)
     })
 end
 
--- Which of the two "not rated" tails applies to an item nothing rated: the one
--- whose cure is a refresh, or the one whose cure is the cap decision. They are
--- told apart by the leftover list and by nothing else.
-function Roads.NotRatedPhrase(excluded, item, key)
+-- Which later pass rated this item, and what it said (C-11, WKE-572).
+--
+-- `passes` is `ns.QEImport.Passes(contentType, scenario)`: the pass-2 and later
+-- documents of the plan's own run, in pass order, each with the pool it was
+-- shown. A pass answers about an item only if it CONSIDERED it, and the join is
+-- `ns.Companion.IsConsidered`, which is C-10's identity join and not a second
+-- one. The first pass that saw the item is the one that speaks for it: no pass
+-- sees it twice, so there is never more than one.
+--
+-- `inTopSet` is `ns.QEImport.Coverage`'s own answer and nothing derived: that
+-- pass's top set held the item, or it did not. No number travels with it, for
+-- the reason written on `Roads.PHRASE_RATED_LATER`.
+function Roads.LaterPass(passes, item, key)
+    if type(passes) ~= "table" then
+        return nil
+    end
+    if type(item) ~= "table" and key == nil then
+        return nil
+    end
+    local itemKey = key or (type(item) == "table" and item.key or nil)
+    local facts = {
+        name = type(item) == "table" and item.name or nil,
+        level = type(item) == "table" and tonumber(item.level or item.itemLevel) or nil,
+    }
+    for _, entry in ipairs(passes) do
+        local verdict = type(entry) == "table" and entry.verdict or nil
+        local considered = type(verdict) == "table" and verdict.considered or nil
+        local found, how = ns.Companion.IsConsidered(considered, itemKey, facts)
+        if found then
+            local coverage = itemKey and ns.QEImport.Coverage(verdict, itemKey) or nil
+            return {
+                pass = entry.pass,
+                verdict = verdict,
+                entry = found,
+                how = how,
+                inTopSet = coverage ~= nil and coverage.where == "topSet",
+            }
+        end
+    end
+    return nil
+end
+
+-- Which tail applies to an item the plan's own pass did not rate.
+--
+-- Three answers now, not two (C-11). A later pass may have rated it, and then
+-- the line says so: in that pass's best set is `rated · better than what you
+-- wear`, and out of it is the third phrase, `not in your best set` - a pool
+-- that held everything the character is wearing and did not pick this item is a
+-- pool the fuller one could not have picked it out of either. Only an item NO
+-- pass was ever shown is beyond the rating's item limit, and after C-11 that is
+-- only what the pass bound left behind. Everything else is new since the last
+-- refresh.
+--
+-- The second return is the pass number, for the surface that wants to say which
+-- look rated it; callers that only want the phrase ignore it.
+function Roads.NotRatedPhrase(excluded, item, key, passes)
+    local later = Roads.LaterPass(passes, item, key)
+    if later then
+        return later.inTopSet and Roads.PHRASE_RATED_LATER or Roads.PHRASE_NOT_IN_BEST_SET, later.pass
+    end
     if Roads.Excluded(excluded, item, key) then
         return Roads.PHRASE_NOT_RATED_LIMIT
     end
@@ -1407,7 +1477,9 @@ function Roads.StaleBags(slotRoads, inputs)
     end
     for _, record in ipairs(records(inputs.inventory)) do
         if record.slot == slotRoads.slot and not rated[record.key] then
-            if Roads.NotRatedPhrase(inputs.excluded, record, record.key) == Roads.PHRASE_NOT_RATED_NEW then
+            if
+                Roads.NotRatedPhrase(inputs.excluded, record, record.key, inputs.passes) == Roads.PHRASE_NOT_RATED_NEW
+            then
                 return true
             end
         end
@@ -1637,7 +1709,10 @@ function Roads.ForItemIn(slotRoads, key, inputs)
     answer.stale = slotRoads.staleBags == true
 
     if not own then
-        answer.phrase = Roads.NotRatedPhrase(inputs.excluded, item, key)
+        -- Which pass rated it travels with the phrase (C-11): the line says
+        -- what is true of the item and the sentence above it says why the plan
+        -- does not mention it.
+        answer.phrase, answer.laterPass = Roads.NotRatedPhrase(inputs.excluded, item, key, inputs.passes)
     elseif own.phrase then
         answer.phrase = own.phrase
     end
@@ -1869,6 +1944,14 @@ Roads.ARRIVED_TIER = "This is the tier %s the plan wanted."
 Roads.ARRIVED_REFRESH_AT = "Refresh to rate it at %d."
 Roads.ARRIVED_REFRESH = "Refresh to rate it."
 
+-- The sentence for a piece the plan was built without and a later pass picked
+-- over what the character wears (C-11, WKE-572). Two clauses, like every other
+-- sentence here: what the thing IS, and why the plan says nothing about it. It
+-- names no number, no pass and no source, and it does not tell the reader to
+-- put it on - the plan has not weighed this item against the vault, and an
+-- imperative would be the addon deciding what QE Live was never asked.
+Roads.BEATS_WORN_SENTENCE = "This beats what you've got on. The plan was built before anything had rated it."
+
 function Roads.ArrivedSentence(held, pick)
     if type(held) ~= "table" or type(pick) ~= "table" then
         return nil
@@ -1942,6 +2025,15 @@ function Roads.ItemSentence(answer)
     -- item is not rated.
     if not own and pick and Roads.IsArrivedPick(answer.heldItem, pick) then
         return Roads.ArrivedSentence(answer.heldItem, pick)
+    end
+    -- A piece the plan's own pass never saw, which a later pass put in its best
+    -- set (C-11, WKE-572). "Skip this one" would be the plan taking a position
+    -- it has no grounds for: the pool that built the plan did not hold this
+    -- item, and the pool that did hold it preferred it to what the character is
+    -- wearing. So the sentence says both halves and invents neither, and the
+    -- line under it carries `Roads.PHRASE_RATED_LATER`.
+    if not own and answer.phrase == Roads.PHRASE_RATED_LATER then
+        return Roads.BEATS_WORN_SENTENCE
     end
     local name = pick and Roads.ShortName(pick.item) or nil
     if not name then

@@ -240,7 +240,7 @@ test('the state file names the hash, the stamp it wrote and the file it wrote', 
     assert.strictEqual(path.resolve(state.verdict), path.resolve(h.verdict));
     assert.strictEqual(
         state.hash,
-        fingerprintLib.fingerprint(h.fork.calls[0], configLib.qeSettings(h.config), h.config.upgradeFinderKeyLevels, h.config.scenarios)
+        fingerprintLib.fingerprint(h.fork.calls[0], configLib.qeSettings(h.config), h.config.upgradeFinderKeyLevels, h.config.scenarios, h.config.topGearPasses)
             .hash
     );
     // The stamp the state file remembers is the one the addon reads out of the
