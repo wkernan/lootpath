@@ -24,6 +24,13 @@
 -- `CloseInteraction()` - the pair Blizzard's own vault frame calls on every
 -- open and close. It marks the vault as looked at and claims nothing; the full
 -- reasoning is above the capture itself.
+--
+-- `upgrade` is the THIRD (owner's decision 2026-09-14 evening, M3-17/WKE-574):
+-- the client answers `C_ItemUpgrade.GetItemUpgradeItemInfo()` only for the item
+-- currently in the open upgrade vendor's window, so the capture puts each owned
+-- upgradeable item there, reads the crest type and cost, and clears the window
+-- again. Nothing is bought, nothing is upgraded, nothing moves; the full
+-- reasoning is above that capture.
 
 local _, ns = ...
 
@@ -674,4 +681,256 @@ ns.RegisterCapture(
             slots = slots,
         }
     end
+)
+
+-- upgrade: what the crest vendor says every upgradeable item the character
+-- owns would cost to take one step further (M3-17, WKE-574).
+--
+-- **This is the THIRD capture that is not purely a read** (the journal's view
+-- state, ARCHITECTURE.md §7 2026-09-06; the vault's interaction, M3-16, above),
+-- allowed by the owner's decision of 2026-09-14 evening on WKE-568 question 2.
+-- Every crest road on every surface says `crest type and cost not readable`
+-- because `C_ItemUpgrade.GetItemUpgradeItemInfo()` answers for ONE item only -
+-- whichever is in the open upgrade vendor's window - and there is no call that
+-- asks about an item without putting it there. So this capture puts each owned
+-- upgradeable item in the window, reads, and clears it again.
+--
+-- What it changes is the vendor window's own display, and nothing else: no
+-- item moves, nothing is bought, nothing is upgraded, no currency is spent.
+-- `UpgradeItem` is the one call that would spend crests and it is never made,
+-- never named below, and `spec/captures_spec.lua` asserts this file's own
+-- source does not contain it. `SetItemUpgradeFromCursorItem` is not called
+-- either - it would depend on what the owner is holding - and
+-- `CloseItemUpgrade` is not called, because closing the window the owner
+-- opened is a change this capture has no business making.
+--
+-- Every C_ItemUpgrade function this capture calls, with the exported
+-- documentation line it comes from (Ketho's
+-- `.luals/.../ItemUpgradeDocumentation.lua`, read 2026-09-14):
+--
+--   ItemUpgradeDocumentation.lua:7   CanUpgradeItem(baseItem) -> isValid
+--   ItemUpgradeDocumentation.lua:10  ClearItemUpgrade()
+--   ItemUpgradeDocumentation.lua:19  GetHighWatermarkForItem(itemInfo)
+--                                      -> characterHighWatermark, accountHighWatermark
+--   ItemUpgradeDocumentation.lua:34  GetItemHyperlink() -> link
+--   ItemUpgradeDocumentation.lua:39  GetItemUpgradeCurrentLevel()
+--                                      -> itemLevel, isPvpItemLevel
+--   ItemUpgradeDocumentation.lua:50  GetItemUpgradeItemInfo() -> ItemUpgradeItemInfo
+--   ItemUpgradeDocumentation.lua:71  SetItemUpgradeFromLocation(itemToSet)
+--
+-- The walk is Blizzard's own, taken apart: `ItemUpgradeSlotMixin` builds its
+-- flyout from `ItemUtil.IteratePlayerInventoryAndEquipment` filtered by
+-- `CanUpgradeItem`, and its click handler calls `SetItemUpgradeFromLocation`
+-- (`.luals/.../Blizzard_ItemUpgradeUI/Mainline/Blizzard_ItemUpgradeUI.lua.annotated.lua`
+-- lines 906-940, read 2026-09-14). The iterator itself is not called here:
+-- this file walks the equipped slots and the bags with the same two container
+-- reads the inventory capture already makes, so every function the capture
+-- reaches is named in this file.
+--
+-- **What is NOT known, and is what the transcript is for.** Whether
+-- `SetItemUpgradeFromLocation` needs the vendor frame open at all, whether it
+-- fires `ITEM_UPGRADE_MASTER_SET_ITEM` (Blizzard's frame re-reads on that
+-- event, same file lines 42 and 83, which is the only reason to think it
+-- does), how long the client takes to answer, and whether the info comes back
+-- nil for an item the vendor will not take: none of that is in the exported
+-- docs, and the Warcraft Wiki is stale after 10.1.7. So the capture asks for
+-- the frame to be open, waits for the event per item with a bound, and records
+-- for every item whether the event fired, how long it waited and exactly what
+-- came back - rather than assuming any of it. The shape of
+-- `ItemUpgradeItemInfo` IS documented (`currUpgrade`, `maxUpgrade`,
+-- `upgradeLevelInfos[]`, each with `currencyCostsToUpgrade[]` and
+-- `itemCostsToUpgrade[]`), and it is stored raw anyway: nothing is normalised
+-- here, and no road reads it until the transcript is committed.
+local UPGRADE_FUNCTION_NAMES = {
+    "CanUpgradeItem",
+    "ClearItemUpgrade",
+    "GetHighWatermarkForItem",
+    "GetItemHyperlink",
+    "GetItemUpgradeCurrentLevel",
+    "GetItemUpgradeItemInfo",
+    "SetItemUpgradeFromLocation",
+}
+
+-- How long the capture waits for ITEM_UPGRADE_MASTER_SET_ITEM after setting
+-- ONE item before it reads anyway and says it timed out. Nothing has measured
+-- how fast the client answers - the owner's first run at a vendor is what will
+-- say - so this is a bound, not a measurement, and every item's record carries
+-- `eventFired` and `waitedMs` so the transcript can replace it with a figure.
+ns.UPGRADE_SET_TIMEOUT_SECONDS = 2
+
+-- Every owned item the vendor might take, in the order Blizzard's own flyout
+-- would collect them: the equipped slots first, then the bags. Only the two
+-- inventory reads and the two container reads the other captures already make.
+-- `CanUpgradeItem` is asked about each one below, and an item it refuses is
+-- recorded with that answer rather than dropped, because "the vendor will not
+-- take this" is as much of a finding as a cost table.
+local function upgradeCandidates()
+    local out = {}
+    if not (ItemLocation and C_ItemUpgrade) then
+        return out
+    end
+    local first = INVSLOT_FIRST_EQUIPPED or 1
+    local last = INVSLOT_LAST_EQUIPPED or 19
+    for slot = first, last do
+        local link = ns.Safe(GetInventoryItemLink and GetInventoryItemLink("player", slot))
+        if type(link) == "string" and link ~= "" then
+            out[#out + 1] = {
+                source = "equipped",
+                invSlot = slot,
+                link = link,
+                location = ItemLocation:CreateFromEquipmentSlot(slot),
+            }
+        end
+    end
+    local C = C_Container
+    if C and C.GetContainerNumSlots and C.GetContainerItemLink and ItemLocation.CreateFromBagAndSlot then
+        for bag = 0, (NUM_BAG_SLOTS or 4) do
+            local count = ns.Safe(C.GetContainerNumSlots(bag))
+            for slotIndex = 1, (type(count) == "number" and count or 0) do
+                local link = ns.Safe(C.GetContainerItemLink(bag, slotIndex))
+                if type(link) == "string" and link ~= "" then
+                    out[#out + 1] = {
+                        source = "bag",
+                        bag = bag,
+                        slotIndex = slotIndex,
+                        link = link,
+                        location = ItemLocation:CreateFromBagAndSlot(bag, slotIndex),
+                    }
+                end
+            end
+        end
+    end
+    return out
+end
+
+-- Everything the vendor window says while ONE item sits in it, raw, written
+-- FLAT onto the item's own record. Called once per item, after the client has
+-- either answered or run out of time.
+--
+-- **Flat because of `ns.CopyRaw`'s depth guard, measured here rather than
+-- assumed** (busted, 2026-09-14): `MAX_COPY_DEPTH` is 10, and the deepest
+-- thing worth having in this transcript is the discount on a crest cost -
+-- `data`(1) `items`(2) `items[i]`(3) `info`(4) `info[1]`(5)
+-- `upgradeLevelInfos`(6) `[1]`(7) `currencyCostsToUpgrade`(8) `[1]`(9)
+-- `discountInfo`(10). One `read = { ... }` sublevel between the record and the
+-- probes pushed it to 11 and the first run of these tests stored
+-- `<max-depth>` in its place. Nothing is hidden by that - the marker is right
+-- there in the transcript - but the discount is half of what a crest road
+-- would have to say, so the sublevel went away instead of the guard.
+local function upgradeReadsInto(record, U, link)
+    record.info = ns.Probe(U.GetItemUpgradeItemInfo)
+    record.currentLevel = ns.Probe(U.GetItemUpgradeCurrentLevel)
+    -- GetHighWatermarkForItem takes an `ItemInfo`, which Blizzard's own alias
+    -- says is a number or a string (BlizzardType.lua:22), so it is handed the
+    -- link rather than the location.
+    record.highWatermark = ns.Probe(U.GetHighWatermarkForItem, link)
+    -- Which item the window believes it is showing: the one way a reader can
+    -- tell a stale read from a fresh one without trusting the wait.
+    record.hyperlink = ns.Probe(U.GetItemHyperlink)
+end
+
+ns.RegisterCapture(
+    "upgrade",
+    "crest type and cost for every owned upgradeable item (open the crest vendor first)",
+    function(finish)
+        local U = C_ItemUpgrade
+        if type(U) ~= "table" or type(U.SetItemUpgradeFromLocation) ~= "function" then
+            return finish(nil, "needs C_ItemUpgrade; this client has none")
+        end
+        local frame = rawget(_G, "ItemUpgradeFrame")
+        local shown = frame and ns.Probe(frame.IsShown, frame) or { absent = true }
+        if ns.Safe(shown[1]) ~= true then
+            return finish(nil, "needs the upgrade window open - open the crest vendor first")
+        end
+
+        local candidates = upgradeCandidates()
+        local data = {
+            functionNames = UPGRADE_FUNCTION_NAMES,
+            frameShown = shown,
+            blizzardAddonLoaded = ns.Probe(C_AddOns and C_AddOns.IsAddOnLoaded, "Blizzard_ItemUpgradeUI"),
+            timeoutSeconds = ns.UPGRADE_SET_TIMEOUT_SECONDS,
+            -- What was in the window before the capture touched it. The window
+            -- is cleared when the capture is done and this is NOT put back:
+            -- setting an item the owner did not choose is a change, and the
+            -- transcript saying what was there is enough for him to put it
+            -- back himself.
+            itemInWindowAtStart = ns.Probe(U.GetItemHyperlink),
+            candidateCount = #candidates,
+            items = {},
+        }
+
+        local index = 0
+        local function nextItem()
+            index = index + 1
+            local candidate = candidates[index]
+            if not candidate then
+                -- The window is left empty on every path out of here,
+                -- including a client that errored on any one item.
+                data.clearedAtEnd = ns.Probe(U.ClearItemUpgrade)
+                return finish(data)
+            end
+
+            local parsed = ns.ParseItemLink(candidate.link)
+            local record = {
+                source = candidate.source,
+                invSlot = candidate.invSlot,
+                bag = candidate.bag,
+                slotIndex = candidate.slotIndex,
+                link = candidate.link,
+                key = parsed and parsed.key or nil,
+                itemID = parsed and parsed.itemID or nil,
+                canUpgrade = ns.Probe(U.CanUpgradeItem, candidate.location),
+            }
+            data.items[#data.items + 1] = record
+
+            if ns.Safe(record.canUpgrade[1]) ~= true then
+                -- The vendor will not take it. Nothing was set, so there is
+                -- nothing to clear, and the answer itself is the record.
+                return nextItem()
+            end
+
+            local startedAt = debugprofilestop and debugprofilestop() or nil
+            local listener = CreateFrame("Frame")
+            local settled = false
+            local function settle(fired)
+                if settled then
+                    return
+                end
+                settled = true
+                listener:UnregisterEvent("ITEM_UPGRADE_MASTER_SET_ITEM")
+                listener:SetScript("OnEvent", nil)
+                record.eventFired = fired
+                record.timedOut = not fired
+                if startedAt and debugprofilestop then
+                    record.waitedMs = debugprofilestop() - startedAt
+                end
+                upgradeReadsInto(record, U, candidate.link)
+                record.cleared = ns.Probe(U.ClearItemUpgrade)
+                nextItem()
+            end
+
+            listener:SetScript("OnEvent", function(_, event)
+                if event == "ITEM_UPGRADE_MASTER_SET_ITEM" then
+                    settle(true)
+                end
+            end)
+            listener:RegisterEvent("ITEM_UPGRADE_MASTER_SET_ITEM")
+            record.set = ns.Probe(U.SetItemUpgradeFromLocation, candidate.location)
+            if record.set.error then
+                -- The client refused to take the item; there is nothing to
+                -- wait for, and the window is still cleared on the way out.
+                return settle(false)
+            end
+            if C_Timer and C_Timer.After then
+                C_Timer.After(ns.UPGRADE_SET_TIMEOUT_SECONDS, function()
+                    settle(false)
+                end)
+            else
+                settle(false)
+            end
+        end
+
+        nextItem()
+    end,
+    { async = true }
 )

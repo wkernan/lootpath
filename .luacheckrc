@@ -44,6 +44,9 @@ read_globals = {
     "C_DateAndTime",
     "C_EncounterJournal",
     "C_Item",
+    -- The upgrade vendor (M3-17, WKE-574). Only in `Captures.lua`, and only
+    -- the seven reads and one setter that file names.
+    "C_ItemUpgrade",
     "C_MythicPlus",
     "C_Secrets",
     -- Blizzard's replacement for the GetSpecialization/GetSpecializationInfo
