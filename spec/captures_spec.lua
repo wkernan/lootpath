@@ -18,13 +18,13 @@ describe("captures", function()
         H.unload()
     end)
 
-    it("registers env, inventory, vault, currencies, glow and journal in that order", function()
+    it("registers env, inventory, vault, currencies, glow, upgrade and journal in that order", function()
         -- `journal` registers in Modules/Journal.lua, which the .toc loads
         -- after this file, so it comes last. R-0's `spike` was the sixth and
         -- went away with R-2 (WKE-563), which is the surface it measured;
-        -- `glow` is R-2a's (WKE-571) and registers here, at the end of this
-        -- file.
-        assert.same({ "env", "inventory", "vault", "currencies", "glow", "journal" }, ns.captureOrder)
+        -- `glow` is R-2a's (WKE-571) and `upgrade` M3-17's (WKE-574), and both
+        -- register here, at the end of this file.
+        assert.same({ "env", "inventory", "vault", "currencies", "glow", "upgrade", "journal" }, ns.captureOrder)
     end)
 
     describe("env", function()
@@ -621,6 +621,262 @@ describe("captures", function()
             -- other non-header entry is in `info`.
             assert.equal(1, #result.snapshot.data.info)
             assert.equal(900002, result.snapshot.data.info[1].currencyID)
+        end)
+    end)
+
+    -- M3-17 (WKE-574). The third capture that is not purely a read: it puts
+    -- each owned upgradeable item in the open vendor window, reads the crest
+    -- cost the client will only answer for the item in the window, and clears
+    -- it again. Every number in `world.upgrade.items` below is a PLACEHOLDER in
+    -- Blizzard's documented shape (ItemUpgradeDocumentation.lua) - no
+    -- `/lootpath capture upgrade` transcript exists yet, and the owner's first
+    -- run at a vendor is what settles the real one. What these tests pin is the
+    -- SHAPE of the walk: every candidate asked about, the window set and
+    -- cleared once per item, the wait recorded rather than assumed, and nothing
+    -- that could spend a crest ever reached for.
+    describe("upgrade", function()
+        -- The documented ItemUpgradeItemInfo shape, one upgrade level deep.
+        local function upgradeInfo(name, currUpgrade, maxUpgrade, currencyID, cost)
+            return {
+                iconID = 100001,
+                name = name,
+                itemUpgradeable = true,
+                displayQuality = 4,
+                highWatermarkSlot = 1,
+                currUpgrade = currUpgrade,
+                maxUpgrade = maxUpgrade,
+                minItemLevel = 600,
+                maxItemLevel = 639,
+                upgradeLevelInfos = {
+                    {
+                        upgradeLevel = currUpgrade + 1,
+                        displayQuality = 4,
+                        itemLevelIncrement = 3,
+                        levelStats = {},
+                        currencyCostsToUpgrade = {
+                            {
+                                cost = cost,
+                                currencyID = currencyID,
+                                discountInfo = {
+                                    isDiscounted = false,
+                                    discountHighWatermark = 0,
+                                    isPartialTwoHandDiscount = false,
+                                    isAccountWideDiscount = false,
+                                    doesCurrentCharacterMeetHighWatermark = false,
+                                },
+                            },
+                        },
+                        itemCostsToUpgrade = {},
+                    },
+                },
+                upgradeCostTypesForSeason = { { currencyID = currencyID, orderIndex = 1 } },
+            }
+        end
+
+        before_each(function()
+            world.upgrade.frameOpen = true
+            world.equipped[1] = { link = HELM, id = 210001 }
+            world.bags[0] = {
+                numSlots = 4,
+                items = { [3] = { link = RING, id = 210002 } },
+            }
+            world.upgrade.items[HELM] = {
+                canUpgrade = true,
+                info = upgradeInfo("Test Helm", 4, 8, 900001, 15),
+                currentLevel = { 610, false },
+                highWatermark = { 610, 616 },
+            }
+            world.upgrade.items[RING] = {
+                canUpgrade = true,
+                info = upgradeInfo("Test Ring", 2, 8, 900002, 10),
+                currentLevel = { 600, false },
+                highWatermark = { 600, 606 },
+            }
+        end)
+
+        it("refuses when the upgrade window is not open", function()
+            world.upgrade.frameOpen = false
+            local result = ns.RunCapture("upgrade")
+            assert.is_false(result.ok)
+            assert.equal("capture 'upgrade' needs the upgrade window open - open the crest vendor first", result.reason)
+            -- Nothing was set, nothing was cleared, nothing was asked about.
+            assert.same({ set = 0, clear = 0, canUpgrade = 0 }, world.upgrade.calls)
+            assert.is_nil(ns.db.global.captures.upgrade)
+        end)
+
+        it("refuses in combat", function()
+            world.inCombat = true
+            local result = ns.RunCapture("upgrade")
+            assert.is_false(result.ok)
+            assert.equal("combat", result.reason)
+            assert.equal(0, world.upgrade.calls.set)
+        end)
+
+        it("refuses a client with no C_ItemUpgrade", function()
+            _G.C_ItemUpgrade = nil
+            local result = ns.RunCapture("upgrade")
+            assert.is_false(result.ok)
+            assert.equal("capture 'upgrade' needs C_ItemUpgrade; this client has none", result.reason)
+        end)
+
+        it("sets each owned item in turn, reads the cost the window answers, and clears it", function()
+            local result = ns.RunCapture("upgrade")
+            -- Nothing is stored until the client has answered for every item.
+            assert.is_true(result.pending)
+            assert.is_nil(ns.db.global.captures.upgrade)
+
+            world.runTimers(10)
+
+            local data = ns.db.global.captures.upgrade[1].data
+            assert.equal(2, data.candidateCount)
+            assert.equal(2, #data.items)
+            -- Equipped first, then the bags, which is the order Blizzard's own
+            -- upgrade flyout collects them in.
+            assert.same({ HELM, RING }, world.upgrade.setLinks)
+
+            local helm = data.items[1]
+            assert.equal("equipped", helm.source)
+            assert.equal(1, helm.invSlot)
+            assert.equal(HELM, helm.link)
+            assert.equal(ns.ItemKey(210001, { 1, 2 }), helm.key)
+            assert.equal(210001, helm.itemID)
+            assert.is_true(helm.canUpgrade[1])
+            assert.is_true(helm.eventFired)
+            assert.is_false(helm.timedOut)
+            assert.is_number(helm.waitedMs)
+            -- The cost table exactly as the client returned it.
+            local level = helm.info[1].upgradeLevelInfos[1]
+            assert.equal(5, level.upgradeLevel)
+            assert.equal(900001, level.currencyCostsToUpgrade[1].currencyID)
+            assert.equal(15, level.currencyCostsToUpgrade[1].cost)
+            assert.is_false(level.currencyCostsToUpgrade[1].discountInfo.isDiscounted)
+            assert.equal(4, helm.info[1].currUpgrade)
+            assert.equal(8, helm.info[1].maxUpgrade)
+            assert.equal(610, helm.currentLevel[1])
+            assert.is_false(helm.currentLevel[2])
+            assert.equal(610, helm.highWatermark[1])
+            assert.equal(616, helm.highWatermark[2])
+            -- Which item the window believed it was showing when it was read.
+            assert.equal(HELM, helm.hyperlink[1])
+
+            local ring = data.items[2]
+            assert.equal("bag", ring.source)
+            assert.equal(0, ring.bag)
+            assert.equal(3, ring.slotIndex)
+            assert.equal(RING, ring.hyperlink[1])
+            assert.equal(900002, ring.info[1].upgradeLevelInfos[1].currencyCostsToUpgrade[1].currencyID)
+
+            -- Two items set, and the window cleared after each one plus once
+            -- more at the end, so nothing of the capture's is left in it.
+            assert.equal(2, world.upgrade.calls.set)
+            assert.equal(3, world.upgrade.calls.clear)
+            assert.is_nil(world.upgrade.current)
+        end)
+
+        -- The guard proven red in the other direction: a client that never
+        -- fires ITEM_UPGRADE_MASTER_SET_ITEM must produce a transcript that
+        -- SAYS the wait timed out, rather than one that looks like a fast
+        -- answer, and the window is still cleared.
+        it("gives up after the bound per item, says so, and clears the window anyway", function()
+            world.upgrade.answersWithEvent = false
+            assert.is_true(ns.RunCapture("upgrade").pending)
+            world.runTimers(2 * ns.UPGRADE_SET_TIMEOUT_SECONDS + 1)
+
+            local data = ns.db.global.captures.upgrade[1].data
+            assert.equal(2, #data.items)
+            for _, item in ipairs(data.items) do
+                assert.is_false(item.eventFired)
+                assert.is_true(item.timedOut)
+                -- It reads anyway: a timed-out wait is a suspect read, not a
+                -- missing one, and the hyperlink beside it says which.
+                assert.is_table(item.info)
+            end
+            assert.equal(ns.UPGRADE_SET_TIMEOUT_SECONDS, data.timeoutSeconds)
+            assert.equal(3, world.upgrade.calls.clear)
+        end)
+
+        it("settles one item once, however many events arrive", function()
+            ns.RunCapture("upgrade")
+            world.runTimers(10)
+            world.fireEvent("ITEM_UPGRADE_MASTER_SET_ITEM")
+            world.runTimers(10)
+            assert.equal(1, #ns.db.global.captures.upgrade)
+            assert.equal(2, world.upgrade.calls.set)
+        end)
+
+        it("records an item the vendor refuses and never puts it in the window", function()
+            world.upgrade.items[RING].canUpgrade = false
+            ns.RunCapture("upgrade")
+            world.runTimers(10)
+
+            local data = ns.db.global.captures.upgrade[1].data
+            local ring = data.items[2]
+            assert.equal(RING, ring.link)
+            assert.is_false(ring.canUpgrade[1])
+            assert.is_nil(ring.info)
+            assert.is_nil(ring.hyperlink)
+            assert.is_nil(ring.eventFired)
+            assert.same({ HELM }, world.upgrade.setLinks)
+        end)
+
+        it("records a client that errors on one item and walks on to the next", function()
+            world.upgrade.errorOnSet = HELM
+            ns.RunCapture("upgrade")
+            world.runTimers(10)
+
+            local data = ns.db.global.captures.upgrade[1].data
+            assert.is_string(data.items[1].set.error)
+            assert.is_false(data.items[1].eventFired)
+            assert.equal(RING, data.items[2].hyperlink[1])
+        end)
+
+        it("records what was in the window when it began and does not put it back", function()
+            world.upgrade.current = VAULT_ITEM
+            ns.RunCapture("upgrade")
+            world.runTimers(10)
+
+            local data = ns.db.global.captures.upgrade[1].data
+            assert.equal(VAULT_ITEM, data.itemInWindowAtStart[1])
+            assert.is_true(data.frameShown[1])
+            -- Cleared, not restored: putting an item the owner did not choose
+            -- into the window would be a change this capture does not make.
+            assert.is_nil(world.upgrade.current)
+        end)
+
+        it("names every C_ItemUpgrade function it may call, and never the one that spends crests", function()
+            ns.RunCapture("upgrade")
+            world.runTimers(10)
+            local names = ns.db.global.captures.upgrade[1].data.functionNames
+            assert.same({
+                "CanUpgradeItem",
+                "ClearItemUpgrade",
+                "GetHighWatermarkForItem",
+                "GetItemHyperlink",
+                "GetItemUpgradeCurrentLevel",
+                "GetItemUpgradeItemInfo",
+                "SetItemUpgradeFromLocation",
+            }, names)
+            for _, name in ipairs(names) do
+                assert.not_equal("UpgradeItem", name)
+                assert.not_equal("SetItemUpgradeFromCursorItem", name)
+                assert.not_equal("CloseItemUpgrade", name)
+            end
+        end)
+
+        -- The source assertion the issue asks for. A name that is never called
+        -- is one thing; a file that cannot contain the call is another, and
+        -- this is the one that survives a later edit.
+        it("has no call in its source that could spend a crest or close the window", function()
+            local source = assert(io.open("Lootpath/Captures.lua")):read("*a")
+            assert.is_nil(source:find("C_ItemUpgrade.UpgradeItem", 1, true))
+            assert.is_nil(source:find("U.UpgradeItem", 1, true))
+            assert.is_nil(source:find("SetItemUpgradeFromCursorItem(", 1, true))
+            assert.is_nil(source:find("CloseItemUpgrade(", 1, true))
+            -- And the stub has no such function either, so a call that went
+            -- looking for one would fail rather than silently pass.
+            assert.is_nil(_G.C_ItemUpgrade.UpgradeItem)
+            assert.is_nil(_G.C_ItemUpgrade.CloseItemUpgrade)
+            assert.is_nil(_G.C_ItemUpgrade.SetItemUpgradeFromCursorItem)
         end)
     end)
 end)

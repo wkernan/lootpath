@@ -1063,6 +1063,24 @@ function Stub.install()
         },
         bankOpen = false,
         vaultOpen = false,
+        -- The upgrade vendor's window (M3-17, WKE-574). `frameOpen` is what
+        -- ItemUpgradeFrame:IsShown answers; `items` is keyed by item link and
+        -- carries placeholders in Blizzard's documented shapes (see the
+        -- C_ItemUpgrade stub below); `calls` counts what the capture asked
+        -- for; `setLinks` is every link it put in the window, in order;
+        -- `current` is what the window holds now. `answersWithEvent = false`
+        -- plays a client that never fires ITEM_UPGRADE_MASTER_SET_ITEM, and
+        -- `errorOnSet` a client that refuses one item.
+        upgrade = {
+            frameOpen = false,
+            items = {},
+            answersWithEvent = true,
+            eventDelaySeconds = 0,
+            errorOnSet = nil,
+            current = nil,
+            setLinks = {},
+            calls = { set = 0, clear = 0, canUpgrade = 0 },
+        },
         reloads = 0,
         -- `currentPeriod` and `generated` are M3-16's two extra reads
         -- (AreRewardsForCurrentRewardPeriod, HasGeneratedRewards); `interact`
@@ -1699,6 +1717,11 @@ function Stub.install()
         CreateFromEquipmentSlot = function(_, slot)
             return { equipmentSlotIndex = slot }
         end,
+        -- M3-17 (WKE-574): the upgrade capture asks about bag items too, and
+        -- Blizzard's own upgrade flyout builds its locations the same two ways.
+        CreateFromBagAndSlot = function(_, bag, slot)
+            return { bagID = bag, slotIndex = slot }
+        end,
     })
 
     define("C_Item", {
@@ -2003,6 +2026,88 @@ function Stub.install()
         return world.vaultOpen
     end
     define("WeeklyRewardsFrame", vaultFrame)
+
+    -- C_ItemUpgrade (M3-17, WKE-574). Only the seven reads and one setter
+    -- Captures.lua's UPGRADE_FUNCTION_NAMES lists; `UpgradeItem`,
+    -- `SetItemUpgradeFromCursorItem` and `CloseItemUpgrade` are absent on
+    -- purpose, so a test would fail rather than silently pass if anything ever
+    -- reached for one.
+    --
+    -- The window holds one item at a time, exactly as the client's does:
+    -- `SetItemUpgradeFromLocation` resolves a location back to a link and every
+    -- read answers for THAT link, so a capture that reads without setting, or
+    -- that clears too early, gets nothing rather than the previous item's cost.
+    -- `world.upgrade.answersWithEvent = false` is the client that never fires
+    -- ITEM_UPGRADE_MASTER_SET_ITEM, which is the other transcript the tests
+    -- need. Every field of every entry in `world.upgrade.items` is a
+    -- PLACEHOLDER in Blizzard's documented shapes (ItemUpgradeDocumentation.lua
+    -- ItemUpgradeItemInfo / ItemUpgradeLevelInfo / ItemUpgradeCurrencyCost):
+    -- no `/lootpath capture upgrade` transcript exists yet, so no cost,
+    -- currency ID or level here is claimed to be a real one.
+    local function upgradeLinkAt(location)
+        if type(location) ~= "table" then
+            return nil
+        end
+        if location.equipmentSlotIndex then
+            local e = world.equipped[location.equipmentSlotIndex]
+            return e and e.link or nil
+        end
+        local b = world.bags[location.bagID]
+        local it = b and b.items and b.items[location.slotIndex]
+        return it and it.link or nil
+    end
+    define("C_ItemUpgrade", {
+        CanUpgradeItem = function(location)
+            local link = upgradeLinkAt(location)
+            local entry = link and world.upgrade.items[link]
+            world.upgrade.calls.canUpgrade = world.upgrade.calls.canUpgrade + 1
+            return (entry and entry.canUpgrade) == true
+        end,
+        SetItemUpgradeFromLocation = function(location)
+            local link = upgradeLinkAt(location)
+            world.upgrade.calls.set = world.upgrade.calls.set + 1
+            world.upgrade.setLinks[#world.upgrade.setLinks + 1] = link
+            if world.upgrade.errorOnSet == link then
+                error("the client refused this item")
+            end
+            world.upgrade.current = link
+            if world.upgrade.answersWithEvent then
+                _G.C_Timer.After(world.upgrade.eventDelaySeconds or 0, function()
+                    world.fireEvent("ITEM_UPGRADE_MASTER_SET_ITEM")
+                end)
+            end
+        end,
+        ClearItemUpgrade = function()
+            world.upgrade.calls.clear = world.upgrade.calls.clear + 1
+            world.upgrade.current = nil
+        end,
+        GetItemHyperlink = function()
+            return world.upgrade.current
+        end,
+        GetItemUpgradeItemInfo = function()
+            local entry = world.upgrade.current and world.upgrade.items[world.upgrade.current]
+            return entry and deepcopy(entry.info) or nil
+        end,
+        GetItemUpgradeCurrentLevel = function()
+            local entry = world.upgrade.current and world.upgrade.items[world.upgrade.current]
+            if not entry or not entry.currentLevel then
+                return nil
+            end
+            return entry.currentLevel[1], entry.currentLevel[2]
+        end,
+        GetHighWatermarkForItem = function(itemInfo)
+            local entry = world.upgrade.items[itemInfo]
+            if not entry or not entry.highWatermark then
+                return nil
+            end
+            return entry.highWatermark[1], entry.highWatermark[2]
+        end,
+    })
+    local upgradeFrame = newFrame("Frame", world)
+    function upgradeFrame.IsShown()
+        return world.upgrade.frameOpen
+    end
+    define("ItemUpgradeFrame", upgradeFrame)
 
     -- C_CurrencyInfo. Only the three read-only calls Captures.lua and
     -- Modules/Currencies.lua name; the namespace's transfer calls are absent

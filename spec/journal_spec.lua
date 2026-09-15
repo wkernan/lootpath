@@ -471,8 +471,8 @@ describe("capture journal", function()
 
     -- It is the LAST capture now: R-0's `spike` registered after it until R-2
     -- (WKE-563) built the surface it was measuring for and deleted it.
-    it("is registered after env, inventory, vault, currencies and glow", function()
-        assert.same({ "env", "inventory", "vault", "currencies", "glow", "journal" }, ns.captureOrder)
+    it("is registered after env, inventory, vault, currencies, glow and upgrade", function()
+        assert.same({ "env", "inventory", "vault", "currencies", "glow", "upgrade", "journal" }, ns.captureOrder)
         assert.is_true(ns.captures.journal.async)
     end)
 
