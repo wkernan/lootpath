@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### R-7 (WKE-579) - log out, and your plan is current next time you log in
+
+- **Logging out now captures your gear.** Lootpath takes the same four
+  snapshots on the way out that `/lootpath refresh` takes - gear, bags, vault,
+  currencies - so the save the game writes as you leave carries what you logged
+  out in. The companion rates it while you are away, and the plan is waiting at
+  the next login. Before this, a logout saved whatever was last captured, so the
+  story was only true if you had remembered to refresh first.
+- **Refresh is now for mid-session only.** Claim a reward, crest a piece or loot
+  a drop and want the rating to catch up before you carry on? That is what the
+  window's `click to refresh` row is for. Log out instead, and you need do
+  nothing.
+- **It costs the logout nothing and cannot go wrong loudly.** Nothing waits,
+  nothing is asked of the server, and no reload is involved - the game is
+  already leaving. The Great Vault is read plainly; a capture that fails leaves
+  the other three standing. A forced logout in combat captures nothing at all,
+  because nothing in Lootpath runs in combat.
+- **The companion's log says which it was.** `run after logout (gear captured at
+  logout)` joins the three lines R-6 added, and is read off the addon's own
+  label rather than guessed at.
+
 ### R-6 (WKE-578) - the window tells you when your gear has moved past the plan
 
 - **A second row under the status strip, when there is something to say.** Claim

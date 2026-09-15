@@ -31,26 +31,34 @@ rating is being made and roughly how long that takes, and clicking it again is
 the second refresh. The two-reload floor has not moved; what has changed is that
 nobody has to know it is there.
 
-**About "log out and your plan is current next time you log in": not on its
-own.** A logout does flush SavedVariables and this program does wake on that
-write. But what the write carries is the gear the last CAPTURE recorded, not the
-gear you were wearing when you logged out - the addon takes its snapshots when
-you run `/lootpath refresh`, and never behind your back. So a logout after a
-refresh really does leave a current plan waiting at the next login; a logout
-after an evening of looting, with no refresh in it, saves the morning's gear
-again and the run is skipped as unchanged. **Refresh once before you log out and
-the story is true.** The log says which happened, in one line per run:
+**Log out, and your plan is current next time you log in; refresh only when you
+want a re-rating mid-session (R-7, WKE-579).** A logout flushes SavedVariables
+and this program wakes on that write, and since R-7 the addon takes the same
+four snapshots - gear, bags, vault, currencies - at `PLAYER_LOGOUT` itself. So
+what the write carries is the gear you logged out in, the run happens while you
+are away, and the plan is waiting when you come back. Nothing is asked of the
+server on the way out: the vault is read plainly, without M3-16's interaction,
+because a logout has no time to wait for an answer.
+
+Until R-7 this was true only if you refreshed first - the addon took its
+snapshots nowhere but `/lootpath refresh`, so a logout after an evening of
+looting saved the morning's gear again and the run was skipped as unchanged.
+
+The log says which happened, in one line per run:
 
 ```
 run after /lootpath refresh (gear captured at the click)
+run after logout (gear captured at logout)
+run after a capture made by hand
 run after a logout or a plain reload - nothing new was captured
 ```
 
-That second line names two possibilities on purpose. A logout and a `/reload`
-produce the same write, and nothing in the SavedVariables tells them apart; what
-the file does record, since R-6, is how each snapshot was TAKEN (`trigger =
-"refresh"` or `"command"`) and when, which is what makes the distinction above
-possible at all.
+The second line is read off the addon's own label, not guessed at: every
+snapshot records how it was TAKEN (`trigger = "refresh"`, `"logout"` or
+`"command"`) and when. The last line still names two possibilities on purpose,
+and still has cases - a plain `/reload`, an addon from before R-7, or a forced
+logout in combat, where every capture refuses because nothing in Lootpath runs
+in combat and the last snapshot is flushed again.
 
 **A refresh with unchanged gear costs nothing.** Since C-4 (WKE-537) the
 companion fingerprints the profile it is about to ask QE Live about, remembers

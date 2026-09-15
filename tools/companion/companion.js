@@ -315,18 +315,29 @@ async function once(config, log, args, deps) {
 // and nowhere else: it changes nothing the run does.
 //
 //   run after /lootpath refresh (gear captured at the click)
+//   run after logout (gear captured at logout)
 //   run after a capture made by hand
 //   run after a logout or a plain reload - nothing new was captured
 //
-// The third is deliberately two possibilities in one clause. A logout and a
-// `/reload` produce the same write and the SavedVariables record no difference
-// between them; claiming "run after logout" outright would be a figure nothing
-// measured.
+// The second is R-7's (WKE-579): the addon now takes the same four snapshots at
+// `PLAYER_LOGOUT`, labels them `trigger = "logout"`, and the write the client
+// flushes on the way out carries the gear the player logged out in. The line is
+// read off that label rather than inferred, which is why it can say "logout"
+// outright where the fourth cannot.
+//
+// The fourth is still deliberately two possibilities in one clause, and still
+// has cases: a plain `/reload`, an addon from before R-7, and a forced logout in
+// combat, where every capture refuses and the last snapshot flushes again. A
+// logout and a `/reload` produce the same write and, with nothing captured, the
+// SavedVariables record no difference between them.
 function whatThisWriteCarried(profile, stored) {
     const capture = profile.capture || {};
     const isNew = fingerprintLib.captureIsNew(stored.ok ? stored.state : null, capture.capturedAt);
     if (isNew === false) {
         return 'run after a logout or a plain reload - nothing new was captured';
+    }
+    if (capture.trigger === 'logout') {
+        return 'run after logout (gear captured at logout)';
     }
     if (capture.trigger === 'refresh') {
         return 'run after /lootpath refresh (gear captured at the click)';
@@ -450,4 +461,4 @@ if (require.main === module) {
     );
 }
 
-module.exports = { parseArgs, once, visibility, EXIT, VERSION };
+module.exports = { parseArgs, once, visibility, whatThisWriteCarried, EXIT, VERSION };

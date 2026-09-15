@@ -1847,3 +1847,174 @@ describe("Companion and the later Top Gear passes", function()
         assert.equal(2, #second.unchanged)
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- R-7 (WKE-579). "Log out, and your plan is current next time you log in" was
+-- true only after a refresh: the addon took its snapshots nowhere else, so the
+-- logout flushed the last ones again and the companion skipped an unchanged
+-- profile (R-6's finding, docs/ARCHITECTURE.md §7). The same four snapshots at
+-- `PLAYER_LOGOUT` are what make the sentence true. There is no reload, nothing
+-- asynchronous, and the vault is read plainly.
+
+describe("the capture at logout", function()
+    local ns, world
+
+    before_each(function()
+        ns, world = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function recordCaptures()
+        local calls = {}
+        local original = ns.RunCapture
+        ns.RunCapture = function(name, ...)
+            calls[#calls + 1] = name
+            return original(name, ...)
+        end
+        return calls
+    end
+
+    -- Proven red by unregistering PLAYER_LOGOUT on Core.lua's frame: no
+    -- snapshot is stored at all and the count is 0, which is the behaviour this
+    -- issue exists to change.
+    it("runs the same four captures the refresh runs, exactly once, and never reloads", function()
+        local calls = recordCaptures()
+        world.fireEvent("PLAYER_LOGOUT")
+        assert.same({ "env", "inventory", "vault", "currencies" }, calls)
+        for _, name in ipairs(ns.Companion.REFRESH_CAPTURES) do
+            assert.equal(1, #ns.db.global.captures[name])
+        end
+        assert.equal(0, world.reloads)
+    end)
+
+    -- The reload is the refresh's last step and must not be the logout's: the
+    -- client is already leaving. Proven red by calling `ReloadUI()` at the end
+    -- of `CaptureAtLogout`.
+    it("does not need ReloadUI at all", function()
+        _G.ReloadUI = nil
+        local result = ns.Companion.CaptureAtLogout()
+        assert.is_true(result.ok)
+        assert.equal(1, #ns.db.global.captures.env)
+    end)
+
+    -- Every snapshot carries the label, which is the only thing that lets the
+    -- companion say `run after logout` rather than guessing between a logout
+    -- and a plain reload. Proven red by dropping the `ns.captureTrigger`
+    -- assignment: the snapshots read "command" and the companion's line is the
+    -- hand-capture one.
+    it("labels every snapshot `logout`, and leaves the trigger clean behind it", function()
+        ns.Companion.CaptureAtLogout()
+        for _, name in ipairs(ns.Companion.REFRESH_CAPTURES) do
+            assert.equal("logout", ns.db.global.captures[name][1].trigger)
+        end
+        assert.is_nil(ns.captureTrigger)
+        ns.HandleSlash("capture env")
+        assert.equal("command", ns.db.global.captures.env[2].trigger)
+    end)
+
+    -- What the owner's first logout transcript is read for. Proven red by
+    -- removing the two fields.
+    it("stamps the env snapshot with the occasion and what the sequence cost", function()
+        local result = ns.Companion.CaptureAtLogout()
+        local env = ns.db.global.captures.env[1]
+        assert.equal("logout", env.capturedOn)
+        assert.equal(result.elapsedMs, env.logoutMs)
+        assert.is_true(type(env.logoutMs) == "number" and env.logoutMs >= 0)
+    end)
+
+    -- Nothing at logout may fail loudly: a capture that throws leaves the ones
+    -- after it to run and is recorded rather than raised. Proven red by
+    -- dropping the `pcall` around `ns.RunCapture`: the error escapes and the
+    -- three captures after `env` never happen.
+    it("keeps going when one capture throws, and records what refused", function()
+        local original = ns.RunCapture
+        ns.RunCapture = function(name, onComplete, args)
+            if name == "inventory" then
+                error("the client moved C_Container")
+            end
+            return original(name, onComplete, args)
+        end
+        local result = ns.Companion.CaptureAtLogout()
+        assert.is_false(result.ok)
+        assert.equal(1, #result.failures)
+        assert.equal("inventory", result.failures[1].capture)
+        assert.is_truthy(tostring(result.failures[1].reason):find("C_Container", 1, true))
+        assert.equal(1, #ns.db.global.captures.env)
+        assert.is_nil(ns.db.global.captures.inventory)
+        assert.equal(1, #ns.db.global.captures.vault)
+        assert.equal(1, #ns.db.global.captures.currencies)
+    end)
+
+    -- And the event itself cannot carry an error out of the addon either.
+    it("cannot throw out of PLAYER_LOGOUT", function()
+        ns.Companion.CaptureAtLogout = function()
+            error("anything at all")
+        end
+        assert.has_no.errors(function()
+            world.fireEvent("PLAYER_LOGOUT")
+        end)
+    end)
+
+    -- Nothing runs in combat, and ns.RunCapture refuses every capture there, so
+    -- a forced logout in combat stores nothing and says so. Not even an `env`
+    -- record survives, which is the honest answer rather than a half-snapshot.
+    it("captures nothing in combat", function()
+        world.inCombat = true
+        local result = ns.Companion.CaptureAtLogout()
+        assert.is_false(result.ok)
+        assert.equal("combat", result.reason)
+        assert.is_nil(ns.db.global.captures.env)
+        assert.is_nil(ns.db.global.captures.inventory)
+        assert.is_nil(ns.db.global.captures.vault)
+        assert.is_nil(ns.db.global.captures.currencies)
+    end)
+
+    -- M3-16's interaction asks the server for the withheld rewards and waits
+    -- for WEEKLY_REWARDS_UPDATE. At logout there is no time to wait and nothing
+    -- left running to receive the answer, so it never happens and the snapshot
+    -- says which read this was. Proven red by dropping the `skipInteract`
+    -- branch in the vault capture: OnUIInteract is called once, the capture is
+    -- left pending on a timer that can never fire, and no vault snapshot is
+    -- stored at all.
+    describe("with the client holding the vault rewards back", function()
+        before_each(function()
+            world.vault.hasAvailable = true
+            world.vault.currentPeriod = false
+            world.vault.generated = true
+            world.vault.activities = {
+                { type = 1, index = 1, threshold = 1, progress = 2, id = 11, level = 1, rewards = {} },
+            }
+        end)
+
+        it("never asks the client, and says the read was the plain one", function()
+            ns.Companion.CaptureAtLogout()
+            local interact = ns.db.global.captures.vault[1].data.interact
+            assert.equal("logout", interact.skipped)
+            assert.is_false(interact.attempted)
+            assert.equal(ns.VAULT_SKIPPED_REASON, interact.reason)
+            assert.is_nil(interact.after)
+            assert.equal(0, world.vault.interact.onUIInteract)
+            assert.equal(0, world.vault.interact.closeInteraction)
+        end)
+
+        -- Nothing asynchronous: `PLAYER_LOGOUT` is synchronous and the client
+        -- stops running Lua after it, so a timer left behind is a promise
+        -- nothing can keep. Proven red by restoring RunCapture's unconditional
+        -- timeout registration: one timer is left pending.
+        it("leaves no timer behind", function()
+            local before = #world.timers
+            ns.Companion.CaptureAtLogout()
+            assert.equal(before, #world.timers)
+            assert.is_nil(ns.runningCapture)
+        end)
+
+        -- The refresh is unchanged: the interaction still happens there.
+        it("leaves the refresh's own interaction alone", function()
+            ns.Companion.Refresh()
+            assert.equal(1, world.vault.interact.onUIInteract)
+        end)
+    end)
+end)

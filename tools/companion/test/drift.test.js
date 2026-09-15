@@ -65,3 +65,49 @@ test('the state file remembers the capture, and reading it back survives the rou
     assert.strictEqual(fingerprintLib.captureIsNew(back.state, 1789000000), false);
     assert.strictEqual(fingerprintLib.captureIsNew(back.state, 1789000060), true);
 });
+
+// R-7 (WKE-579). The addon takes the same four snapshots at `PLAYER_LOGOUT`
+// now, labelled `trigger = "logout"`, so the write the client flushes on the way
+// out carries the gear the player logged out in - and the log can say so
+// outright instead of naming two possibilities.
+const { whatThisWriteCarried } = require('../companion');
+
+const STORED = (envCapturedAt) => ({ ok: true, state: { envCapturedAt } });
+
+test('a logout capture is named as one', () => {
+    const line = whatThisWriteCarried({ capture: { trigger: 'logout', capturedAt: 200 } }, STORED(100));
+    assert.strictEqual(line, 'run after logout (gear captured at logout)');
+});
+
+test('the other three lines are what they were', () => {
+    assert.strictEqual(
+        whatThisWriteCarried({ capture: { trigger: 'refresh', capturedAt: 200 } }, STORED(100)),
+        'run after /lootpath refresh (gear captured at the click)'
+    );
+    assert.strictEqual(
+        whatThisWriteCarried({ capture: { trigger: 'command', capturedAt: 200 } }, STORED(100)),
+        'run after a capture made by hand'
+    );
+    assert.strictEqual(
+        whatThisWriteCarried({ capture: { trigger: null, capturedAt: 200 } }, STORED(100)),
+        'run after a write whose capture does not say how it was taken (an addon from before R-6)'
+    );
+});
+
+// A write carrying a capture the last run already read is a plain reload, or a
+// logout that captured nothing because it happened in combat. The label on the
+// old capture does not make it new, whatever it says.
+test('a capture the last run already read is still nothing new, even labelled logout', () => {
+    assert.strictEqual(
+        whatThisWriteCarried({ capture: { trigger: 'logout', capturedAt: 200 } }, STORED(200)),
+        'run after a logout or a plain reload - nothing new was captured'
+    );
+});
+
+// An unknown state file cannot refute a label the addon wrote down.
+test('a logout is named even when the state file cannot say whether the capture is new', () => {
+    assert.strictEqual(
+        whatThisWriteCarried({ capture: { trigger: 'logout', capturedAt: 200 } }, { ok: false }),
+        'run after logout (gear captured at logout)'
+    );
+});

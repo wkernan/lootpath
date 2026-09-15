@@ -422,14 +422,21 @@ function ns.RunCapture(name, onComplete, args)
             settled = complete(storeSnapshot(name, data, startedAt))
         end
     end
-    if C_Timer and C_Timer.After then
-        C_Timer.After(ns.CAPTURE_TIMEOUT_SECONDS, function()
-            finish(nil, string.format("gave up after %d seconds", ns.CAPTURE_TIMEOUT_SECONDS))
-        end)
-    end
     local ok, err = pcall(entry.run, finish, args)
     if not ok then
         finish(nil, string.format("errored: %s", tostring(err)))
+    end
+    -- The abandonment timer is registered only when the capture has NOT already
+    -- answered. It used to be registered first, unconditionally, and then never
+    -- fire because `finish` is idempotent; the order matters since R-7
+    -- (WKE-579), where the capture sequence at `PLAYER_LOGOUT` must leave no
+    -- timer behind - the client stops running Lua after that event, so a timer
+    -- registered there is a promise nothing can keep. An async capture that is
+    -- genuinely still running is bounded exactly as it was.
+    if not settled and C_Timer and C_Timer.After then
+        C_Timer.After(ns.CAPTURE_TIMEOUT_SECONDS, function()
+            finish(nil, string.format("gave up after %d seconds", ns.CAPTURE_TIMEOUT_SECONDS))
+        end)
     end
     return settled or { ok = true, pending = true, name = name }
 end
@@ -492,12 +499,28 @@ end
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("PLAYER_LOGIN")
+-- R-7 (WKE-579). The last thing the addon does is take the same four snapshots
+-- `/lootpath refresh` takes, so that the SavedVariables the client is about to
+-- flush carry the gear the player logged out in rather than the gear the last
+-- refresh recorded. The sequence, what it skips and why, is
+-- `ns.Companion.CaptureAtLogout`; this file owns only the lifecycle half.
+--
+-- `PLAYER_LOGOUT` is Blizzard's own synchronous event (Ketho's
+-- `SystemDocumentation.lua`: `LiteralName = "PLAYER_LOGOUT", SynchronousEvent =
+-- true`), and nothing after it is allowed to be asynchronous.
+frame:RegisterEvent("PLAYER_LOGOUT")
 frame:SetScript("OnEvent", function(self, event, arg1)
     if event == "ADDON_LOADED" and arg1 == ADDON then
         self:UnregisterEvent("ADDON_LOADED")
         onAddonLoaded()
     elseif event == "PLAYER_LOGIN" then
         ns.Log("v%s loaded. /lootpath opens the frame; /lootpath help lists commands.", ns.VERSION)
+    elseif event == "PLAYER_LOGOUT" then
+        -- Guarded rather than assumed: a logout is the one moment where an
+        -- error in the addon would be the last thing the player sees.
+        if ns.Companion and ns.Companion.CaptureAtLogout then
+            pcall(ns.Companion.CaptureAtLogout)
+        end
     end
 end)
 
