@@ -1066,6 +1066,92 @@ function Companion.Refresh(onDone)
     return settled or { ok = true, pending = true }
 end
 
+-- ---------------------------------------------------------------------------
+-- The capture at logout (R-7, WKE-579).
+--
+-- Until now the four snapshots were taken only when `/lootpath refresh` ran, so
+-- "log out, and your plan is current next time you log in" was true only for a
+-- player who refreshed first: the logout flushed whatever was last captured, the
+-- companion fingerprinted an unchanged profile and skipped, and the next login
+-- loaded the same plan (R-6's finding, docs/ARCHITECTURE.md §7). Taking the same
+-- four snapshots at `PLAYER_LOGOUT` is what makes the sentence true, because the
+-- logout is the very write the companion wakes on.
+--
+-- What is different from the refresh, and why:
+--
+--   * **No reload.** The client is already leaving; `ReloadUI` is never called
+--     from here and the sequence does not depend on it existing.
+--   * **Nothing asynchronous.** `PLAYER_LOGOUT` is a synchronous event (Ketho's
+--     `SystemDocumentation.lua`: `LiteralName = "PLAYER_LOGOUT", SynchronousEvent
+--     = true`, read 2026-09-15) and the client stops running Lua after it, so a
+--     timer or an event listener registered here would never fire. Every capture
+--     therefore has to finish inside this call - which is why the vault capture
+--     is handed `skipInteract`, below.
+--   * **The vault is read plainly.** M3-16's interaction asks the server for the
+--     withheld rewards and waits up to `ns.VAULT_INTERACT_TIMEOUT_SECONDS` for
+--     `WEEKLY_REWARDS_UPDATE`. There is no time to wait at logout, so
+--     `OnUIInteract` is not called at all and the snapshot records
+--     `interact.skipped = "logout"` - the read is the plain one and says so,
+--     rather than looking like a refresh's read that found nothing.
+--   * **Nothing here can fail loudly.** Each capture goes through `ns.RunCapture`,
+--     which already pcalls the capture body, and through a `pcall` of its own on
+--     top, so a capture that throws leaves the ones after it to run and cannot
+--     stop the logout.
+--
+-- Combat: `ns.RunCapture` refuses every capture in combat, so a forced logout in
+-- combat captures NOTHING - not even an `env` record saying so - and the last
+-- snapshot flushes as it did before. That is the client rule ("nothing runs in
+-- combat") and this sequence does not try to work around it; it returns
+-- `{ ok = false, reason = "combat" }` and touches nothing.
+Companion.LOGOUT_TRIGGER = "logout"
+
+-- Handed to the vault capture as its `args`. A table rather than a string
+-- because `/lootpath capture vault <text>` passes a string, and nobody typing at
+-- the chat frame should be able to reach into the capture's own behaviour.
+Companion.LOGOUT_VAULT_ARGS = { skipInteract = Companion.LOGOUT_TRIGGER }
+
+function Companion.CaptureAtLogout()
+    if InCombatLockdown() then
+        return { ok = false, reason = "combat", captured = {} }
+    end
+    local startedAt = debugprofilestop and debugprofilestop() or nil
+    local previousTrigger = ns.captureTrigger
+    -- Every snapshot this sequence stores is labelled `logout`, which is what
+    -- lets the companion's log say `run after logout (gear captured at logout)`
+    -- instead of guessing between a logout and a plain reload (R-6).
+    ns.captureTrigger = Companion.LOGOUT_TRIGGER
+    local snapshots, failures = {}, {}
+    for _, name in ipairs(Companion.REFRESH_CAPTURES) do
+        local args = name == "vault" and Companion.LOGOUT_VAULT_ARGS or nil
+        local ok, err = pcall(ns.RunCapture, name, function(final)
+            if final.ok then
+                snapshots[name] = final.snapshot
+            else
+                failures[#failures + 1] = { capture = name, reason = final.reason }
+            end
+        end, args)
+        if not ok then
+            failures[#failures + 1] = { capture = name, reason = tostring(err) }
+        end
+    end
+    ns.captureTrigger = previousTrigger
+    local elapsedMs = startedAt and debugprofilestop and (debugprofilestop() - startedAt) or nil
+    -- Written onto the `env` snapshot after the sequence, because the whole
+    -- sequence's cost is not known until it is over and `env` is the record the
+    -- companion reads. Both fields are the evidence for "this cost the logout
+    -- nothing"; nothing in the addon reads either.
+    if snapshots.env then
+        snapshots.env.capturedOn = Companion.LOGOUT_TRIGGER
+        snapshots.env.logoutMs = elapsedMs
+    end
+    return {
+        ok = #failures == 0,
+        captured = snapshots,
+        failures = failures,
+        elapsedMs = elapsedMs,
+    }
+end
+
 ns.onReady[#ns.onReady + 1] = function()
     Companion.Startup()
 end

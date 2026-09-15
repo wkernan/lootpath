@@ -355,6 +355,12 @@ ns.RegisterCapture(
 -- `CloseInteraction` is called afterwards **always, including on timeout**.
 -- `ClaimReward` and `SelectReward` are never called and are not named below.
 --
+-- **The exception has a second limit since R-7 (WKE-579): it never happens at
+-- logout.** The capture sequence at `PLAYER_LOGOUT` passes `skipInteract`, so
+-- `OnUIInteract` is not called there at all - there is no time to wait for the
+-- server's answer and nothing left running to receive it - and the snapshot
+-- records `interact.skipped = "logout"`.
+--
 -- Every C_WeeklyRewards function this capture calls, with the exported
 -- documentation line it comes from (Ketho's
 -- `.luals/.../WeeklyRewardsDocumentation.lua`, read 2026-09-14):
@@ -396,6 +402,10 @@ local VAULT_FUNCTION_NAMES = {
 -- owner's "a few seconds" and the snapshot records whether it fired and how
 -- long it took rather than assuming either.
 ns.VAULT_INTERACT_TIMEOUT_SECONDS = 5
+
+-- Why a capture read the vault without asking the client for the withheld
+-- rewards (R-7, WKE-579). One string, here beside the bound it replaces.
+ns.VAULT_SKIPPED_REASON = "a logout has no time to ask the client and nothing to wait with"
 
 -- The three lists, read together. Called once before the interaction and, when
 -- the client answers, once after it; nothing is normalised either time.
@@ -443,8 +453,15 @@ end
 ns.RegisterCapture(
     "vault",
     "Great Vault activities and reward links (asks the client for the rewards when it is holding them back)",
-    function(finish)
+    -- `args.skipInteract` is R-7's (WKE-579): the capture sequence at
+    -- `PLAYER_LOGOUT` has no time to ask the server anything and no way to wait
+    -- for an answer, so it passes `{ skipInteract = "logout" }` and gets the
+    -- plain read. The snapshot then says `interact.skipped = "logout"` rather
+    -- than looking like a refresh whose interaction was not needed. A table
+    -- rather than a string, so `/lootpath capture vault <text>` cannot reach it.
+    function(finish, args)
         local W = C_WeeklyRewards
+        local skipInteract = type(args) == "table" and args.skipInteract or nil
         local before = vaultLists(W)
         local hasAvailableRewards = ns.Probe(W and W.HasAvailableRewards)
         local data = {
@@ -469,11 +486,17 @@ ns.RegisterCapture(
         }
 
         local needed, reason = vaultNeedsInteraction(hasAvailableRewards, before)
+        if needed and skipInteract then
+            needed, reason = false, ns.VAULT_SKIPPED_REASON
+        end
         if needed and type(W and W.OnUIInteract) ~= "function" then
             needed, reason = false, "this client has no C_WeeklyRewards.OnUIInteract"
         end
         if not needed then
-            data.interact = { attempted = false, reason = reason }
+            -- `skipped` is recorded whether or not the interaction would have
+            -- happened: what it says is that this read was the plain one and
+            -- why, which is true of every capture the logout takes.
+            data.interact = { attempted = false, reason = reason, skipped = skipInteract }
             return finish(data)
         end
 
