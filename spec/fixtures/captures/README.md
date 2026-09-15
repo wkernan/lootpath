@@ -64,6 +64,13 @@ with every loop rather than by request.
   the link (`|h[]|h`), keys intact; progress Dungeons 1/1 (level 8), 1/4, 1/8,
   Concession 5/3; `hasAvailableRewards` true, `canClaimRewards` false. Every
   earlier snapshot repeats. No secrets.
+- Lootpath-20260915-162015.lua - the owner's `upgrade` capture (WKE-574, M3-17)
+  at a crest vendor with the upgrade window open, 2026-09-15 16:20 local on
+  `main` at `65b0b08`: 128 items walked in 20 s, 20 answered `CanUpgradeItem`,
+  each with the documented `ItemUpgradeItemInfo` shape and per-level
+  `currencyCostsToUpgrade` (20 of one currency a step, the watermark row at
+  cost 0). The evidence WKE-588 (M3-17b) is built from. Also the R-7a bound
+  in effect: four snapshots per kind, all `flush`.
 - Lootpath-20260914-171359.lua - R-2a's `glow` capture (WKE-571), the owner's
   bags 2026-09-14 17:13 local on `main` at `34ea350`: for every bag slot the
   link, the key, whether the map has it and whether the mark answers; the
