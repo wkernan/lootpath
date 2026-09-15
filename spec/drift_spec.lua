@@ -304,6 +304,28 @@ describe("ns.Drift, the wait after the first reload", function()
         )
     end)
 
+    -- V-4 (WKE-589), and the answer to a question §11 left open: whether the
+    -- wait ever showed on the owner's client at all. It could not. The stamp
+    -- `RefreshStarting` writes is correct UTC, but the parse it is compared
+    -- against ran an hour late while daylight time was in effect, so the
+    -- elapsed time came out 3600 seconds larger than it was, cleared
+    -- `WAIT_GIVE_UP_SECONDS` (600) on the FIRST check, and the wait deleted
+    -- itself before anything could draw it. On the modelled daylight clock the
+    -- thirty-second wait is a thirty-second wait.
+    it("survives its first check while daylight time is in effect", function()
+        H.chicagoClock(world, 1789427400 + 30) -- 2026-09-14T23:10:30Z
+        intoBag(world, WORLDROOT_LINK)
+        ns.Drift.Check()
+        waiting()
+        local model = ns.Drift.Model(1789427400 + 30)
+        assert.equal("wait", model.kind)
+        assert.equal(
+            "rating your gear, started 30 seconds ago, usually about a minute \194\183 click to load it",
+            model.text
+        )
+        assert.equal(STARTED, ns.db.global.drift.refreshStartedAt)
+    end)
+
     it("quotes the last finished run, rounded to the nearest 15 seconds", function()
         ns.companionStatus = {
             state = "idle",

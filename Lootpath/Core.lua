@@ -152,9 +152,26 @@ end
 --
 -- `time(t)` reads its fields as LOCAL time and `date("!*t", t)` writes UTC
 -- ones, so the difference between the two at `now` is this machine's offset
--- from UTC, and adding it back turns UTC fields into an epoch. Nothing here
--- assumes a timezone. A stamp that cannot be read produces nil rather than a
--- wrong second.
+-- from UTC, and adding it back turns UTC fields into an epoch.
+--
+-- **Both tables carry `isdst = false`, and that is the whole of the fix for
+-- V-4** (WKE-589, 2026-09-15): C's `mktime`, which `time` is, reads that field.
+-- Absent it means "decide for yourself", `false` means "these fields are
+-- standard time", and the two answers differ by an hour while daylight time is
+-- in effect. Until this commit the offset table said `false` (it is what
+-- `date("!*t")` writes) and the stamp table said nothing, so during daylight
+-- time the offset came out an hour too large and every age and clock the addon
+-- printed was an hour too old - the owner read `written 62 minutes ago` for a
+-- stamp two minutes old, 2026-09-15 17:22 CDT. Saying `false` on BOTH sides
+-- makes the two interpretations cancel exactly, whatever the zone and whichever
+-- side of a daylight boundary the stamp falls on: measured under
+-- TZ=America/Chicago on 2026-09-15, this pairing was exact for a two-minute-old
+-- stamp in summer and in winter, across the November fall-back, and for a
+-- stamp half a year old, where letting `mktime` decide was an hour out.
+-- `Lootpath/UI/VaultPanel.lua`'s own reader has always paired them this way.
+--
+-- Nothing here assumes a timezone. A stamp that cannot be read produces nil
+-- rather than a wrong second.
 function ns.EpochFromISO(iso, now)
     if type(iso) ~= "string" then
         return nil
@@ -168,6 +185,7 @@ function ns.EpochFromISO(iso, now)
     if type(utcNow) ~= "table" then
         return nil
     end
+    utcNow.isdst = false
     local offset = now - time(utcNow)
     -- Every field is coerced to a number here rather than inside the table
     -- constructor: `time`'s declared field types are not optional, and a
@@ -180,6 +198,9 @@ function ns.EpochFromISO(iso, now)
         hour = tonumber(hour) or 0,
         min = tonumber(minute) or 0,
         sec = tonumber(second) or 0,
+        -- The other half of the pair above: read as standard time, exactly as
+        -- `utcNow` was, so the offset that is added back undoes it exactly.
+        isdst = false,
     }
     return time(fields) + offset
 end
