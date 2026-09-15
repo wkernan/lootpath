@@ -88,20 +88,50 @@ describe("VaultPanel over the committed vault transcript", function()
         assert.is_false(model.options[3].unlocked)
     end)
 
-    -- M3-16 (WKE-557). An empty reward list has two causes and they are
-    -- opposites. `HasAvailableRewards()` false means the vault has not
-    -- generated anything yet; true means it has and the client did not answer
-    -- with it, which is what happens after the week's first progress. Until
-    -- this issue both printed "the vault has not generated this week's rewards
-    -- yet" - the one thing that is not true in the second case. Proven red by
-    -- putting `Panel.NO_REWARDS_NOTE` back unconditionally.
-    it("tells the two empty reward lists apart and names the remedy for the withheld one", function()
+    -- M3-16 (WKE-557), with M3-16b's third case (WKE-583). An empty reward list
+    -- has THREE causes. `HasAvailableRewards()` false means the vault has not
+    -- generated anything yet. True with `HasGeneratedRewards()` false is reset
+    -- day: the client has not been given this week's rewards at all, and no
+    -- refresh can fetch them - the owner's 2026-09-15 transcript is an ask
+    -- answered in 113.2 ms that changed nothing, and the very next capture,
+    -- taken with the Great Vault window open, carried 11 activities and 9
+    -- links. True with `HasGeneratedRewards()` true is the mid-week withheld
+    -- state, where the ask IS the remedy. Until M3-16 all three printed "the
+    -- vault has not generated this week's rewards yet"; until M3-16b the middle
+    -- one sent the player round the refresh loop for something a refresh cannot
+    -- do. Proven red by putting `Panel.NO_REWARDS_NOTE` back unconditionally,
+    -- and again by dropping the `hasGeneratedRewards` branch: the reset-day
+    -- vault is told to run a refresh.
+    it("tells the three empty reward lists apart and names the remedy for each", function()
         local model = ns.VaultPanel.Model({ vault = ns.Vault.Options(), verdict = realVerdict(ns), now = 1788700000 })
         assert.equal(0, model.counts.rewards)
         assert.is_false(model.hasAvailableRewards)
         assert.equal(ns.VaultPanel.NO_REWARDS_NOTE, model.rewardsNote)
 
+        -- Reset day: rewards are waiting and the client has generated none of
+        -- them. The remedy is the window, not the refresh.
         world.vault.hasAvailable = true
+        world.vault.generated = false
+        local ungenerated = ns.VaultPanel.Model({
+            vault = ns.Vault.Options(),
+            verdict = realVerdict(ns),
+            now = 1788700000,
+        })
+        assert.equal(0, ungenerated.counts.rewards)
+        assert.is_true(ungenerated.hasAvailableRewards)
+        assert.is_false(ungenerated.hasGeneratedRewards)
+        assert.equal(ns.VaultPanel.OPEN_VAULT_NOTE, ungenerated.rewardsNote)
+        local sawOpen = false
+        for _, line in ipairs(ns.VaultPanel.Lines(ungenerated)) do
+            sawOpen = sawOpen or line == ns.VaultPanel.OPEN_VAULT_NOTE
+        end
+        assert.is_true(sawOpen)
+        assert.is_truthy(ns.VaultPanel.OPEN_VAULT_NOTE:find("Open the Great Vault", 1, true))
+        assert.is_nil(ns.VaultPanel.OPEN_VAULT_NOTE:find("/lootpath refresh", 1, true))
+
+        -- Mid-week: the rewards ARE generated and the client is holding them
+        -- back, which is the one case the ask is for.
+        world.vault.generated = true
         local withheld = ns.VaultPanel.Model({
             vault = ns.Vault.Options(),
             verdict = realVerdict(ns),
@@ -109,6 +139,7 @@ describe("VaultPanel over the committed vault transcript", function()
         })
         assert.equal(0, withheld.counts.rewards)
         assert.is_true(withheld.hasAvailableRewards)
+        assert.is_true(withheld.hasGeneratedRewards)
         assert.equal(ns.VaultPanel.WITHHELD_REWARDS_NOTE, withheld.rewardsNote)
         local found = false
         for _, line in ipairs(ns.VaultPanel.Lines(withheld)) do
@@ -2829,5 +2860,55 @@ describe("VaultPanel and the items QE Live never saw", function()
             assert.equal(line, frame.rows[i]:GetText())
         end
         assert.is_truthy(containsText(drawnTexts(frame), "weren't rated this time"))
+    end)
+end)
+
+-- M3-16b (WKE-583): the Vault tab over the owner's own reset day.
+--
+-- `spec/fixtures/captures/Lootpath-20260915-142722-vault.lua` is the vault half
+-- of his 2026-09-15 pull (README.md names the full file, which is too large to
+-- commit). What is replayed here is the real thing rather than a stub state:
+-- snapshot 9 is the 19:09:29Z refresh that asked the client and was answered in
+-- 113.2 ms with nothing, and snapshot 12 is the hand capture he took a quarter
+-- of an hour later WITH THE GREAT VAULT WINDOW OPEN, which carries 9 reward
+-- links. The tab has to say the right thing about both.
+describe("the Vault tab on reset day (M3-16b)", function()
+    local ns, world
+    local RESET_DAY = "spec/fixtures/captures/Lootpath-20260915-142722-vault.lua"
+    local ASKED_AND_EMPTY = 9
+    local AFTER_THE_WINDOW = 12
+
+    before_each(function()
+        ns, world = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function replay(index)
+        R.vault(world, R.snapshot("vault", index, RESET_DAY))
+        return ns.VaultPanel.Model({ vault = ns.Vault.Options(), verdict = realVerdict(ns), now = 1789500000 })
+    end
+
+    -- Proven red by dropping the `hasGeneratedRewards` branch from the model:
+    -- his reset-day screen goes back to "run /lootpath refresh", which is the
+    -- one thing that cannot help him.
+    it("names the window, not the refresh, for the read the ask could not fill", function()
+        local model = replay(ASKED_AND_EMPTY)
+        assert.equal(0, model.counts.rewards)
+        assert.is_true(model.hasAvailableRewards)
+        assert.is_false(model.hasGeneratedRewards)
+        assert.equal(ns.VaultPanel.OPEN_VAULT_NOTE, model.rewardsNote)
+    end)
+
+    -- And once the window has been opened there is no note at all, because
+    -- there are rewards to rank.
+    it("has rewards to rank once the window has been opened", function()
+        local model = replay(AFTER_THE_WINDOW)
+        assert.is_true(model.hasGeneratedRewards)
+        assert.equal(9, #R.snapshot("vault", AFTER_THE_WINDOW, RESET_DAY).data.rewardLinks)
+        assert.is_true(model.counts.rewards > 0)
+        assert.is_nil(model.rewardsNote)
     end)
 end)

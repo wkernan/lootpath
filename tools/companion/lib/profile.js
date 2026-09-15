@@ -57,6 +57,11 @@ function build(text, options) {
         warnings,
         counts: built.counts,
         capturedAtLocal: built.capturedAtLocal,
+        // M3-16b (WKE-583): which of the transcript's vault snapshots the
+        // profile was built from, and why (see chooseVaultSnapshot in
+        // simc-profile.js). The companion logs it, because `0 vault` on reset
+        // day was a choice between snapshots and the log said nothing about it.
+        vaultChoice: transcript.vaultChoice || null,
         // R-6 (WKE-578): how the newest `env` snapshot came to be taken, and
         // when. `trigger` is "refresh" for a snapshot `/lootpath refresh` took,
         // "flush" for one the unload sequence took (R-7a, WKE-582; "logout" from

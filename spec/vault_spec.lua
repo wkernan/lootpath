@@ -228,6 +228,7 @@ describe("ns.Vault guards", function()
         assert.same({
             "C_WeeklyRewards.HasAvailableRewards",
             "C_WeeklyRewards.CanClaimRewards",
+            "C_WeeklyRewards.HasGeneratedRewards",
             "C_WeeklyRewards.GetActivities",
             "C_WeeklyRewards.GetItemHyperlink",
             "C_DateAndTime.GetSecondsUntilWeeklyReset",

@@ -390,6 +390,43 @@ describe("ns.Drift, the wait after the first reload", function()
         assert.is_nil(ns.Drift.Model(at("2026-09-14T23:30:00Z")))
         assert.is_nil(ns.db.global.drift.refreshStartedAt)
     end)
+
+    -- M3-16b (WKE-583): the chat line at the load the refresh's reload
+    -- produced. The owner on 2026-09-15: "after I do a refresh and the screen
+    -- loads and I'm back in game, I'm assuming the refresh is done." The chat
+    -- frame is where he is looking at that moment, so the wait says itself
+    -- there once. Proven red by returning nil from `Drift.AnnounceWait` before
+    -- it prints: nothing is said at the load that is waiting.
+    it("says in chat, once, at the load that is still waiting", function()
+        waiting()
+        local line = ns.Drift.AnnounceWait(at("2026-09-14T23:10:30Z"))
+        assert.equal(
+            "your gear is sent; the rating usually takes about a minute. The window says when it's ready.",
+            line
+        )
+        assert.is_truthy(tostring(world.output()):find(line, 1, true))
+    end)
+
+    -- And it quotes the same measured run the strip does, in the phrasing that
+    -- reads as a sentence.
+    it("quotes the last finished run in the chat line too", function()
+        ns.db.global.drift.runSeconds = 175
+        waiting()
+        assert.equal(
+            "your gear is sent; the rating usually takes about 3 minutes. The window says when it's ready.",
+            ns.Drift.AnnounceWait(at("2026-09-14T23:10:30Z"))
+        )
+        assert.equal("3 minutes", ns.Drift.RunText(175))
+        assert.is_nil(ns.Drift.RunText(nil))
+    end)
+
+    -- A load with no refresh out there says nothing at all: the line exists to
+    -- answer "is it still happening", and there is nothing to answer.
+    it("says nothing at a load that is not waiting", function()
+        local before = tostring(world.output())
+        assert.is_nil(ns.Drift.AnnounceWait(at("2026-09-14T23:10:30Z")))
+        assert.equal(before, tostring(world.output()))
+    end)
 end)
 
 describe("ns.Drift.Click", function()

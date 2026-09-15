@@ -64,6 +64,7 @@ local Vault = ns.Vault
 Vault.FUNCTION_NAMES = {
     "C_WeeklyRewards.HasAvailableRewards",
     "C_WeeklyRewards.CanClaimRewards",
+    "C_WeeklyRewards.HasGeneratedRewards",
     "C_WeeklyRewards.GetActivities",
     "C_WeeklyRewards.GetItemHyperlink",
     "C_DateAndTime.GetSecondsUntilWeeklyReset",
@@ -408,6 +409,7 @@ function Vault.RequestItemData(record)
 end
 
 -- Options(opts) -> { ok = true, options, hasAvailableRewards, canClaimRewards,
+--                    hasGeneratedRewards,
 --                    secondsUntilWeeklyReset, secretsSeen, pendingRewards,
 --                    requestedItems }
 --             or { ok = false, reason = "combat" | "no vault API" }
@@ -490,6 +492,14 @@ function Vault.Options(opts)
         options = options,
         hasAvailableRewards = guarded(counter, call(C_WeeklyRewards.HasAvailableRewards)) == true,
         canClaimRewards = guarded(counter, call(C_WeeklyRewards.CanClaimRewards)) == true,
+        -- M3-16b (WKE-583): the tell that tells the two empty vaults apart on
+        -- reset day. `HasAvailableRewards` true with `HasGeneratedRewards`
+        -- false is a vault whose rewards the client has not been given at all,
+        -- and only opening the Great Vault window makes the server generate
+        -- them - the addon's one interaction does not (the owner's 2026-09-15
+        -- transcript, ARCHITECTURE.md 7). The Vault tab says so rather than
+        -- sending the player round the refresh loop again.
+        hasGeneratedRewards = guarded(counter, call(C_WeeklyRewards.HasGeneratedRewards)) == true,
         secondsUntilWeeklyReset = guarded(counter, call(C_DateAndTime and C_DateAndTime.GetSecondsUntilWeeklyReset)),
         secretsSeen = counter.secretsSeen,
         pendingRewards = pendingRewards,

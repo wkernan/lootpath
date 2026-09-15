@@ -370,6 +370,19 @@ Panel.NO_REWARDS_NOTE =
 -- the remedy is named rather than left to be guessed at.
 Panel.WITHHELD_REWARDS_NOTE = "The client says vault rewards are waiting but did not answer with them. "
     .. "Run /lootpath refresh: it asks for them the way the Great Vault window does."
+-- M3-16b (WKE-583): the SAME empty list again, for a third reason, and the one
+-- the sentence above was wrong about on reset day. `HasAvailableRewards()` true
+-- with `HasGeneratedRewards()` FALSE is a vault the client has not been given
+-- this week's rewards for at all, and `/lootpath refresh` cannot fetch them:
+-- measured on 2026-09-15, the refresh asked, `WEEKLY_REWARDS_UPDATE` came back
+-- in 113.2 ms, and the read after it was the read before it - 10 activities, 0
+-- reward links. The owner then opened the Great Vault window and the very next
+-- capture carried 11 activities, 5 with rewards and 9 links. So the remedy
+-- named here is the window, because the window is what generated them, and the
+-- addon does not get a second exception to try to do it without one
+-- (ARCHITECTURE.md 7, 2026-09-15).
+Panel.OPEN_VAULT_NOTE = "This week's vault rewards have not been generated yet. "
+    .. "Open the Great Vault, then refresh: opening it is what makes the client fetch them."
 Panel.NO_VERDICT_NOTE = "No import yet, so no option carries a value. Paste a Top Gear export to change that."
 Panel.STALE_NOTE = "This export predates this week's vault reset, so it does not know these options. Re-export it."
 
@@ -1228,6 +1241,9 @@ function Panel.Model(opts)
         hasVerdict = verdict ~= nil,
         hasAvailableRewards = vault.hasAvailableRewards == true,
         canClaimRewards = vault.canClaimRewards == true,
+        -- M3-16b (WKE-583): the third state, and the one the tab used to tell
+        -- the player the wrong thing about. See Panel.OPEN_VAULT_NOTE.
+        hasGeneratedRewards = vault.hasGeneratedRewards == true,
         qeSettings = qeSettings,
         -- C-8 (WKE-558): which items the highlighted scenario's own Top Gear
         -- run was never shown. Per scenario and not per file, because the
@@ -1521,7 +1537,13 @@ function Panel.Model(opts)
     model.currencyChips = Panel.CurrencyChips(opts.currencies)
 
     if model.counts.rewards == 0 and model.counts.extras == 0 then
-        model.rewardsNote = model.hasAvailableRewards and Panel.WITHHELD_REWARDS_NOTE or Panel.NO_REWARDS_NOTE
+        if model.hasAvailableRewards and not model.hasGeneratedRewards then
+            model.rewardsNote = Panel.OPEN_VAULT_NOTE
+        elseif model.hasAvailableRewards then
+            model.rewardsNote = Panel.WITHHELD_REWARDS_NOTE
+        else
+            model.rewardsNote = Panel.NO_REWARDS_NOTE
+        end
     end
     if model.counts.pending > 0 then
         model.pendingNote = string.format(Panel.PENDING_NOTE, model.counts.pending)

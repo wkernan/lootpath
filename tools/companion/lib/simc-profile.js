@@ -275,15 +275,74 @@ function newestSnapshot(list, index) {
   return snapshots.reduce((best, snapshot) => ((snapshot.capturedAt || 0) >= (best.capturedAt || 0) ? snapshot : best));
 }
 
+// Which vault snapshot the profile is built from (M3-16b, WKE-583).
+//
+// The newest is not the best one, and the owner's 2026-09-15 transcript is why.
+// His refresh at 19:09:29Z asked the client (`interact.attempted`) and stored
+// the answer; the flush at the refresh's own reload stored the same read two
+// seconds later without asking, and being the newest it was what the profile
+// was built from - `0 vault`, and a reset-day plan with no vault in it. The
+// addon no longer captures the vault at the flush at all, but transcripts
+// written before that still carry those snapshots, and a hand capture can
+// still land after a better read.
+//
+// So: of the snapshots for the SAME reward period, the newest one that CARRIES
+// reward links wins, and among those a read that ASKED wins over one that did
+// not. Reward links are the whole point of the snapshot - a read carrying none
+// of them cannot be the better answer whatever else it says - and the period
+// bound is what stops last week's rewards being carried into this week. The
+// choice comes back with its reason, so the companion's log can say which read
+// it used.
+//
+// The period is the client's own `GetSecondsUntilWeeklyReset` added to the
+// moment of the capture: two snapshots belong to the same week when that lands
+// on the same reset, within a minute's slack for the two clocks. A snapshot
+// whose client did not answer that question is left with the newest rather than
+// guessed about.
+const REWARD_PERIOD_SLACK_SECONDS = 60;
+
+function resetAt(snapshot) {
+  const seconds = probe((snapshot.data || {}).secondsUntilWeeklyReset);
+  if (typeof seconds !== "number" || typeof snapshot.capturedAt !== "number") return null;
+  return snapshot.capturedAt + seconds;
+}
+
+function chooseVaultSnapshot(list, index) {
+  const snapshots = luaArray(list);
+  if (snapshots.length === 0) return { snapshot: null, reason: "there is no vault snapshot in this transcript" };
+  if (index !== undefined) {
+    return { snapshot: newestSnapshot(list, index), reason: `snapshot ${index}, named on the command line` };
+  }
+  const newest = newestSnapshot(list);
+  const newestReset = resetAt(newest);
+  const samePeriod = snapshots.filter((snapshot) => {
+    const reset = resetAt(snapshot);
+    if (reset === null || newestReset === null) return snapshot === newest;
+    return Math.abs(reset - newestReset) <= REWARD_PERIOD_SLACK_SECONDS;
+  });
+  const withLinks = samePeriod.filter((snapshot) => luaArray(snapshotRewardLinks(snapshot)).length > 0);
+  if (withLinks.length === 0) {
+    return { snapshot: newest, reason: "the newest read; no snapshot this reward period carries a reward link" };
+  }
+  const byNewest = (best, snapshot) => ((snapshot.capturedAt || 0) >= (best.capturedAt || 0) ? snapshot : best);
+  const asked = withLinks.filter((snapshot) => ((snapshot.data || {}).interact || {}).attempted === true);
+  if (asked.length > 0) {
+    return { snapshot: asked.reduce(byNewest), reason: "the newest read that asked the client and carries rewards" };
+  }
+  return { snapshot: withLinks.reduce(byNewest), reason: "the newest read that carries rewards; none of them asked" };
+}
+
 function readTranscript(text, options = {}) {
   const db = parseSavedVariables(text);
   const root = db.LootpathDB;
   if (!root) throw new Error("no LootpathDB table in this file - is it a Lootpath SavedVariables file?");
   const captures = (root.global && root.global.captures) || {};
+  const vault = chooseVaultSnapshot(captures.vault, options.vaultSnapshot);
   return {
     env: newestSnapshot(captures.env, options.envSnapshot),
     inventory: newestSnapshot(captures.inventory, options.snapshot),
-    vault: newestSnapshot(captures.vault, options.vaultSnapshot),
+    vault: vault.snapshot,
+    vaultChoice: vault.reason,
   };
 }
 

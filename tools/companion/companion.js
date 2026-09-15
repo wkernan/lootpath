@@ -137,6 +137,11 @@ async function once(config, log, args, deps) {
     // told apart from inside the file, and the line says so rather than picking
     // one (see `captureIsNew`).
     log.info(whatThisWriteCarried(profile, fingerprintLib.readState(stateDir)));
+    // M3-16b (WKE-583). The vault snapshot is chosen, not simply the newest,
+    // and on reset day the choice is the difference between a plan with a vault
+    // pick in it and one without. Said out loud, in the same log, for the same
+    // reason the line above it is.
+    if (profile.vaultChoice) log.info(`vault read used: ${profile.vaultChoice}`);
     done(
         `${profile.counts.equipped} equipped, ${profile.counts.bag} in bags, ${profile.counts.bank} in the bank, ${profile.counts.vault} vault, ${profile.counts.lines} lines`
     );

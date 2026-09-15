@@ -65,6 +65,17 @@ Drift.WAIT_READY_MEASURED = "usually ready in about %s"
 Drift.WAIT_TOOLTIP = "The rating is being made now. Clicking reloads and loads whatever has been written; "
     .. "too early and this line comes back."
 
+-- M3-16b (WKE-583): the chat line at the first load after a refresh. The owner
+-- on 2026-09-15, in his own words: "after I do a refresh and the screen loads
+-- and I'm back in game, I'm assuming the refresh is done. If that is not the
+-- case we should have an indicator letting the player know the refresh is still
+-- happening." The reload is the moment he is looking at the chat frame, so the
+-- wait says itself there once, out of the same model the strip and the minimap
+-- read; the window is where it then counts.
+Drift.WAIT_CHAT_LINE = "your gear is sent; the rating %s. The window says when it's ready."
+Drift.WAIT_CHAT_DEFAULT = "usually takes about a minute"
+Drift.WAIT_CHAT_MEASURED = "usually takes about %s"
+
 -- Session state. `baseline` is the key set the plan was written over; `stamp` is
 -- which plan that was, so a fresh import rebases instead of reading as drift.
 local state = {
@@ -250,31 +261,49 @@ function Drift.RecordRun(raw, now)
     return db.runSeconds
 end
 
--- "about 45 seconds", "about 1 minute", "about 1 minute 15 seconds" - the last
--- measured run rounded to the nearest 15 seconds, because a figure read to the
--- second would claim a precision one sample does not have. With nothing
--- measured the line says `usually about a minute` and nothing more precise.
-function Drift.ReadyText(seconds)
+-- "45 seconds", "1 minute", "1 minute 15 seconds" - the last measured run
+-- rounded to the nearest 15 seconds, because a figure read to the second would
+-- claim a precision one sample does not have. nil when nothing has been
+-- measured, which is what makes the two lines below say `about a minute` and
+-- nothing more precise.
+function Drift.RunText(seconds)
     local value = tonumber(seconds)
     if not value or value <= 0 then
-        return Drift.WAIT_READY_DEFAULT
+        return nil
     end
     local rounded = math.floor(value / 15 + 0.5) * 15
     if rounded < 15 then
         rounded = 15
     end
-    local text
     if rounded < 60 then
-        text = ns.UI.Plural(rounded, "second")
-    else
-        local minutes = math.floor(rounded / 60)
-        local remainder = rounded - minutes * 60
-        text = ns.UI.Plural(minutes, "minute")
-        if remainder > 0 then
-            text = text .. " " .. ns.UI.Plural(remainder, "second")
-        end
+        return ns.UI.Plural(rounded, "second")
+    end
+    local minutes = math.floor(rounded / 60)
+    local remainder = rounded - minutes * 60
+    local text = ns.UI.Plural(minutes, "minute")
+    if remainder > 0 then
+        text = text .. " " .. ns.UI.Plural(remainder, "second")
+    end
+    return text
+end
+
+-- The strip's half of that figure: `usually ready in about 3 minutes`.
+function Drift.ReadyText(seconds)
+    local text = Drift.RunText(seconds)
+    if not text then
+        return Drift.WAIT_READY_DEFAULT
     end
     return string.format(Drift.WAIT_READY_MEASURED, text)
+end
+
+-- The chat line's half of it: `usually takes about 3 minutes`, which is the
+-- owner's own phrasing and reads as a sentence where the strip's does not.
+function Drift.ChatReadyText(seconds)
+    local text = Drift.RunText(seconds)
+    if not text then
+        return Drift.WAIT_CHAT_DEFAULT
+    end
+    return string.format(Drift.WAIT_CHAT_MEASURED, text)
 end
 
 -- Called by `ns.Companion.Refresh` immediately before it reloads: the stamp has
@@ -430,6 +459,21 @@ function Drift.Listen()
     return frame
 end
 
+-- The chat line, once per load, and only when a refresh is still out there
+-- (M3-16b). `Drift.Waiting` is the whole test: it is already true exactly
+-- between the refresh's reload and the plan the companion writes, and it
+-- clears itself on a failed run and on the give-up bound, so a load that has
+-- nothing to wait for says nothing. Returns the line it printed, or nil.
+function Drift.AnnounceWait(now)
+    if not Drift.Waiting(now) then
+        return nil
+    end
+    local db = store()
+    local line = string.format(Drift.WAIT_CHAT_LINE, Drift.ChatReadyText(db and db.runSeconds))
+    ns.Log("%s", line)
+    return line
+end
+
 ns.onReady[#ns.onReady + 1] = function()
     -- After `ns.Companion.Startup`, which is registered in Companion.lua and so
     -- runs before this one: the baseline has to be taken against the plan that
@@ -438,4 +482,8 @@ ns.onReady[#ns.onReady + 1] = function()
     Drift.RecordRun()
     Drift.Rebase()
     Drift.Listen()
+    -- After `Drift.RecordRun`, which is what the line's figure comes from, and
+    -- after `Rebase`, so a load that already carries the new plan has cleared
+    -- the wait and says nothing.
+    Drift.AnnounceWait()
 end

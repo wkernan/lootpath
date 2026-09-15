@@ -403,7 +403,36 @@ end
 -- companion clause says it outright instead, and the amber age is the second
 -- opinion. nil (not false) when the client does not say when the reset is; only
 -- a true makes the age amber.
+--
+-- **M3-16b (WKE-583): while a refresh is out there, the WAIT is the line.** R-6
+-- put it on the strip's second row and the owner never found it - his screen on
+-- 2026-09-15 read `...on Druid - companion, written 4 hours ago - vault pick:
+-- everything upgraded - companion: run st...`, cut at the window's width, and
+-- the one line that would have told him the rating was still being made was
+-- below it and past the cut. So the wait line replaces the facts
+-- on the strip's own row - first, alone, and short enough not to be cut - and
+-- the four facts go one surface in, to this tooltip, the way V-2 moved the
+-- content type. Nothing is lost and the wait cannot be scrolled off the end.
+-- It is the row the mouse already takes, so it is also the row that carries the
+-- click while the wait is on (`UI.StripClick`).
 function UI.StatusStripModel(now)
+    -- The wait, and only the wait: the `behind` nudge stays on its own row,
+    -- where a player who has not acted yet reads it. One model for both, so the
+    -- strip, the row and the minimap badge cannot disagree (R-6).
+    local drift = ns.Drift and ns.Drift.Model and ns.Drift.Model(now) or nil
+    local wait = drift and drift.kind == "wait" and drift or nil
+    -- The strip's line, out of the facts it would carry and the wait that
+    -- displaces them. The displaced facts go to the TOP of the tooltip, under
+    -- the wait's own sentence: they are the line the reader was looking at a
+    -- moment ago, and the sentence says what took their place.
+    local function lineFrom(parts, tooltip)
+        if not wait then
+            return table.concat(parts, UI.SEPARATOR)
+        end
+        table.insert(tooltip, 1, table.concat(parts, UI.SEPARATOR))
+        table.insert(tooltip, 1, wait.tooltip)
+        return wait.text
+    end
     -- The content type is deliberately dropped on the floor here: since V-2 it
     -- is the tooltip's, through UI.VerdictNoteText, and not the line's.
     local verdict, _, fellBack = UI.ActiveVerdict()
@@ -430,8 +459,9 @@ function UI.StatusStripModel(now)
             tooltip[#tooltip + 1] = companionNote
         end
         return {
-            text = UI.NO_VERDICT_STRIP .. UI.SEPARATOR .. companion,
+            text = lineFrom({ UI.NO_VERDICT_STRIP, companion }, tooltip),
             companion = companion,
+            wait = wait,
             tooltip = tooltip,
         }
     end
@@ -470,10 +500,11 @@ function UI.StatusStripModel(now)
         tooltip[#tooltip + 1] = companionNote
     end
     return {
-        text = table.concat(parts, UI.SEPARATOR),
+        text = lineFrom(parts, tooltip),
         stale = stale,
         fellBack = fellBack,
         companion = companion,
+        wait = wait,
         tooltip = tooltip,
     }
 end
@@ -881,8 +912,28 @@ local function buildStatusStrip(frame)
             GameTooltip:Hide()
         end
     end)
+    -- The wait's click (M3-16b). While the wait is the strip's first clause it
+    -- is also the strip's click, so the sentence `click to load it` is true of
+    -- the row it is written on; with no wait on the strip the row is facts and
+    -- the press does nothing. `OnMouseUp` rather than an OnClick because the
+    -- strip is a Frame with two buttons of its own on it, and it is a hardware
+    -- event either way, which is what `ReloadUI` requires (M3-16a).
+    strip:SetScript("OnMouseUp", function()
+        UI.StripClick(frame)
+    end)
 
     buildNudgeRow(frame, strip)
+end
+
+-- What a press on the strip does: the wait's own click when the strip is
+-- carrying the wait, and nothing at all otherwise. Returns what `Drift.Click`
+-- returned, or nil.
+function UI.StripClick(frame)
+    frame = frame or UI.frame
+    if not (frame and frame.stripModel and frame.stripModel.wait) then
+        return nil
+    end
+    return ns.Drift.Click()
 end
 
 -- Redraws the strip from the facts as they are now. Its own function because
@@ -902,12 +953,17 @@ end
 -- Draws, or takes away, the second row. The strip's own height carries it, so
 -- the tabs' panels - anchored to the strip's BOTTOMLEFT - move with it, and the
 -- window has no gap when there is nothing to nudge about.
+--
+-- Since M3-16b (WKE-583) the row is the NUDGE's alone: the wait is the strip's
+-- own first clause, where it cannot be missed, and drawing it here as well
+-- would say one thing twice.
 function UI.RefreshNudge(frame)
     frame = frame or UI.frame
     if not (frame and frame.nudgeButton) then
         return nil
     end
-    local model = ns.Drift.Model()
+    local drift = ns.Drift.Model()
+    local model = drift and drift.kind == "behind" and drift or nil
     frame.nudgeModel = model
     if not model then
         frame.nudgeButton:Hide()
@@ -1141,9 +1197,11 @@ function UI.MinimapButton()
         GameTooltip:AddLine("Lootpath")
         GameTooltip:AddLine(UI.StatusStripModel().text)
         -- The same words the strip's second row carries, from the same builder,
-        -- so the two surfaces cannot say different things about one fact.
+        -- so the two surfaces cannot say different things about one fact. The
+        -- WAIT is not added again: since M3-16b it is already the strip line
+        -- above (`UI.StatusStripModel`).
         local nudge = ns.Drift.Model()
-        if nudge then
+        if nudge and nudge.kind == "behind" then
             GameTooltip:AddLine(nudge.text)
         end
         GameTooltip:AddLine("Left-click to open, right-click for options, drag to move.")
@@ -1168,25 +1226,30 @@ function UI.MinimapButton()
     return button
 end
 
--- The badge is the NUDGE's alone, read off the same model the row is drawn
--- from. The WAIT is deliberately not on the minimap: a player who is waiting has
--- already clicked, and a mark that stays up while the thing it asked for is
--- happening teaches the reader to ignore it.
+-- The badge, for both states, read off the same model every other surface is
+-- drawn from.
+--
+-- R-6 kept the WAIT off the minimap on the argument that a player who is
+-- waiting has already clicked. M3-16b (WKE-583) overturns it on the owner's own
+-- evidence: with the window shut - which is where he is, because he has just
+-- reloaded and gone back to playing - the minimap button is the only surface
+-- Lootpath has, and "the refresh is still happening" is exactly what he said he
+-- had no way to know. The badge goes out the moment the wait does, which is
+-- what keeps it from becoming a mark that is always up.
 function UI.RefreshMinimapDot()
     local button = UI.minimapButton
     if not (button and button.driftDot) then
         return nil
     end
     local model = ns.Drift.Model()
-    local behind = model and model.kind == "behind" and model or nil
-    if behind then
+    if model then
         button.driftDot:Show()
         button.driftDotAccent:Show()
     else
         button.driftDot:Hide()
         button.driftDotAccent:Hide()
     end
-    return behind
+    return model
 end
 
 -- The AddOn Compartment's entry point. `## AddonCompartmentFunc: LootpathToggle`

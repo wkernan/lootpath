@@ -361,6 +361,29 @@ ns.RegisterCapture(
 -- lines 69-91, read 2026-09-14). The owner cannot open the Great Vault window
 -- on this client at all, so "open it first" is not available to him.
 --
+-- **M3-16b (WKE-583): on RESET DAY the interaction is not what generates the
+-- rewards, and the owner's window opens after all.** Measured on 2026-09-15,
+-- the first day of the new week, in the owner's own SavedVariables: the refresh
+-- at 19:09:29Z asked, `WEEKLY_REWARDS_UPDATE` came back in 113.2 ms, and the
+-- read after it was the read before it - 10 activities, every `rewards = {}`,
+-- 0 reward links, `HasGeneratedRewards()` false. The owner then OPENED the
+-- Great Vault window (it opened; on 2026-09-08/09 it would not) and ran
+-- `/lootpath capture vault` with it shown: 11 activities, 5 carrying rewards,
+-- `HasGeneratedRewards()` and `CanClaimRewards()` true, 9 reward links. The
+-- window is what generated them; this capture's one interaction did not, and
+-- the addon does not get a second exception to try to (ARCHITECTURE.md §7,
+-- 2026-09-15). What the Vault tab says instead is `VaultPanel.OPEN_VAULT_NOTE`.
+--
+-- **What this capture does have to do is stop settling on the first update.**
+-- Blizzard's frame re-reads on EVERY `WEEKLY_REWARDS_UPDATE` while it is shown
+-- (`WeeklyRewardsMixin:OnEvent`, same file), and until M3-16b this capture read
+-- once, on the first, and closed. So it now reads on every update inside the
+-- bound and settles when a read CARRIES rewards or the bound ends, and
+-- `interact.updates` records every update's stamp and what it carried -
+-- `{ { ms, activities, links }, ... }` - which is how the next transcript will
+-- say whether a second or third update ever brings data the first did not.
+-- `CloseInteraction` still runs once, at the end, on every path out.
+--
 -- **This is the second recorded exception to "captures only read"** (the first
 -- is the journal's view state, ARCHITECTURE.md §7 2026-09-06), allowed by the
 -- owner's decision of 2026-09-14. `OnUIInteract` tells the server the player is
@@ -371,10 +394,13 @@ ns.RegisterCapture(
 --
 -- **The exception has a second limit since R-7 (WKE-579): it never happens at
 -- the flush.** The capture sequence at `PLAYER_LOGOUT` - which fires on a
--- `/reload` as well as on a logout (R-7a, WKE-582) - passes `skipInteract`, so
--- `OnUIInteract` is not called there at all - there is no time to wait for the
--- server's answer and nothing left running to receive it - and the snapshot
--- records `interact.skipped = "flush"`.
+-- `/reload` as well as on a logout (R-7a, WKE-582) - has no time to wait for
+-- the server's answer and nothing left running to receive it. R-7 read the
+-- vault there plainly and said so; M3-16b takes the vault out of that sequence
+-- altogether (`Companion.FLUSH_CAPTURES`), because a read that cannot ask can
+-- only shadow one that did: the owner's 19:09:31Z flush snapshot, two seconds
+-- after the refresh's, is the one the companion built its reset-day profile
+-- from and it carried nothing.
 --
 -- Every C_WeeklyRewards function this capture calls, with the exported
 -- documentation line it comes from (Ketho's
@@ -395,10 +421,12 @@ ns.RegisterCapture(
 -- **The snapshot keeps both reads.** `activities` / `rewardLinks` /
 -- `exampleLinks` at the top level are the BEFORE read - what the client says
 -- with no interaction, exactly as every snapshot to date has carried it - and
--- `interact.after` holds the same three lists read again once the update fires.
--- Nothing is copied between them: a reader that wants the best list takes
--- `interact.after` when it is there and the top level otherwise, which is what
--- `VaultPanel.NameFromCaptures` and the companion's `vaultRows` do.
+-- `interact.after` holds the same three lists read again once the update fires;
+-- since M3-16b it is the LAST update's read rather than the first's, because
+-- every update inside the bound is read. Nothing is copied between them: a
+-- reader that wants the best list takes `interact.after` when it is there and
+-- the top level otherwise, which is what `VaultPanel.NameFromCaptures` and the
+-- companion's `vaultRows` do.
 local VAULT_FUNCTION_NAMES = {
     "AreRewardsForCurrentRewardPeriod",
     "CanClaimRewards",
@@ -412,15 +440,13 @@ local VAULT_FUNCTION_NAMES = {
 }
 
 -- How long the capture waits for WEEKLY_REWARDS_UPDATE after OnUIInteract.
--- Nothing has measured how fast the server answers yet - the first
--- `/lootpath refresh` on a synced build is what will say - so the bound is the
--- owner's "a few seconds" and the snapshot records whether it fired and how
--- long it took rather than assuming either.
+-- Since M3-16b it is not a wait for ONE update but the window every update is
+-- read inside. The first answers fast - 66.7, 77.1, 113.2 and 130.9 ms in the
+-- owner's four asked refreshes of 2026-09-15 (his SavedVariables, read with
+-- `tools/companion/lib/lua-savedvariables.js`) - so the bound is not about the
+-- first answer at all; it is how long a second or third one is waited for, and
+-- it stays the owner's "a few seconds".
 ns.VAULT_INTERACT_TIMEOUT_SECONDS = 5
-
--- Why a capture read the vault without asking the client for the withheld
--- rewards (R-7, WKE-579). One string, here beside the bound it replaces.
-ns.VAULT_SKIPPED_REASON = "a logout has no time to ask the client and nothing to wait with"
 
 -- The three lists, read together. Called once before the interaction and, when
 -- the client answers, once after it; nothing is normalised either time.
@@ -460,38 +486,52 @@ end
 -- copies, because the exception the owner allowed on 2026-09-14 is exactly
 -- this pair of calls and it must not be able to drift into two versions.
 --
--- `record` is filled IN PLACE - `interact`, `updateFired`, `timedOut`,
--- `waitedMs`, `close` - so the caller keeps whatever else it wrote there.
--- `onFired`, when given, runs while the interaction is still open and the
--- server's answer is fresh (the capture reads the lists a second time there).
+-- `record` is filled IN PLACE - `interact`, `updateFired`, `updates`,
+-- `timedOut`, `waitedMs`, `close` - so the caller keeps whatever else it wrote
+-- there.
+--
+-- `onUpdate`, when given, runs on EVERY `WEEKLY_REWARDS_UPDATE` inside the
+-- bound, while the interaction is still open and the server's answer is fresh
+-- (the capture reads the lists again there). It is handed `(record, entry)`,
+-- where `entry` is that update's own row in `record.updates` and already
+-- carries its `ms`; what it returns decides whether this is the answer -
+-- truthy settles, falsy waits for the next update or the bound. With no
+-- `onUpdate` at all the FIRST update settles, which is the login ask: it reads
+-- nothing, so a second update has nothing to tell it.
+--
 -- `onDone` runs exactly once on every path out, after `CloseInteraction`.
+--
+-- `timedOut` means the bound ended rather than `onUpdate` being satisfied, so
+-- an interaction that saw three updates and liked none of them says so; a
+-- separate `updateFired` says whether the client answered at all.
 --
 -- CloseInteraction is the other half of OnUIInteract and runs on every path out
 -- of here - the update, the timeout, and a client that errors on OnUIInteract
 -- itself. Blizzard's frame calls it from OnHide for the same reason: an
 -- interaction the server is never told ended is the one thing this could leave
 -- behind.
-function ns.VaultInteract(record, onFired, onDone)
+function ns.VaultInteract(record, onUpdate, onDone)
     local W = C_WeeklyRewards
     local startedAt = debugprofilestop and debugprofilestop() or nil
     local listener = CreateFrame("Frame")
     local settled = false
 
-    local function settle(fired)
+    local function elapsed()
+        if startedAt and debugprofilestop then
+            return debugprofilestop() - startedAt
+        end
+        return nil
+    end
+
+    local function settle(timedOut)
         if settled then
             return
         end
         settled = true
         listener:UnregisterEvent("WEEKLY_REWARDS_UPDATE")
         listener:SetScript("OnEvent", nil)
-        record.updateFired = fired
-        record.timedOut = not fired
-        if startedAt and debugprofilestop then
-            record.waitedMs = debugprofilestop() - startedAt
-        end
-        if fired and onFired then
-            onFired(record)
-        end
+        record.timedOut = timedOut
+        record.waitedMs = elapsed()
         record.close = ns.Probe(W.CloseInteraction)
         if onDone then
             onDone(record)
@@ -499,8 +539,18 @@ function ns.VaultInteract(record, onFired, onDone)
     end
 
     listener:SetScript("OnEvent", function(_, event)
-        if event == "WEEKLY_REWARDS_UPDATE" then
-            settle(true)
+        if event ~= "WEEKLY_REWARDS_UPDATE" or settled then
+            return
+        end
+        record.updateFired = true
+        record.updates = record.updates or {}
+        local entry = { ms = elapsed() }
+        record.updates[#record.updates + 1] = entry
+        if not onUpdate then
+            return settle(false)
+        end
+        if onUpdate(record, entry) then
+            settle(false)
         end
     end)
     listener:RegisterEvent("WEEKLY_REWARDS_UPDATE")
@@ -508,15 +558,15 @@ function ns.VaultInteract(record, onFired, onDone)
     if record.interact.error then
         -- The client refused the question; there is nothing to wait for, and
         -- CloseInteraction still runs on the way out.
-        settle(false)
+        settle(true)
         return record
     end
     if C_Timer and C_Timer.After then
         C_Timer.After(ns.VAULT_INTERACT_TIMEOUT_SECONDS, function()
-            settle(false)
+            settle(true)
         end)
     else
-        settle(false)
+        settle(true)
     end
     return record
 end
@@ -538,15 +588,8 @@ end
 ns.RegisterCapture(
     "vault",
     "Great Vault activities and reward links (asks the client for the rewards when it is holding them back)",
-    -- `args.skipInteract` is R-7's (WKE-579): the capture sequence at
-    -- `PLAYER_LOGOUT` has no time to ask the server anything and no way to wait
-    -- for an answer, so it passes `{ skipInteract = "flush" }` and gets the
-    -- plain read. The snapshot then says `interact.skipped = "flush"` rather
-    -- than looking like a refresh whose interaction was not needed. A table
-    -- rather than a string, so `/lootpath capture vault <text>` cannot reach it.
-    function(finish, args)
+    function(finish)
         local W = C_WeeklyRewards
-        local skipInteract = type(args) == "table" and args.skipInteract or nil
         local before = vaultLists(W)
         local hasAvailableRewards = ns.Probe(W and W.HasAvailableRewards)
         local data = {
@@ -571,27 +614,27 @@ ns.RegisterCapture(
         }
 
         local needed, reason = vaultNeedsInteraction(hasAvailableRewards, before)
-        if needed and skipInteract then
-            needed, reason = false, ns.VAULT_SKIPPED_REASON
-        end
         if needed and type(W and W.OnUIInteract) ~= "function" then
             needed, reason = false, "this client has no C_WeeklyRewards.OnUIInteract"
         end
         if not needed then
-            -- `skipped` is recorded whether or not the interaction would have
-            -- happened: what it says is that this read was the plain one and
-            -- why, which is true of every capture the flush takes.
-            data.interact = { attempted = false, reason = reason, skipped = skipInteract }
+            data.interact = { attempted = false, reason = reason }
             return finish(data)
         end
 
-        local record = { attempted = true, reason = reason, updateFired = false, timedOut = false }
+        local record = { attempted = true, reason = reason, updateFired = false, timedOut = false, updates = {} }
         data.interact = record
-        ns.VaultInteract(record, function()
-            -- While the interaction is still open and the server's answer is
-            -- fresh: the second read, kept beside the first rather than
-            -- replacing it.
-            record.after = vaultLists(W)
+        ns.VaultInteract(record, function(_, entry)
+            -- Every update inside the bound, not only the first (M3-16b): the
+            -- lists read again while the interaction is still open, kept beside
+            -- the first read rather than replacing it, and each update's row
+            -- says what THAT read carried. The answer is a read that carries
+            -- rewards; anything else leaves the listener up for the next one.
+            local read = vaultLists(W)
+            record.after = read
+            entry.activities = type(read.activities[1]) == "table" and #read.activities[1] or 0
+            entry.links = #read.rewardLinks
+            return entry.links > 0
         end, function()
             finish(data)
         end)

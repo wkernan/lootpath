@@ -1835,16 +1835,126 @@ describe("the nudge row (R-6)", function()
         assert.is_false(button.driftDot:IsShown())
     end)
 
-    -- The badge is the NUDGE's, not the wait's: a player who is waiting has
-    -- already clicked, and a mark that stays up while the thing it asked for is
-    -- happening teaches the reader to ignore it.
-    it("takes the badge off the launcher while the rating is being made", function()
+    -- M3-16b (WKE-583): the wait is the STRIP's, not the row's, and the badge
+    -- stays up for it. R-6 kept the badge off during the wait on the argument
+    -- that a player who is waiting has already clicked; the owner's own words
+    -- on 2026-09-15 are that with the window shut he has no way to know the
+    -- refresh is still happening, and the launcher is the only surface left.
+    -- Proven red by putting `model.kind == "behind"` back into
+    -- `UI.RefreshMinimapDot`: the badge goes out and the first assertion fails;
+    -- and by drawing the wait on the nudge row again: the second fails.
+    it("keeps the badge on the launcher while the rating is being made, and draws no second row", function()
         local button = ns.UI.MinimapButton()
         behind(1, "Lightgrasp Worldroot")
         ns.db.global.drift.refreshStartedAt = date("!%Y-%m-%dT%H:%M:%SZ", math.floor(time()))
+        local model = ns.UI.RefreshStrip(frame)
+        assert.is_true(button.driftDot:IsShown())
+        assert.is_false(frame.nudgeButton:IsShown())
+        assert.equal(ns.UI.STRIP_HEIGHT, frame.statusStrip.height)
+        assert.is_truthy(model.text:find("rating your gear", 1, true))
+        -- and the launcher's hover says it once, not twice
+        button:GetScript("OnEnter")(button)
+        local _, saidTwice = world.tooltip.stub:Text():gsub("rating your gear", "")
+        assert.equal(1, saidTwice)
+    end)
+end)
+
+-- M3-16b (WKE-583): the wait indicator, on the strip's own row.
+--
+-- The owner's screen on 2026-09-15 read `...on Druid - companion, written 4
+-- hours ago - vault pick: everything upgraded - companion: run st...`, cut at
+-- the window's width, and R-6's `rating your gear ... click to load it` was
+-- below it and past the cut, so he could not find it and assumed the refresh
+-- had finished. What is measured here is that the wait line is the FIRST thing
+-- on the strip and fits inside the width his own screen drew.
+describe("the wait on the strip (M3-16b)", function()
+    local ns, world, frame
+
+    local function importDungeon()
+        frame.pasteBox:SetText(readFile(DUNGEON_EXPORT))
+        frame.importButton:Click()
+        return ns.QEImport.Current()
+    end
+
+    -- The same budget, and the same reasoning, as the V-2 test above: the
+    -- owner's own cut line counted in characters, a proxy and a lower bound on
+    -- the width the strip really has, never a pixel claim.
+    local STRIP_BUDGET_CHARS = 104
+
+    local function charCount(text)
+        return #text - select(2, text:gsub("[\128-\191]", ""))
+    end
+
+    local function waiting()
+        ns.db.global.drift = ns.db.global.drift or {}
+        ns.db.global.drift.refreshStartedAt = date("!%Y-%m-%dT%H:%M:%SZ", math.floor(time()))
+    end
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        frame = ns.UI.Frame()
+        frame:Show()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- Proven red by appending the wait to the line instead of leading with it
+    -- (`parts[#parts + 1] = wait.text`): the line starts with the spec and the
+    -- wait line is no longer at character 1.
+    it("puts the wait line first, whole, and inside the width the owner's screen drew", function()
+        importDungeon()
+        waiting()
+        local model = ns.UI.RefreshStrip(frame)
+        assert.is_table(model.wait)
+        assert.equal(model.wait.text, model.text)
+        assert.equal(1, model.text:find("rating your gear", 1, true))
+        assert.equal(model.text, frame.stripText.text)
+        assert.is_true(
+            charCount(model.text) <= STRIP_BUDGET_CHARS,
+            string.format("%d characters, budget %d: [%s]", charCount(model.text), STRIP_BUDGET_CHARS, model.text)
+        )
+        -- The whole wait clause is inside the first N characters, which is the
+        -- part of the line the owner's screen has been seen to draw.
+        assert.is_truthy(model.text:sub(1, STRIP_BUDGET_CHARS):find("click to load it", 1, true))
+    end)
+
+    -- The facts it displaced are moved, not lost - the same trade V-2 made with
+    -- the content type.
+    it("keeps the four facts it displaced, in the strip's own tooltip", function()
+        importDungeon()
+        local before = ns.UI.RefreshStrip(frame).text
+        waiting()
+        local model = ns.UI.RefreshStrip(frame)
+        assert.is_nil(model.text:find("vault pick", 1, true))
+        local tooltip = table.concat(model.tooltip, "\n")
+        assert.is_truthy(tooltip:find(before, 1, true))
+        assert.is_truthy(tooltip:find(ns.Drift.WAIT_TOOLTIP, 1, true))
+    end)
+
+    -- The row the sentence is written on is the row that answers the click, so
+    -- `click to load it` is true of it. Proven red by returning nil from
+    -- `UI.StripClick`: nothing reloads.
+    it("reloads when the strip is clicked, and does nothing when there is no wait", function()
+        importDungeon()
         ns.UI.RefreshStrip(frame)
-        assert.is_truthy(frame.nudgeButton.label.text:find("rating your gear", 1, true))
-        assert.is_false(button.driftDot:IsShown())
+        frame.statusStrip:GetScript("OnMouseUp")(frame.statusStrip)
+        assert.equal(0, world.reloads)
+        waiting()
+        ns.UI.RefreshStrip(frame)
+        frame.statusStrip:GetScript("OnMouseUp")(frame.statusStrip)
+        assert.equal(1, world.reloads)
+    end)
+
+    -- With nothing imported at all the line is still the wait's: an empty
+    -- window that is waiting has exactly one thing to say.
+    it("leads with the wait even with no export on this character", function()
+        waiting()
+        local model = ns.UI.RefreshStrip(frame)
+        assert.equal(1, model.text:find("rating your gear", 1, true))
+        assert.is_truthy(table.concat(model.tooltip, "\n"):find(ns.UI.NO_VERDICT_STRIP, 1, true))
     end)
 end)
 
