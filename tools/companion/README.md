@@ -31,16 +31,25 @@ rating is being made and roughly how long that takes, and clicking it again is
 the second refresh. The two-reload floor has not moved; what has changed is that
 nobody has to know it is there.
 
-**Log out, and your plan is current next time you log in; refresh only when you
-want a re-rating mid-session (R-7, WKE-579).** A logout flushes SavedVariables
-and this program wakes on that write, and since R-7 the addon takes the same
-four snapshots - gear, bags, vault, currencies - at `PLAYER_LOGOUT` itself. So
-what the write carries is the gear you logged out in, the run happens while you
-are away, and the plan is waiting when you come back. Nothing is asked of the
-server on the way out: the vault is read plainly, without M3-16's interaction,
-because a logout has no time to wait for an answer.
+**Log out or reload, and your plan is current next time you are in; refresh only
+when you want a re-rating mid-session (R-7, WKE-579; R-7a, WKE-582).** Unloading
+the interface flushes SavedVariables and this program wakes on that write, and
+since R-7 the addon takes the same four snapshots - gear, bags, vault,
+currencies - at `PLAYER_LOGOUT` itself. So what the write carries is the gear you
+were in, the run happens while you are away, and the plan is waiting when you
+come back. Nothing is asked of the server on the way out: the vault is read
+plainly, without M3-16's interaction, because there is no time to wait for an
+answer.
 
-Until R-7 this was true only if you refreshed first - the addon took its
+`PLAYER_LOGOUT` fires on a `/reload` as well as on a logout - the interface is
+unloaded either way - and nothing at that moment can tell the two apart; only
+the next load can, and by then the snapshot is written. So the capture runs on
+both, which is what makes the second reload of a refresh carry your current
+gear, and every snapshot it writes is labelled `flush`, which is true of either.
+R-7 labelled them `logout`, and this log printed `run after logout` for plain
+reloads until R-7a.
+
+Until R-7 the story was true only if you refreshed first - the addon took its
 snapshots nowhere but `/lootpath refresh`, so a logout after an evening of
 looting saved the morning's gear again and the run was skipped as unchanged.
 
@@ -48,17 +57,28 @@ The log says which happened, in one line per run:
 
 ```
 run after /lootpath refresh (gear captured at the click)
-run after logout (gear captured at logout)
+run after a logout or reload (gear captured at the flush)
 run after a capture made by hand
 run after a logout or a plain reload - nothing new was captured
 ```
 
 The second line is read off the addon's own label, not guessed at: every
-snapshot records how it was TAKEN (`trigger = "refresh"`, `"logout"` or
-`"command"`) and when. The last line still names two possibilities on purpose,
-and still has cases - a plain `/reload`, an addon from before R-7, or a forced
-logout in combat, where every capture refuses because nothing in Lootpath runs
+snapshot records how it was TAKEN (`trigger = "refresh"`, `"flush"` or
+`"command"`; `"logout"` from an addon at exactly R-7, which reads the same) and
+when. What it does NOT say is which of a logout and a reload it was, because
+nothing in the file knows. The last line still names two possibilities on
+purpose, and still has cases - an addon from before R-7, or a forced logout or
+reload in combat, where every capture refuses because nothing in Lootpath runs
 in combat and the last snapshot is flushed again.
+
+**Only the newest snapshot of each kind is ever read**, here and everywhere
+(`newestSnapshot`, `lib/simc-profile.js`). Since R-7a the addon keeps only the
+four newest of each kind in SavedVariables (`ns.CAPTURE_HISTORY`): before it,
+nothing trimmed them and the owner's file grew from 6.1 MB to 11.0 MB in two
+days, all of which the game read and wrote at every login and every reload. A
+pull taken as evidence for an issue is committed under `spec/fixtures/captures/`
+and is unaffected; `--snapshot`, `--env-snapshot` and `--vault-snapshot` still
+index whatever a given transcript happens to hold.
 
 **A refresh with unchanged gear costs nothing.** Since C-4 (WKE-537) the
 companion fingerprints the profile it is about to ask QE Live about, remembers

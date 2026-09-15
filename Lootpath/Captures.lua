@@ -370,10 +370,11 @@ ns.RegisterCapture(
 -- `ClaimReward` and `SelectReward` are never called and are not named below.
 --
 -- **The exception has a second limit since R-7 (WKE-579): it never happens at
--- logout.** The capture sequence at `PLAYER_LOGOUT` passes `skipInteract`, so
+-- the flush.** The capture sequence at `PLAYER_LOGOUT` - which fires on a
+-- `/reload` as well as on a logout (R-7a, WKE-582) - passes `skipInteract`, so
 -- `OnUIInteract` is not called there at all - there is no time to wait for the
 -- server's answer and nothing left running to receive it - and the snapshot
--- records `interact.skipped = "logout"`.
+-- records `interact.skipped = "flush"`.
 --
 -- Every C_WeeklyRewards function this capture calls, with the exported
 -- documentation line it comes from (Ketho's
@@ -539,8 +540,8 @@ ns.RegisterCapture(
     "Great Vault activities and reward links (asks the client for the rewards when it is holding them back)",
     -- `args.skipInteract` is R-7's (WKE-579): the capture sequence at
     -- `PLAYER_LOGOUT` has no time to ask the server anything and no way to wait
-    -- for an answer, so it passes `{ skipInteract = "logout" }` and gets the
-    -- plain read. The snapshot then says `interact.skipped = "logout"` rather
+    -- for an answer, so it passes `{ skipInteract = "flush" }` and gets the
+    -- plain read. The snapshot then says `interact.skipped = "flush"` rather
     -- than looking like a refresh whose interaction was not needed. A table
     -- rather than a string, so `/lootpath capture vault <text>` cannot reach it.
     function(finish, args)
@@ -579,7 +580,7 @@ ns.RegisterCapture(
         if not needed then
             -- `skipped` is recorded whether or not the interaction would have
             -- happened: what it says is that this read was the plain one and
-            -- why, which is true of every capture the logout takes.
+            -- why, which is true of every capture the flush takes.
             data.interact = { attempted = false, reason = reason, skipped = skipInteract }
             return finish(data)
         end

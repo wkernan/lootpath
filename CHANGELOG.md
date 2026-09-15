@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### R-7a (WKE-582) - log out *or reload*, and Lootpath keeps only what it needs
+
+- **It is a reload as well as a logout, and now it says so.** The game unloads
+  the interface for both, so the snapshots R-7 takes "on the way out" were
+  already being taken on every `/reload` - and were being labelled a logout,
+  which the companion then printed for a plain reload. Nothing at that moment
+  can tell the two apart. So the capture keeps happening on both, which is what
+  makes the second reload of a refresh carry your current gear, and everything
+  it records now says `flush`: `run after a logout or reload (gear captured at
+  the flush)`. `run after logout` is gone, because nothing could prove it.
+- **The saved file no longer grows forever.** Lootpath kept every snapshot it
+  had ever taken: the owner's file went from 6.1 MB to 11.0 MB in two days, 35
+  copies of the same bag scan among them, and the game reads and writes all of
+  it at every login and every reload. It now keeps the four newest of each kind
+  and drops the rest - enough to compare a refresh against what came before it,
+  and nothing beyond that.
+- **Nothing you look at changes.** The companion has always read the newest
+  snapshot of each kind and still does.
+
 ### R-7 (WKE-579) - log out, and your plan is current next time you log in
 
 - **Logging out now captures your gear.** Lootpath takes the same four
@@ -19,9 +38,9 @@
   already leaving. The Great Vault is read plainly; a capture that fails leaves
   the other three standing. A forced logout in combat captures nothing at all,
   because nothing in Lootpath runs in combat.
-- **The companion's log says which it was.** `run after logout (gear captured at
-  logout)` joins the three lines R-6 added, and is read off the addon's own
-  label rather than guessed at.
+- **The companion's log says which it was.** `run after a logout or reload (gear
+  captured at the flush)` joins the three lines R-6 added, and is read off the
+  addon's own label rather than guessed at.
 
 ### R-6 (WKE-578) - the window tells you when your gear has moved past the plan
 

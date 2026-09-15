@@ -58,9 +58,11 @@ function build(text, options) {
         counts: built.counts,
         capturedAtLocal: built.capturedAtLocal,
         // R-6 (WKE-578): how the newest `env` snapshot came to be taken, and
-        // when. `trigger` is "refresh" for a snapshot `/lootpath refresh` took
-        // and "command" for one typed by hand; a transcript written before R-6
-        // carries neither, and reads as unknown rather than as either.
+        // when. `trigger` is "refresh" for a snapshot `/lootpath refresh` took,
+        // "flush" for one the unload sequence took (R-7a, WKE-582; "logout" from
+        // an addon at exactly R-7) and "command" for one typed by hand; a
+        // transcript written before R-6 carries none of them, and reads as
+        // unknown rather than as any of them.
         capture: {
             trigger: (env && typeof env.trigger === 'string' && env.trigger) || null,
             capturedAt: (env && typeof env.capturedAt === 'number' && env.capturedAt) || null,
