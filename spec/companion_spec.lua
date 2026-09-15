@@ -1732,3 +1732,118 @@ describe("Companion.StatusText", function()
         assert.is_nil(ns.Companion.StatusTooltip({ state = "idle" }, ns.EpochFromISO(NOW)))
     end)
 end)
+
+-- C-11 (WKE-572): a Top Gear run is a sequence of passes, and the file says
+-- which pass each document is and what that pass was shown.
+--
+-- Pass 1 is the plan: it holds the equipped set, the vault options and their
+-- Catalyst clones, and it is what Equip Now, the Upgrade Map and the plan
+-- sentence read. A later pass is a rating for the items pass 1's thirty could
+-- not hold, and it must not reach any shelf the plan is drawn from.
+describe("Companion and the later Top Gear passes", function()
+    local ns
+
+    before_each(function()
+        ns = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function fileWithPasses(writtenAt)
+        return {
+            writtenAt = writtenAt or "2026-09-14T02:00:00Z",
+            companionVersion = "0.1.0",
+            exports = {
+                {
+                    schema = "qe-live-droptimizer",
+                    contentType = "Dungeon",
+                    scenario = "asOffered",
+                    pass = 1,
+                    considered = { { slot = "Head", name = "Worn Helm", level = 300, itemID = 111, bonusIDs = { 5 } } },
+                    excluded = {
+                        {
+                            slot = "Trinket",
+                            name = "Seed of Radiant Hope",
+                            level = 308,
+                            itemID = 222,
+                            bonusIDs = { 7 },
+                        },
+                    },
+                    json = readFile(DUNGEON_EXPORT),
+                },
+                {
+                    schema = "qe-live-droptimizer",
+                    contentType = "Dungeon",
+                    scenario = "asOffered",
+                    pass = 2,
+                    considered = {
+                        {
+                            slot = "Trinket",
+                            name = "Seed of Radiant Hope",
+                            level = 308,
+                            itemID = 222,
+                            bonusIDs = { 7 },
+                        },
+                    },
+                    -- The same content type, because a later pass is the same
+                    -- question over the pool the first one could not hold. The
+                    -- content type is the JSON's own (QEImport.ContentTypeKey),
+                    -- so a Raid document here would be a Raid answer whatever
+                    -- the pass number said.
+                    json = readFile(DUNGEON_EXPORT),
+                },
+            },
+        }
+    end
+
+    it("reads the pass off each document, and a document that says nothing is the first", function()
+        local entry = ns.Companion.Entry(fileWithPasses().exports[2], 2)
+        assert.is_true(entry.ok, entry.reason)
+        assert.equal(2, entry.pass)
+        assert.equal(1, #entry.considered)
+        assert.equal("Seed of Radiant Hope", entry.considered[1].name)
+        -- Every file written before C-11, and every paste: nothing said, and
+        -- nothing said is the first pass.
+        local old = ns.Companion.Entry({ schema = "qe-live-droptimizer", json = readFile(DUNGEON_EXPORT) }, 1)
+        assert.is_nil(old.pass)
+        assert.is_nil(old.considered)
+        -- A number that is not a pass is no evidence of one.
+        local wrong =
+            ns.Companion.Entry({ schema = "qe-live-droptimizer", pass = 0, json = readFile(DUNGEON_EXPORT) }, 1)
+        assert.is_nil(wrong.pass)
+    end)
+
+    it("imports both passes and files the later one where the plan cannot reach it", function()
+        local result = ns.Companion.ImportAll(fileWithPasses())
+        assert.is_true(result.ok, result.reason)
+        assert.equal(2, #result.imported)
+        assert.same({ 1, 2 }, { result.imported[1].pass, result.imported[2].pass })
+        assert.same({}, result.skipped)
+
+        -- The Dungeon shelf is pass 1's document and only pass 1's. The
+        -- second export here is the RAID document, so a pass-2 answer landing
+        -- on the plan's shelf would be plainly visible as the wrong spec line.
+        local plan = ns.QEImport.ForContentTypeAndScenario("Dungeon", "asOffered")
+        assert.equal(1, ns.QEImport.PassKey(plan))
+        assert.equal(1, #ns.QEImport.Scenarios("Dungeon"))
+        local passes = ns.QEImport.Passes("Dungeon", "asOffered")
+        assert.equal(1, #passes)
+        assert.equal(2, passes[1].pass)
+        -- The pool the pass saw travels onto the verdict, because the road
+        -- model reads "did this pass see it" off whichever verdict is on
+        -- screen, not off the file it arrived in.
+        assert.equal(1, #passes[1].verdict.considered)
+        assert.equal("Seed of Radiant Hope", passes[1].verdict.considered[1].name)
+        assert.equal("Seed of Radiant Hope", plan.excluded[1].name)
+    end)
+
+    it("reads the same file twice as nothing new, pass by pass", function()
+        local raw = fileWithPasses()
+        assert.equal(2, #ns.Companion.ImportAll(raw).imported)
+        local second = ns.Companion.ImportAll(raw)
+        assert.equal(0, #second.imported)
+        assert.equal(2, #second.unchanged)
+    end)
+end)

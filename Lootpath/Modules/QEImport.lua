@@ -862,6 +862,29 @@ function QEImport.ScenarioKey(verdict)
     return QEImport.UNKNOWN_SCENARIO
 end
 
+-- Which Top Gear pass a verdict is (C-11, WKE-572).
+--
+-- QE Live's Top Gear answers a question about thirty items, and the character
+-- owns more, so the companion asks him again over what the first pass left out.
+-- Pass 1 holds the character's baseline - the equipped set, the vault options
+-- and their clones - so it and it ALONE is the plan: the Equip Now tab, the
+-- Upgrade Map, the plan sentence and the best set are pass 1's and nothing
+-- else's. A later pass is a rating for the items pass 1 never saw, over a pool
+-- that is the same baseline plus those items, and it is filed where nothing
+-- that draws the plan can reach it.
+--
+-- A verdict that says nothing is pass 1, which is every paste and every file
+-- written before C-11.
+QEImport.FIRST_PASS = 1
+
+function QEImport.PassKey(verdict)
+    local pass = type(verdict) == "table" and verdict.pass or nil
+    if type(pass) ~= "number" or pass % 1 ~= 0 or pass < QEImport.FIRST_PASS then
+        return QEImport.FIRST_PASS
+    end
+    return pass
+end
+
 function QEImport.Store(verdict)
     if type(verdict) ~= "table" then
         return { ok = false, reason = "no rating to store" }
@@ -872,6 +895,25 @@ function QEImport.Store(verdict)
     verdict.importedAt = time()
     local contentType = QEImport.ContentTypeKey(verdict)
     local scenario = QEImport.ScenarioKey(verdict)
+    local pass = QEImport.PassKey(verdict)
+    -- A later pass never touches a shelf the plan is read off (C-11). It goes
+    -- on its own, under the content type and scenario its pass 1 is under, so
+    -- "what rated this item" can be asked without any surface that draws the
+    -- week's plan ever seeing a set built over a pool the plan did not use.
+    if pass > QEImport.FIRST_PASS then
+        ns.db.char.qePassesByScenario = ns.db.char.qePassesByScenario or {}
+        local byPass = ns.db.char.qePassesByScenario
+        byPass[contentType] = byPass[contentType] or {}
+        byPass[contentType][scenario] = byPass[contentType][scenario] or {}
+        byPass[contentType][scenario][pass] = verdict
+        return { ok = true, verdict = verdict }
+    end
+    -- A new first pass is a new run, so the later passes of the run before it
+    -- are gone: they rated a pool this file has just replaced, and leaving them
+    -- would let a stale pass-3 answer outlive the plan it belonged to.
+    if ns.db.char.qePassesByScenario and ns.db.char.qePassesByScenario[contentType] then
+        ns.db.char.qePassesByScenario[contentType][scenario] = nil
+    end
     ns.db.char.qeImportsByScenario = ns.db.char.qeImportsByScenario or {}
     local byScenario = ns.db.char.qeImportsByScenario
     byScenario[contentType] = byScenario[contentType] or {}
@@ -911,6 +953,14 @@ end
 function QEImport.Existing(verdict)
     local contentType = QEImport.ContentTypeKey(verdict)
     local scenario = QEImport.ScenarioKey(verdict)
+    local pass = QEImport.PassKey(verdict)
+    -- Since C-11 a Top Gear verdict is identified by content type, scenario AND
+    -- pass: a pass-2 answer compared against pass 1's would look like a repeat
+    -- of it on the second `/reload` and be dropped as unchanged, and the item
+    -- pass 2 exists to rate would go back to saying nothing.
+    if pass > QEImport.FIRST_PASS then
+        return QEImport.ForPass(contentType, scenario, pass)
+    end
     local stored = QEImport.ForContentTypeAndScenario(contentType, scenario)
     if stored then
         return stored
@@ -932,6 +982,46 @@ function QEImport.ForContentTypeAndScenario(contentType, scenario)
     local byScenario = ns.db and ns.db.char and ns.db.char.qeImportsByScenario
     local shelf = byScenario and byScenario[contentType]
     return shelf and shelf[scenario] or nil
+end
+
+-- The stored verdict for one later pass of one content type and scenario, or
+-- nil. Pass 1 is never here: it is the plan, and it lives on the shelf above.
+function QEImport.ForPass(contentType, scenario, pass)
+    if type(contentType) ~= "string" or type(scenario) ~= "string" or type(pass) ~= "number" then
+        return nil
+    end
+    local byPass = ns.db and ns.db.char and ns.db.char.qePassesByScenario
+    local shelf = byPass and byPass[contentType] and byPass[contentType][scenario]
+    return shelf and shelf[pass] or nil
+end
+
+-- Every later pass for one content type and scenario, in pass order (C-11).
+--
+-- This is the ONE place the pass shelf is read, so no surface can invent a
+-- second order for it. Pass 1 is deliberately absent: a caller that wants the
+-- plan asks for the plan, and a list that mixed the two would make it possible
+-- to draw a best set out of a pass that never saw the vault.
+function QEImport.Passes(contentType, scenario)
+    if type(contentType) ~= "string" or type(scenario) ~= "string" then
+        return {}
+    end
+    local byPass = ns.db and ns.db.char and ns.db.char.qePassesByScenario
+    local shelf = byPass and byPass[contentType] and byPass[contentType][scenario]
+    if type(shelf) ~= "table" then
+        return {}
+    end
+    local numbers = {}
+    for pass in pairs(shelf) do
+        if type(pass) == "number" and pass > QEImport.FIRST_PASS then
+            numbers[#numbers + 1] = pass
+        end
+    end
+    table.sort(numbers)
+    local out = {}
+    for _, pass in ipairs(numbers) do
+        out[#out + 1] = { verdict = shelf[pass], pass = pass }
+    end
+    return out
 end
 
 -- Every stored answer for one content type, in the order the scenarios are

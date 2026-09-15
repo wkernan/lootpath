@@ -643,6 +643,141 @@ describe("Roads over the owner's week of 2026-09-08", function()
         assert.equal(ns.Roads.PHRASE_NOT_RATED_NEW, ns.Roads.ForItem(record.key, inputs).phrase)
     end)
 
+    -- C-11 (WKE-572). The owner's 2026-09-14 screen: 22 trinket rows and a pile
+    -- of belts, boots and rings all reading "not rated - beyond the rating's
+    -- item limit", because his 63 cards do not fit QE Live's thirty. The
+    -- companion asks again over the leftovers now, and an item's rating comes
+    -- from the pass that considered it.
+    describe("an item a later pass rated", function()
+        local record
+
+        local function firstBagRecord()
+            for _, entry in ipairs(inputs.inventory.records) do
+                if entry.location == "bag" and entry.name and entry.key then
+                    return entry
+                end
+            end
+        end
+
+        -- A pass-2 document as the verdict file carries it: the pool it was
+        -- shown, and its own top set. Nothing here is merged with pass 1 and no
+        -- two numbers are combined.
+        local function passDocument(considered, topSetKeys)
+            local items = {}
+            for _, key in ipairs(topSetKeys or {}) do
+                items[key] = { key = key, level = 600 }
+            end
+            return {
+                {
+                    pass = 2,
+                    verdict = {
+                        considered = ns.Companion.Excluded(considered),
+                        topSet = { items = items },
+                    },
+                },
+            }
+        end
+
+        before_each(function()
+            record = firstBagRecord()
+            -- Pass 1 never saw it: it is on the leftover list the plan's own
+            -- document carries, which before C-11 was the end of the story.
+            inputs.excluded = ns.Companion.Excluded({
+                {
+                    name = record.name,
+                    slot = record.slot,
+                    level = record.itemLevel,
+                    itemID = record.itemID,
+                    bonusIDs = record.bonusIDs,
+                },
+            })
+        end)
+
+        it("says it beats what you wear when the later pass put it in that pass's best set", function()
+            -- Proved red first: with no later pass the line is still the limit
+            -- tail, which is the screen the owner read.
+            assert.equal(ns.Roads.PHRASE_NOT_RATED_LIMIT, ns.Roads.ForItem(record.key, inputs).phrase)
+
+            inputs.passes = passDocument({
+                {
+                    name = record.name,
+                    slot = record.slot,
+                    level = record.itemLevel,
+                    itemID = record.itemID,
+                    bonusIDs = record.bonusIDs,
+                },
+            }, { record.key })
+            local answer = ns.Roads.ForItem(record.key, inputs)
+            assert.equal(ns.Roads.PHRASE_RATED_LATER, answer.phrase)
+            assert.equal("rated · better than what you wear", answer.phrase)
+            assert.equal(2, answer.laterPass)
+            -- And the sentence above the line takes the plan's own position on
+            -- it: the plan did not weigh this item, so it does not say "skip".
+            assert.equal(ns.Roads.BEATS_WORN_SENTENCE, ns.Roads.ItemSentence(answer))
+        end)
+
+        it("says it is not in your best set when the later pass did not pick it", function()
+            -- A pool that held everything the character is wearing and did not
+            -- pick this item is a pool the fuller one could not have picked it
+            -- out of either, so the third phrase is honest here and no number
+            -- travels with it: a later pass's percents are against that pass's
+            -- own top set.
+            inputs.passes = passDocument({
+                {
+                    name = record.name,
+                    slot = record.slot,
+                    level = record.itemLevel,
+                    itemID = record.itemID,
+                    bonusIDs = record.bonusIDs,
+                },
+            }, {})
+            local answer = ns.Roads.ForItem(record.key, inputs)
+            assert.equal(ns.Roads.PHRASE_NOT_IN_BEST_SET, answer.phrase)
+            assert.equal(2, answer.laterPass)
+        end)
+
+        it("keeps the limit tail for an item no pass was ever shown", function()
+            -- The bound the companion stops at: what it never asked about is
+            -- the one thing that still honestly reads "beyond the rating's item
+            -- limit", and a pass that saw some OTHER item does not cure it.
+            inputs.passes = passDocument({
+                { name = "Something Else", slot = "Finger", level = 600, itemID = 999001, bonusIDs = { 3 } },
+            }, {})
+            assert.equal(ns.Roads.PHRASE_NOT_RATED_LIMIT, ns.Roads.ForItem(record.key, inputs).phrase)
+        end)
+
+        it("answers off the identity, so an item's twin does not borrow its rating", function()
+            inputs.passes = passDocument({
+                {
+                    name = record.name,
+                    slot = record.slot,
+                    level = record.itemLevel,
+                    itemID = record.itemID,
+                    bonusIDs = record.bonusIDs,
+                },
+            }, { record.key })
+            local twin = { name = record.name, itemLevel = record.itemLevel, key = record.itemID .. ":1" }
+            assert.equal(ns.Roads.PHRASE_NOT_RATED_NEW, ns.Roads.NotRatedPhrase(nil, twin, twin.key, inputs.passes))
+            assert.equal(ns.Roads.PHRASE_RATED_LATER, ns.Roads.NotRatedPhrase(nil, record, record.key, inputs.passes))
+        end)
+
+        it("is not evidence that the plan is behind the bags", function()
+            -- A held piece a later pass rated is not a piece the document has
+            -- never seen, so it must not make the slot say "refresh to rate it"
+            -- (R-3b's defect 4 is about the other case).
+            inputs.passes = passDocument({
+                {
+                    name = record.name,
+                    slot = record.slot,
+                    level = record.itemLevel,
+                    itemID = record.itemID,
+                    bonusIDs = record.bonusIDs,
+                },
+            }, { record.key })
+            assert.is_false(ns.Roads.StaleBags(ns.Roads.ForSlot(record.slot, inputs), inputs))
+        end)
+    end)
+
     it("tells a vault option the plan looked at and left from one nothing rated", function()
         local lantern
         for _, option in ipairs(inputs.vault.options) do
@@ -1073,12 +1208,15 @@ describe("Roads vocabulary", function()
         H.unload()
     end)
 
-    it("keeps the four phrases exactly as the brief writes them", function()
+    it("keeps the phrases exactly as the brief writes them", function()
         assert.equal("not rated · new since the last refresh", ns.Roads.PHRASE_NOT_RATED_NEW)
         assert.equal("not rated · beyond the rating's item limit", ns.Roads.PHRASE_NOT_RATED_LIMIT)
         assert.equal("not in your best set", ns.Roads.PHRASE_NOT_IN_BEST_SET)
         assert.equal("no rating", ns.Roads.PHRASE_NO_RATING)
-        assert.equal(4, #ns.Roads.PHRASES)
+        -- The fifth is C-11's (WKE-572), and it is a RATED phrase: an item the
+        -- plan's own pass never saw, which a later pass put in its best set.
+        assert.equal("rated · better than what you wear", ns.Roads.PHRASE_RATED_LATER)
+        assert.equal(5, #ns.Roads.PHRASES)
     end)
 
     it("keeps the verb table to the five verbs that go somewhere", function()

@@ -1844,14 +1844,26 @@ function Panel.RoadInputs(opts, extra)
         journal = { sources = extra.sources, summary = opts.summary },
         difficultyLabels = extra.difficultyLabels,
         excluded = opts.excluded,
+        passes = opts.passes,
         now = opts.now,
     }
     -- The leftover list belongs to the document the roads are read under, and
     -- it travels on that document: taking it from anywhere else would be a
     -- second answer to "was this item left out" (C-10, WKE-567).
-    if inputs.excluded == nil then
+    --
+    -- The later passes belong to the same document for the same reason (C-11,
+    -- WKE-572): they are the rest of THAT run, filed under that run's content
+    -- type and scenario, and a pass from another scenario's run rated a
+    -- different question.
+    if inputs.excluded == nil or inputs.passes == nil then
         local entry = ns.Roads.Plan(inputs)
-        inputs.excluded = entry and entry.verdict and entry.verdict.excluded or nil
+        if inputs.excluded == nil then
+            inputs.excluded = entry and entry.verdict and entry.verdict.excluded or nil
+        end
+        if inputs.passes == nil and entry and entry.verdict then
+            inputs.passes =
+                ns.QEImport.Passes(ns.QEImport.ContentTypeKey(entry.verdict), ns.QEImport.ScenarioKey(entry.verdict))
+        end
     end
     return inputs
 end

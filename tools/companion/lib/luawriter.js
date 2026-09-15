@@ -207,12 +207,13 @@ function excludedList(value, where) {
     });
 }
 
-// The Lua lines for one such list, at the given indent. Written as an array of
-// tables so the addon can name each one; nothing here is computed and nothing
-// here is a healer value.
-function excludedLines(list, indent) {
+// The Lua lines for one such list, at the given indent, under the field `name`
+// (`excluded` or, since C-11, `considered`). Written as an array of tables so
+// the addon can name each one; nothing here is computed and nothing here is a
+// healer value.
+function excludedLines(list, indent, name) {
     const pad = ' '.repeat(indent);
-    const lines = [`${pad}excluded = {`];
+    const lines = [`${pad}${name || 'excluded'} = {`];
     for (const card of list) {
         const fields = [`slot = ${luaString(card.slot)}`, `name = ${luaString(card.name)}`];
         if (card.level !== null) fields.push(`level = ${luaNumber(card.level)}`);
@@ -245,6 +246,30 @@ function keyLevelOf(doc) {
         throw new Error(`document ${doc.kind}/${doc.contentType} carries a keyLevel, and only an Upgrade Finder document is run at a key level`);
     }
     return doc.keyLevel;
+}
+
+// Which Top Gear pass produced this document (WKE-572, C-11).
+//
+// A run over a character with more than thirty cards is a sequence of passes:
+// pass 1 is the pool C-8 chooses, and each later pass keeps the import-time
+// baseline and spends the room on the cards no pass has asked about yet. The
+// number is written because the addon reads an item's rating off the pass that
+// CONSIDERED it, and because the plan sentence and the best set come from pass
+// 1 and from nothing else - a pass-2 document filed as though it were pass 1
+// would put a set QE Live built over a different pool on the Equip Now tab.
+//
+// Absent means pass 1, so every file written before C-11 still says what it
+// said. An Upgrade Finder document is one run over every drop the walk knows
+// and chooses no pool, so it never carries a pass above 1.
+function passOf(doc) {
+    if (doc.pass === undefined || doc.pass === null) return null;
+    if (!Number.isInteger(doc.pass) || doc.pass < 1) {
+        throw new Error(`document ${doc.kind}/${doc.contentType} carries pass ${JSON.stringify(doc.pass)}, which is not a whole pass number from 1`);
+    }
+    if (doc.pass > 1 && doc.kind !== 'topgear') {
+        throw new Error(`document ${doc.kind}/${doc.contentType} carries pass ${doc.pass}, and only a Top Gear run makes more than one pass`);
+    }
+    return doc.pass;
 }
 
 function render(payload) {
@@ -299,9 +324,11 @@ function render(payload) {
         }
         const keyLevel = keyLevelOf(doc);
         const scenario = scenarioOf(doc);
+        const pass = passOf(doc);
         lines.push('        {', `            schema = ${luaString(SCHEMA_BY_KIND[doc.kind])},`, `            contentType = ${luaString(doc.contentType)},`);
         if (keyLevel !== null) lines.push(`            keyLevel = ${luaNumber(keyLevel)},`);
         if (scenario !== null) lines.push(`            scenario = ${luaString(scenario)},`);
+        if (pass !== null) lines.push(`            pass = ${luaNumber(pass)},`);
         lines.push('            qeSettings = {');
         for (const [key, value] of documentSettings(doc)) lines.push(`                ${key} = ${luaBoolean(value)},`);
         lines.push('            },');
@@ -313,6 +340,20 @@ function render(payload) {
                 );
             }
             lines.push(...excludedLines(docExcluded, 12));
+        }
+        // The other half of the pool (C-11): what this pass DID ask about. The
+        // addon reads an item's rating off the pass that considered it, so a
+        // document that cannot say what it saw is a document nothing can be
+        // asked of; and "considered by no pass at all" is the one thing that
+        // still honestly reads "beyond the rating's item limit".
+        const docConsidered = excludedList(doc.considered, `document ${doc.kind}/${doc.contentType}`);
+        if (docConsidered) {
+            if (doc.kind !== 'topgear') {
+                throw new Error(
+                    `document ${doc.kind}/${doc.contentType} carries a considered list, and only a Top Gear document chooses a pool`
+                );
+            }
+            lines.push(...excludedLines(docConsidered, 12, 'considered'));
         }
         lines.push(
             `            bytes = ${luaNumber(Buffer.byteLength(doc.json, 'utf8'))},`,
@@ -330,6 +371,7 @@ module.exports = {
     luaNumber,
     luaBoolean,
     keyLevelOf,
+    passOf,
     scenarioOf,
     documentSettings,
     excludedList,

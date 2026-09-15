@@ -1593,3 +1593,110 @@ describe("the alternative's own item list names the swapped item (R-0, WKE-561)"
         assert.is_true(alternative.Shoulder.isVault)
     end)
 end)
+
+-- C-11 (WKE-572): the later passes, and the shelf they may never reach.
+--
+-- QE Live's Top Gear answers a question about thirty items and the character
+-- owns more, so the companion asks him again over what the first pass left out.
+-- Pass 1 holds the baseline - the equipped set, the vault options and their
+-- clones - so pass 1 and only pass 1 is the plan. A later pass is a rating for
+-- the items pass 1 never saw, and it is filed where nothing that draws the plan
+-- can reach it.
+describe("QEImport and the later Top Gear passes", function()
+    local ns
+
+    before_each(function()
+        ns = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function verdictOf(scenario, pass)
+        local parsed = ns.QEImport.Parse(readFile(SCENARIO_EXPORTS[scenario]))
+        assert.is_true(parsed.ok, parsed.reason)
+        parsed.verdict.scenario = scenario
+        parsed.verdict.pass = pass
+        return parsed.verdict
+    end
+
+    it("reads a missing pass as the first one, and refuses a number that is not a pass", function()
+        assert.equal(1, ns.QEImport.FIRST_PASS)
+        assert.equal(1, ns.QEImport.PassKey({}))
+        assert.equal(1, ns.QEImport.PassKey(nil))
+        assert.equal(3, ns.QEImport.PassKey({ pass = 3 }))
+        -- Not a pass, so not evidence of one: it reads as the first, which is
+        -- what every paste and every file written before C-11 is.
+        assert.equal(1, ns.QEImport.PassKey({ pass = 0 }))
+        assert.equal(1, ns.QEImport.PassKey({ pass = 2.5 }))
+        assert.equal(1, ns.QEImport.PassKey({ pass = "2" }))
+    end)
+
+    -- The deliverable that matters most: a later pass answers a question over a
+    -- pool that has no vault option and no Catalyst clone in it, so a surface
+    -- that drew a best set out of one would tell the owner to skip his vault.
+    it("keeps every plan shelf answering pass one, whatever later passes are stored", function()
+        ns.QEImport.Store(verdictOf("asOffered", 1))
+        ns.QEImport.Store(verdictOf("maxed", 2))
+        local second = verdictOf("catalyzed", 2)
+        second.scenario = "asOffered"
+        ns.QEImport.Store(second)
+
+        assert.equal(5544.654, ns.QEImport.Current().topSet.score)
+        assert.equal(5544.654, ns.QEImport.ForContentType("Dungeon").topSet.score)
+        assert.equal(5544.654, ns.QEImport.ForContentTypeAndScenario("Dungeon", "asOffered").topSet.score)
+        local shelves = ns.QEImport.Scenarios("Dungeon")
+        assert.equal(1, #shelves)
+        assert.equal("asOffered", shelves[1].scenario)
+    end)
+
+    it("hands the later passes back in pass order, and never pass one among them", function()
+        ns.QEImport.Store(verdictOf("asOffered", 1))
+        local third = verdictOf("maxed", 3)
+        third.scenario = "asOffered"
+        local secondPass = verdictOf("catalyzed", 2)
+        secondPass.scenario = "asOffered"
+        ns.QEImport.Store(third)
+        ns.QEImport.Store(secondPass)
+
+        local passes = ns.QEImport.Passes("Dungeon", "asOffered")
+        assert.equal(2, #passes)
+        assert.equal(2, passes[1].pass)
+        assert.equal(3, passes[2].pass)
+        assert.equal(5724.919, passes[1].verdict.topSet.score)
+        assert.equal(5853.843, passes[2].verdict.topSet.score)
+        assert.same({}, ns.QEImport.Passes("Dungeon", "maxed"))
+        assert.same({}, ns.QEImport.Passes("Raid", "asOffered"))
+        assert.same({}, ns.QEImport.Passes(nil, "asOffered"))
+    end)
+
+    it("asks what a verdict replaces per pass, so pass two is not a repeat of pass one", function()
+        local first = verdictOf("asOffered", 1)
+        ns.QEImport.Store(first)
+        assert.equal(first, ns.QEImport.Existing(verdictOf("asOffered", 1)))
+        -- Nothing on the pass-2 shelf yet: without this the second document of
+        -- every run would look like a repeat of the first and be dropped, and
+        -- the items pass 2 exists to rate would go on saying nothing.
+        local second = verdictOf("catalyzed", 2)
+        second.scenario = "asOffered"
+        assert.is_nil(ns.QEImport.Existing(second))
+        ns.QEImport.Store(second)
+        assert.equal(second, ns.QEImport.Existing(second))
+        -- And a pass-2 answer is never compared against pass 1's.
+        assert.equal(first, ns.QEImport.Existing(verdictOf("asOffered", 1)))
+    end)
+
+    it("drops the old run's later passes when a new first pass arrives", function()
+        ns.QEImport.Store(verdictOf("asOffered", 1))
+        local second = verdictOf("catalyzed", 2)
+        second.scenario = "asOffered"
+        ns.QEImport.Store(second)
+        assert.equal(1, #ns.QEImport.Passes("Dungeon", "asOffered"))
+        -- A new first pass is a new run over new gear. Its later passes arrive
+        -- after it; what must not survive is the pass-3 answer of the run
+        -- before, which rated a pool this file has just replaced.
+        ns.QEImport.Store(verdictOf("asOffered", 1))
+        assert.same({}, ns.QEImport.Passes("Dungeon", "asOffered"))
+    end)
+end)

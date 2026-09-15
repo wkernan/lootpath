@@ -43,6 +43,18 @@ const DEFAULTS = {
     // C-6). See SCENARIOS below; the names are fixed and the file, the addon and
     // the Vault tab all use them verbatim.
     scenarios: ['asOffered', 'catalyzed', 'thisWeek', 'maxed'],
+    // How many Top Gear passes one import may make over one content type
+    // (WKE-572, C-11). A non-patron's Top Gear answers a question about thirty
+    // items and the character owns more, so one pass leaves the rest unrated;
+    // each later pass keeps the import-time baseline, drops the bag items the
+    // previous pass clicked and spends the room on cards nothing has asked
+    // about yet. Four because the owner's 2026-09-14 pool was 63 cards with 20
+    // active - ten new cards a pass - and four passes is the point where the
+    // wall clock of a refresh starts to matter more than the tail of the bag.
+    // A run that hits the bound says so in the log and leaves the rest on the
+    // file's `excluded` list, which is the one place that honestly still means
+    // "beyond the rating's item limit".
+    topGearPasses: 4,
     includeBank: true,
     // QE Live's own import checkboxes (SimCraftDialog.js lines 122-133), asked
     // for explicitly on every run rather than inherited (WKE-539, C-5).
@@ -173,6 +185,9 @@ function merge(config, raw) {
         }
     }
     if (!config.documents.length) throw new ConfigError('documents is empty, so there would be nothing to write');
+    if (!Number.isInteger(config.topGearPasses) || config.topGearPasses < 1) {
+        throw new ConfigError(`topGearPasses should be a whole number of passes, at least 1, not ${JSON.stringify(config.topGearPasses)}`);
+    }
     config.upgradeFinderKeyLevels = normaliseKeyLevels(config.upgradeFinderKeyLevels);
     config.scenarios = normaliseScenarios(config.scenarios);
     config.warnings = warnings;
