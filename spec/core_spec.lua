@@ -65,6 +65,56 @@ describe("Core", function()
         end)
     end)
 
+    -- V-4 (WKE-589). The owner read `companion, written 62 minutes ago` on a
+    -- stamp two minutes old, 2026-09-15 17:22 Central Daylight Time, and the
+    -- clock beside it said 16:22 for a 17:20 event. Every age and every wall
+    -- clock the addon prints goes through this function, so this is where it is
+    -- pinned. The clock below is MODELLED (spec/stubs/wow.lua, world.setClock):
+    -- CI's container is UTC and carries no timezone database, so the real
+    -- os.date and os.time can never put the suite on daylight time.
+    describe("EpochFromISO", function()
+        -- 2026-09-15T22:20:31Z and the same wall clock in January, as UTC
+        -- seconds. The stamps below are the UTC spelling of each.
+        local SUMMER = 1789510831
+        local WINTER = 1768515631
+
+        it("reads a stamp to the second while daylight time is in effect", function()
+            H.chicagoClock(world, SUMMER)
+            assert.equal(SUMMER, ns.EpochFromISO("2026-09-15T22:20:31Z", SUMMER))
+            -- and the two-minute age the owner should have read
+            assert.equal(120, (SUMMER + 120) - ns.EpochFromISO("2026-09-15T22:20:31Z", SUMMER + 120))
+        end)
+
+        it("reads a stamp to the second while standard time is in effect", function()
+            H.chicagoClock(world, WINTER)
+            assert.equal(WINTER, ns.EpochFromISO("2026-01-15T22:20:31Z", WINTER))
+        end)
+
+        -- The reason both tables say `isdst = false` rather than both saying
+        -- nothing: a stamp on the other side of a daylight boundary from `now`
+        -- is read by the same standard-time interpretation as `now` is, so the
+        -- two cancel there too. Letting mktime decide is an hour out here.
+        it("reads a stamp from the other side of a daylight boundary", function()
+            H.chicagoClock(world, SUMMER)
+            assert.equal(WINTER, ns.EpochFromISO("2026-01-15T22:20:31Z", SUMMER))
+            H.chicagoClock(world, WINTER)
+            assert.equal(SUMMER, ns.EpochFromISO("2026-09-15T22:20:31Z", WINTER))
+        end)
+
+        -- The host's own clock, whatever timezone the machine running this is
+        -- in: what date() wrote, EpochFromISO reads back.
+        it('is the inverse of date("!...") on the real clock', function()
+            local now = time()
+            assert.equal(now, ns.EpochFromISO(date("!%Y-%m-%dT%H:%M:%SZ", now), now))
+        end)
+
+        it("answers nil rather than a wrong second for what it cannot read", function()
+            assert.is_nil(ns.EpochFromISO("last Tuesday"))
+            assert.is_nil(ns.EpochFromISO(nil))
+            assert.is_nil(ns.EpochFromISO(1789510831))
+        end)
+    end)
+
     describe("Safe", function()
         it("passes ordinary values through", function()
             assert.same({ 42, false }, { ns.Safe(42) })

@@ -401,3 +401,85 @@ describe("the headless stub's widget surface", function()
         assert.equal("first\nsecond", GameTooltip.stub:Text())
     end)
 end)
+
+-- V-4 (WKE-589). The stub's modelled clock exists so a daylight-saving fault
+-- can be made red in a container that has no timezone database at all. It is
+-- only worth having if it behaves the way a real `date` and `mktime` do, so
+-- every number below was first read from musl's own pair under
+-- TZ=America/Chicago (`docker run -e TZ=America/Chicago lootpath-lua`, tzdata
+-- installed, 2026-09-15) and is asserted here against the model.
+describe("the headless stub's modelled clock", function()
+    local H = require("spec.helpers.addon")
+    local world
+
+    -- 2026-09-15T22:20:31Z, the stamp on the owner's screen, and the same wall
+    -- clock in January. Both computed as UTC seconds, not remembered.
+    local SUMMER = 1789510831
+    local WINTER = 1768515631
+
+    before_each(function()
+        world = Stub.install()
+        H.chicagoClock(world, SUMMER)
+    end)
+
+    after_each(function()
+        Stub.uninstall()
+    end)
+
+    it('writes UTC fields with isdst false, the way Lua\'s date("!*t") does', function()
+        local utc = date("!*t", SUMMER)
+        assert.equal(2026, utc.year)
+        assert.equal(9, utc.month)
+        assert.equal(15, utc.day)
+        assert.equal(22, utc.hour)
+        assert.equal(20, utc.min)
+        assert.equal(31, utc.sec)
+        assert.is_false(utc.isdst)
+        -- and in winter too: UTC never has a daylight offset
+        assert.is_false(date("!*t", WINTER).isdst)
+    end)
+
+    it("writes local fields with the instant's own isdst and offset", function()
+        local summer = date("*t", SUMMER)
+        assert.is_true(summer.isdst)
+        assert.equal(17, summer.hour) -- UTC-5
+        assert.equal(20, summer.min)
+        local winter = date("*t", WINTER)
+        assert.is_false(winter.isdst)
+        assert.equal(16, winter.hour) -- UTC-6
+        assert.equal("17:20", date("%H:%M", SUMMER))
+        assert.equal("16:20", date("%H:%M", WINTER))
+        assert.equal("22:20", date("!%H:%M", SUMMER))
+    end)
+
+    -- The field this whole issue turns on. musl, TZ=America/Chicago, on the UTC
+    -- fields of an instant in September: auto=1789881631 false=1789885231
+    -- true=1789881631 - `false` an hour later than the other two, because it
+    -- means "read these as STANDARD time" and standard time is an hour behind.
+    -- In January: auto=1768537231 false=1768537231 true=1768533631, the other
+    -- way round. The model reproduces both relationships.
+    it("reads isdst on the way in the way mktime reads tm_isdst", function()
+        local function at(epoch, isdst)
+            local t = date("!*t", epoch)
+            local fields = { year = t.year, month = t.month, day = t.day, hour = t.hour, min = t.min, sec = t.sec }
+            fields.isdst = isdst
+            return time(fields)
+        end
+        -- September: absent and true agree, false is an hour later
+        assert.equal(at(SUMMER, nil), at(SUMMER, true))
+        assert.equal(at(SUMMER, nil) + 3600, at(SUMMER, false))
+        -- January: absent and false agree, true is an hour earlier
+        assert.equal(at(WINTER, nil), at(WINTER, false))
+        assert.equal(at(WINTER, nil) - 3600, at(WINTER, true))
+        -- and `false` is the same 6 hours from the UTC wall clock in both,
+        -- which is what makes it the pairing ns.EpochFromISO uses
+        assert.equal(SUMMER - H.CHICAGO.standard, at(SUMMER, false))
+        assert.equal(WINTER - H.CHICAGO.standard, at(WINTER, false))
+    end)
+
+    it("answers bare time() with the modelled now", function()
+        assert.equal(SUMMER, time())
+        H.chicagoClock(world, WINTER)
+        assert.equal(WINTER, time())
+    end)
+end)

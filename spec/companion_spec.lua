@@ -1708,10 +1708,10 @@ describe("Companion.Status", function()
 end)
 
 describe("Companion.StatusText", function()
-    local ns
+    local ns, world
 
     before_each(function()
-        ns = H.load()
+        ns, world = H.load()
     end)
 
     after_each(function()
@@ -1805,6 +1805,35 @@ describe("Companion.StatusText", function()
         )
         -- a status with nothing to add adds nothing
         assert.is_nil(ns.Companion.StatusTooltip({ state = "idle" }, ns.EpochFromISO(NOW)))
+    end)
+
+    -- V-4 (WKE-589), the owner's screen at 2026-09-15 17:22 Central Daylight
+    -- Time: the strip read `companion, written 62 minutes ago` for a stamp two
+    -- minutes old and its tooltip put a 17:20 event at 16:22. The tests above
+    -- read their expected clock through the same function the code does, so an
+    -- hour's error passes through them unseen; these two say the hour out loud
+    -- on a MODELLED daylight clock instead.
+    describe("on a daylight-time clock", function()
+        local WRITTEN = "2026-09-15T22:20:31Z"
+        local AT = 1789510831 + 120 -- 22:22:31Z, two minutes later
+
+        before_each(function()
+            H.chicagoClock(world, AT)
+        end)
+
+        it("says two minutes, not sixty-two", function()
+            assert.equal(
+                "companion, written 2 minutes ago",
+                ns.Companion.SourceText({ source = "companion", companionWrittenAt = WRITTEN }, AT)
+            )
+        end)
+
+        it("puts the wall clock in the reader's own hour", function()
+            assert.equal(
+                "companion: profile unchanged, no run (17:20)",
+                ns.Companion.StatusText({ state = "skipped", finishedAt = WRITTEN }, AT)
+            )
+        end)
     end)
 end)
 

@@ -48,4 +48,32 @@ function H.unload()
     Stub.uninstall()
 end
 
+-- The owner's own timezone, as a rule the stub's modelled clock can follow
+-- (V-4, WKE-589). US Central: six hours behind UTC in winter, five during
+-- daylight time, which in 2026 runs from 2026-03-08T08:00Z to
+-- 2026-11-01T06:00Z. The two epochs are the transitions themselves, computed
+-- as UTC seconds rather than remembered. Every timezone fault the addon can
+-- have is one of these two offsets being used for the other one's instant, so
+-- one zone with one rule is the whole harness a test needs.
+H.CHICAGO = {
+    standard = -6 * 3600,
+    daylight = -5 * 3600,
+    daylightFrom = 1772956800,
+    daylightUntil = 1793512800,
+}
+
+-- Puts the stub's modelled clock on `world`, on the Central zone above, with
+-- bare `time()` answering `now`. Returns `now` so a test can read it back.
+function H.chicagoClock(world, now)
+    world.setClock({
+        now = now,
+        standard = H.CHICAGO.standard,
+        daylight = H.CHICAGO.daylight,
+        isDaylight = function(epoch)
+            return epoch >= H.CHICAGO.daylightFrom and epoch < H.CHICAGO.daylightUntil
+        end,
+    })
+    return now
+end
+
 return H

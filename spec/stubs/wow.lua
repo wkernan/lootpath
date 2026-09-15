@@ -1368,6 +1368,123 @@ function Stub.install()
     end)
     define("time", os.time)
     define("date", os.date)
+    -- A MODELLED clock, for the tests that have to pin what `time` and `date`
+    -- do across a daylight-saving boundary (V-4, WKE-589). `os.time` and
+    -- `os.date` answer for whatever timezone the machine running the suite is
+    -- in - UTC inside CI's container, and Alpine carries no tzdata at all - so a
+    -- fault that only shows while daylight time is in effect cannot be made red
+    -- against them. `world.setClock(zone)` swaps both globals for a pair that
+    -- models one zone with one daylight rule, the way C's `mktime` and
+    -- `localtime` behave:
+    --
+    --   world.setClock({
+    --       now = 1789856431,            -- what bare time() answers
+    --       standard = -6 * 3600,        -- offset from UTC outside daylight time
+    --       daylight = -5 * 3600,        -- offset from UTC during it
+    --       isDaylight = function(epoch) return ... end,
+    --   })
+    --
+    -- The three behaviours that matter, each checked against musl's own `date`
+    -- and `mktime` under TZ=America/Chicago on 2026-09-15 (spec/stubs_spec.lua
+    -- records the same three): `date("!*t")` answers UTC fields with
+    -- `isdst = false`; `date("*t")` answers local fields with the instant's own
+    -- `isdst`; and `time(t)` reads `t.isdst` the way `mktime` reads `tm_isdst` -
+    -- `false` means "these fields are standard time", `true` means "daylight
+    -- time", and ABSENT means "decide". Nothing else about a timezone is
+    -- modelled: there is one rule, it applies to every year, and an hour that a
+    -- transition repeats or skips resolves to the daylight reading when one
+    -- exists. A test that needs more than that needs a real clock, not this.
+    local function daysFromCivil(y, m, d)
+        y = m <= 2 and y - 1 or y
+        local era = math.floor(y / 400)
+        local yoe = y - era * 400
+        local mp = m > 2 and m - 3 or m + 9
+        local doy = math.floor((153 * mp + 2) / 5) + d - 1
+        local doe = yoe * 365 + math.floor(yoe / 4) - math.floor(yoe / 100) + doy
+        return era * 146097 + doe - 719468
+    end
+
+    local function civilFromDays(z)
+        z = z + 719468
+        local era = math.floor(z / 146097)
+        local doe = z - era * 146097
+        local yoe =
+            math.floor((doe - math.floor(doe / 1460) + math.floor(doe / 36524) - math.floor(doe / 146096)) / 365)
+        local y = yoe + era * 400
+        local doy = doe - (365 * yoe + math.floor(yoe / 4) - math.floor(yoe / 100))
+        local mp = math.floor((5 * doy + 2) / 153)
+        local d = doy - math.floor((153 * mp + 2) / 5) + 1
+        local m = mp < 10 and mp + 3 or mp - 9
+        return (m <= 2 and y + 1 or y), m, d
+    end
+
+    -- The six fields read as if they were UTC. `mktime` normalises out-of-range
+    -- fields and so does this: the arithmetic below never looks at a calendar.
+    local function fieldsAsUTC(t)
+        return daysFromCivil(t.year, t.month, t.day) * 86400 + (t.hour or 12) * 3600 + (t.min or 0) * 60 + (t.sec or 0)
+    end
+
+    function world.setClock(zone)
+        world.clock = zone
+        local function offsetAt(epoch)
+            return zone.isDaylight(epoch) and zone.daylight or zone.standard
+        end
+        local function breakdown(epoch, isdst)
+            local days = math.floor(epoch / 86400)
+            local rest = epoch - days * 86400
+            local y, m, d = civilFromDays(days)
+            return {
+                year = y,
+                month = m,
+                day = d,
+                hour = math.floor(rest / 3600),
+                min = math.floor(rest % 3600 / 60),
+                sec = rest % 60,
+                wday = (days + 4) % 7 + 1,
+                yday = days - daysFromCivil(y, 1, 1) + 1,
+                isdst = isdst,
+            }
+        end
+        define("time", function(t)
+            if t == nil then
+                return zone.now
+            end
+            local fields = fieldsAsUTC(t)
+            if t.isdst == false then
+                return fields - zone.standard
+            end
+            if t.isdst == true then
+                return fields - zone.daylight
+            end
+            local asDaylight = fields - zone.daylight
+            if zone.isDaylight(asDaylight) then
+                return asDaylight
+            end
+            return fields - zone.standard
+        end)
+        define("date", function(fmt, epoch)
+            fmt = fmt or "%c"
+            epoch = epoch or zone.now
+            local utc = fmt:sub(1, 1) == "!"
+            if utc then
+                fmt = fmt:sub(2)
+            end
+            local shifted = utc and epoch or (epoch + offsetAt(epoch))
+            if fmt == "*t" then
+                -- `utc and false or ...` would answer the daylight flag for a
+                -- UTC breakdown: false is false. Written out instead.
+                local isdst = false
+                if not utc then
+                    isdst = zone.isDaylight(epoch)
+                end
+                return breakdown(shifted, isdst)
+            end
+            -- Every other format is os.date's own, applied in UTC to the
+            -- already-shifted second, so "%H:%M" reads as the modelled zone's
+            -- wall clock without asking the host what its timezone is.
+            return os.date("!" .. fmt, shifted)
+        end)
+    end
     define("print", function(...)
         local parts = {}
         for i = 1, select("#", ...) do
