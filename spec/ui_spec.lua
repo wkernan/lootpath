@@ -1733,6 +1733,121 @@ describe("the status strip (M5-2)", function()
     end)
 end)
 
+-- R-6 (WKE-578): the nudge, on the window and on the launcher.
+--
+-- The drift itself is spec/drift_spec.lua's, over the owner's own 2026-09-14
+-- gear. What is measured HERE is only the wiring: the second row appears and
+-- goes, the strip carries it in its own height so the body moves with it, the
+-- click reaches the refresh, and the launcher's badge and tooltip say the same
+-- thing the row does.
+describe("the nudge row (R-6)", function()
+    local ns, world, frame
+
+    -- The drift is stated directly rather than replayed, because this file is
+    -- about the widgets; drift_spec drives the real scan over the real capture.
+    local function behind(count, name)
+        ns.Drift.SetBehind({ count = count, name = name })
+    end
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        frame = ns.UI.Frame()
+        frame:Show()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("is not there at all while the plan and the gear agree", function()
+        ns.UI.RefreshStrip(frame)
+        assert.is_false(frame.nudgeButton:IsShown())
+        assert.equal(ns.UI.STRIP_HEIGHT, frame.statusStrip.height)
+    end)
+
+    it("appears as a second row, and the strip grows so the body moves down with it", function()
+        behind(2, "Lightgrasp Worldroot")
+        ns.UI.RefreshStrip(frame)
+        assert.is_true(frame.nudgeButton:IsShown())
+        assert.equal(
+            "your gear changed since this plan (2 items) \194\183 click to refresh",
+            frame.nudgeButton.label.text
+        )
+        assert.equal(ns.UI.STRIP_HEIGHT + ns.UI.NUDGE_HEIGHT, frame.statusStrip.height)
+        -- every tab's panel hangs off the strip's bottom edge, so nothing has to
+        -- be moved by hand for the row to fit
+        for _, tab in ipairs(ns.UI.TABS) do
+            assert.equal(frame.statusStrip, frame[tab.key].points[1][2])
+            assert.equal("BOTTOMLEFT", frame[tab.key].points[1][3])
+        end
+    end)
+
+    it("names the newest arrival on its hover, and the line again above it", function()
+        behind(1, "Lightgrasp Worldroot")
+        ns.UI.RefreshStrip(frame)
+        frame.nudgeButton:GetScript("OnEnter")(frame.nudgeButton)
+        local shown = world.tooltip.stub:Text()
+        assert.is_truthy(shown:find("click to refresh", 1, true))
+        assert.is_truthy(shown:find("Lightgrasp Worldroot", 1, true))
+    end)
+
+    it("runs the refresh when it is clicked, and writes the stamp the wait counts from", function()
+        behind(1, "Lightgrasp Worldroot")
+        ns.UI.RefreshStrip(frame)
+        assert.equal(0, world.reloads)
+        frame.nudgeButton:Click()
+        assert.equal(1, world.reloads)
+        assert.is_string(ns.db.global.drift.refreshStartedAt)
+        for _, name in ipairs(ns.Companion.REFRESH_CAPTURES) do
+            assert.is_truthy(ns.db.global.captures[name] and #ns.db.global.captures[name] > 0, name)
+        end
+    end)
+
+    it("goes away again once the nudge has nothing to say", function()
+        behind(1, "Lightgrasp Worldroot")
+        ns.UI.RefreshStrip(frame)
+        assert.is_true(frame.nudgeButton:IsShown())
+        ns.Drift.SetBehind(nil)
+        ns.UI.RefreshStrip(frame)
+        assert.is_false(frame.nudgeButton:IsShown())
+        assert.equal(ns.UI.STRIP_HEIGHT, frame.statusStrip.height)
+    end)
+
+    it("leaves the four facts on the first row exactly as they were", function()
+        behind(3, "Lightgrasp Worldroot")
+        local model = ns.UI.RefreshStrip(frame)
+        assert.is_nil(model.text:find("click to refresh", 1, true))
+        assert.equal(model.text, frame.stripText.text)
+    end)
+
+    it("badges the launcher while the gear has moved, and says the same words on its tooltip", function()
+        local button = ns.UI.MinimapButton()
+        assert.is_false(button.driftDot:IsShown())
+        behind(1, "Lightgrasp Worldroot")
+        ns.UI.RefreshMinimapDot()
+        assert.is_true(button.driftDot:IsShown())
+        assert.is_true(button.driftDotAccent:IsShown())
+        button:GetScript("OnEnter")(button)
+        assert.is_truthy(world.tooltip.stub:Text():find("click to refresh", 1, true))
+        ns.Drift.SetBehind(nil)
+        ns.UI.RefreshMinimapDot()
+        assert.is_false(button.driftDot:IsShown())
+    end)
+
+    -- The badge is the NUDGE's, not the wait's: a player who is waiting has
+    -- already clicked, and a mark that stays up while the thing it asked for is
+    -- happening teaches the reader to ignore it.
+    it("takes the badge off the launcher while the rating is being made", function()
+        local button = ns.UI.MinimapButton()
+        behind(1, "Lightgrasp Worldroot")
+        ns.db.global.drift.refreshStartedAt = date("!%Y-%m-%dT%H:%M:%SZ", math.floor(time()))
+        ns.UI.RefreshStrip(frame)
+        assert.is_truthy(frame.nudgeButton.label.text:find("rating your gear", 1, true))
+        assert.is_false(button.driftDot:IsShown())
+    end)
+end)
+
 describe("the import dialog (M5-2)", function()
     local ns, world, frame
 

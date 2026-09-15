@@ -57,6 +57,14 @@ function build(text, options) {
         warnings,
         counts: built.counts,
         capturedAtLocal: built.capturedAtLocal,
+        // R-6 (WKE-578): how the newest `env` snapshot came to be taken, and
+        // when. `trigger` is "refresh" for a snapshot `/lootpath refresh` took
+        // and "command" for one typed by hand; a transcript written before R-6
+        // carries neither, and reads as unknown rather than as either.
+        capture: {
+            trigger: (env && typeof env.trigger === 'string' && env.trigger) || null,
+            capturedAt: (env && typeof env.capturedAt === 'number' && env.capturedAt) || null,
+        },
         identity: {
             name: env && packValue(env.data.player),
             realm: env && packValue(env.data.realm),

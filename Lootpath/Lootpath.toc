@@ -25,6 +25,7 @@ Modules\Currencies.lua
 Modules\QEImport.lua
 Modules\UFImport.lua
 Modules\Companion.lua
+Modules\Drift.lua
 Modules\Match.lua
 Modules\Roads.lua
 Modules\RoadsCache.lua

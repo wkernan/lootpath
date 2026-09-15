@@ -130,6 +130,13 @@ async function once(config, log, args, deps) {
     }
     status.stage('profile', { profileCapturedAt: profile.capturedAtLocal });
     for (const warning of profile.warnings) log.warn(warning);
+    // R-6 (WKE-578). "Fresh at login" is the story the README tells, and this
+    // is where the owner can see whether it is true in his own log: a write that
+    // carried a capture no earlier run had read, or a write that is a logout -
+    // or a plain reload - flushing the last one out again. The two cannot be
+    // told apart from inside the file, and the line says so rather than picking
+    // one (see `captureIsNew`).
+    log.info(whatThisWriteCarried(profile, fingerprintLib.readState(stateDir)));
     done(
         `${profile.counts.equipped} equipped, ${profile.counts.bag} in bags, ${profile.counts.bank} in the bank, ${profile.counts.vault} vault, ${profile.counts.lines} lines`
     );
@@ -289,12 +296,45 @@ async function once(config, log, args, deps) {
     // actually read. A state file that will not write costs one extra run next
     // time and nothing else, so it is a warning and not a failed run.
     try {
-        fingerprintLib.writeState(stateDir, { hash: print.hash, writtenAt, verdict: path.resolve(target) });
+        fingerprintLib.writeState(stateDir, {
+            hash: print.hash,
+            writtenAt,
+            verdict: path.resolve(target),
+            // R-6 (WKE-578): the capture this run read, so the next run can say
+            // whether the write that woke it carried a newer one.
+            envCapturedAt: profile.capture.capturedAt,
+        });
     } catch (e) {
         log.warn(`could not remember this profile's fingerprint (${e.message}); the next run will repeat the work`);
     }
     log.info('/reload in game to read it');
     return EXIT.ok;
+}
+
+// R-6 (WKE-578). One sentence about the write this run woke on, for the log
+// and nowhere else: it changes nothing the run does.
+//
+//   run after /lootpath refresh (gear captured at the click)
+//   run after a capture made by hand
+//   run after a logout or a plain reload - nothing new was captured
+//
+// The third is deliberately two possibilities in one clause. A logout and a
+// `/reload` produce the same write and the SavedVariables record no difference
+// between them; claiming "run after logout" outright would be a figure nothing
+// measured.
+function whatThisWriteCarried(profile, stored) {
+    const capture = profile.capture || {};
+    const isNew = fingerprintLib.captureIsNew(stored.ok ? stored.state : null, capture.capturedAt);
+    if (isNew === false) {
+        return 'run after a logout or a plain reload - nothing new was captured';
+    }
+    if (capture.trigger === 'refresh') {
+        return 'run after /lootpath refresh (gear captured at the click)';
+    }
+    if (capture.trigger === 'command') {
+        return 'run after a capture made by hand';
+    }
+    return 'run after a write whose capture does not say how it was taken (an addon from before R-6)';
 }
 
 // The log file and the status chunk both live beside whatever verdict this run

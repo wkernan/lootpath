@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+### R-6 (WKE-578) - the window tells you when your gear has moved past the plan
+
+- **A second row under the status strip, when there is something to say.** Claim
+  your vault reward, loot a drop, catalyst or crest a piece, and the window says
+  `your gear changed since this plan (2 items) - click to refresh`. Hovering it
+  names the newest arrival. Clicking it does the whole first step for you: it
+  captures your gear, bags, bank, vault and currencies and reloads. Before this
+  the only place that said anything was the tooltip of the item itself, and only
+  if you happened to hover it.
+- **The launcher wears a small gold badge while that row is up**, with the same
+  words on its tooltip. No sound, no popup, nothing flashing.
+- **After the reload the window says the rating is being made, and roughly how
+  long it takes.** `rating your gear, started 30 seconds ago, usually ready in
+  about 45 seconds - click to load it`, counting. "About 45 seconds" is the last
+  run that actually rated something, rounded to the nearest 15 seconds; until
+  there has been one it says `usually about a minute` and nothing more precise.
+  Clicking reloads. Click too early and the same line comes back with the new
+  time. A run that died says so instead, as it did before.
+- **It stays quiet about things that are not gear.** A potion stack, a crest
+  token or a Hearthstone moving is not a change to your gear and does not set it
+  off; neither is putting on something out of your own bags that the plan
+  already knew about, nor opening the bank.
+- **Log out, and your plan is current next time you log in - if you refreshed
+  first.** The companion's log now says which it was: `run after /lootpath
+  refresh (gear captured at the click)`, or `run after a logout or a plain
+  reload - nothing new was captured`. A logout on its own saves the gear that
+  was last captured, not the gear you are wearing; see the companion's README.
+
+
 ### R-3b (WKE-576) - when you have already done what the plan said
 
 - **The thing you just took out of the vault is no longer something to skip.**

@@ -54,6 +54,9 @@ local UI = ns.UI
 UI.FRAME_NAME = "LootpathMainFrame"
 UI.DIALOG_NAME = "LootpathImportDialog"
 UI.MINIMAP_BUTTON_NAME = "LootpathMinimapButton"
+-- R-6 (WKE-578): the badge on the launcher, in points. Small enough to be a
+-- mark on a 31-point button and not a second icon.
+UI.MINIMAP_DOT_SIZE = 9
 -- M5-0 (WKE-549) has not answered the window-size question, so the size is the
 -- one the window has had since M2-2; the mockups are drawn at 760.
 UI.WIDTH = 620
@@ -346,6 +349,16 @@ end
 -- five facts read as five; whether it renders on the owner's screen is an eye
 -- test (M5-5, WKE-554), not something this file can claim.
 UI.SEPARATOR = " \194\183 "
+
+-- R-6 (WKE-578): the strip is one row of facts, and the nudge is a SECOND row
+-- under it - a clause that can be clicked. It is its own row rather than a
+-- fifth fact on the first, because the first row is already four facts wide and
+-- R-3a's lesson (WKE-570, the owner's screen 2026-09-14) is that a fact past
+-- the window's width is a fact nobody reads. The strip grows by the row's
+-- height when there is something to say, and every tab's panel hangs off the
+-- strip's BOTTOMLEFT, so the body moves down with it and nothing overlaps.
+UI.STRIP_HEIGHT = 22
+UI.NUDGE_HEIGHT = 18
 UI.NO_VERDICT_STRIP = "No export on this character yet \194\183 Import... to paste one"
 UI.STALE_STRIP_TOOLTIP =
     "This export was made before the last weekly reset. If the companion is running it should be newer than that."
@@ -765,6 +778,57 @@ function UI.ToggleImportDialog()
     return true
 end
 
+-- R-6 (WKE-578): the nudge. One clause, on its own row under the strip, that
+-- the player can click - the only place in the addon a click reloads, and the
+-- only place it needs to be, because `ReloadUI` is allowed from a hardware
+-- event and nowhere else.
+--
+-- A bare Button with its own font string rather than UIPanelButtonTemplate: it
+-- is a sentence the reader acts on, not a control, and the Upgrade Map's
+-- section and run cards are built the same way.
+local function buildNudgeRow(frame, strip)
+    local button = CreateFrame("Button", nil, strip)
+    button:SetPoint("TOPLEFT", strip, "TOPLEFT", 2, -UI.STRIP_HEIGHT)
+    button:SetPoint("TOPRIGHT", strip, "TOPRIGHT", -2, -UI.STRIP_HEIGHT)
+    button:SetHeight(UI.NUDGE_HEIGHT)
+    frame.nudgeButton = button
+
+    local highlight = button:CreateTexture(nil, "HIGHLIGHT")
+    highlight:SetAllPoints(button)
+    highlight:SetTexture("Interface/Buttons/WHITE8X8")
+    highlight:SetVertexColor(1, 1, 1, 0.08)
+
+    local label = button:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    label:SetPoint("LEFT", button, "LEFT", 0, 0)
+    label:SetPoint("RIGHT", button, "RIGHT", 0, 0)
+    label:SetJustifyH("LEFT")
+    label:SetWordWrap(false)
+    button.label = label
+
+    button:SetScript("OnClick", function()
+        ns.Drift.Click()
+        UI.RefreshStrip(frame)
+    end)
+    button:SetScript("OnEnter", function(self)
+        if not (GameTooltip and frame.nudgeModel) then
+            return
+        end
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+        GameTooltip:AddLine(frame.nudgeModel.text)
+        if frame.nudgeModel.tooltip then
+            GameTooltip:AddLine(frame.nudgeModel.tooltip, 1, 1, 1, true)
+        end
+        GameTooltip:Show()
+    end)
+    button:SetScript("OnLeave", function()
+        if GameTooltip then
+            GameTooltip:Hide()
+        end
+    end)
+    button:Hide()
+    return button
+end
+
 -- The status strip: one line of facts under the title, and the two buttons that
 -- used to sit under the paste box. The strip itself takes the mouse so the
 -- facts that do not fit on one line - the sentence UI.VerdictNoteText states,
@@ -773,7 +837,7 @@ local function buildStatusStrip(frame)
     local strip = CreateFrame("Frame", nil, frame)
     strip:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, -30)
     strip:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -12, -30)
-    strip:SetHeight(22)
+    strip:SetHeight(UI.STRIP_HEIGHT)
     strip:EnableMouse(true)
     frame.statusStrip = strip
 
@@ -817,6 +881,8 @@ local function buildStatusStrip(frame)
             GameTooltip:Hide()
         end
     end)
+
+    buildNudgeRow(frame, strip)
 end
 
 -- Redraws the strip from the facts as they are now. Its own function because
@@ -829,6 +895,30 @@ function UI.RefreshStrip(frame)
     local model = UI.StatusStripModel()
     frame.stripModel = model
     frame.stripText:SetText(model.text)
+    UI.RefreshNudge(frame)
+    return model
+end
+
+-- Draws, or takes away, the second row. The strip's own height carries it, so
+-- the tabs' panels - anchored to the strip's BOTTOMLEFT - move with it, and the
+-- window has no gap when there is nothing to nudge about.
+function UI.RefreshNudge(frame)
+    frame = frame or UI.frame
+    if not (frame and frame.nudgeButton) then
+        return nil
+    end
+    local model = ns.Drift.Model()
+    frame.nudgeModel = model
+    if not model then
+        frame.nudgeButton:Hide()
+        frame.statusStrip:SetHeight(UI.STRIP_HEIGHT)
+        UI.RefreshMinimapDot()
+        return nil
+    end
+    frame.nudgeButton.label:SetText(model.text)
+    frame.nudgeButton:Show()
+    frame.statusStrip:SetHeight(UI.STRIP_HEIGHT + UI.NUDGE_HEIGHT)
+    UI.RefreshMinimapDot()
     return model
 end
 
@@ -1022,6 +1112,27 @@ function UI.MinimapButton()
         self.dragging = false
         self:SetScript("OnUpdate", nil)
     end)
+    -- R-6 (WKE-578): the badge. A small square in the button's top-right
+    -- corner while the gear has moved past the plan, drawn by the addon out of
+    -- Blizzard's flat WHITE8X8 in two layers, exactly as R-2b settled the bag
+    -- mark (docs/ROADS-UX.md): a mark is drawn at the size it will be seen at,
+    -- and an atlas made for a bigger frame is a smear at this one. No sound, no
+    -- popup, no flashing.
+    local dot = button:CreateTexture(nil, "OVERLAY")
+    dot:SetSize(UI.MINIMAP_DOT_SIZE, UI.MINIMAP_DOT_SIZE)
+    dot:SetPoint("TOPRIGHT", button, "TOPRIGHT", -4, -4)
+    dot:SetTexture("Interface/Buttons/WHITE8X8")
+    dot:SetVertexColor(0, 0, 0, 1)
+    local dotAccent = button:CreateTexture(nil, "OVERLAY")
+    dotAccent:SetSize(UI.MINIMAP_DOT_SIZE - 2, UI.MINIMAP_DOT_SIZE - 2)
+    dotAccent:SetPoint("CENTER", dot, "CENTER", 0, 0)
+    dotAccent:SetTexture("Interface/Buttons/WHITE8X8")
+    dotAccent:SetVertexColor(1, 0.874, 0.078, 1)
+    button.driftDot = dot
+    button.driftDotAccent = dotAccent
+    dot:Hide()
+    dotAccent:Hide()
+
     button:SetScript("OnEnter", function(self)
         if not GameTooltip then
             return
@@ -1029,6 +1140,12 @@ function UI.MinimapButton()
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
         GameTooltip:AddLine("Lootpath")
         GameTooltip:AddLine(UI.StatusStripModel().text)
+        -- The same words the strip's second row carries, from the same builder,
+        -- so the two surfaces cannot say different things about one fact.
+        local nudge = ns.Drift.Model()
+        if nudge then
+            GameTooltip:AddLine(nudge.text)
+        end
         GameTooltip:AddLine("Left-click to open, right-click for options, drag to move.")
         GameTooltip:Show()
     end)
@@ -1047,7 +1164,29 @@ function UI.MinimapButton()
     end
 
     UI.SetMinimapAngle(UI.GetMinimapAngle())
+    UI.RefreshMinimapDot()
     return button
+end
+
+-- The badge is the NUDGE's alone, read off the same model the row is drawn
+-- from. The WAIT is deliberately not on the minimap: a player who is waiting has
+-- already clicked, and a mark that stays up while the thing it asked for is
+-- happening teaches the reader to ignore it.
+function UI.RefreshMinimapDot()
+    local button = UI.minimapButton
+    if not (button and button.driftDot) then
+        return nil
+    end
+    local model = ns.Drift.Model()
+    local behind = model and model.kind == "behind" and model or nil
+    if behind then
+        button.driftDot:Show()
+        button.driftDotAccent:Show()
+    else
+        button.driftDot:Hide()
+        button.driftDotAccent:Hide()
+    end
+    return behind
 end
 
 -- The AddOn Compartment's entry point. `## AddonCompartmentFunc: LootpathToggle`
