@@ -476,16 +476,26 @@ local HELP = {
     "/lootpath capture wipe - clear every stored capture",
     '/lootpath map - open the window on the Upgrade Map (what the tooltip\'s "Why this?" points at)',
     "/lootpath status - what is stored",
-    "/lootpath glow - why the bag mark is or is not on a slot; shift-click an item in to ask about it",
+    "/lootpath glow - why the bag mark is or is not on a slot; it samples a piece of gear from your "
+        .. "bags, or shift-click an item in to ask about that one",
     "/lootpath help - this list",
 }
 
 -- R-2a (WKE-571). The bag mark can fail in three places and none of them showed
 -- on the owner's screen. This prints all three at once, plus the answer for one
 -- item, which is what the next diagnosis reads instead of a screenshot. The
--- link is the player's own shift-click; with none given the first bag slot that
--- holds anything is asked about instead, so the bare command still answers.
-local function firstBagLink()
+-- link is the player's own shift-click; with none given a bag slot is sampled
+-- instead, so the bare command still answers.
+--
+-- V-2 (WKE-573): the sample is GEAR. It used to be the first slot holding
+-- anything, and on the owner's first run (2026-09-14 night) that was bag 0 slot
+-- 1 - the Hearthstone - so the command answered `item: key 6948 - NOT in the
+-- map - glow no` about an item no plan could ever mark, and diagnosed nothing.
+-- What decides is the same static-data slot every other surface uses,
+-- ns.ItemData.Instant(link).slot: QE Live's own slot vocabulary, nil for
+-- anything that is not equippable gear. No new client call is introduced for
+-- this; C_Item.GetItemInfoInstant is already in ItemData's declared list.
+local function firstBagGear()
     if not (C_Container and type(C_Container.GetContainerItemLink) == "function") then
         return nil
     end
@@ -494,15 +504,44 @@ local function firstBagLink()
         for slotIndex = 1, (type(slots) == "number" and slots or 0) do
             local link = ns.Safe(C_Container.GetContainerItemLink(bag, slotIndex))
             if type(link) == "string" and link ~= "" then
-                return link
+                local instant = ns.ItemData and ns.ItemData.Instant(link) or nil
+                if instant and instant.slot then
+                    return link
+                end
             end
         end
     end
     return nil
 end
 
+-- What the sampled item is called, so the reader can tell a helmet he is
+-- wearing the map's answer about from one he has never seen. The client's own
+-- name first; the link carries it too, and a link the client cannot name yet
+-- is still a link with a name in it.
+local function sampledName(link)
+    local cached = ns.ItemData and ns.ItemData.Cached(link) or nil
+    if cached and cached.name then
+        return cached.name
+    end
+    return link:match("|h%[(.-)%]|h") or "an item"
+end
+
+-- Owned here rather than by ns.UI.Bags (V-1, WKE-569): these two sentences are
+-- about what this COMMAND did before it asked the map anything, and the walk
+-- that produces them is this file's client read.
+ns.GLOW_SAMPLED = "item: no link given; sampled %s from your bags"
+ns.GLOW_NO_GEAR = "item: no equippable gear in your bags to sample"
+
 local function glowCommand(rest)
-    local link = rest ~= "" and rest or firstBagLink()
+    local link = rest ~= "" and rest or nil
+    if not link then
+        link = firstBagGear()
+        if link then
+            ns.Log(ns.GLOW_SAMPLED, sampledName(link))
+        else
+            ns.Log("%s", ns.GLOW_NO_GEAR)
+        end
+    end
     for _, line in ipairs(ns.UI.Bags.DiagnosisLines(link)) do
         ns.Log("%s", line)
     end

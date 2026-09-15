@@ -678,6 +678,8 @@ describe("the content type setting", function()
         -- "pasted" became "imported" in C-2, because the companion is now the
         -- other way an export gets here.
         assert.is_truthy(ns.UI.VerdictNoteText():find("nothing has been imported for Dungeon", 1, true))
+        -- V-2 (WKE-573): the sentence names the export as well as the content type
+        assert.is_truthy(ns.UI.VerdictNoteText():find("Raid Top Gear export", 1, true))
         assert.is_truthy(ns.UI.VerdictNoteText():find("(pasted)", 1, true))
     end)
 
@@ -1512,9 +1514,10 @@ describe("the status strip (M5-2)", function()
         assert.equal(expected, frame.stripText:GetText())
     end)
 
-    -- Five facts since V-1 (WKE-569), not six: the strip used to lead with the
-    -- engine's name and no surface names a source any more.
-    it("names the spec, the export, the scenario and the companion over a pasted one", function()
+    -- Four facts since V-2 (WKE-573), not five: the content type and the
+    -- export's name came off the line into the tooltip's own sentence, so the
+    -- companion clause is not the half the window's width cuts (R-3a, WKE-570).
+    it("names the spec, the source, the scenario and the companion over a pasted one", function()
         importDungeon()
         local model = ns.UI.RefreshStrip(frame)
         assert.is_false(model.stale)
@@ -1522,14 +1525,19 @@ describe("the status strip (M5-2)", function()
         for part in (model.text .. ns.UI.SEPARATOR):gmatch("(.-)\194\183") do
             parts[#parts + 1] = (part:gsub("^%s+", ""):gsub("%s+$", ""))
         end
-        assert.equal(5, #parts)
+        assert.equal(4, #parts)
         assert.equal("Restoration Druid", parts[1])
-        assert.equal("Dungeon Top Gear", parts[2])
-        assert.is_truthy(parts[3]:find("^pasted, exported "))
+        assert.is_truthy(parts[2]:find("^pasted, exported "))
         -- the default highlight is M3-13's `thisWeek` (WKE-548)
         assert.equal(ns.UI.SCENARIO_TAG[ns.QEImport.DEFAULT_SCENARIO], "vault pick: as offered")
-        assert.equal("vault pick: this week", parts[4])
-        assert.equal(ns.Companion.STATUS_NEVER, parts[5])
+        assert.equal("vault pick: this week", parts[3])
+        assert.equal(ns.Companion.STATUS_NEVER, parts[4])
+
+        -- and the two words really are gone from the line and kept in the
+        -- tooltip: moved, not lost.
+        assert.is_nil(model.text:find("Dungeon", 1, true))
+        assert.is_nil(model.text:find("Top Gear", 1, true))
+        assert.is_truthy(table.concat(model.tooltip, "\n"):find("Dungeon Top Gear export", 1, true))
     end)
 
     -- The five states of the companion's own file, on the line the owner is
@@ -1626,6 +1634,83 @@ describe("the status strip (M5-2)", function()
         assert.is_nil(model.text:find("|cffffd43b", 1, true))
     end)
 
+    -- V-2 (WKE-573): the line measured against the one measurement that exists.
+    --
+    -- The stub has no pixels (ARCHITECTURE.md 9, said of every M5 surface), and
+    -- this repo holds no screenshot a headless test could measure, so the budget
+    -- is not read off font metrics: it is the owner's OWN cut line, counted in
+    -- characters. ARCHITECTURE.md 11 records what his screen showed at the
+    -- window's default width on 2026-09-14, after V-1 and before this change:
+    --
+    --   Restoration Druid - Dungeon Top Gear - companion, written 5 day(s) ago
+    --   - vault pick: this week - compani
+    --
+    -- which is 104 characters before the cut. The font is proportional, so 104
+    -- characters is a PROXY and a LOWER bound on the width the strip really
+    -- has - which is exactly what makes it safe to assert against: a line at or
+    -- under it was within a width the owner's screen has already been seen to
+    -- draw. It is not a pixel claim, and this test does not make one.
+    local STRIP_BUDGET_CHARS = 104
+
+    -- UTF-8 characters, not bytes: the separator is two bytes and the line
+    -- carries three of them.
+    local function charCount(text)
+        return #text - select(2, text:gsub("[\128-\191]", ""))
+    end
+
+    it("fits the whole companion clause inside the width the owner's own screen drew", function()
+        local verdict = importDungeon()
+        -- The owner's 2026-09-14 state, as ARCHITECTURE.md 11 recorded it: the
+        -- companion wrote the export, five days before he looked at it.
+        verdict.source = ns.Companion.SOURCE_COMPANION
+        verdict.companionWrittenAt = "2026-09-09T07:00:00.000Z"
+        ns.companionStatus = {
+            state = "idle",
+            verdictWrittenAt = "2026-09-09T07:00:00.000Z",
+            finishedAt = "2026-09-09T07:00:01Z",
+        }
+        local now = ns.EpochFromISO("2026-09-14T07:00:00.000Z")
+        local model = ns.UI.StatusStripModel(now)
+
+        -- the clause is whole, and it is the end of the line
+        assert.equal("companion: wrote 5 days ago", model.companion)
+        assert.is_truthy(model.text:find(model.companion, 1, true))
+        assert.equal(#model.text - #model.companion + 1, model.text:find(model.companion, 1, true))
+
+        -- and the whole line is inside the budget the owner's screen measured
+        assert.is_true(
+            charCount(model.text) <= STRIP_BUDGET_CHARS,
+            string.format("%d characters, budget %d: [%s]", charCount(model.text), STRIP_BUDGET_CHARS, model.text)
+        )
+
+        -- The proof that the dropped fact is what bought the room: put
+        -- `Dungeon Top Gear` back where it sat and the same line is over the
+        -- budget again, by the 19 characters of the fact and its separator -
+        -- which is the cut the owner read.
+        local before = model.text:gsub("^(.-)(" .. ns.UI.SEPARATOR .. ")", "%1%2Dungeon Top Gear%2", 1)
+        assert.equal(charCount(model.text) + 19, charCount(before))
+        assert.is_true(charCount(before) > STRIP_BUDGET_CHARS)
+    end)
+
+    -- What V-2 does NOT fix, said out loud rather than left to be discovered:
+    -- the longest companion clause is half as long again as the line has room
+    -- for, and dropping one fact cannot make it fit. The reader of a failed run
+    -- is sent to the tooltip, which carries the companion's whole sentence.
+    it("cannot fit the longest companion clause, and keeps it whole in the tooltip", function()
+        local verdict = importDungeon()
+        verdict.source = ns.Companion.SOURCE_COMPANION
+        verdict.companionWrittenAt = "2026-09-09T07:00:00.000Z"
+        ns.companionStatus = {
+            state = "failed",
+            stage = "qe live",
+            message = "the fork did not answer http://localhost:3000",
+            finishedAt = "2026-09-09T07:00:01Z",
+        }
+        local model = ns.UI.StatusStripModel(ns.EpochFromISO("2026-09-14T07:00:00.000Z"))
+        assert.is_true(charCount(model.text) > STRIP_BUDGET_CHARS)
+        assert.is_truthy(table.concat(model.tooltip, "\n"):find("the fork did not answer", 1, true))
+    end)
+
     it("puts the other stored export in the strip's tooltip, not on the line", function()
         importDungeon()
         frame.pasteBox:SetText(readFile(UF_DUNGEON_EXPORT))
@@ -1707,8 +1792,12 @@ describe("the import dialog (M5-2)", function()
         assert.is_truthy(status:find("Imported", 1, true))
         assert.is_truthy(status:find("Restoration Druid", 1, true))
         assert.is_table(ns.QEImport.Current())
-        -- and the strip behind it now names the same import
-        assert.is_truthy(ns.UI.RefreshStrip(frame).text:find("Dungeon Top Gear", 1, true))
+        -- and the strip behind it now names the same import - by the spec,
+        -- since V-2 (WKE-573) took the content type and the export's name off
+        -- the line and left them in the strip's own tooltip
+        local model = ns.UI.RefreshStrip(frame)
+        assert.is_truthy(model.text:find("Restoration Druid", 1, true))
+        assert.is_truthy(table.concat(model.tooltip, "\n"):find("Dungeon Top Gear export", 1, true))
 
         frame.clearButton:Click()
         assert.equal("", frame.pasteBox:GetText())
