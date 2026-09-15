@@ -1237,3 +1237,123 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         world.inCombat = false
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- R-3d (WKE-584): the owner's reset-day hover, end to end.
+--
+-- The whole path, from the file the companion writes to the words on the
+-- tooltip: `profileVaultCount = 0` in the verdict file (C-13) reaches the vault
+-- road through `ns.Companion.ImportAll` and `ns.Roads.VaultConsidered`, and the
+-- block over the vault's Enigmatic Dreamwatcher's Leggings stops telling the
+-- reader to skip an item nothing ever rated.
+--
+-- The vault is snapshot 12 of the 2026-09-15 pull - his own 9 links, read with
+-- the Great Vault window open (M3-16b, WKE-583) - and the documents are the
+-- same committed 09-09 run every other block here is drawn over, which is a run
+-- over a different week's profile and names none of those rewards.
+describe("The tooltip over a vault the rating never imported (R-3d)", function()
+    local ns, world
+    local RESET_DAY = "spec/fixtures/captures/Lootpath-20260915-142722-vault.lua"
+    local AFTER_THE_WINDOW = 12
+    -- Read off that snapshot by `ns.Vault.Options()`, 2026-09-15.
+    local LEGGINGS = "271527:6652:12844:13440:13693:13698"
+
+    local function exports()
+        local list = {}
+        for _, name in ipairs(SCENARIO_ORDER) do
+            list[#list + 1] = {
+                schema = "qe-live-droptimizer",
+                contentType = "Dungeon",
+                scenario = name,
+                qeSettings = {
+                    autoUpgradeVault = name == "maxed" or name == "thisWeek",
+                    autoUpgradeAll = name == "maxed",
+                    autoCatalyze = name ~= "asOffered",
+                },
+                json = readFile(SCENARIO_FILES[name]),
+            }
+        end
+        return list
+    end
+
+    local function build(fileFields)
+        local payload = { writtenAt = EXPORTED_AT, exports = exports() }
+        for key, value in pairs(fileFields or {}) do
+            payload[key] = value
+        end
+        local imported = ns.Companion.ImportAll(payload)
+        assert.is_true(imported.ok, imported.reason)
+        local gathered = ns.UpgradeMapPanel.Gather({ db = ns.db })
+        ns.RoadsCache.SetMap(ns.RoadsCache.Build(ns.UpgradeMapPanel.Model(gathered)))
+    end
+
+    local function lines(key)
+        local answer = ns.RoadsCache.Lookup(key)
+        assert.is_table(answer, "no cache entry for " .. tostring(key))
+        local out = {}
+        for index, line in ipairs(ns.UI.Tooltip.Lines(answer, { now = FIVE_HOURS_LATER })) do
+            out[index] = line.text
+        end
+        return out
+    end
+
+    before_each(function()
+        ns, world = H.load()
+        ns.UI.Options.Set("Dungeon")
+        R.inventory(world, R.snapshot("inventory", PROFILE_SNAPSHOT, CAPTURE))
+        R.vault(world, R.snapshot("vault", AFTER_THE_WINDOW, RESET_DAY))
+    end)
+
+    after_each(function()
+        ns.RoadsCache.Reset()
+        ns.UI.Bags.Reset()
+        H.unload()
+    end)
+
+    -- PROVEN RED: this is the screen the owner read on 2026-09-15, and without
+    -- the R-3d branch it comes back word for word.
+    it("stops saying skip about a reward the run never imported", function()
+        build({ profileVaultCount = 0 })
+        local block = lines(LEGGINGS)
+        assert.same({
+            "Lootpath · Legs · rated 5 hours ago · /lootpath refresh",
+            "The plan hasn't rated this yet. Refresh, then look again.",
+            "Vault · open now · Enigmatic Dreamwatcher's Leggings (315)"
+                .. " · not rated · new since the last refresh · reset in 6d 19h",
+            "Other roads for this slot",
+            "Keep (what you wear) · Enigmatic Dreamwatcher's Leggings (295)"
+                .. " · what you wear now · in your best set",
+            "Why this? · /lootpath map",
+        }, block)
+        -- The two words that were the defect, gone from the whole block.
+        for _, text in ipairs(block) do
+            assert.is_nil(text:match("^Skip this one"), text)
+            assert.is_nil(text:match("not in your best set"), text)
+        end
+        -- And the slot's real plan is where it belongs: on the road that has a
+        -- rating, under a header that names the cure (R-3b).
+        assert.is_truthy(block[5]:match("in your best set"))
+    end)
+
+    -- The same file without the count: nothing on record, so C-8's premise
+    -- stands and the block is the one it has always been. The two runs
+    -- differing by that one field is what proves the field is what decides.
+    it("keeps the old block for a file that never said what its profile held", function()
+        build({})
+        local block = lines(LEGGINGS)
+        assert.same({
+            "Lootpath · Legs · rated 5 hours ago · /lootpath refresh",
+            "Skip this one, the plan keeps your Dreamwatcher legs on.",
+            "Vault · open now · Enigmatic Dreamwatcher's Leggings (315)"
+                .. " · not in your best set · reset in 6d 19h",
+            "Why this? · /lootpath map",
+        }, block)
+    end)
+
+    -- The glow follows, because it is principle 12's one test and not a second
+    -- one: not knowing is not a verdict either way.
+    it("does not glow on a reward nothing rated", function()
+        build({ profileVaultCount = 0 })
+        assert.is_false(ns.Glow.Wants(LEGGINGS))
+    end)
+end)
