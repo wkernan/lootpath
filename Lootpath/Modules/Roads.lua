@@ -174,6 +174,18 @@ Roads.VAULT_OPEN_NOW = "open now"
 -- section is empty and the road goes away on its own.
 Roads.VAULT_CLAIMED = "claimed · in your bags"
 
+-- What the same road says once the pick has moved further than the bags (R-3c,
+-- WKE-580). The badge slot is R-3b's; only the state word is new, and it is the
+-- state the evidence says: the item is on the character, or it is still in the
+-- bags at a level above the one the plan picked it at. "claimed" stays the
+-- vault's own word and is said only about a vault reward - a piece out of a
+-- dungeon was never claimed from anything, and a badge that said so would be
+-- the one thing this lane does not do.
+Roads.ARRIVED_NOW_WORN = "now worn"
+Roads.ARRIVED_NOW_CRESTED = "now crested"
+Roads.ARRIVED_CLAIMED_WORN = "claimed · now worn"
+Roads.ARRIVED_CLAIMED_CRESTED = "claimed · now crested"
+
 -- The client's own countdown, in the client's own units, and nothing else: the
 -- vault road says how long is left, never what happens when it runs out
 -- (principle 5, which is why "before reset" is not a string in this file).
@@ -832,6 +844,66 @@ local function documentAt(documents, keyLevel)
 end
 
 -- ---------------------------------------------------------------------------
+-- Upgrading what you wear: the `maxed` document's own answer (R-3c, WKE-580).
+--
+-- The crest road used to be `no rating` with `arrivesAt` set to the level the
+-- piece is ALREADY at, which is a row that says "upgrade the 321 to 321" and
+-- says nothing about whether that is worth doing. The `maxed` scenario exists
+-- to rate exactly this question - it is QE Live's own run with every owned item
+-- raised to its cap (C-6) - and on the owner's 2026-09-14 run its Dungeon top
+-- set carries the crested staff. So the road reads that document, and the one
+-- thing it never does is project a level of its own.
+--
+-- The join is `ns.QEImport.Coverage`, the same lookup both M3-3 panels use, and
+-- it is by KEY. That is exact rather than nearly exact: the upgrade boxes move
+-- an item's `level` without touching a bonus ID (QEImport.lua's own note on
+-- CatalyzedOwned), so the piece on the character keeps its key under `maxed`
+-- and only the level moves. What comes back is the document's own word - in the
+-- top set, or the best alternative's percent - and the level it projected.
+--
+-- Returns nil when `maxed` is not stored at all, which is a different answer
+-- from "stored and silent about this item" and is what lets the road say why.
+Roads.SCENARIO_MAXED = "maxed"
+
+function Roads.MaxedAnswer(inputs, record)
+    if type(record) ~= "table" then
+        return nil
+    end
+    local verdict
+    for _, entry in ipairs(scenarioEntries(inputs)) do
+        if entry.scenario == Roads.SCENARIO_MAXED then
+            verdict = entry.verdict
+        end
+    end
+    if type(verdict) ~= "table" then
+        return nil
+    end
+    local answer = { verdict = verdict }
+    local coverage = record.key and ns.QEImport.Coverage(verdict, record.key) or nil
+    if not coverage then
+        return answer
+    end
+    answer.level = tonumber(type(coverage.item) == "table" and coverage.item.level or nil)
+    answer.inTopSet = coverage.where == "topSet"
+    answer.scorePercent = coverage.scorePercent
+    answer.hpsDifference = coverage.hpsDifference
+    return answer
+end
+
+-- The companion's own sentence about the questions its run never asked (C-12),
+-- read off the stored documents rather than written here. Every document of one
+-- run carries the same note, because it is the run that skipped the question.
+function Roads.ScenarioNote(inputs)
+    for _, entry in ipairs(scenarioEntries(inputs)) do
+        local note = type(entry.verdict) == "table" and entry.verdict.scenarioNote or nil
+        if type(note) == "string" and note ~= "" then
+            return note
+        end
+    end
+    return nil
+end
+
+-- ---------------------------------------------------------------------------
 -- Excluded items: the second tail of "not rated".
 --
 -- The leftover list the verdict file carries is `ns.Companion`'s, and since
@@ -1140,27 +1212,74 @@ function Roads.ForSlot(slot, inputs)
         end
     end
 
-    -- ---- the no-rating group: upgrading what you wear ----
-    -- Built before the drops so that the first row of the group is the one the
+    -- ---- upgrading what you wear ----
+    -- Built before the drops so that the first row of its group is the one the
     -- tooltip would show: the piece in this slot, not an unrated drop from a
     -- difficulty nobody is running.
+    --
+    -- Since R-3c (WKE-580) the road carries the `maxed` document's answer when
+    -- that document has one, which moves it into the SET group: it is a
+    -- whole-set verdict, on the same scale and in the same words as every other
+    -- set road, and the group it sat in said "no rating" about the one question
+    -- `maxed` was asked. With no answer it stays where R-1 put it.
     for _, record in ipairs(records(inputs.inventory)) do
         if record.location == "equipped" and record.slot == slot then
-            local road = newRoad(Roads.KIND_CREST, Roads.GROUP_NONE, slot, itemFacts(record))
-            road.tag = Roads.TAG_UPGRADE
-            road.arrivesAt = record.itemLevel
-            road.phrase = Roads.PHRASE_NO_RATING
-            road.rating = { kind = Roads.RATING_NONE, badge = Roads.PHRASE_NO_RATING, arrivesAt = record.itemLevel }
-            road.steps[#road.steps + 1] = step(Roads.CREST_NOT_READ, nil, true)
-            local holding = Roads.CrestHoldingText(inputs.currencies)
-            if holding then
-                road.steps[#road.steps + 1] = step(holding, Roads.DONE_CLIENT, true)
+            local maxed = Roads.MaxedAnswer(inputs, record)
+            local projected = maxed and maxed.level or nil
+            local wornLevel = tonumber(record.itemLevel)
+            -- Nothing to crest: the document projected the level the piece
+            -- already wears, so there is no road at all rather than a road
+            -- that leads where the reader is standing.
+            local nothingToCrest = projected ~= nil and wornLevel ~= nil and projected <= wornLevel
+            if not nothingToCrest then
+                local road = newRoad(
+                    Roads.KIND_CREST,
+                    projected and Roads.GROUP_SET or Roads.GROUP_NONE,
+                    slot,
+                    itemFacts(record)
+                )
+                road.tag = Roads.TAG_UPGRADE
+                road.arrivesAt = projected or record.itemLevel
+                if maxed and projected then
+                    road.plan = Roads.PlanName(Roads.SCENARIO_MAXED)
+                    road.age = maxed.verdict.exportedAt
+                    road.rating = {
+                        kind = Roads.RATING_SET,
+                        inTopSet = maxed.inTopSet,
+                        scorePercent = maxed.scorePercent,
+                        hpsDifference = maxed.hpsDifference,
+                        level = projected,
+                        arrivesAt = projected,
+                    }
+                    road.rating.badge = Roads.SetBadge(road.rating)
+                else
+                    road.phrase = Roads.PHRASE_NO_RATING
+                    road.rating =
+                        { kind = Roads.RATING_NONE, badge = Roads.PHRASE_NO_RATING, arrivesAt = record.itemLevel }
+                    -- Why there is no rating, in the companion's own words,
+                    -- whenever the run said why (C-12). A bare "no rating" on
+                    -- the one road `maxed` exists to rate is what the owner
+                    -- read on 2026-09-14 and could do nothing with.
+                    local why = not maxed and Roads.ScenarioNote(inputs) or nil
+                    if why then
+                        road.steps[#road.steps + 1] = step(why, nil, true)
+                    end
+                end
+                road.steps[#road.steps + 1] = step(Roads.CREST_NOT_READ, nil, true)
+                -- What the client says you hold in crests is the vendor row's
+                -- business, beside the cost it would pay: marked `cost` so the
+                -- panel keeps it and the tooltip drops it (R-2a's rule, applied
+                -- in R-3c to the longest clause on the owner's own block).
+                local holding = Roads.CrestHoldingText(inputs.currencies)
+                if holding then
+                    road.steps[#road.steps + 1] = step(holding, Roads.DONE_CLIENT, true, true)
+                end
+                road.nextStep = Roads.NextStep(road)
+                if record.key then
+                    road.keys[#road.keys + 1] = record.key
+                end
+                add(road)
             end
-            road.nextStep = Roads.NextStep(road)
-            if record.key then
-                road.keys[#road.keys + 1] = record.key
-            end
-            add(road)
         end
     end
 
@@ -1362,24 +1481,41 @@ end
 -- "is the thing in my bags the thing the plan picked", and it answers it about
 -- the plan's OWN pick and nothing else.
 --
+-- **R-3c (WKE-580) widened it to every placement and every kind.** R-3b read
+-- the bags and knew two picks; the owner then crested the bag pick and put it
+-- on, and the tooltip told him to skip the staff in favour of itself. A pick
+-- can move slot as well as key, and every kind of pick can: what the plan
+-- picked out of your bags you are told to EQUIP, and doing that is exactly what
+-- the plan asked for. So the placement is not what decides this - the item ID
+-- is - and the sentence says which of the two things the player has done.
+--
 -- What it refuses to call arrived, and why:
 --
---   * anything you are WEARING. The old 308 Worldroot has the same item ID as
---     the vault's; the slot already has its own road for what is on the
---     character, and a piece you wear has not just turned up.
 --   * an item whose key the pick's road already carries - the vault reward
 --     itself, or the bag piece a Catalyst road converts. Those are the road's
 --     own item, and the road speaks for them.
+--   * a copy BELOW the level the pick arrives at. A second, worse copy of the
+--     same item ID is a duplicate sitting in the bags, not the pick moved on;
+--     claiming and cresting only ever raise a level.
+--   * a WORN copy, when the pick is a vault reward or a Catalyst clone. That
+--     is the 308 Worldroot he has worn all along, which shares the vault
+--     copy's item ID, and NOTHING the client says tells the two apart: the
+--     vault offered that staff at 305 while he wore 308, and cresting replaces
+--     the upgrade bonus ID rather than adding to it, so neither the level nor
+--     the bonus IDs can say which copy is on the character. R-3b's refusal
+--     stands exactly where the evidence runs out and no further. For a pick the
+--     plan took out of your own BAGS or off your character there is no such
+--     doubt: a bag pick was not on the character when the plan was written, and
+--     a worn twin above its level would have been the pick instead, so a worn
+--     copy at or above that level is the pick, put on.
 --
--- A Catalyst pick is matched on what it BECOMES: the clone that comes out of
--- the Catalyst carries the tier item ID, not the item ID that went in. A vault
--- pick his export catalyzed is matched on both, because the reward can arrive
--- either side of the conversion.
+-- A Catalyst pick is matched on what it BECOMES and on nothing else: the clone
+-- that comes out of the Catalyst carries the tier item ID, and the item that
+-- went in is still the road's own item. Every other kind is matched on the
+-- pick's item ID, and a vault pick his export catalyzed on both, because that
+-- reward can arrive either side of the conversion.
 function Roads.IsArrivedPick(held, pick)
     if type(held) ~= "table" or type(pick) ~= "table" or pick.planPick ~= true then
-        return false
-    end
-    if held.location == "equipped" then
         return false
     end
     local itemID = tonumber(held.itemID)
@@ -1392,14 +1528,33 @@ function Roads.IsArrivedPick(held, pick)
         end
     end
     local becomes = type(pick.becomes) == "table" and tonumber(pick.becomes.itemID) or nil
-    if becomes and becomes == itemID then
-        return true
+    local wanted = type(pick.item) == "table" and tonumber(pick.item.itemID) or nil
+    local matches = becomes ~= nil and becomes == itemID
+    if not matches and pick.kind ~= Roads.KIND_CATALYST then
+        matches = wanted ~= nil and wanted == itemID
     end
-    if pick.kind == Roads.KIND_VAULT then
-        local wanted = type(pick.item) == "table" and tonumber(pick.item.itemID) or nil
-        return wanted ~= nil and wanted == itemID
+    if not matches then
+        return false
     end
-    return false
+    local level = tonumber(held.itemLevel or held.level)
+    local arrivesAt = tonumber(pick.arrivesAt)
+    if held.location == "equipped" and pick.kind ~= Roads.KIND_SET and pick.kind ~= Roads.KIND_KEEP then
+        return false
+    end
+    if level and arrivesAt and level < arrivesAt then
+        return false
+    end
+    return true
+end
+
+-- Whether the pick has been crested since the plan: the held level is above the
+-- level the plan picked it at. Read off the held item's own link and the road's
+-- own `arrivesAt`, and never from a document - the whole point of this lane is
+-- that no document mentions the copy in the player's hands.
+function Roads.ArrivedCrested(held, pick)
+    local level = tonumber(type(held) == "table" and (held.itemLevel or held.level) or nil)
+    local arrivesAt = tonumber(type(pick) == "table" and pick.arrivesAt or nil)
+    return level ~= nil and arrivesAt ~= nil and level > arrivesAt
 end
 
 -- The slot's pick, which is the one road the whole set group is arranged
@@ -1417,8 +1572,9 @@ function Roads.PlanPick(slotRoads)
     return nil
 end
 
--- Marks the slot when the pick is already in the bags, and says so on the road
--- the reader would otherwise be told to walk again. Run over the finished slot,
+-- Marks the slot when the pick has already arrived - in the bags, or on the
+-- character since R-3c - and says so on the road the reader would otherwise be
+-- told to walk again. Run over the finished slot,
 -- beside the other two sweeps, so no builder can produce a vault road that
 -- escapes it.
 --
@@ -1435,10 +1591,25 @@ function Roads.MarkArrived(slotRoads, inputs)
     if not pick then
         return slotRoads
     end
+    -- Every key the set group already speaks for, not just the pick's own
+    -- (R-3c). Two worn rings of one item ID are two rated roads on this screen,
+    -- and the second of them has not "arrived" anywhere: the document knows it
+    -- by its own key and says so on its own row.
+    local spokenFor = {}
+    for _, road in ipairs(slotRoads.groups[Roads.GROUP_SET] or {}) do
+        for _, key in ipairs(road.keys or {}) do
+            spokenFor[key] = true
+        end
+    end
+    -- The furthest-along copy is the one the sentence is about: a piece on the
+    -- character is a step past the same piece in the bags, so a player who has
+    -- claimed, crested and equipped is not told to equip it again.
     local arrived
     for _, record in ipairs(records(inputs.inventory)) do
-        if record.slot == slotRoads.slot and not arrived and Roads.IsArrivedPick(record, pick) then
-            arrived = record
+        if record.slot == slotRoads.slot and not spokenFor[record.key] and Roads.IsArrivedPick(record, pick) then
+            if not arrived or (record.location == "equipped" and arrived.location ~= "equipped") then
+                arrived = record
+            end
         end
     end
     if not arrived then
@@ -1446,11 +1617,28 @@ function Roads.MarkArrived(slotRoads, inputs)
     end
     slotRoads.arrived = arrived
     pick.arrived = arrived
+    local worn = arrived.location == "equipped"
+    -- The badge slot R-3b gave the vault road, now on the pick of every kind:
+    -- a row that still reads "open now · do: take it · Show in vault", or "do:
+    -- equip it" about a piece already on the character, is the same wrong
+    -- sentence in three more places.
+    local crested = Roads.ArrivedCrested(arrived, pick)
     if pick.kind == Roads.KIND_VAULT then
-        -- The badge, the verb and the step, all three: a row that still reads
-        -- "open now · do: take it · Show in vault" is the same wrong sentence
-        -- in three more places.
-        pick.claimed = Roads.VAULT_CLAIMED
+        -- The vault reward is out of the vault whatever else has happened to
+        -- it, so this road always has something to say.
+        pick.claimed = (worn and Roads.ARRIVED_CLAIMED_WORN)
+            or (crested and Roads.ARRIVED_CLAIMED_CRESTED)
+            or Roads.VAULT_CLAIMED
+    else
+        -- Nothing was claimed from anywhere, so the badge is the state alone -
+        -- and with neither state true (a same-level twin of the pick sitting in
+        -- the bags) there is no state to report and the road keeps its words.
+        pick.claimed = (worn and Roads.ARRIVED_NOW_WORN) or (crested and Roads.ARRIVED_NOW_CRESTED) or nil
+    end
+    -- What is left to do. On the character there is nothing but the refresh the
+    -- document is waiting for; still in the bags, the step the road already
+    -- carries is the right one and stays.
+    if worn or pick.kind == Roads.KIND_VAULT then
         pick.verb = Roads.VERB_REFRESH
         pick.todo = Roads.TODO_REFRESH
     end
@@ -1941,8 +2129,24 @@ end
 -- what the row beside it already calls "the tier shoulders".
 Roads.ARRIVED_VAULT = "This is the vault %s the plan wanted."
 Roads.ARRIVED_TIER = "This is the tier %s the plan wanted."
+Roads.ARRIVED_HELD = "This is %s the plan wanted."
 Roads.ARRIVED_REFRESH_AT = "Refresh to rate it at %d."
 Roads.ARRIVED_REFRESH = "Refresh to rate it."
+
+-- R-3c (WKE-580): the same two clauses for the two states further along the
+-- road. On the character there is no need to name the item at all - the reader
+-- is hovering it - so the first clause is what the player DID, which is what
+-- tells "you put this on" from "you crested it and put it on". Still in the
+-- bags and crested, the first clause names the item as it did before and the
+-- second one carries both steps that are left, in the order they happen.
+--
+-- The level in every one of them is the held item's own, off the link the player
+-- is hovering, and the crest is read as "above the level the plan picked it at"
+-- and nothing more.
+Roads.ARRIVED_CRESTED_TO = "%s, crested to %d."
+Roads.ARRIVED_WORN = "You've put this on."
+Roads.ARRIVED_WORN_CRESTED = "You've crested this and put it on."
+Roads.ARRIVED_PUT_ON = "Put it on; refresh to rate it."
 
 -- The sentence for a piece the plan was built without and a later pass picked
 -- over what the character wears (C-11, WKE-572). Two clauses, like every other
@@ -1956,15 +2160,35 @@ function Roads.ArrivedSentence(held, pick)
     if type(held) ~= "table" or type(pick) ~= "table" then
         return nil
     end
+    local level = tonumber(held.itemLevel or held.level)
+    local crested = Roads.ArrivedCrested(held, pick)
+
+    -- On the character. The hover is the item, so the sentence spends both
+    -- clauses on what has happened and what is left.
+    if held.location == "equipped" then
+        local first = crested and Roads.ARRIVED_WORN_CRESTED or Roads.ARRIVED_WORN
+        local second = level and string.format(Roads.ARRIVED_REFRESH_AT, level) or Roads.ARRIVED_REFRESH
+        return first .. " " .. second
+    end
+
     local becomes = type(pick.becomes) == "table" and tonumber(pick.becomes.itemID) or nil
+    local name = Roads.ShortName(pick.item) or ("the " .. (Roads.SlotWord(pick.slot) or "reward"))
+    local bare = name:gsub("^the ", "")
     local first
     if becomes and becomes == tonumber(held.itemID) then
         first = string.format(Roads.ARRIVED_TIER, Roads.SlotWord(pick.slot) or "piece")
+    elseif pick.kind == Roads.KIND_VAULT then
+        first = string.format(Roads.ARRIVED_VAULT, bare)
     else
-        local name = Roads.ShortName(pick.item) or ("the " .. (Roads.SlotWord(pick.slot) or "reward"))
-        first = string.format(Roads.ARRIVED_VAULT, (name:gsub("^the ", "")))
+        -- A pick the plan took out of your own bags, or off your character: it
+        -- came from nowhere new, so the clause names no source.
+        first = string.format(Roads.ARRIVED_HELD, name)
     end
-    local level = tonumber(held.itemLevel or held.level)
+    if crested and level then
+        -- The crest is the news, and the step left is not the refresh alone:
+        -- the plan still wants this piece on the character.
+        return string.format(Roads.ARRIVED_CRESTED_TO, first:gsub("%.$", ""), level) .. " " .. Roads.ARRIVED_PUT_ON
+    end
     local second = level and string.format(Roads.ARRIVED_REFRESH_AT, level) or Roads.ARRIVED_REFRESH
     return first .. " " .. second
 end
@@ -2023,7 +2247,16 @@ function Roads.ItemSentence(answer)
     -- (R-3b, WKE-576). No rating is invented: the line says what the item is
     -- and what would rate it, and the honesty phrase under it still says the
     -- item is not rated.
-    if not own and pick and Roads.IsArrivedPick(answer.heldItem, pick) then
+    --
+    -- Asked even when the item HAS a road of its own, because since R-3c the
+    -- arrived copy can be the one on the character, and every worn piece has an
+    -- Upgrade road whether anything rated it or not (WKE-580: the owner's
+    -- crested-and-worn Worldroot opened on that road and was told to skip
+    -- itself). The one road that speaks louder is a set-group road: a road in
+    -- that group carries this very key, which means the document rates this
+    -- copy as itself, and then the plan's own words for it are the answer.
+    local ownsSetRoad = type(own) == "table" and own.group == Roads.GROUP_SET
+    if not ownsSetRoad and pick and Roads.IsArrivedPick(answer.heldItem, pick) then
         return Roads.ArrivedSentence(answer.heldItem, pick)
     end
     -- A piece the plan's own pass never saw, which a later pass put in its best

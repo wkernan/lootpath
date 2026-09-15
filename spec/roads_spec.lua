@@ -1027,8 +1027,11 @@ describe("Roads over the owner's week of 2026-09-08", function()
         assert.is_nil(answer.own)
         assert.equal(ns.Roads.PHRASE_NOT_RATED_NEW, answer.phrase)
         assert.is_true(answer.held)
+        -- 315 is above the 305 the vault is offering it at, so the crest is
+        -- part of what has happened and the step left is not the refresh alone:
+        -- the plan wants this staff on the character (R-3c, WKE-580).
         assert.equal(
-            "This is the vault Worldroot the plan wanted. Refresh to rate it at 315.",
+            "This is the vault Worldroot the plan wanted, crested to 315. Put it on; refresh to rate it.",
             ns.Roads.ItemSentence(answer)
         )
     end)
@@ -1048,11 +1051,14 @@ describe("Roads over the owner's week of 2026-09-08", function()
         assert.equal("Skip this one, the plan uses the vault Worldroot.", ns.Roads.ItemSentence(answer))
     end)
 
-    it("says the vault road is claimed and in the bags, with Refresh as its step", function()
+    it("says the vault road is claimed and crested, with Refresh as its step", function()
         claimedWorldroot()
         local pick = group("2H Weapon", ns.Roads.GROUP_SET)[1]
-        assert.equal(ns.Roads.VAULT_CLAIMED, pick.claimed)
-        assert.equal("claimed · in your bags", pick.claimed)
+        -- The badge says the furthest the piece has got: claimed, and crested
+        -- past the 305 the vault offered (R-3c, WKE-580). "claimed · in your
+        -- bags" is what it says while the level is still the vault's.
+        assert.equal(ns.Roads.ARRIVED_CLAIMED_CRESTED, pick.claimed)
+        assert.equal("claimed · now crested", pick.claimed)
         assert.equal(ns.Roads.VERB_REFRESH, pick.verb)
         assert.equal("do: refresh to rate it", pick.todo)
         -- The vault's own state is not read for any of this: the countdown the
@@ -1134,6 +1140,243 @@ describe("Roads over the owner's week of 2026-09-08", function()
         end
         local pick = group("2H Weapon", ns.Roads.GROUP_SET)[1]
         assert.equal("Lightgrasp Worldroot", pick.item.name)
+    end)
+
+    -- -----------------------------------------------------------------------
+    -- R-3c (WKE-580): the pick that has moved slot as well as key.
+    --
+    -- One step past R-3b. The owner crested the staff the plan picked out of
+    -- his bags and put it on, and the tooltip told him to skip it in favour of
+    -- itself - because the worn copy has its own key, its own road (every worn
+    -- piece gets an Upgrade road) and a placement R-3b refused to look at.
+    --
+    -- His own week has no bag pick to reproduce that on: every slot's pick here
+    -- is the vault staff, a Catalyst conversion, or the piece he wears. So the
+    -- PLACEMENT is hand-built, which is what the issue asks for and the only
+    -- thing here that is: the cloak the `thisWeek` top set really picks
+    -- (275522, "Preyhunter's Refined Shawl", 298, in the top set at that level)
+    -- is moved into the bags, which makes the plan's pick a bag piece with "do:
+    -- equip it" on it, and the copies that arrive are built off that record's
+    -- own hyperlink with one bonus ID changed - 12835 for 12839 - so that the
+    -- key is new and the item ID is not. Every level and every name below is
+    -- the committed capture's or the committed document's.
+    local CLOAK = 275522
+
+    local function cloakRecord()
+        for _, record in ipairs(inputs.inventory.records) do
+            if record.itemID == CLOAK then
+                return record
+            end
+        end
+        return nil
+    end
+
+    -- The plan's pick, in the bags: what "do: equip it" is written on.
+    local function bagPick()
+        local record = cloakRecord()
+        assert.is_table(record)
+        assert.equal("equipped", record.location)
+        record.location = "bag"
+        local pick = ns.Roads.PlanPick(ns.Roads.ForSlot("Back", inputs))
+        assert.is_table(pick)
+        assert.equal(ns.Roads.KIND_SET, pick.kind)
+        assert.equal(298, pick.arrivesAt)
+        assert.equal("do: equip it", pick.todo)
+        return pick
+    end
+
+    -- A copy of it the plan has never seen, wherever the player has put it.
+    local function cloakCopy(level, location)
+        local record = cloakRecord()
+        assert.is_table(record)
+        local link = record.link:gsub("12835", "12839")
+        local parsed = ns.ParseItemLink(link)
+        assert.is_table(parsed)
+        assert.equal(CLOAK, parsed.itemID)
+        assert.is_true(parsed.key ~= record.key)
+        local copy = {
+            key = parsed.key,
+            itemID = parsed.itemID,
+            link = link,
+            name = record.name,
+            slot = "Back",
+            itemLevel = level,
+            location = location,
+        }
+        table.insert(inputs.inventory.records, copy)
+        return copy
+    end
+
+    local function crestRoad(slot, whichGroup)
+        for _, road in ipairs(ns.Roads.ForSlot(slot, inputs).groups[whichGroup]) do
+            if road.kind == ns.Roads.KIND_CREST then
+                return road
+            end
+        end
+        return nil
+    end
+
+    it("calls the copy you have put on the pick, moved on", function()
+        bagPick()
+        local worn = cloakCopy(298, "equipped")
+        local pick = ns.Roads.PlanPick(ns.Roads.ForSlot("Back", inputs))
+        assert.is_true(ns.Roads.IsArrivedPick(worn, pick))
+        local answer = answerFor("Back", worn.key)
+        -- The half of the defect R-3b could not have caught: the worn copy DOES
+        -- have a road of its own - the Upgrade road every worn piece gets - and
+        -- the sentence used to be read off the plan's pick rather than off the
+        -- item's own identity.
+        assert.is_table(answer.own)
+        assert.equal(ns.Roads.KIND_CREST, answer.own.kind)
+        assert.equal("You've put this on. Refresh to rate it at 298.", ns.Roads.ItemSentence(answer))
+    end)
+
+    it("says the crest as well when the worn level is above the one the plan picked", function()
+        bagPick()
+        local worn = cloakCopy(308, "equipped")
+        local pick = ns.Roads.PlanPick(ns.Roads.ForSlot("Back", inputs))
+        assert.is_true(ns.Roads.ArrivedCrested(worn, pick))
+        assert.equal(
+            "You've crested this and put it on. Refresh to rate it at 308.",
+            ns.Roads.ItemSentence(answerFor("Back", worn.key))
+        )
+        -- And the road the reader would otherwise be told to walk again says
+        -- where the piece has got to, and has nothing left but the refresh.
+        assert.equal(ns.Roads.ARRIVED_NOW_WORN, pick.claimed)
+        assert.equal("now worn", pick.claimed)
+        assert.equal(ns.Roads.VERB_REFRESH, pick.verb)
+        assert.equal("do: refresh to rate it", pick.todo)
+        -- Nothing was claimed from anywhere, so nothing says it was: "claimed"
+        -- is the vault's own word and this cloak came out of a dungeon.
+        assert.is_nil(pick.claimed:find("claimed", 1, true))
+    end)
+
+    it("tells the player to put on a bag copy crested past the plan", function()
+        bagPick()
+        local crested = cloakCopy(308, "bag")
+        local pick = ns.Roads.PlanPick(ns.Roads.ForSlot("Back", inputs))
+        assert.is_true(ns.Roads.IsArrivedPick(crested, pick))
+        assert.equal(
+            "This is the Preyhunter cloak the plan wanted, crested to 308. Put it on; refresh to rate it.",
+            ns.Roads.ItemSentence(answerFor("Back", crested.key))
+        )
+        -- Still in the bags, so the step the road already carries is the right
+        -- one and stays; only the badge is new.
+        assert.equal(ns.Roads.ARRIVED_NOW_CRESTED, pick.claimed)
+        assert.equal("now crested", pick.claimed)
+        assert.equal("do: equip it", pick.todo)
+    end)
+
+    it("reads the bank the same way it reads the bags", function()
+        bagPick()
+        local crested = cloakCopy(308, "bank")
+        local pick = ns.Roads.PlanPick(ns.Roads.ForSlot("Back", inputs))
+        assert.is_true(ns.Roads.IsArrivedPick(crested, pick))
+        assert.equal(
+            "This is the Preyhunter cloak the plan wanted, crested to 308. Put it on; refresh to rate it.",
+            ns.Roads.ItemSentence(answerFor("Back", crested.key))
+        )
+    end)
+
+    it("refuses a worse copy of the pick, wherever it is sitting", function()
+        bagPick()
+        local pick = ns.Roads.PlanPick(ns.Roads.ForSlot("Back", inputs))
+        -- 289 is below the 298 the plan picked, so this is a second, worse copy
+        -- in the bags and not the pick moved on: claiming and cresting only
+        -- ever raise a level.
+        assert.is_false(ns.Roads.IsArrivedPick(cloakCopy(289, "bag"), pick))
+        assert.is_false(ns.Roads.IsArrivedPick(cloakCopy(289, "equipped"), pick))
+        assert.is_nil(ns.Roads.ForSlot("Back", inputs).arrived)
+    end)
+
+    -- -----------------------------------------------------------------------
+    -- Defect 2: the Upgrade road reads the `maxed` document.
+    --
+    -- Three of the owner's own worn pieces are rated by that document at a
+    -- level above the one they are at, and the road used to say "no rating" and
+    -- point at the level they already wear ("upgrade the 302 to 302"). Every
+    -- figure below is read out of `qe-droptimizer-Hotornot-qqrqsbudcszh.json`.
+    local function withMaxed()
+        local maxed = document(MAXED_DUNGEON, "maxed", {
+            autoUpgradeVault = true,
+            autoUpgradeAll = true,
+            autoCatalyze = true,
+        })
+        inputs.verdicts[#inputs.verdicts + 1] = { verdict = maxed, scenario = "maxed" }
+        return maxed
+    end
+
+    it("rates upgrading what you wear out of the maxed document, at the level it projected", function()
+        local maxed = withMaxed()
+        -- The document's own answer for the cloak on the character: the same
+        -- key, because the upgrade boxes move `level` and never a bonus ID, in
+        -- its top set at 308 while the client reports 298.
+        local projected = maxed.topSet.items["275522:41:12835:13662"]
+        assert.is_table(projected)
+        assert.equal(308, projected.level)
+        assert.equal(298, cloakRecord().itemLevel)
+
+        local road = crestRoad("Back", ns.Roads.GROUP_SET)
+        assert.is_table(road)
+        assert.equal(ns.Roads.TAG_UPGRADE, road.tag)
+        assert.equal(308, road.arrivesAt)
+        assert.equal("in your best set", road.rating.badge)
+        assert.equal(ns.Roads.RATING_SET, road.rating.kind)
+        assert.equal("everything upgraded", road.plan)
+        assert.is_true(ns.Roads.IsForward(road))
+        -- And it is no longer in the group whose header says "No rating".
+        assert.is_nil(crestRoad("Back", ns.Roads.GROUP_NONE))
+        -- The other two the same document raises, so this is not one lucky key.
+        assert.equal(308, crestRoad("Feet", ns.Roads.GROUP_SET).arrivesAt)
+        assert.equal(308, crestRoad("Waist", ns.Roads.GROUP_SET).arrivesAt)
+    end)
+
+    it("builds no upgrade road at all when the document projects the level already worn", function()
+        local maxed = withMaxed()
+        -- The necklace is at the top of its track: the document carries it at
+        -- the level the client reports, so there is nothing to crest and no
+        -- road, rather than a road that leads where the reader is standing.
+        local projected = maxed.topSet.items["272228:6652:12846:13668"]
+        assert.is_table(projected)
+        assert.equal(321, projected.level)
+        assert.is_nil(crestRoad("Neck", ns.Roads.GROUP_SET))
+        assert.is_nil(crestRoad("Neck", ns.Roads.GROUP_NONE))
+    end)
+
+    it("says why there is no rating when the upgrade question went unasked", function()
+        -- C-12's own sentence, as the companion writes it for a run that could
+        -- not ask: nothing the character holds was below its cap.
+        local NOTE = "The upgrade question went unasked: nothing you hold is below its upgrade cap."
+        inputs.verdicts[1].verdict.scenarioNote = NOTE
+        local road = crestRoad("Back", ns.Roads.GROUP_NONE)
+        assert.is_table(road)
+        assert.equal(ns.Roads.PHRASE_NO_RATING, road.phrase)
+        assert.equal(NOTE, road.steps[1].text)
+        assert.equal(NOTE, ns.Roads.Facts(road)[1])
+        -- With the document stored the reason is not said, because there is
+        -- nothing to explain: the run asked, and the road carries the answer.
+        withMaxed()
+        assert.is_nil(crestRoad("Back", ns.Roads.GROUP_NONE))
+        local rated = crestRoad("Back", ns.Roads.GROUP_SET)
+        assert.is_nil(rated.steps[1].text:find("unasked", 1, true))
+    end)
+
+    -- Defect 3: the crest counts leave the tooltip. They are the vendor row's
+    -- business, beside the cost they would pay, and on a tooltip they were the
+    -- longest clause on the block and answered a question nobody asked there
+    -- (R-2a's rule, applied here).
+    it("marks the crest counts a cost fact, so only the row carries them", function()
+        local holding = ns.Roads.CrestHoldingText(inputs.currencies)
+        assert.equal(
+            "you hold 356 Adventurer Mistcrest, 2 Champion Mistcrest, 21 Hero Mistcrest, 20 Myth Mistcrest",
+            holding
+        )
+        local road = crestRoad("Back", ns.Roads.GROUP_NONE)
+        assert.is_table(road)
+        local costs = ns.Roads.CostFacts(road)
+        assert.equal(holding, costs[#costs])
+        local facts = ns.Roads.Facts(road)
+        assert.equal(holding, facts[#facts])
     end)
 
     -- -----------------------------------------------------------------------

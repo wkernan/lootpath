@@ -1495,6 +1495,10 @@ Panel.ROAD_ALSO_AT_DEFAULT = "%s %d %s"
 Panel.ROAD_BECOMES_TEXT = "into the tier %s"
 Panel.ROAD_UPGRADED_TEXT = "upgraded to %d"
 Panel.ROAD_WORN_TEXT = "what you wear now"
+-- Which plan rated it, said on the row of the one road whose plan is not the
+-- group's (R-3c, WKE-580): the Upgrade road is always the `maxed` run's answer,
+-- because that is the run that asked what your gear is worth upgraded.
+Panel.ROAD_CREST_PLAN_TEXT = "rated under %s"
 
 -- Explain (principle 11). One plain sentence under the FIRST VISIBLE USE of a
 -- system word in the expanded slot, in the note colour, off by default. Each
@@ -1565,7 +1569,12 @@ end
 -- can never disagree about which answer is on screen.
 function Panel.RoadPlanName(roads)
     for _, road in ipairs(type(roads) == "table" and roads.groups and roads.groups[ns.Roads.GROUP_SET] or {}) do
-        if road.plan then
+        -- Except the Upgrade road, which since R-3c (WKE-580) reads the `maxed`
+        -- document whatever plan the screen is following: it is a whole-set
+        -- verdict and belongs in this group, but it answers a different
+        -- question and must not be what the group's header names. Its own row
+        -- says which question it answers (Panel.RoadSecond).
+        if road.plan and road.kind ~= ns.Roads.KIND_CREST then
             return road.plan
         end
     end
@@ -1605,6 +1614,12 @@ function Panel.RoadSecond(road)
     end
     if road.kind == ns.Roads.KIND_KEEP then
         parts[#parts + 1] = Panel.ROAD_WORN_TEXT
+    end
+    -- The Upgrade road's verdict comes from the `maxed` run and no other, so it
+    -- says so on its own line rather than borrowing the group header's plan
+    -- (R-3c, WKE-580).
+    if road.kind == ns.Roads.KIND_CREST and road.plan then
+        parts[#parts + 1] = string.format(Panel.ROAD_CREST_PLAN_TEXT, road.plan)
     end
     if road.source then
         parts[#parts + 1] = Panel.SourceSecondText({

@@ -351,6 +351,42 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
         )
     end)
 
+    -- R-3c (WKE-580): the same road, where the `maxed` document HAS an answer.
+    -- The cloak on the character is 298 and that document carries it at 308 in
+    -- its top set, so the row says what upgrading it is worth instead of "no
+    -- rating", and it names the run it read - the only row on this panel whose
+    -- plan is not the group's.
+    it("rates the Upgrade road out of the maxed document and names that plan", function()
+        local back = section(model(), "Back")
+        local row
+        for _, entry in ipairs(back.roadGroups) do
+            for _, candidate in ipairs(entry.rows) do
+                row = row or (candidate.kind == ns.Roads.KIND_CREST and candidate or nil)
+            end
+        end
+        assert.is_table(row)
+        assert.equal(308, row.itemLevel)
+        assert.equal("in your best set", row.badge.text)
+        assert.equal("rated under everything upgraded", row.second)
+        -- The group header still names the plan the screen is following, off
+        -- the pick rather than off this row.
+        assert.equal("this week's plan", ns.UpgradeMapPanel.RoadPlanName(back.roads))
+    end)
+
+    -- The same rule where the owner's own week cannot reach it: a slot whose
+    -- Upgrade road comes FIRST in the group, or is the only road in it. The
+    -- header must still name the plan the screen is following, or nothing -
+    -- never the `maxed` run the Upgrade road always reads.
+    it("never lets the Upgrade road name the plan the group header follows", function()
+        local crest = { kind = ns.Roads.KIND_CREST, plan = "everything upgraded", keys = {} }
+        local pick = { kind = ns.Roads.KIND_KEEP, plan = "this week's plan", keys = {} }
+        assert.equal(
+            "this week's plan",
+            ns.UpgradeMapPanel.RoadPlanName({ groups = { [ns.Roads.GROUP_SET] = { crest, pick } } })
+        )
+        assert.is_nil(ns.UpgradeMapPanel.RoadPlanName({ groups = { [ns.Roads.GROUP_SET] = { crest } } }))
+    end)
+
     -- -----------------------------------------------------------------------
     -- The weapon slot.
 
@@ -649,17 +685,19 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
         })
     end
 
-    it("says a claimed vault reward is in your bags instead of open now", function()
+    it("says a claimed vault reward is claimed and crested instead of open now", function()
         claimWorldroot()
         local weapon = section(model(), "2H Weapon")
         local row = weapon.roadGroups[1].rows[1]
         assert.equal(ns.Roads.KIND_VAULT, row.kind)
         assert.is_true(row.planPick)
-        assert.equal("Vault · claimed · in your bags", row.tag)
+        -- 315 is above the 305 the vault offers it at, so the badge says the
+        -- crest as well as the claim (R-3c, WKE-580).
+        assert.equal("Vault · claimed · now crested", row.tag)
         assert.equal("do: refresh to rate it", row.todo)
         assert.equal(ns.Roads.VERB_REFRESH, row.verb)
         local text = ns.UpgradeMapPanel.RoadLineText(row)
-        assert.is_truthy(text:find("Vault · claimed · in your bags", 1, true))
+        assert.is_truthy(text:find("Vault · claimed · now crested", 1, true))
         assert.is_nil(text:find("open now", 1, true))
         assert.is_nil(text:find("do: take it", 1, true))
     end)

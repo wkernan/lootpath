@@ -274,6 +274,35 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         assert.is_nil(row.tooltipFactsText:find(ns.Roads.CREST_NOT_READABLE, 1, true))
     end)
 
+    -- R-3c (WKE-580), defect 3: the crest counts are the vendor row's business.
+    -- On the owner's block of 2026-09-14 they were the longest clause on the
+    -- Upgrade line and answered a question nobody asked on a tooltip - the same
+    -- rule R-2a applied to the cost clause, one clause later.
+    it("keeps the crest counts off the Upgrade road's tooltip line and on its row", function()
+        local HOLDING = "you hold 356 Adventurer Mistcrest, 2 Champion Mistcrest, 21 Hero Mistcrest, 20 Myth Mistcrest"
+        assert.same({
+            "Lootpath · Shoulder · rated 5 hours ago · /lootpath refresh",
+            "Skip this one, the plan uses your Lynx shoulders.",
+            "Upgrade · Seedpods of the Luminous Bloom (289) · no rating · crest type and cost not read",
+            "Other roads for this slot",
+            "Catalyst · Venom-Cursed Lynx's Spaulders (295) · into the tier shoulders · in your best set",
+            "Crafted · a crafted piece (331) · +1.11% · the rating assumes Crit / Haste · spark and materials not read",
+            "Why this? · /lootpath map",
+        }, lines(SEEDPODS))
+        -- And the row the panel draws still says it, beside the crest counts
+        -- the reader can see: dropped from the tooltip, not from the model.
+        local road
+        for _, entry in ipairs(ns.RoadsCache.Map().bySlot.Shoulder.groups[ns.Roads.GROUP_NONE] or {}) do
+            road = road or (entry.kind == ns.Roads.KIND_CREST and entry or nil)
+        end
+        assert.is_table(road)
+        local row = ns.UpgradeMapPanel.RoadRow(road)
+        assert.is_truthy(row.costText:find(HOLDING, 1, true))
+        assert.is_truthy(row.factsText:find(HOLDING, 1, true))
+        assert.is_nil(row.tooltipFactsText:find(HOLDING, 1, true))
+        assert.equal(ns.Roads.CREST_NOT_READ, row.tooltipFactsText)
+    end)
+
     it("draws at most three roads however many the slot has", function()
         -- Handcrafted, because the model has exactly three groups and so hands
         -- over at most two others on the owner's own week: the cap has to be
@@ -1062,11 +1091,64 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         local claimed = claimWorldroot()
         local block = lines(claimed.key)
         assert.equal("Lootpath · 2H Weapon · rated 5 hours ago · /lootpath refresh", block[1])
-        assert.equal("This is the vault Worldroot the plan wanted. Refresh to rate it at 315.", block[2])
+        assert.equal(
+            "This is the vault Worldroot the plan wanted, crested to 315. Put it on; refresh to rate it.",
+            block[2]
+        )
         assert.equal(ns.Roads.PHRASE_NOT_RATED_NEW, block[3])
         assert.equal("Other roads for this slot", block[4])
-        assert.is_true(block[5]:find("Vault · claimed · in your bags", 1, true) == 1)
+        assert.is_true(block[5]:find("Vault · claimed · now crested", 1, true) == 1)
         assert.equal("Why this? · /lootpath map", block[#block])
+    end)
+
+    -- R-3c (WKE-580): the same pick one step further on. The owner crested the
+    -- staff the plan picked and PUT IT ON, and the block he read opened on
+    -- "Skip this one, the plan uses your Worldroot" - the plan telling him to
+    -- skip the staff in favour of itself.
+    --
+    -- Reproduced on the cloak, for the reason spec/roads_spec.lua gives: his
+    -- week has no bag pick, so the placement is hand-built off the capture's
+    -- own record (275522 moved into the bags, a copy at 308 put on, its bonus
+    -- ID 12835 changed to 12839 so the key is new and the item ID is not).
+    local function wearCrestedCloak()
+        local record
+        for _, held in ipairs(gathered.inventory.records) do
+            if held.location == "equipped" and held.itemID == 275522 then
+                record = held
+            end
+        end
+        assert.is_table(record)
+        record.location = "bag"
+        local link = record.link:gsub("12835", "12839")
+        local parsed = ns.ParseItemLink(link)
+        assert.is_table(parsed)
+        local worn = {
+            key = parsed.key,
+            itemID = parsed.itemID,
+            link = link,
+            name = record.name,
+            slot = "Back",
+            itemLevel = 308,
+            location = "equipped",
+        }
+        table.insert(gathered.inventory.records, worn)
+        model = ns.UpgradeMapPanel.Model(gathered)
+        ns.RoadsCache.SetMap(ns.RoadsCache.Build(model))
+        return worn
+    end
+
+    it("tells the player the pick is on the character, not to skip it", function()
+        local worn = wearCrestedCloak()
+        local block = lines(worn.key)
+        assert.equal("You've crested this and put it on. Refresh to rate it at 308.", block[2])
+        -- The line under it is the road the worn copy really has - the Upgrade
+        -- road every worn piece gets - and it still says no document rates this
+        -- key. No rating is invented and none is borrowed.
+        assert.is_true(block[3]:find("Upgrade · Preyhunter's Refined Shawl (308) · no rating", 1, true) == 1)
+        -- And the row the plan's pick is on says where the piece has got to.
+        local pick = ns.Roads.PlanPick(ns.RoadsCache.Map().bySlot.Back)
+        assert.equal(ns.Roads.ARRIVED_NOW_WORN, pick.claimed)
+        assert.equal("do: refresh to rate it", pick.todo)
     end)
 
     it("takes no position on a claimed pick it has no rating for", function()
