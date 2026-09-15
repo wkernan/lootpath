@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### R-3b (WKE-576) - when you have already done what the plan said
+
+- **The thing you just took out of the vault is no longer something to skip.**
+  Take the weapon the plan picked, put crests into it, and hovering it in your
+  bags used to read `Skip this one, the plan uses the vault weapon.` - the plan
+  telling you to skip the very thing it sent you for. It now reads `This is the
+  vault Worldroot the plan wanted. Refresh to rate it at 315.` The rating has
+  not seen it yet and the line under it still says so; nothing is guessed at.
+  The same holds for a tier piece you have already put through the Catalyst.
+- **A vault reward that is already in your bags says so.** Its road on the
+  Upgrade Map reads `claimed · in your bags` instead of `open now`, its step is
+  to refresh rather than to take it, and its button is Refresh. Nothing here
+  asks the vault anything - it reads your bags.
+- **Roads have their names.** A rating carries item IDs and levels and no names
+  at all, so a road could sit there as `a vault reward (321)` or `a crafted
+  piece (331)` for hours even when the item was one you were wearing. Roads now
+  take the name out of the reward's own link where there is one, and out of what
+  your client already knows where there is not - and the plan's own sentences
+  say the name too, not just the rows.
+- **A plan that is behind your bags says what to do about it.** Where a slot
+  holds something the rating never saw, the tooltip's header and that slot's
+  header on the Upgrade Map both end `/lootpath refresh`.
+
 ### R-2b (WKE-575) - the bag mark is drawn at the size you see it at, and it says how often your bag addon asked for it
 
 - **The mark in your bags is a new picture.** It was the Great Vault's own

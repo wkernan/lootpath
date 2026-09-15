@@ -619,15 +619,115 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
     end)
 
     -- -----------------------------------------------------------------------
+    -- R-3b (WKE-576): the row of a vault pick that is already in the bags, and
+    -- the slot header of a plan the bags have moved past.
+
+    -- Hand-built, because the claim happens between two refreshes and no
+    -- capture has one. Item 251935 and the 2H Weapon slot are this week's; the
+    -- bonus ID has to be a third one (12841 is the vault's copy, 12838 the 308
+    -- he is wearing), which is exactly the point: the key is new, the item ID
+    -- is not, and the item ID is what decides.
+    local function claimWorldroot()
+        local worn
+        for _, record in ipairs(gathered.inventory.records) do
+            if record.location == "equipped" and record.itemID == 251935 then
+                worn = record
+            end
+        end
+        assert.is_table(worn)
+        local link = worn.link:gsub("12838", "12844")
+        local parsed = ns.ParseItemLink(link)
+        assert.is_table(parsed)
+        table.insert(gathered.inventory.records, {
+            key = parsed.key,
+            itemID = parsed.itemID,
+            link = link,
+            name = "Lightgrasp Worldroot",
+            slot = "2H Weapon",
+            itemLevel = 315,
+            location = "bag",
+        })
+    end
+
+    it("says a claimed vault reward is in your bags instead of open now", function()
+        claimWorldroot()
+        local weapon = section(model(), "2H Weapon")
+        local row = weapon.roadGroups[1].rows[1]
+        assert.equal(ns.Roads.KIND_VAULT, row.kind)
+        assert.is_true(row.planPick)
+        assert.equal("Vault · claimed · in your bags", row.tag)
+        assert.equal("do: refresh to rate it", row.todo)
+        assert.equal(ns.Roads.VERB_REFRESH, row.verb)
+        local text = ns.UpgradeMapPanel.RoadLineText(row)
+        assert.is_truthy(text:find("Vault · claimed · in your bags", 1, true))
+        assert.is_nil(text:find("open now", 1, true))
+        assert.is_nil(text:find("do: take it", 1, true))
+    end)
+
+    -- Red for all of that: with the reward still in the vault the row is the
+    -- one R-3 shipped.
+    it("says open now while the reward is still in the vault", function()
+        local weapon = section(model(), "2H Weapon")
+        local row = weapon.roadGroups[1].rows[1]
+        assert.equal("Vault · open now", row.tag)
+        assert.equal("do: take it · rated at 321, crests not readable", row.todo)
+        assert.equal(ns.Roads.VERB_SHOW_IN_VAULT, row.verb)
+    end)
+
+    -- Principle 9: a verb goes somewhere. This one's destination is not a
+    -- screen but the refresh itself, which is `/lootpath refresh` and nothing
+    -- else - the same captures, the same two reloads, the same combat refusal.
+    it("follows the Refresh verb to the companion refresh and nowhere else", function()
+        local asked = 0
+        local real = ns.Companion.Refresh
+        ns.Companion.Refresh = function()
+            asked = asked + 1
+            return { ok = true }
+        end
+        assert.is_true(ns.UpgradeMapPanel.FollowVerb(nil, { verb = ns.Roads.VERB_REFRESH }))
+        assert.equal(1, asked)
+        -- A row with no verb at all follows nothing.
+        assert.is_false(ns.UpgradeMapPanel.FollowVerb(nil, {}))
+        assert.equal(1, asked)
+        ns.Companion.Refresh = real
+    end)
+
+    -- Defect 4: the slot header of a plan the bags have moved past names the
+    -- remedy, in the same words the tooltip's header uses. This week's weapon
+    -- slot holds the 259 Decapitator, which the rating never saw.
+    it("names the refresh on a slot header whose bags the plan has not seen", function()
+        local m = model()
+        assert.equal("2H Weapon · /lootpath refresh", ns.UpgradeMapPanel.SectionHeaderText(section(m, "2H Weapon")))
+        -- And nothing on a slot that holds nothing the plan has not seen: of
+        -- this week's sixteen, Neck, Back, Chest and Hands are the four whose
+        -- bags the rating covers completely.
+        assert.equal("Chest", ns.UpgradeMapPanel.SectionHeaderText(section(m, "Chest")))
+        -- The drawn header is the same string as the printed one.
+        local element
+        for _, entry in ipairs(elements(m, shutAllBut(m, "2H Weapon"))) do
+            if entry.kind == ns.UpgradeMapPanel.ELEMENT_SECTION and entry.slot == "2H Weapon" then
+                element = entry
+            end
+        end
+        assert.is_table(element)
+        assert.equal("2H Weapon · /lootpath refresh", element.header)
+    end)
+
+    -- -----------------------------------------------------------------------
     -- The printed text is the same rows.
 
     it("prints the same sentence, headers and rows the list draws", function()
         local m = model()
         local lines = ns.UpgradeMapPanel.Lines(m)
         local shoulder = section(m, "Shoulder")
+        -- The slot's header, which since R-3b (WKE-576) names the refresh when
+        -- the slot's bags hold something the plan has not seen - and this
+        -- week's Shoulder does.
+        local header = ns.UpgradeMapPanel.SectionHeaderText(shoulder)
+        assert.equal("Shoulder · /lootpath refresh", header)
         local at
         for index, line in ipairs(lines) do
-            if line == "Shoulder" then
+            if line == header then
                 at = index
             end
         end

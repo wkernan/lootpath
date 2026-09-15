@@ -236,6 +236,26 @@ function ns.BonusIDsFromKey(key)
     return out
 end
 
+-- The bracketed name inside an item link, or nil when the link carries none.
+-- An empty pair of brackets - what `C_WeeklyRewards.GetItemHyperlink` answers
+-- before the client has loaded the item - is "not known yet", so it reads as
+-- nil here too rather than as an empty name.
+--
+-- It lives here, beside the parser, because two callers need it and one name
+-- reader is one answer: `ns.Vault.LinkName` is this function, and `ns.Roads`
+-- falls back to it for a road whose source record the client never named
+-- (R-3b, WKE-576).
+function ns.LinkName(link)
+    if type(link) ~= "string" then
+        return nil
+    end
+    local name = link:match("|h%[(.-)%]|h")
+    if name == nil or name == "" then
+        return nil
+    end
+    return name
+end
+
 -- Item link parser. Field layout after `item:` measured on the 2026-09-05
 -- transcript and identical to the SimulationCraft addon's offsets: itemID(1),
 -- enchantID(2), gems(3-6), suffixID(7), uniqueID(8), linkLevel(9), specID(10),

@@ -99,6 +99,9 @@ Roads.TODO_EQUIP = "do: equip it"
 Roads.TODO_RAID = "do: raid it · tick when it drops"
 Roads.TODO_KEY = "do: run the key · tick when it drops"
 Roads.TODO_CRAFT = "do: get the spark, then order it"
+-- The step left on a road whose item has already arrived: the document is what
+-- is behind now, not the player (R-3b, WKE-576).
+Roads.TODO_REFRESH = "do: refresh to rate it"
 -- Not imperatives, and so outside the gate. The first is the Keep row's own
 -- line; the second is what a road rated behind says instead of a "do:", in the
 -- plan's own words (`Roads.SlotSentence` opens with the same clause, from the
@@ -148,6 +151,14 @@ Roads.TAG_EQUIP = "In your bags"
 -- survives the reset, so the only time word a vault road carries is the
 -- client's own countdown (principle 5). "before reset" is never written.
 Roads.VAULT_OPEN_NOW = "open now"
+
+-- What the same road says once the reward is in your bags (R-3b, WKE-576). The
+-- vault's own state is not read for this and cannot be: the claim happened
+-- after the last capture, so the only evidence is the item itself, sitting in
+-- the bags with the plan's own item ID. "claimed" is what that evidence says
+-- and "in your bags" is where it says it from; after the next refresh the vault
+-- section is empty and the road goes away on its own.
+Roads.VAULT_CLAIMED = "claimed · in your bags"
 
 -- The client's own countdown, in the client's own units, and nothing else: the
 -- vault road says how long is left, never what happens when it runs out
@@ -606,7 +617,14 @@ local function itemFacts(source, extra)
     local item = {
         itemID = source and tonumber(source.itemID) or nil,
         key = source and source.key or nil,
-        name = source and source.name or nil,
+        -- A document's item entry carries no name at all - a QE Live export
+        -- is item IDs, keys and levels - so a road built from one is nameless
+        -- until something names it. A LINK names it for free: the bracketed
+        -- name is right there in the vault reward's own hyperlink and in every
+        -- inventory record's (R-3b, WKE-576; the owner read `a vault reward
+        -- (321)` eight hours after the build, 2026-09-14). What no link
+        -- carries, `ns.RoadsCache` asks the client for.
+        name = (source and source.name) or (source and ns.LinkName(source.link)) or nil,
         level = source and (source.level or source.itemLevel) or nil,
         quality = source and source.quality or nil,
         icon = source and source.icon or nil,
@@ -1247,11 +1265,154 @@ function Roads.ForSlot(slot, inputs)
     -- ---- the resources two roads on this screen both want ----
     Roads.NameRivals(result, charge)
 
+    -- ---- the pick that is already in the bags (R-3b) ----
+    Roads.MarkArrived(result, inputs)
+    result.staleBags = Roads.StaleBags(result, inputs)
+
     -- ---- principle 16's bound on the imperative ----
     Roads.GateImperatives(result)
 
     result.plan = Roads.SlotSentence(result)
     return result
+end
+
+-- ---------------------------------------------------------------------------
+-- The pick that has already arrived (R-3b, WKE-576).
+--
+-- The owner did what the plan said - took the Lightgrasp Worldroot out of the
+-- vault and put crests into it - and the plan then told him to skip it, because
+-- the claimed copy carries its own bonus IDs and its own level and so its own
+-- KEY, which no document mentions. Every line on that tooltip was honest about
+-- the document and the sentence was wrong about the world.
+--
+-- **The item ID is what decides "this is the pick", never the key.** A key is
+-- the item at one level with one set of bonus IDs, which is exactly what
+-- claiming and cresting changes; the item ID is what survives both. So this is
+-- a deliberately narrow identity test and not a join: it answers one question,
+-- "is the thing in my bags the thing the plan picked", and it answers it about
+-- the plan's OWN pick and nothing else.
+--
+-- What it refuses to call arrived, and why:
+--
+--   * anything you are WEARING. The old 308 Worldroot has the same item ID as
+--     the vault's; the slot already has its own road for what is on the
+--     character, and a piece you wear has not just turned up.
+--   * an item whose key the pick's road already carries - the vault reward
+--     itself, or the bag piece a Catalyst road converts. Those are the road's
+--     own item, and the road speaks for them.
+--
+-- A Catalyst pick is matched on what it BECOMES: the clone that comes out of
+-- the Catalyst carries the tier item ID, not the item ID that went in. A vault
+-- pick his export catalyzed is matched on both, because the reward can arrive
+-- either side of the conversion.
+function Roads.IsArrivedPick(held, pick)
+    if type(held) ~= "table" or type(pick) ~= "table" or pick.planPick ~= true then
+        return false
+    end
+    if held.location == "equipped" then
+        return false
+    end
+    local itemID = tonumber(held.itemID)
+    if not itemID then
+        return false
+    end
+    for _, key in ipairs(pick.keys or {}) do
+        if key ~= nil and key == held.key then
+            return false
+        end
+    end
+    local becomes = type(pick.becomes) == "table" and tonumber(pick.becomes.itemID) or nil
+    if becomes and becomes == itemID then
+        return true
+    end
+    if pick.kind == Roads.KIND_VAULT then
+        local wanted = type(pick.item) == "table" and tonumber(pick.item.itemID) or nil
+        return wanted ~= nil and wanted == itemID
+    end
+    return false
+end
+
+-- The slot's pick, which is the one road the whole set group is arranged
+-- around. At most one exists: his own `ItemSet.ts:205` allows one vault option
+-- per set and `setRoad` marks exactly the top-set entries.
+function Roads.PlanPick(slotRoads)
+    if type(slotRoads) ~= "table" or type(slotRoads.groups) ~= "table" then
+        return nil
+    end
+    for _, road in ipairs(slotRoads.groups[Roads.GROUP_SET] or {}) do
+        if road.planPick then
+            return road
+        end
+    end
+    return nil
+end
+
+-- Marks the slot when the pick is already in the bags, and says so on the road
+-- the reader would otherwise be told to walk again. Run over the finished slot,
+-- beside the other two sweeps, so no builder can produce a vault road that
+-- escapes it.
+--
+-- Nothing here reads the vault. The claim is in no capture until the next
+-- refresh, so what the road says changes on the evidence of the bags alone -
+-- and when the refresh lands, the vault section is empty, the road is not built
+-- at all, and this says nothing because there is nothing to say.
+function Roads.MarkArrived(slotRoads, inputs)
+    if type(slotRoads) ~= "table" then
+        return slotRoads
+    end
+    inputs = type(inputs) == "table" and inputs or {}
+    local pick = Roads.PlanPick(slotRoads)
+    if not pick then
+        return slotRoads
+    end
+    local arrived
+    for _, record in ipairs(records(inputs.inventory)) do
+        if record.slot == slotRoads.slot and not arrived and Roads.IsArrivedPick(record, pick) then
+            arrived = record
+        end
+    end
+    if not arrived then
+        return slotRoads
+    end
+    slotRoads.arrived = arrived
+    pick.arrived = arrived
+    if pick.kind == Roads.KIND_VAULT then
+        -- The badge, the verb and the step, all three: a row that still reads
+        -- "open now · do: take it · Show in vault" is the same wrong sentence
+        -- in three more places.
+        pick.claimed = Roads.VAULT_CLAIMED
+        pick.verb = Roads.VERB_REFRESH
+        pick.todo = Roads.TODO_REFRESH
+    end
+    return slotRoads
+end
+
+-- Whether anything the player is carrying in this slot is newer than the plan:
+-- a held piece no road of the slot rates, whose tail is the one a refresh
+-- cures. That is the fact a stale plan can say out loud about itself (R-3b,
+-- WKE-576, defect 4), and it is read off the same records and the same phrase
+-- function every honesty tail is read off.
+function Roads.StaleBags(slotRoads, inputs)
+    if type(slotRoads) ~= "table" or type(slotRoads.groups) ~= "table" then
+        return false
+    end
+    inputs = type(inputs) == "table" and inputs or {}
+    local rated = {}
+    for _, group in ipairs(Roads.GROUP_ORDER) do
+        for _, road in ipairs(slotRoads.groups[group] or {}) do
+            for _, key in ipairs(road.keys or {}) do
+                rated[key] = true
+            end
+        end
+    end
+    for _, record in ipairs(records(inputs.inventory)) do
+        if record.slot == slotRoads.slot and not rated[record.key] then
+            if Roads.NotRatedPhrase(inputs.excluded, record, record.key) == Roads.PHRASE_NOT_RATED_NEW then
+                return true
+            end
+        end
+    end
+    return false
 end
 
 -- Takes the "do:" off every road of a slot the plan is not going forward on,
@@ -1468,6 +1629,12 @@ function Roads.ForItemIn(slotRoads, key, inputs)
         end
     end
     answer.held = item ~= nil
+    -- The record itself, not just the fact of it: "is this the pick, arrived"
+    -- is a question about the item's own identity (R-3b, WKE-576).
+    answer.heldItem = item
+    -- Whether the plan is behind the bags in this slot, which is what lets a
+    -- stale plan name its own remedy (defect 4).
+    answer.stale = slotRoads.staleBags == true
 
     if not own then
         answer.phrase = Roads.NotRatedPhrase(inputs.excluded, item, key)
@@ -1670,6 +1837,39 @@ function Roads.PlanSentence(week)
     return { sentence = sentence(parts), footnote = footnote, plan = Roads.PlanName(entry.scenario) }
 end
 
+-- The sentence for the pick that has already arrived (R-3b, WKE-576). Two
+-- clauses: what the thing in the bag IS, and the one thing the reader can do
+-- about it right now. It names no rating and invents none - the line under it
+-- still says "not rated · new since the last refresh", which is the truth about
+-- the document - and the level in it is the item's own, off the link the player
+-- is hovering, never the level the document projected.
+--
+-- The noun comes from the same place the "skip" sentence's does, so the two
+-- sentences call one item one thing: `Roads.ShortName` for a vault reward, and
+-- the slot's own word for a tier piece, which is what the Catalyst produces and
+-- what the row beside it already calls "the tier shoulders".
+Roads.ARRIVED_VAULT = "This is the vault %s the plan wanted."
+Roads.ARRIVED_TIER = "This is the tier %s the plan wanted."
+Roads.ARRIVED_REFRESH_AT = "Refresh to rate it at %d."
+Roads.ARRIVED_REFRESH = "Refresh to rate it."
+
+function Roads.ArrivedSentence(held, pick)
+    if type(held) ~= "table" or type(pick) ~= "table" then
+        return nil
+    end
+    local becomes = type(pick.becomes) == "table" and tonumber(pick.becomes.itemID) or nil
+    local first
+    if becomes and becomes == tonumber(held.itemID) then
+        first = string.format(Roads.ARRIVED_TIER, Roads.SlotWord(pick.slot) or "piece")
+    else
+        local name = Roads.ShortName(pick.item) or ("the " .. (Roads.SlotWord(pick.slot) or "reward"))
+        first = string.format(Roads.ARRIVED_VAULT, (name:gsub("^the ", "")))
+    end
+    local level = tonumber(held.itemLevel or held.level)
+    local second = level and string.format(Roads.ARRIVED_REFRESH_AT, level) or Roads.ARRIVED_REFRESH
+    return first .. " " .. second
+end
+
 -- The hovered item's own part of the plan, in the same chat voice as the week's
 -- sentence and the slot's (principle 16). One or two clauses, never a label, a
 -- percentage or an item level: those are on the road line under it.
@@ -1716,6 +1916,16 @@ function Roads.ItemSentence(answer)
     local pick
     for _, road in ipairs((answer.slotRoads and answer.slotRoads.groups or {})[Roads.GROUP_SET] or {}) do
         pick = pick or (road.planPick and road or nil)
+    end
+
+    -- Unless it IS the pick, arrived since the last refresh. The document has
+    -- no key for the claimed copy, so no road here carries it and everything
+    -- below would tell the reader to skip the very thing the plan sent him for
+    -- (R-3b, WKE-576). No rating is invented: the line says what the item is
+    -- and what would rate it, and the honesty phrase under it still says the
+    -- item is not rated.
+    if not own and pick and Roads.IsArrivedPick(answer.heldItem, pick) then
+        return Roads.ArrivedSentence(answer.heldItem, pick)
     end
     local name = pick and Roads.ShortName(pick.item) or nil
     if not name then

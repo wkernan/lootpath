@@ -743,6 +743,197 @@ describe("Roads over the owner's week of 2026-09-08", function()
     end)
 
     -- -----------------------------------------------------------------------
+    -- R-3b (WKE-576): the pick that has already arrived.
+    --
+    -- The owner's screen of 2026-09-14 night, reproduced over this week's own
+    -- files. He did what the plan said - took the vault's Lightgrasp Worldroot
+    -- and put crests into it - and the plan then told him to skip the result,
+    -- because the claimed copy carries its own bonus IDs and so its own KEY,
+    -- and no document mentions that key.
+    --
+    -- The claimed copy is HAND-BUILT: no capture has one, because the claim
+    -- happens between two refreshes. Everything about it except its bonus ID is
+    -- read out of this week's files - item 251935, slot 2H Weapon, the name the
+    -- vault reward itself carries - and the bonus ID is invented precisely
+    -- because it has to be a third one: 12841 is the vault's copy and 12838 is
+    -- the 308 still on the character. That the key is new and the item ID is
+    -- not is the whole of what the rule reads.
+    local CLAIMED_LEVEL = 315
+
+    local function wornWorldroot()
+        for _, record in ipairs(inputs.inventory.records) do
+            if record.location == "equipped" and record.itemID == 251935 then
+                return record
+            end
+        end
+        return nil
+    end
+
+    local function claimedWorldroot()
+        local worn = wornWorldroot()
+        assert.is_table(worn)
+        local link = worn.link:gsub("12838", "12844")
+        local parsed = ns.ParseItemLink(link)
+        assert.is_table(parsed)
+        local record = {
+            key = parsed.key,
+            itemID = parsed.itemID,
+            link = link,
+            name = "Lightgrasp Worldroot",
+            slot = "2H Weapon",
+            itemLevel = CLAIMED_LEVEL,
+            location = "bag",
+        }
+        -- A third key, and the same item ID as both of the other two.
+        assert.equal(251935, record.itemID)
+        assert.is_true(record.key ~= worn.key)
+        assert.is_true(record.key ~= "251935:6652:12841")
+        table.insert(inputs.inventory.records, record)
+        return record
+    end
+
+    local function answerFor(slot, key)
+        return ns.Roads.ForItemIn(ns.Roads.ForSlot(slot, inputs), key, inputs)
+    end
+
+    it("calls a bag copy of the vault pick the pick, by item ID and never by key", function()
+        local claimed = claimedWorldroot()
+        local pick = group("2H Weapon", ns.Roads.GROUP_SET)[1]
+        assert.equal(ns.Roads.KIND_VAULT, pick.kind)
+        assert.is_true(ns.Roads.IsArrivedPick(claimed, pick))
+        -- What it refuses, and both refusals matter on this very screen. The
+        -- 308 he is wearing has the SAME item ID and is not something that has
+        -- just turned up; the slot already has its own road for it.
+        assert.is_false(ns.Roads.IsArrivedPick(wornWorldroot(), pick))
+        -- The vault reward itself is the road's own item, and the road speaks
+        -- for it: the pick has not "arrived" by being where it always was.
+        assert.is_false(ns.Roads.IsArrivedPick({
+            itemID = 251935,
+            key = pick.keys[1],
+            location = "bag",
+        }, pick))
+        -- And a road that is not the plan's pick is not a pick at all.
+        assert.is_false(ns.Roads.IsArrivedPick(claimed, group("2H Weapon", ns.Roads.GROUP_SET)[2]))
+    end)
+
+    it("says the vault weapon has arrived instead of telling the player to skip it", function()
+        local claimed = claimedWorldroot()
+        local answer = answerFor("2H Weapon", claimed.key)
+        -- No road carries this key: it is new since the last refresh, and the
+        -- honesty phrase under the sentence still says exactly that.
+        assert.is_nil(answer.own)
+        assert.equal(ns.Roads.PHRASE_NOT_RATED_NEW, answer.phrase)
+        assert.is_true(answer.held)
+        assert.equal(
+            "This is the vault Worldroot the plan wanted. Refresh to rate it at 315.",
+            ns.Roads.ItemSentence(answer)
+        )
+    end)
+
+    -- The other bag piece in the same slot, on the same screen: the rule is
+    -- narrow, and a weapon that is NOT the pick still reads the way it did.
+    it("still tells the player to skip a bag piece that is not the pick", function()
+        claimedWorldroot()
+        local decapitator
+        for _, record in ipairs(inputs.inventory.records) do
+            if record.location == "bag" and record.itemID == 275222 then
+                decapitator = record
+            end
+        end
+        assert.is_table(decapitator)
+        local answer = answerFor("2H Weapon", decapitator.key)
+        assert.equal("Skip this one, the plan uses the vault Worldroot.", ns.Roads.ItemSentence(answer))
+    end)
+
+    it("says the vault road is claimed and in the bags, with Refresh as its step", function()
+        claimedWorldroot()
+        local pick = group("2H Weapon", ns.Roads.GROUP_SET)[1]
+        assert.equal(ns.Roads.VAULT_CLAIMED, pick.claimed)
+        assert.equal("claimed · in your bags", pick.claimed)
+        assert.equal(ns.Roads.VERB_REFRESH, pick.verb)
+        assert.equal("do: refresh to rate it", pick.todo)
+        -- The vault's own state is not read for any of this: the countdown the
+        -- client gave is still the client's and still on the row.
+        assert.is_true(pick.resetSeconds > 0)
+    end)
+
+    -- Red for all four: with nothing claimed, the same road is the one R-1
+    -- built and every assertion above is false.
+    it("leaves the vault road alone while the reward is still in the vault", function()
+        local pick = group("2H Weapon", ns.Roads.GROUP_SET)[1]
+        assert.is_nil(pick.claimed)
+        assert.equal(ns.Roads.VAULT_OPEN_NOW, pick.openNow)
+        assert.equal(ns.Roads.VERB_SHOW_IN_VAULT, pick.verb)
+        assert.equal("do: take it · rated at 321, crests not readable", pick.todo)
+        assert.is_nil(ns.Roads.ForSlot("2H Weapon", inputs).arrived)
+    end)
+
+    -- The same identity rule on the other shape it takes: a Catalyst pick that
+    -- has since been converted. The shoulder pick converts the Lynx Spaulders
+    -- (277782) into his tier shoulder (271526), and what comes out of the
+    -- Catalyst carries the TIER item ID, so that is what is matched.
+    it("knows the tier piece a converted Catalyst pick left in the bags", function()
+        local pick = group("Shoulder", ns.Roads.GROUP_SET)[1]
+        assert.equal(ns.Roads.KIND_CATALYST, pick.kind)
+        assert.equal(271526, pick.becomes.itemID)
+        -- Hand-built for the same reason the Worldroot above is: the clone
+        -- exists only after a conversion no capture caught. Its item ID is the
+        -- document's own (271526); its bonus IDs are not, because he crested it
+        -- after converting it, and that is what makes its key one no document
+        -- carries. The projection's own key, 271526:6652:12830:13662, IS on the
+        -- Catalyst road (its second key), and a held item carrying that key is
+        -- the road's own item rather than something that has arrived.
+        local converted = {
+            key = "271526:6652:12844:13662",
+            itemID = 271526,
+            slot = "Shoulder",
+            itemLevel = 295,
+            location = "bag",
+        }
+        table.insert(inputs.inventory.records, converted)
+        assert.is_true(ns.Roads.IsArrivedPick(converted, pick))
+        assert.equal(
+            "This is the tier shoulders the plan wanted. Refresh to rate it at 295.",
+            ns.Roads.ItemSentence(answerFor("Shoulder", converted.key))
+        )
+        -- A Catalyst road is not a vault road and gains no vault badge.
+        assert.is_nil(ns.Roads.ForSlot("Shoulder", inputs).groups[ns.Roads.GROUP_SET][1].claimed)
+    end)
+
+    -- Defect 4: a stale plan names its own remedy. The slot is stale when it
+    -- holds something no road of it rates whose tail is the one a refresh
+    -- cures - this week, the 259 Decapitator sitting in his bags.
+    it("knows when a slot's bags have moved past the plan", function()
+        assert.is_true(ns.Roads.ForSlot("2H Weapon", inputs).staleBags)
+        assert.is_true(answerFor("2H Weapon", "251935:6652:12841").stale)
+    end)
+
+    it("says nothing about a refresh for a slot whose bags the plan has seen", function()
+        local kept = {}
+        for _, record in ipairs(inputs.inventory.records) do
+            if not (record.slot == "2H Weapon" and record.location == "bag") then
+                kept[#kept + 1] = record
+            end
+        end
+        inputs.inventory.records = kept
+        assert.is_false(ns.Roads.ForSlot("2H Weapon", inputs).staleBags)
+        assert.is_false(answerFor("2H Weapon", "251935:6652:12841").stale)
+    end)
+
+    -- Defect 3, the half that needs nothing from the client: the name is in the
+    -- vault reward's own hyperlink. Strip what the client answered and the road
+    -- is still named, with no request made and none possible here.
+    it("names a vault road off the reward's own link when the client named nothing", function()
+        for _, option in ipairs(inputs.vault.options) do
+            for _, reward in ipairs(option.rewards or {}) do
+                reward.name = nil
+            end
+        end
+        local pick = group("2H Weapon", ns.Roads.GROUP_SET)[1]
+        assert.equal("Lightgrasp Worldroot", pick.item.name)
+    end)
+
+    -- -----------------------------------------------------------------------
     -- The premise check (CLAUDE.md: verify the issue's premise against the code
     -- and the files before building).
     --
