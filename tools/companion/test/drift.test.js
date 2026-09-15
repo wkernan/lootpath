@@ -66,17 +66,29 @@ test('the state file remembers the capture, and reading it back survives the rou
     assert.strictEqual(fingerprintLib.captureIsNew(back.state, 1789000060), true);
 });
 
-// R-7 (WKE-579). The addon takes the same four snapshots at `PLAYER_LOGOUT`
-// now, labelled `trigger = "logout"`, so the write the client flushes on the way
-// out carries the gear the player logged out in - and the log can say so
-// outright instead of naming two possibilities.
+// R-7 (WKE-579), corrected by R-7a (WKE-582). The addon takes the same four
+// snapshots when the UI is unloaded, labelled `trigger = "flush"`, so the write
+// the client makes on the way out carries the gear the player was in - and the
+// log can say a capture was taken instead of naming two possibilities. What it
+// may NOT say is "logout": `PLAYER_LOGOUT` fires on `/reload` too, and this line
+// printed "run after logout" for a plain reload on 2026-09-15.
 const { whatThisWriteCarried } = require('../companion');
 
 const STORED = (envCapturedAt) => ({ ok: true, state: { envCapturedAt } });
 
-test('a logout capture is named as one', () => {
-    const line = whatThisWriteCarried({ capture: { trigger: 'logout', capturedAt: 200 } }, STORED(100));
-    assert.strictEqual(line, 'run after logout (gear captured at logout)');
+test('a flush capture is named as one, and the line never claims a logout', () => {
+    const line = whatThisWriteCarried({ capture: { trigger: 'flush', capturedAt: 200 } }, STORED(100));
+    assert.strictEqual(line, 'run after a logout or reload (gear captured at the flush)');
+    assert.ok(!/run after logout/.test(line));
+});
+
+// An addon at exactly R-7 wrote `logout` for the same event and the same four
+// captures. It reads as the same line rather than as an unlabelled write.
+test('an R-7 snapshot labelled logout reads as a flush', () => {
+    assert.strictEqual(
+        whatThisWriteCarried({ capture: { trigger: 'logout', capturedAt: 200 } }, STORED(100)),
+        'run after a logout or reload (gear captured at the flush)'
+    );
 });
 
 test('the other three lines are what they were', () => {
@@ -94,20 +106,20 @@ test('the other three lines are what they were', () => {
     );
 });
 
-// A write carrying a capture the last run already read is a plain reload, or a
-// logout that captured nothing because it happened in combat. The label on the
-// old capture does not make it new, whatever it says.
-test('a capture the last run already read is still nothing new, even labelled logout', () => {
+// A write carrying a capture the last run already read is a logout or reload
+// that captured nothing because it happened in combat. The label on the old
+// capture does not make it new, whatever it says.
+test('a capture the last run already read is still nothing new, even labelled flush', () => {
     assert.strictEqual(
-        whatThisWriteCarried({ capture: { trigger: 'logout', capturedAt: 200 } }, STORED(200)),
+        whatThisWriteCarried({ capture: { trigger: 'flush', capturedAt: 200 } }, STORED(200)),
         'run after a logout or a plain reload - nothing new was captured'
     );
 });
 
 // An unknown state file cannot refute a label the addon wrote down.
-test('a logout is named even when the state file cannot say whether the capture is new', () => {
+test('a flush is named even when the state file cannot say whether the capture is new', () => {
     assert.strictEqual(
-        whatThisWriteCarried({ capture: { trigger: 'logout', capturedAt: 200 } }, { ok: false }),
-        'run after logout (gear captured at logout)'
+        whatThisWriteCarried({ capture: { trigger: 'flush', capturedAt: 200 } }, { ok: false }),
+        'run after a logout or reload (gear captured at the flush)'
     );
 });

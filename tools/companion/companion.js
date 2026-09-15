@@ -315,29 +315,35 @@ async function once(config, log, args, deps) {
 // and nowhere else: it changes nothing the run does.
 //
 //   run after /lootpath refresh (gear captured at the click)
-//   run after logout (gear captured at logout)
+//   run after a logout or reload (gear captured at the flush)
 //   run after a capture made by hand
 //   run after a logout or a plain reload - nothing new was captured
 //
-// The second is R-7's (WKE-579): the addon now takes the same four snapshots at
-// `PLAYER_LOGOUT`, labels them `trigger = "logout"`, and the write the client
-// flushes on the way out carries the gear the player logged out in. The line is
-// read off that label rather than inferred, which is why it can say "logout"
-// outright where the fourth cannot.
+// The second is R-7's (WKE-579), corrected by R-7a (WKE-582): the addon takes
+// the same four snapshots when the UI is unloaded and labels them
+// `trigger = "flush"`, so the write the client makes on the way out carries the
+// gear the player was in. It used to read `run after logout (gear captured at
+// logout)`, which it could not prove - `PLAYER_LOGOUT` fires on `/reload` too,
+// and the owner's 2026-09-15 log printed that line for a plain reload. What the
+// label does prove is that a capture was taken at the flush, which is the half
+// worth saying; the bare word "logout" is retired from this file.
+//
+// A snapshot labelled `logout` was written by an addon at exactly R-7. It is the
+// same event and the same four captures, so it reads as the same line rather
+// than falling through to the "does not say how it was taken" one.
 //
 // The fourth is still deliberately two possibilities in one clause, and still
-// has cases: a plain `/reload`, an addon from before R-7, and a forced logout in
-// combat, where every capture refuses and the last snapshot flushes again. A
-// logout and a `/reload` produce the same write and, with nothing captured, the
-// SavedVariables record no difference between them.
+// has cases: an addon from before R-7, and a forced logout or reload in combat,
+// where every capture refuses and the last snapshot flushes again. With nothing
+// captured, the SavedVariables record no difference between them.
 function whatThisWriteCarried(profile, stored) {
     const capture = profile.capture || {};
     const isNew = fingerprintLib.captureIsNew(stored.ok ? stored.state : null, capture.capturedAt);
     if (isNew === false) {
         return 'run after a logout or a plain reload - nothing new was captured';
     }
-    if (capture.trigger === 'logout') {
-        return 'run after logout (gear captured at logout)';
+    if (capture.trigger === 'flush' || capture.trigger === 'logout') {
+        return 'run after a logout or reload (gear captured at the flush)';
     }
     if (capture.trigger === 'refresh') {
         return 'run after /lootpath refresh (gear captured at the click)';

@@ -339,12 +339,25 @@ function ns.RegisterCapture(name, help, run, opts)
 end
 
 -- How the capture that is running was asked for: "refresh" while
--- `ns.Companion.Refresh` is driving the chain, and nil - which stores as
--- "command" - for a `/lootpath capture` typed by hand. R-6 (WKE-578): the
--- companion reads it off the newest `env` snapshot to say, in its own log,
--- whether the write it woke on carried a fresh capture or is a logout flushing
--- the last one again.
+-- `ns.Companion.Refresh` is driving the chain, "flush" for the sequence that
+-- runs when the UI is unloaded, and nil - which stores as "command" - for a
+-- `/lootpath capture` typed by hand. R-6 (WKE-578): the companion reads it off
+-- the newest `env` snapshot to say, in its own log, whether the write it woke on
+-- carried a fresh capture or is flushing the last one again.
 ns.captureTrigger = nil
+
+-- How many snapshots of one capture name are kept. R-7a (WKE-582): nothing
+-- trimmed this list, so every capture ever taken stayed in SavedVariables. The
+-- owner's file measured 6.1 MB on 2026-09-14 and 11.0 MB two days later, with 35
+-- `inventory` snapshots in it worth 5.85 MB on their own, and the client reads
+-- and writes the whole file at every login and every reload. Four is the
+-- smallest number that keeps the refresh loop's two flushes with two older ones
+-- beside them to compare against; the companion only ever reads the newest of
+-- each name (`newestSnapshot`, `tools/companion/lib/simc-profile.js`), so the
+-- rest are for a human reading a pull. A pull is the evidence for the issue it
+-- was made for, and it is committed under `spec/fixtures/captures/`; the live
+-- file is not an archive.
+ns.CAPTURE_HISTORY = 4
 
 local function storeSnapshot(name, data, startedAt)
     local copy, sawSecret = ns.CopyRaw(data)
@@ -362,6 +375,12 @@ local function storeSnapshot(name, data, startedAt)
     local list = ns.db.global.captures[name] or {}
     ns.db.global.captures[name] = list
     list[#list + 1] = snapshot
+    -- The newest is always the one just stored; the oldest go. `table.remove`
+    -- off the front rather than a rebuilt table, so the list AceDB already holds
+    -- stays the list it holds.
+    while #list > ns.CAPTURE_HISTORY do
+        table.remove(list, 1)
+    end
     return { ok = true, snapshot = snapshot, count = #list }
 end
 
@@ -501,9 +520,20 @@ frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("PLAYER_LOGIN")
 -- R-7 (WKE-579). The last thing the addon does is take the same four snapshots
 -- `/lootpath refresh` takes, so that the SavedVariables the client is about to
--- flush carry the gear the player logged out in rather than the gear the last
+-- flush carry the gear the player is leaving in rather than the gear the last
 -- refresh recorded. The sequence, what it skips and why, is
--- `ns.Companion.CaptureAtLogout`; this file owns only the lifecycle half.
+-- `ns.Companion.CaptureAtFlush`; this file owns only the lifecycle half.
+--
+-- **R-7a (WKE-582): this is not a logout event, it is an unload event.**
+-- `PLAYER_LOGOUT` fires on `/reload` as well, because the UI is unloaded either
+-- way, and at the moment it fires nothing can tell the two apart - only the next
+-- load can (`PLAYER_ENTERING_WORLD` carries `isInitialLogin, isReloadingUi`;
+-- Ketho's `SystemDocumentation.lua`), and by then the snapshot is written. So
+-- the sequence keeps running on both - it is the reason the second reload of the
+-- refresh loop carries fresh gear - and everything it stores is labelled
+-- `flush`, which is true of both. The owner's 2026-09-15 pull had five `env`
+-- snapshots stamped `logout` for at most one logout; that is the label this
+-- replaces.
 --
 -- `PLAYER_LOGOUT` is Blizzard's own synchronous event (Ketho's
 -- `SystemDocumentation.lua`: `LiteralName = "PLAYER_LOGOUT", SynchronousEvent =
@@ -546,10 +576,10 @@ frame:SetScript("OnEvent", function(self, event, arg1)
             self:UnregisterEvent("PLAYER_REGEN_ENABLED")
         end
     elseif event == "PLAYER_LOGOUT" then
-        -- Guarded rather than assumed: a logout is the one moment where an
+        -- Guarded rather than assumed: the unload is the one moment where an
         -- error in the addon would be the last thing the player sees.
-        if ns.Companion and ns.Companion.CaptureAtLogout then
-            pcall(ns.Companion.CaptureAtLogout)
+        if ns.Companion and ns.Companion.CaptureAtFlush then
+            pcall(ns.Companion.CaptureAtFlush)
         end
     end
 end)

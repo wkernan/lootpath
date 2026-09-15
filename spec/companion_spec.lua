@@ -2129,8 +2129,15 @@ end)
 -- profile (R-6's finding, docs/ARCHITECTURE.md §7). The same four snapshots at
 -- `PLAYER_LOGOUT` are what make the sentence true. There is no reload, nothing
 -- asynchronous, and the vault is read plainly.
+--
+-- R-7a (WKE-582): `PLAYER_LOGOUT` is an unload event, not a logout event - it
+-- fires on `/reload` too, and the owner's 2026-09-15 pull carried five `env`
+-- snapshots stamped `logout` for at most one logout. The sequence still runs on
+-- both, because a reload's snapshot is what makes the refresh loop's second
+-- reload carry fresh gear; what changed is that everything it writes says
+-- `flush`, which is true of either.
 
-describe("the capture at logout", function()
+describe("the capture at the flush", function()
     local ns, world
 
     before_each(function()
@@ -2166,37 +2173,41 @@ describe("the capture at logout", function()
 
     -- The reload is the refresh's last step and must not be the logout's: the
     -- client is already leaving. Proven red by calling `ReloadUI()` at the end
-    -- of `CaptureAtLogout`.
+    -- of `CaptureAtFlush`.
     it("does not need ReloadUI at all", function()
         _G.ReloadUI = nil
-        local result = ns.Companion.CaptureAtLogout()
+        local result = ns.Companion.CaptureAtFlush()
         assert.is_true(result.ok)
         assert.equal(1, #ns.db.global.captures.env)
     end)
 
     -- Every snapshot carries the label, which is the only thing that lets the
-    -- companion say `run after logout` rather than guessing between a logout
-    -- and a plain reload. Proven red by dropping the `ns.captureTrigger`
-    -- assignment: the snapshots read "command" and the companion's line is the
-    -- hand-capture one.
-    it("labels every snapshot `logout`, and leaves the trigger clean behind it", function()
-        ns.Companion.CaptureAtLogout()
+    -- companion say what the write carried rather than guessing. R-7a (WKE-582):
+    -- the label is `flush`, never `logout`, because `PLAYER_LOGOUT` fires on a
+    -- `/reload` too and nothing here can tell the two apart. Proven red by
+    -- dropping the `ns.captureTrigger` assignment: the snapshots read "command"
+    -- and the companion's line is the hand-capture one.
+    it("labels every snapshot `flush`, and leaves the trigger clean behind it", function()
+        ns.Companion.CaptureAtFlush()
         for _, name in ipairs(ns.Companion.REFRESH_CAPTURES) do
-            assert.equal("logout", ns.db.global.captures[name][1].trigger)
+            assert.equal("flush", ns.db.global.captures[name][1].trigger)
+            assert.not_equal("logout", ns.db.global.captures[name][1].trigger)
         end
         assert.is_nil(ns.captureTrigger)
         ns.HandleSlash("capture env")
         assert.equal("command", ns.db.global.captures.env[2].trigger)
     end)
 
-    -- What the owner's first logout transcript is read for. Proven red by
-    -- removing the two fields.
+    -- What the owner's transcripts are read for: five of them on 2026-09-15
+    -- measured 19.5-33.1 ms. `capturedOn` says `flush` for the same reason
+    -- `trigger` does, and the cost field is named for the occasion it measures.
+    -- Proven red by removing the two fields.
     it("stamps the env snapshot with the occasion and what the sequence cost", function()
-        local result = ns.Companion.CaptureAtLogout()
+        local result = ns.Companion.CaptureAtFlush()
         local env = ns.db.global.captures.env[1]
-        assert.equal("logout", env.capturedOn)
-        assert.equal(result.elapsedMs, env.logoutMs)
-        assert.is_true(type(env.logoutMs) == "number" and env.logoutMs >= 0)
+        assert.equal("flush", env.capturedOn)
+        assert.equal(result.elapsedMs, env.flushMs)
+        assert.is_true(type(env.flushMs) == "number" and env.flushMs >= 0)
     end)
 
     -- Nothing at logout may fail loudly: a capture that throws leaves the ones
@@ -2211,7 +2222,7 @@ describe("the capture at logout", function()
             end
             return original(name, onComplete, args)
         end
-        local result = ns.Companion.CaptureAtLogout()
+        local result = ns.Companion.CaptureAtFlush()
         assert.is_false(result.ok)
         assert.equal(1, #result.failures)
         assert.equal("inventory", result.failures[1].capture)
@@ -2224,7 +2235,7 @@ describe("the capture at logout", function()
 
     -- And the event itself cannot carry an error out of the addon either.
     it("cannot throw out of PLAYER_LOGOUT", function()
-        ns.Companion.CaptureAtLogout = function()
+        ns.Companion.CaptureAtFlush = function()
             error("anything at all")
         end
         assert.has_no.errors(function()
@@ -2237,7 +2248,7 @@ describe("the capture at logout", function()
     -- record survives, which is the honest answer rather than a half-snapshot.
     it("captures nothing in combat", function()
         world.inCombat = true
-        local result = ns.Companion.CaptureAtLogout()
+        local result = ns.Companion.CaptureAtFlush()
         assert.is_false(result.ok)
         assert.equal("combat", result.reason)
         assert.is_nil(ns.db.global.captures.env)
@@ -2264,9 +2275,9 @@ describe("the capture at logout", function()
         end)
 
         it("never asks the client, and says the read was the plain one", function()
-            ns.Companion.CaptureAtLogout()
+            ns.Companion.CaptureAtFlush()
             local interact = ns.db.global.captures.vault[1].data.interact
-            assert.equal("logout", interact.skipped)
+            assert.equal("flush", interact.skipped)
             assert.is_false(interact.attempted)
             assert.equal(ns.VAULT_SKIPPED_REASON, interact.reason)
             assert.is_nil(interact.after)
@@ -2280,7 +2291,7 @@ describe("the capture at logout", function()
         -- timeout registration: one timer is left pending.
         it("leaves no timer behind", function()
             local before = #world.timers
-            ns.Companion.CaptureAtLogout()
+            ns.Companion.CaptureAtFlush()
             assert.equal(before, #world.timers)
             assert.is_nil(ns.runningCapture)
         end)

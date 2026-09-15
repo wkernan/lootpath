@@ -257,6 +257,57 @@ describe("Core", function()
             assert.equal(2, #ns.db.global.captures.probe)
         end)
 
+        -- R-7a (WKE-582). Nothing trimmed this list, so the owner's
+        -- SavedVariables reached 11.0 MB in two days and the client read and
+        -- wrote all of it at every login and every reload.
+        describe("the history bound", function()
+            it("keeps at most ns.CAPTURE_HISTORY snapshots per name", function()
+                assert.equal(4, ns.CAPTURE_HISTORY)
+                for _ = 1, ns.CAPTURE_HISTORY + 3 do
+                    ns.RunCapture("probe")
+                end
+                assert.equal(ns.CAPTURE_HISTORY, #ns.db.global.captures.probe)
+            end)
+
+            it("drops the oldest, and the newest is always the one just stored", function()
+                for index = 1, ns.CAPTURE_HISTORY + 2 do
+                    ns.RegisterCapture("stamped", "", function()
+                        return { index = index }
+                    end)
+                    local result = ns.RunCapture("stamped")
+                    local list = ns.db.global.captures.stamped
+                    assert.equal(result.snapshot, list[#list])
+                    assert.equal(index, list[#list].data.index)
+                end
+                local list = ns.db.global.captures.stamped
+                assert.equal(ns.CAPTURE_HISTORY, #list)
+                -- The survivors are the newest, oldest first.
+                local kept = {}
+                for _, snapshot in ipairs(list) do
+                    kept[#kept + 1] = snapshot.data.index
+                end
+                assert.same({ 3, 4, 5, 6 }, kept)
+            end)
+
+            it("trims the list AceDB already holds rather than replacing it", function()
+                for _ = 1, ns.CAPTURE_HISTORY + 1 do
+                    ns.RunCapture("probe")
+                end
+                local list = ns.db.global.captures.probe
+                ns.RunCapture("probe")
+                assert.equal(list, ns.db.global.captures.probe)
+                assert.equal(ns.CAPTURE_HISTORY, #list)
+            end)
+
+            it("counts what is kept, not what was ever stored", function()
+                local result
+                for _ = 1, ns.CAPTURE_HISTORY + 2 do
+                    result = ns.RunCapture("probe")
+                end
+                assert.equal(ns.CAPTURE_HISTORY, result.count)
+            end)
+        end)
+
         it("refuses in combat and stores nothing", function()
             world.inCombat = true
             local result = ns.RunCapture("probe")

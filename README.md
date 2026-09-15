@@ -39,9 +39,10 @@ bags and vault, then reloads so the companion can read them, and running it
 again once the companion says it is done brings the answer back. That second
 refresh is free: the companion fingerprints the profile and skips QE Live when
 nothing about your gear has changed. You need not remember to run it at all: the
-same four snapshots are taken when you log out, so the rating happens while you
-are away and the plan is current the next time you log in - refresh is for when
-you want it to catch up mid-session. It also asks QE Live to value the vault and
+same four snapshots are taken whenever the interface unloads - a logout or a
+`/reload`, either one - so the rating happens while you are away and the plan is
+current the next time you are in; refresh is for when you want it to catch up
+mid-session. It also asks QE Live to value the vault and
 the gear you own the same way - his own import dialog upgrades vault options and
 leaves owned gear alone, which can rank a vault item above the better copy you
 are already wearing - and the file it writes says which setting it asked for. The window's verdict line then says where
