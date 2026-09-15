@@ -372,11 +372,29 @@ function bagRows(inventorySnapshot, includeBank, missing) {
   return rows;
 }
 
+// The reward links a vault snapshot carries, as the addon's Captures.lua wrote
+// them. Since M3-16 (WKE-557) a snapshot that had to ask the client for the
+// rewards holds two reads: the top-level lists are the BEFORE one - what
+// `GetActivities()` said with no interaction, which after the week's first
+// progress is empty of last week's unclaimed rewards - and `interact.after` is
+// the same three lists read again once `WEEKLY_REWARDS_UPDATE` fired. The after
+// list is the answer when it is there; the before list is what every snapshot
+// written before M3-16 carries, and is what a snapshot whose wait timed out
+// still carries. Nothing is merged: this is the one place the companion
+// chooses, and `VaultPanel.SnapshotRewardLinks` is its opposite number in the
+// addon.
+function snapshotRewardLinks(vaultSnapshot) {
+  const data = (vaultSnapshot && vaultSnapshot.data) || {};
+  const after = (data.interact && data.interact.after) || null;
+  if (after && after.rewardLinks) return after.rewardLinks;
+  return data.rewardLinks;
+}
+
 function vaultRows(vaultSnapshot, missing) {
   const rows = [];
   if (!vaultSnapshot) return rows;
   if (probe(vaultSnapshot.data.hasAvailableRewards) !== true) return rows;
-  for (const reward of luaArray(vaultSnapshot.data.rewardLinks)) {
+  for (const reward of luaArray(snapshotRewardLinks(vaultSnapshot))) {
     if (!reward) continue; // a `nil,` gap in the serialised list (see bagRows)
     const link = probe(reward.link);
     if (!link) continue;
@@ -748,6 +766,7 @@ module.exports = {
   itemStringFromLink,
   parseItemLine,
   raceToken,
+  snapshotRewardLinks,
   QE_LIVE_FIRST_ITEM_LINE,
   QE_LIVE_HEADER_LINES,
   readTranscript,

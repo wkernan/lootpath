@@ -1064,7 +1064,23 @@ function Stub.install()
         bankOpen = false,
         vaultOpen = false,
         reloads = 0,
-        vault = { hasAvailable = false, canClaim = false, activities = {}, links = {}, examples = {} },
+        -- `currentPeriod` and `generated` are M3-16's two extra reads
+        -- (AreRewardsForCurrentRewardPeriod, HasGeneratedRewards); `interact`
+        -- counts the two calls the vault capture may make, and
+        -- `answerOnInteract` is how a test plays the client answering
+        -- OnUIInteract with the rewards it was holding back.
+        vault = {
+            hasAvailable = false,
+            canClaim = false,
+            currentPeriod = true,
+            generated = false,
+            activities = {},
+            links = {},
+            examples = {},
+            interact = { onUIInteract = 0, closeInteraction = 0 },
+            answerOnInteract = nil,
+            answerDelaySeconds = 0,
+        },
         -- The currency list, in the order the client would list it, in
         -- Blizzard's documented CurrencyInfo shape (Ketho's
         -- CurrencyInfoDocumentation.lua: name, description, currencyID,
@@ -1923,12 +1939,30 @@ function Stub.install()
     end
     define("BankFrame", bankFrame)
 
+    -- C_WeeklyRewards. Only the nine calls Captures.lua's VAULT_FUNCTION_NAMES
+    -- and Modules/Vault.lua's FUNCTION_NAMES list; `ClaimReward` and
+    -- `SelectReward` are absent on purpose, so a test would fail rather than
+    -- silently pass if anything ever reached for one.
+    --
+    -- M3-16 (WKE-557): `world.vault.interact` records what the capture asked
+    -- for - `{ onUIInteract = n, closeInteraction = n }` - and
+    -- `world.vault.answerOnInteract` is the client answering: when it is set,
+    -- OnUIInteract installs those activities and links and fires
+    -- WEEKLY_REWARDS_UPDATE after `world.vault.answerDelaySeconds`. Left nil,
+    -- the update never fires and the capture times out, which is the other
+    -- transcript the tests need.
     define("C_WeeklyRewards", {
         HasAvailableRewards = function()
             return world.vault.hasAvailable
         end,
         CanClaimRewards = function()
             return world.vault.canClaim
+        end,
+        AreRewardsForCurrentRewardPeriod = function()
+            return world.vault.currentPeriod
+        end,
+        HasGeneratedRewards = function()
+            return world.vault.generated
         end,
         GetActivities = function()
             return deepcopy(world.vault.activities)
@@ -1942,6 +1976,26 @@ function Stub.install()
                 return unpack(ex)
             end
             return nil
+        end,
+        OnUIInteract = function()
+            world.vault.interact.onUIInteract = world.vault.interact.onUIInteract + 1
+            local answer = world.vault.answerOnInteract
+            if not answer then
+                return
+            end
+            _G.C_Timer.After(world.vault.answerDelaySeconds or 0, function()
+                world.vault.activities = answer.activities or world.vault.activities
+                for dbid, link in pairs(answer.links or {}) do
+                    world.vault.links[dbid] = link
+                end
+                for id, ex in pairs(answer.examples or {}) do
+                    world.vault.examples[id] = ex
+                end
+                world.fireEvent("WEEKLY_REWARDS_UPDATE")
+            end)
+        end,
+        CloseInteraction = function()
+            world.vault.interact.closeInteraction = world.vault.interact.closeInteraction + 1
         end,
     })
     local vaultFrame = newFrame("Frame", world)

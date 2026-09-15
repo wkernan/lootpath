@@ -16,6 +16,14 @@
 -- a read - selecting a tier, instance, difficulty or loot filter changes the
 -- Adventure Guide's view state (nothing about the character), and it puts all
 -- three back when it is done.
+--
+-- `vault` is the SECOND capture that is not purely a read (owner's decision
+-- 2026-09-14, M3-16/WKE-557): when the client says rewards are waiting and
+-- lists none of them, it calls `C_WeeklyRewards.OnUIInteract()`, waits a
+-- bounded few seconds for `WEEKLY_REWARDS_UPDATE`, reads again and calls
+-- `CloseInteraction()` - the pair Blizzard's own vault frame calls on every
+-- open and close. It marks the vault as looked at and claims nothing; the full
+-- reasoning is above the capture itself.
 
 local _, ns = ...
 
@@ -317,47 +325,202 @@ ns.RegisterCapture(
 -- vault: the same C_WeeklyRewards calls the SimulationCraft addon makes, raw.
 -- M3-2 (WKE-523) runs it before and after opening the Great Vault window so the
 -- two transcripts settle when GetActivities populates rewards.
-ns.RegisterCapture(
-    "vault",
-    "Great Vault activities and reward links (run before and after opening the vault)",
-    function()
-        local W = C_WeeklyRewards
-        local activities = ns.Probe(W and W.GetActivities)
-        local rewardLinks = {}
-        local exampleLinks = {}
-        if type(activities[1]) == "table" then
-            for i, activity in ipairs(activities[1]) do
-                exampleLinks[i] = ns.Probe(W.GetExampleRewardItemHyperlinks, activity.id)
-                for j, reward in ipairs(activity.rewards or {}) do
-                    if reward.itemDBID ~= nil then
-                        local link = ns.Probe(W.GetItemHyperlink, reward.itemDBID)
-                        rewardLinks[#rewardLinks + 1] = {
-                            activityIndex = i,
-                            rewardIndex = j,
-                            activityType = activity.type,
-                            activityID = activity.id,
-                            itemID = reward.id,
-                            itemDBID = reward.itemDBID,
-                            link = link,
-                            item = link[1] and itemProbe(link[1]) or nil,
-                        }
-                    end
+--
+-- **M3-16 (WKE-557): the one place a capture asks the server a question.**
+-- After the week's first progress the client stops carrying LAST week's
+-- unclaimed rewards in `GetActivities()`: measured in the owner's own
+-- SavedVariables over sixteen snapshots (2026-09-09/10, ARCHITECTURE.md §9) -
+-- `HasAvailableRewards()` stays true, `CanClaimRewards()` stays false, and
+-- every activity comes back with `rewards = {}`, so `rewardLinks` is empty, the
+-- companion writes "no generated Great Vault reward" and the Vault tab has
+-- nothing to rank. Blizzard's own frame is why: `WeeklyRewardsMixin:OnShow`
+-- calls `C_WeeklyRewards.OnUIInteract()` and re-reads on
+-- `WEEKLY_REWARDS_UPDATE`, and `OnHide` calls `CloseInteraction()`
+-- (`.luals/.../Blizzard_WeeklyRewards/Blizzard_WeeklyRewards.lua.annotated.lua`
+-- lines 69-91, read 2026-09-14). The owner cannot open the Great Vault window
+-- on this client at all, so "open it first" is not available to him.
+--
+-- **This is the second recorded exception to "captures only read"** (the first
+-- is the journal's view state, ARCHITECTURE.md §7 2026-09-06), allowed by the
+-- owner's decision of 2026-09-14. `OnUIInteract` tells the server the player is
+-- interacting with the vault and the server answers with the reward list; it
+-- changes nothing about the character, its items or its money, and
+-- `CloseInteraction` is called afterwards **always, including on timeout**.
+-- `ClaimReward` and `SelectReward` are never called and are not named below.
+--
+-- Every C_WeeklyRewards function this capture calls, with the exported
+-- documentation line it comes from (Ketho's
+-- `.luals/.../WeeklyRewardsDocumentation.lua`, read 2026-09-14):
+--
+--   WeeklyRewardsDocumentation.lua:6   AreRewardsForCurrentRewardPeriod() -> isCurrentPeriod
+--   WeeklyRewardsDocumentation.lua:10  CanClaimRewards() -> canClaimRewards
+--   WeeklyRewardsDocumentation.lua:17  CloseInteraction()
+--   WeeklyRewardsDocumentation.lua:80  HasAvailableRewards() -> hasAvailableRewards
+--   WeeklyRewardsDocumentation.lua:84  HasGeneratedRewards() -> hasGeneratedRewards
+--   WeeklyRewardsDocumentation.lua:95  OnUIInteract()
+--
+-- plus `GetActivities`, `GetItemHyperlink` and `GetExampleRewardItemHyperlinks`,
+-- which this capture has called since WKE-514. Nothing in `C_WeeklyRewards` is
+-- reached for that is not on this list, and nothing is found by walking the
+-- namespace.
+--
+-- **The snapshot keeps both reads.** `activities` / `rewardLinks` /
+-- `exampleLinks` at the top level are the BEFORE read - what the client says
+-- with no interaction, exactly as every snapshot to date has carried it - and
+-- `interact.after` holds the same three lists read again once the update fires.
+-- Nothing is copied between them: a reader that wants the best list takes
+-- `interact.after` when it is there and the top level otherwise, which is what
+-- `VaultPanel.NameFromCaptures` and the companion's `vaultRows` do.
+local VAULT_FUNCTION_NAMES = {
+    "AreRewardsForCurrentRewardPeriod",
+    "CanClaimRewards",
+    "CloseInteraction",
+    "GetActivities",
+    "GetExampleRewardItemHyperlinks",
+    "GetItemHyperlink",
+    "HasAvailableRewards",
+    "HasGeneratedRewards",
+    "OnUIInteract",
+}
+
+-- How long the capture waits for WEEKLY_REWARDS_UPDATE after OnUIInteract.
+-- Nothing has measured how fast the server answers yet - the first
+-- `/lootpath refresh` on a synced build is what will say - so the bound is the
+-- owner's "a few seconds" and the snapshot records whether it fired and how
+-- long it took rather than assuming either.
+ns.VAULT_INTERACT_TIMEOUT_SECONDS = 5
+
+-- The three lists, read together. Called once before the interaction and, when
+-- the client answers, once after it; nothing is normalised either time.
+local function vaultLists(W)
+    local activities = ns.Probe(W and W.GetActivities)
+    local rewardLinks = {}
+    local exampleLinks = {}
+    if type(activities[1]) == "table" then
+        for i, activity in ipairs(activities[1]) do
+            exampleLinks[i] = ns.Probe(W.GetExampleRewardItemHyperlinks, activity.id)
+            for j, reward in ipairs(activity.rewards or {}) do
+                if reward.itemDBID ~= nil then
+                    local link = ns.Probe(W.GetItemHyperlink, reward.itemDBID)
+                    rewardLinks[#rewardLinks + 1] = {
+                        activityIndex = i,
+                        rewardIndex = j,
+                        activityType = activity.type,
+                        activityID = activity.id,
+                        itemID = reward.id,
+                        itemDBID = reward.itemDBID,
+                        link = link,
+                        item = link[1] and itemProbe(link[1]) or nil,
+                    }
                 end
             end
         end
-        return {
+    end
+    return { activities = activities, rewardLinks = rewardLinks, exampleLinks = exampleLinks }
+end
+
+-- True when the vault is in exactly the state the measurement described: the
+-- client says rewards are waiting and lists not one of them. Anything else - no
+-- rewards at all, or rewards already in the list - is left alone, so the
+-- interaction happens only when it is the thing that would change the answer.
+local function vaultNeedsInteraction(hasAvailableRewards, lists)
+    if ns.Safe(hasAvailableRewards[1]) ~= true then
+        return false, "the client says no rewards are waiting"
+    end
+    if #lists.rewardLinks > 0 then
+        return false, "the activities already carry rewards"
+    end
+    return true, "rewards are waiting and no activity carries one"
+end
+
+ns.RegisterCapture(
+    "vault",
+    "Great Vault activities and reward links (asks the client for the rewards when it is holding them back)",
+    function(finish)
+        local W = C_WeeklyRewards
+        local before = vaultLists(W)
+        local hasAvailableRewards = ns.Probe(W and W.HasAvailableRewards)
+        local data = {
             namespaceKeys = sortedKeys(W),
-            hasAvailableRewards = ns.Probe(W and W.HasAvailableRewards),
+            functionNames = VAULT_FUNCTION_NAMES,
+            hasAvailableRewards = hasAvailableRewards,
             canClaimRewards = ns.Probe(W and W.CanClaimRewards),
+            -- The pair Blizzard's own UpdatePreviousClaim reads to decide
+            -- whether to show the "rewards from last week" notice. Recorded
+            -- whether or not the interaction happens, because
+            -- `HasAvailableRewards and not AreRewardsForCurrentRewardPeriod`
+            -- IS the state this capture exists for.
+            areRewardsForCurrentRewardPeriod = ns.Probe(W and W.AreRewardsForCurrentRewardPeriod),
+            hasGeneratedRewards = ns.Probe(W and W.HasGeneratedRewards),
             frameShown = WeeklyRewardsFrame and ns.Probe(WeeklyRewardsFrame.IsShown, WeeklyRewardsFrame)
                 or { absent = true },
             blizzardAddonLoaded = ns.Probe(C_AddOns and C_AddOns.IsAddOnLoaded, "Blizzard_WeeklyRewards"),
             secondsUntilWeeklyReset = ns.Probe(C_DateAndTime and C_DateAndTime.GetSecondsUntilWeeklyReset),
-            activities = activities,
-            rewardLinks = rewardLinks,
-            exampleLinks = exampleLinks,
+            activities = before.activities,
+            rewardLinks = before.rewardLinks,
+            exampleLinks = before.exampleLinks,
         }
-    end
+
+        local needed, reason = vaultNeedsInteraction(hasAvailableRewards, before)
+        if needed and type(W and W.OnUIInteract) ~= "function" then
+            needed, reason = false, "this client has no C_WeeklyRewards.OnUIInteract"
+        end
+        if not needed then
+            data.interact = { attempted = false, reason = reason }
+            return finish(data)
+        end
+
+        local record = { attempted = true, reason = reason, updateFired = false, timedOut = false }
+        data.interact = record
+        local startedAt = debugprofilestop and debugprofilestop() or nil
+        local listener = CreateFrame("Frame")
+        local settled = false
+
+        -- CloseInteraction is the other half of OnUIInteract and runs on every
+        -- path out of here - the update, the timeout, and a client that errors
+        -- on OnUIInteract itself. Blizzard's frame calls it from OnHide for the
+        -- same reason: an interaction the server is never told ended is the one
+        -- thing this capture could leave behind.
+        local function settle(fired)
+            if settled then
+                return
+            end
+            settled = true
+            listener:UnregisterEvent("WEEKLY_REWARDS_UPDATE")
+            listener:SetScript("OnEvent", nil)
+            record.updateFired = fired
+            record.timedOut = not fired
+            if startedAt and debugprofilestop then
+                record.waitedMs = debugprofilestop() - startedAt
+            end
+            if fired then
+                record.after = vaultLists(W)
+            end
+            record.close = ns.Probe(W.CloseInteraction)
+            finish(data)
+        end
+
+        listener:SetScript("OnEvent", function(_, event)
+            if event == "WEEKLY_REWARDS_UPDATE" then
+                settle(true)
+            end
+        end)
+        listener:RegisterEvent("WEEKLY_REWARDS_UPDATE")
+        record.interact = ns.Probe(W.OnUIInteract)
+        if record.interact.error then
+            -- The client refused the question; there is nothing to wait for,
+            -- and CloseInteraction still runs on the way out.
+            return settle(false)
+        end
+        if C_Timer and C_Timer.After then
+            C_Timer.After(ns.VAULT_INTERACT_TIMEOUT_SECONDS, function()
+                settle(false)
+            end)
+        else
+            settle(false)
+        end
+    end,
+    { async = true }
 )
 
 -- currencies: the client's own currency list, headers included, and the full

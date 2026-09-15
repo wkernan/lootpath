@@ -88,6 +88,36 @@ describe("VaultPanel over the committed vault transcript", function()
         assert.is_false(model.options[3].unlocked)
     end)
 
+    -- M3-16 (WKE-557). An empty reward list has two causes and they are
+    -- opposites. `HasAvailableRewards()` false means the vault has not
+    -- generated anything yet; true means it has and the client did not answer
+    -- with it, which is what happens after the week's first progress. Until
+    -- this issue both printed "the vault has not generated this week's rewards
+    -- yet" - the one thing that is not true in the second case. Proven red by
+    -- putting `Panel.NO_REWARDS_NOTE` back unconditionally.
+    it("tells the two empty reward lists apart and names the remedy for the withheld one", function()
+        local model = ns.VaultPanel.Model({ vault = ns.Vault.Options(), verdict = realVerdict(ns), now = 1788700000 })
+        assert.equal(0, model.counts.rewards)
+        assert.is_false(model.hasAvailableRewards)
+        assert.equal(ns.VaultPanel.NO_REWARDS_NOTE, model.rewardsNote)
+
+        world.vault.hasAvailable = true
+        local withheld = ns.VaultPanel.Model({
+            vault = ns.Vault.Options(),
+            verdict = realVerdict(ns),
+            now = 1788700000,
+        })
+        assert.equal(0, withheld.counts.rewards)
+        assert.is_true(withheld.hasAvailableRewards)
+        assert.equal(ns.VaultPanel.WITHHELD_REWARDS_NOTE, withheld.rewardsNote)
+        local found = false
+        for _, line in ipairs(ns.VaultPanel.Lines(withheld)) do
+            found = found or line == ns.VaultPanel.WITHHELD_REWARDS_NOTE
+        end
+        assert.is_true(found)
+        assert.is_truthy(ns.VaultPanel.WITHHELD_REWARDS_NOTE:find("/lootpath refresh", 1, true))
+    end)
+
     it("shows an option QE Live has not ranked with no number at all", function()
         generateReward(world, 1, 999001, { 1234 }, "Unranked Boots", 301)
         local model = ns.VaultPanel.Model({ vault = ns.Vault.Options(), verdict = realVerdict(ns), now = 1788700000 })
@@ -1479,6 +1509,58 @@ describe("VaultPanel over the fresh-login vault (M3-12, WKE-547)", function()
         -- Still pending: the level is never taken from a snapshot.
         assert.is_true(rewardsByItemID(model)[275547].pending)
         assert.is_nil(rewardsByItemID(model)[275547].itemLevel)
+    end)
+
+    -- M3-16 (WKE-557): a snapshot taken after the week's first progress keeps
+    -- both reads - the top-level lists are what the client said with no
+    -- interaction and `interact.after` is what it said once it was asked. The
+    -- name comes from the after read when there is one, and from the before
+    -- read when the wait timed out. Proven red by making
+    -- `Panel.SnapshotRewardLinks` return `data.rewardLinks` always: the first
+    -- assertion below goes back to nil.
+    it("reads a snapshot's after list when the client had to be asked for the rewards", function()
+        -- The real links of the committed snapshot that names the lantern,
+        -- found without the function under test.
+        local links
+        for _, snapshot in ipairs(R.captures(FRESH_LOGIN).vault) do
+            for _, entry in ipairs(snapshot.data.rewardLinks or {}) do
+                local info = type(entry.item) == "table" and entry.item.info or nil
+                if entry.itemDBID == "0x4000000E5E0736EB" and type(info) == "table" and info[1] then
+                    links = snapshot.data.rewardLinks
+                end
+            end
+        end
+        assert.is_not_nil(links)
+
+        -- The measured state plus the answer: the before read empty, the same
+        -- links under `interact.after`. Nothing is copied into both.
+        local asked = {
+            capturedAtLocal = "2026-09-10T22:40:00",
+            data = {
+                hasAvailableRewards = { true, n = 1 },
+                rewardLinks = {},
+                activities = {},
+                interact = { attempted = true, updateFired = true, timedOut = false, after = { rewardLinks = links } },
+            },
+        }
+        assert.equal("Preyhunter's Lantern", ns.VaultPanel.NameFromCaptures("0x4000000E5E0736EB", { asked }))
+        assert.same(links, ns.VaultPanel.SnapshotRewardLinks(asked))
+
+        -- The wait timed out: no after list, so the before read is the answer.
+        local timedOut = {
+            capturedAtLocal = "2026-09-10T22:45:00",
+            data = {
+                hasAvailableRewards = { true, n = 1 },
+                rewardLinks = links,
+                interact = { attempted = true, updateFired = false, timedOut = true },
+            },
+        }
+        assert.equal("Preyhunter's Lantern", ns.VaultPanel.NameFromCaptures("0x4000000E5E0736EB", { timedOut }))
+        assert.same(links, ns.VaultPanel.SnapshotRewardLinks(timedOut))
+
+        -- Every snapshot written before M3-16 has no `interact` at all.
+        assert.same(links, ns.VaultPanel.SnapshotRewardLinks({ data = { rewardLinks = links } }))
+        assert.same({}, ns.VaultPanel.SnapshotRewardLinks(nil))
     end)
 
     it("reads the stored snapshots from the database when none are handed in", function()

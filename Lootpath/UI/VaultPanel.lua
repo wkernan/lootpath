@@ -360,6 +360,16 @@ Panel.PENDING_NOTE = "%d reward(s) are waiting for the client to load their item
 
 Panel.NO_REWARDS_NOTE =
     "The vault has not generated this week's rewards yet. Progress is shown so you can see what is still unearned."
+-- M3-16 (WKE-557): the SAME empty list, for the opposite reason. When
+-- `HasAvailableRewards()` is true the vault HAS generated rewards and the
+-- client simply did not answer with them - after the week's first progress
+-- `GetActivities()` drops last week's unclaimed ones until something interacts
+-- with the vault (ARCHITECTURE.md §9). Until this issue the tab printed the
+-- sentence above at that moment, which is the one thing that is not true, so
+-- the two cases are told apart by the client's own `HasAvailableRewards` and
+-- the remedy is named rather than left to be guessed at.
+Panel.WITHHELD_REWARDS_NOTE = "The client says vault rewards are waiting but did not answer with them. "
+    .. "Run /lootpath refresh: it asks for them the way the Great Vault window does."
 Panel.NO_VERDICT_NOTE = "No import yet, so no option carries a value. Paste a Top Gear export to change that."
 Panel.STALE_NOTE = "This export predates this week's vault reset, so it does not know these options. Re-export it."
 
@@ -548,6 +558,26 @@ end
 -- first return, as Captures.lua recorded it). The itemDBID is the vault's own
 -- identity for the reward and is what the same reward carries all week, so a
 -- match is the same reward and not the same item ID on another week's vault.
+--
+-- M3-16 (WKE-557): a snapshot that asked the client for the rewards carries
+-- two reads - the top-level lists are the BEFORE one and `interact.after` the
+-- one taken once `WEEKLY_REWARDS_UPDATE` fired. The after list is the answer
+-- when it is there; the before list is what every snapshot to date has, and is
+-- what a snapshot whose wait timed out still has. Neither is merged into the
+-- other: `Panel.SnapshotRewardLinks` is the one place that chooses.
+function Panel.SnapshotRewardLinks(snapshot)
+    local data = type(snapshot) == "table" and snapshot.data or nil
+    if type(data) ~= "table" then
+        return {}
+    end
+    local interact = type(data.interact) == "table" and data.interact or nil
+    local after = interact and type(interact.after) == "table" and interact.after or nil
+    if after and type(after.rewardLinks) == "table" then
+        return after.rewardLinks
+    end
+    return type(data.rewardLinks) == "table" and data.rewardLinks or {}
+end
+
 function Panel.NameFromCaptures(itemDBID, captures)
     if itemDBID == nil then
         return nil
@@ -561,8 +591,7 @@ function Panel.NameFromCaptures(itemDBID, captures)
     end
     for index = #captures, 1, -1 do
         local snapshot = captures[index]
-        local data = type(snapshot) == "table" and snapshot.data or nil
-        for _, entry in ipairs(data and data.rewardLinks or {}) do
+        for _, entry in ipairs(Panel.SnapshotRewardLinks(snapshot)) do
             if entry.itemDBID == itemDBID then
                 local info = type(entry.item) == "table" and entry.item.info or nil
                 local name = type(info) == "table" and info[1] or nil
@@ -1484,7 +1513,7 @@ function Panel.Model(opts)
     model.currencyChips = Panel.CurrencyChips(opts.currencies)
 
     if model.counts.rewards == 0 and model.counts.extras == 0 then
-        model.rewardsNote = Panel.NO_REWARDS_NOTE
+        model.rewardsNote = model.hasAvailableRewards and Panel.WITHHELD_REWARDS_NOTE or Panel.NO_REWARDS_NOTE
     end
     if model.counts.pending > 0 then
         model.pendingNote = string.format(Panel.PENDING_NOTE, model.counts.pending)

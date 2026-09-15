@@ -16,7 +16,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const { parseSavedVariables, luaArray, LuaParseError } = require("../lib/lua-savedvariables");
-const { adler32, buildProfile, collectItems, diffProfiles, itemKey, itemNameFromLink, itemStringFromLink, parseItemLine, raceToken, readTranscript, splitItemLink, tokenize, QE_LIVE_FIRST_ITEM_LINE, QE_LIVE_HEADER_LINES, INV_SLOT_TO_SIMC_SLOT_NUM } = require("../lib/simc-profile");
+const { adler32, buildProfile, collectItems, diffProfiles, itemKey, itemNameFromLink, itemStringFromLink, parseItemLine, raceToken, readTranscript, snapshotRewardLinks, splitItemLink, tokenize, QE_LIVE_FIRST_ITEM_LINE, QE_LIVE_HEADER_LINES, INV_SLOT_TO_SIMC_SLOT_NUM } = require("../lib/simc-profile");
 
 const REPO = path.resolve(__dirname, "..", "..", "..");
 const TRANSCRIPT = path.join(REPO, "spec", "fixtures", "captures", "Lootpath-20260906-200908.lua");
@@ -317,4 +317,69 @@ test("the `### Additional Character Info` block is never mistaken for gear", () 
   // `# upgrade_currencies=...i:274476:3...` would look like one to a looser test.
   const items = collectItems(realText);
   for (const rows of items.values()) for (const row of rows) assert.ok(row.index < realText.split("\n").indexOf("### Additional Character Info"));
+});
+
+// --- M3-16 (WKE-557): the vault snapshot's two reads ------------------------
+//
+// A snapshot taken after the week's first progress carries the BEFORE read at
+// the top level - empty of last week's unclaimed rewards, because the client
+// drops them from `GetActivities()` until something interacts with the vault -
+// and the answer under `interact.after`. The companion reads the after list
+// when it is there. Both tests move the REAL reward links of a committed
+// transcript rather than inventing any, so what is asserted is the owner's own
+// four vault items arriving by the new path.
+
+const VAULT_TRANSCRIPT = path.join(REPO, "spec", "fixtures", "captures", "Lootpath-20260909-085940.lua");
+const vaultTranscriptText = fs.readFileSync(VAULT_TRANSCRIPT, "latin1");
+
+// Rewrites a parsed transcript's vault snapshot into the shape M3-16 writes
+// when the client had to be asked: the top-level lists empty, the same lists
+// under `interact.after`.
+function withheldThenAnswered(transcript) {
+  const data = transcript.vault.data;
+  transcript.vault.data = {
+    ...data,
+    rewardLinks: {},
+    activities: {},
+    exampleLinks: {},
+    interact: {
+      attempted: true,
+      updateFired: true,
+      timedOut: false,
+      waitedMs: 412,
+      after: { rewardLinks: data.rewardLinks, activities: data.activities, exampleLinks: data.exampleLinks },
+    },
+  };
+  return transcript;
+}
+
+test("the four vault items of the 09-09 transcript arrive whichever read carries them", () => {
+  const plain = buildProfile(readTranscript(vaultTranscriptText, {}), {});
+  assert.equal(plain.counts.vault, 4);
+
+  const asked = buildProfile(withheldThenAnswered(readTranscript(vaultTranscriptText, {})), {});
+  assert.equal(asked.counts.vault, 4);
+  // Same items, same lines: the after list is read, not re-derived.
+  const section = (text) => text.split("### Weekly Reward Choices")[1].split("### End of Weekly Reward Choices")[0];
+  assert.equal(section(asked.text), section(plain.text));
+});
+
+test("a snapshot whose wait timed out falls back to the before read rather than to nothing", () => {
+  // Proven red: with `snapshotRewardLinks` returning `after.rewardLinks`
+  // unconditionally this reads 0 vault items.
+  const transcript = readTranscript(vaultTranscriptText, {});
+  transcript.vault.data = {
+    ...transcript.vault.data,
+    interact: { attempted: true, updateFired: false, timedOut: true, waitedMs: 5000 },
+  };
+  assert.equal(buildProfile(transcript, {}).counts.vault, 4);
+});
+
+test("snapshotRewardLinks prefers the after read and never merges the two", () => {
+  const before = { 1: { itemDBID: "before" } };
+  const after = { 1: { itemDBID: "after" } };
+  assert.deepEqual(snapshotRewardLinks({ data: { rewardLinks: before } }), before);
+  assert.deepEqual(snapshotRewardLinks({ data: { rewardLinks: before, interact: { attempted: false } } }), before);
+  assert.deepEqual(snapshotRewardLinks({ data: { rewardLinks: before, interact: { after: { rewardLinks: after } } } }), after);
+  assert.equal(snapshotRewardLinks(undefined), undefined);
 });

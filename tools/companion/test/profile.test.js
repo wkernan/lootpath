@@ -75,3 +75,27 @@ test('says so when QE Live valued a different spec from the one captured', () =>
     assert.strictEqual(profileLib.specMismatch(null, 'Guardian'), null);
     assert.strictEqual(profileLib.specMismatch('Restoration Druid', null), null);
 });
+
+// M3-16 (WKE-557): the warning that sent the owner to this issue. It is about
+// the rewards the profile could not carry, so it reads the same list
+// `vaultRows` does - `snapshotRewardLinks`, which takes `interact.after` when
+// the client had to be asked for the rewards and the top-level read otherwise.
+// Which of the two it picks is guarded on real transcripts in
+// simc-profile.test.js; what is guarded here is that the warning still fires,
+// and only fires, when there is genuinely nothing to carry. Both transcripts
+// are committed captures of the owner's own client.
+const VAULT_WARNING = 'no generated Great Vault reward';
+const WITH_REWARDS = fs.readFileSync(path.join(REPO, 'spec', 'fixtures', 'captures', 'Lootpath-20260909-085940.lua'), 'utf8');
+
+test('the no-vault-reward warning follows the reward list the profile actually read', () => {
+    const withRewards = profileLib.build(WITH_REWARDS, {});
+    assert.ok(withRewards.ok, withRewards.ok ? '' : withRewards.reason);
+    assert.strictEqual(withRewards.counts.vault, 4);
+    assert.ok(!withRewards.warnings.some((w) => w.includes(VAULT_WARNING)), withRewards.warnings.join(' | '));
+
+    // The 09-06 transcript is a real capture with an empty reward list.
+    const withoutRewards = profileLib.build(TRANSCRIPT, {});
+    assert.ok(withoutRewards.ok, withoutRewards.ok ? '' : withoutRewards.reason);
+    assert.strictEqual(withoutRewards.counts.vault, 0);
+    assert.ok(withoutRewards.warnings.some((w) => w.includes(VAULT_WARNING)), withoutRewards.warnings.join(' | '));
+});

@@ -352,6 +352,161 @@ describe("captures", function()
             assert.is_true(result.ok)
             assert.same({}, result.snapshot.data.rewardLinks)
         end)
+
+        -- M3-16 (WKE-557). Blizzard's own UpdatePreviousClaim reads exactly
+        -- this pair to decide whether to show the "rewards from last week"
+        -- notice, and the pair is what says the client is holding rewards back.
+        it("records whether the rewards are this period's and whether any were generated", function()
+            world.vault.currentPeriod = false
+            world.vault.generated = true
+            local data = ns.RunCapture("vault").snapshot.data
+            assert.is_false(data.areRewardsForCurrentRewardPeriod[1])
+            assert.is_true(data.hasGeneratedRewards[1])
+        end)
+
+        it("names every C_WeeklyRewards function it may call, and never ClaimReward", function()
+            local names = ns.RunCapture("vault").snapshot.data.functionNames
+            assert.same({
+                "AreRewardsForCurrentRewardPeriod",
+                "CanClaimRewards",
+                "CloseInteraction",
+                "GetActivities",
+                "GetExampleRewardItemHyperlinks",
+                "GetItemHyperlink",
+                "HasAvailableRewards",
+                "HasGeneratedRewards",
+                "OnUIInteract",
+            }, names)
+            for _, name in ipairs(names) do
+                assert.not_equal("ClaimReward", name)
+                assert.not_equal("SelectReward", name)
+            end
+        end)
+
+        -- The interaction is for one state and one state only: the client says
+        -- rewards are waiting and lists not one of them. With rewards in the
+        -- list (the before_each above) nothing is asked for.
+        it("does not interact when the activities already carry rewards", function()
+            local data = ns.RunCapture("vault").snapshot.data
+            assert.is_false(data.interact.attempted)
+            assert.equal("the activities already carry rewards", data.interact.reason)
+            assert.equal(0, world.vault.interact.onUIInteract)
+            assert.equal(0, world.vault.interact.closeInteraction)
+        end)
+
+        it("does not interact when the client says no rewards are waiting", function()
+            world.vault.hasAvailable = false
+            local data = ns.RunCapture("vault").snapshot.data
+            assert.is_false(data.interact.attempted)
+            assert.equal("the client says no rewards are waiting", data.interact.reason)
+            assert.equal(0, world.vault.interact.onUIInteract)
+        end)
+
+        -- The measured state, replayed: HasAvailableRewards true, activities
+        -- carrying this period's progress with `rewards = {}` on every one, so
+        -- the reward links are empty (owner's SavedVariables, 2026-09-09 22:40Z
+        -- onwards, ARCHITECTURE.md §9).
+        describe("when the client is holding the rewards back", function()
+            before_each(function()
+                world.vault.hasAvailable = true
+                world.vault.canClaim = false
+                world.vault.currentPeriod = false
+                world.vault.generated = true
+                -- This period's progress, no rewards on any activity.
+                world.vault.activities = {
+                    { type = 1, index = 1, threshold = 1, progress = 2, id = 11, level = 1, rewards = {} },
+                }
+                world.vault.examples = {}
+                world.vault.links = {}
+                -- What the server answers with once the vault is interacted
+                -- with: last week's unclaimed reward, back in the list.
+                world.vault.answerOnInteract = {
+                    activities = {
+                        {
+                            type = 1,
+                            index = 1,
+                            threshold = 1,
+                            progress = 2,
+                            id = 11,
+                            level = 10,
+                            rewards = { { type = 1, id = 210003, quantity = 1, itemDBID = "9001" } },
+                        },
+                    },
+                    links = { ["9001"] = VAULT_ITEM },
+                    examples = { [11] = { VAULT_ITEM } },
+                }
+                world.vault.answerDelaySeconds = 0.4
+            end)
+
+            it("asks the client, waits for the update, reads again and closes the interaction", function()
+                local result = ns.RunCapture("vault")
+                -- Nothing is stored until the client answers: the snapshot is
+                -- the point of the wait.
+                assert.is_true(result.pending)
+                assert.is_nil(ns.db.global.captures.vault)
+                assert.equal(1, world.vault.interact.onUIInteract)
+
+                world.runTimers(10)
+
+                local snapshot = ns.db.global.captures.vault[1]
+                local data = snapshot.data
+                assert.is_true(data.interact.attempted)
+                assert.equal("rewards are waiting and no activity carries one", data.interact.reason)
+                assert.is_true(data.interact.updateFired)
+                assert.is_false(data.interact.timedOut)
+                assert.is_number(data.interact.waitedMs)
+                assert.equal(1, world.vault.interact.closeInteraction)
+
+                -- Both reads are kept and neither is merged into the other.
+                assert.same({}, data.rewardLinks)
+                assert.equal(0, #data.activities[1][1].rewards)
+                assert.equal(1, #data.interact.after.rewardLinks)
+                local reward = data.interact.after.rewardLinks[1]
+                assert.equal("9001", reward.itemDBID)
+                assert.equal(210003, reward.itemID)
+                assert.equal(VAULT_ITEM, reward.link[1])
+                assert.equal(623, reward.item.detailedLevel[1])
+                assert.equal(VAULT_ITEM, data.interact.after.exampleLinks[1][1])
+            end)
+
+            -- The guard proven red in the other direction: with no answer from
+            -- the server the snapshot SAYS the wait timed out rather than
+            -- looking like an empty vault, and CloseInteraction still runs.
+            it("gives up after the bound, says so, and closes the interaction anyway", function()
+                world.vault.answerOnInteract = nil
+                assert.is_true(ns.RunCapture("vault").pending)
+                assert.equal(1, world.vault.interact.onUIInteract)
+                assert.equal(0, world.vault.interact.closeInteraction)
+
+                world.runTimers(ns.VAULT_INTERACT_TIMEOUT_SECONDS + 1)
+
+                local data = ns.db.global.captures.vault[1].data
+                assert.is_true(data.interact.attempted)
+                assert.is_false(data.interact.updateFired)
+                assert.is_true(data.interact.timedOut)
+                assert.is_nil(data.interact.after)
+                assert.equal(1, world.vault.interact.closeInteraction)
+            end)
+
+            -- A second WEEKLY_REWARDS_UPDATE - the client fires it for its own
+            -- reasons - must not store a second snapshot or close twice.
+            it("settles once, however many updates arrive", function()
+                ns.RunCapture("vault")
+                world.runTimers(10)
+                world.fireEvent("WEEKLY_REWARDS_UPDATE")
+                world.runTimers(10)
+                assert.equal(1, #ns.db.global.captures.vault)
+                assert.equal(1, world.vault.interact.closeInteraction)
+            end)
+
+            it("does not ask a client that has no OnUIInteract", function()
+                _G.C_WeeklyRewards.OnUIInteract = nil
+                local data = ns.RunCapture("vault").snapshot.data
+                assert.is_false(data.interact.attempted)
+                assert.equal("this client has no C_WeeklyRewards.OnUIInteract", data.interact.reason)
+                assert.equal(0, world.vault.interact.closeInteraction)
+            end)
+        end)
     end)
 
     -- WKE-544 (M3-9), with the by-ID probe of WKE-546 (M3-11). Every name and

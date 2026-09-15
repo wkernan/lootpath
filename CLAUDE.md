@@ -79,9 +79,15 @@ already edited the shared checkout, move the work to a worktree first
   2026-09-07, ARCHITECTURE.md §7); the addon still reads nothing but its own
   Lua at load. SavedVariables flush only on
   `/reload` or logout.
-- Captures (`/lootpath capture <name>`) only read, with one recorded exception:
+- Captures (`/lootpath capture <name>`) only read, with two recorded exceptions:
   `capture journal` sets the Adventure Guide's view state because the API has
-  no other way to ask for loot, and restores what it can (ARCHITECTURE.md §7).
+  no other way to ask for loot, and restores what it can (ARCHITECTURE.md §7);
+  `capture vault` calls `C_WeeklyRewards.OnUIInteract()`, waits a bounded few
+  seconds for `WEEKLY_REWARDS_UPDATE` and then calls `CloseInteraction()` -
+  always, including on timeout - because after the week's first progress the
+  client stops carrying last week's unclaimed rewards until something interacts
+  with the vault, and that pair is what Blizzard's own vault frame calls on
+  every open and close (decision 2026-09-14, ARCHITECTURE.md §7).
   Every function a capture calls is named in `Lootpath/Captures.lua` or
   `Lootpath/Modules/Journal.lua`; nothing acts on the character, its items or
   its money. Never call what a namespace walk finds.
