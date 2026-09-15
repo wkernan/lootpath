@@ -1234,6 +1234,10 @@ function Panel.Model(opts)
         -- Catalyst passes have clones to leave out that the base pass never
         -- had, and the tab's whole subject is what the Catalyst would do.
         excluded = type(verdict) == "table" and verdict.excluded or nil,
+        -- C-12 (WKE-577): what the companion's last run did not ask, in its own
+        -- words. File-level, not per scenario - it is about the run - and it is
+        -- carried onto every Top Gear verdict the file wrote.
+        scenarioNote = type(verdict) == "table" and verdict.scenarioNote or nil,
         scenarios = scenarios,
         highlightScenario = highlight,
         highlightFellBack = highlightFellBack == true,
@@ -1467,6 +1471,10 @@ function Panel.Model(opts)
                 inventory = opts.inventory,
                 vault = vault,
                 currencies = opts.currencies,
+                -- So a plan drawn under a fallback scenario says why the one on
+                -- the label is missing, rather than reading as this week's plan
+                -- (C-12, WKE-577).
+                scenarioNote = model.scenarioNote,
             }),
             closest = closest and true or false,
             text = Panel.HeadlineText(highlight, pick, headlineCoverage),

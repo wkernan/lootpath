@@ -248,7 +248,7 @@ function keyLevelOf(doc) {
 }
 
 function render(payload) {
-    const { writtenAt, companionVersion, profileCapturedAt, documents, qeSettings, excluded } = payload;
+    const { writtenAt, companionVersion, profileCapturedAt, documents, qeSettings, excluded, scenarioNote } = payload;
     if (!Array.isArray(documents) || !documents.length) {
         throw new Error('refusing to write a verdict file with no documents');
     }
@@ -278,6 +278,17 @@ function render(payload) {
         ...QE_SETTING_KEYS.map((key) => `        ${key} = ${luaBoolean(qeSettings[key])},`),
         '    },',
     ];
+    // Which named scenarios this run left unasked, and why, in the companion's
+    // own words (C-12, WKE-577). One sentence and not a table: the addon shows
+    // it, it does not reason over it, and the log carries the pass-by-pass
+    // detail. Absent when every configured scenario was asked, which is most
+    // weeks and is not worth a sentence.
+    if (scenarioNote !== undefined && scenarioNote !== null && scenarioNote !== '') {
+        if (typeof scenarioNote !== 'string') {
+            throw new Error(`scenarioNote must be a string, saw ${JSON.stringify(scenarioNote)}`);
+        }
+        lines.push(`    scenarioNote = ${luaString(scenarioNote)},`);
+    }
     const fileExcluded = excludedList(excluded, 'the file');
     if (fileExcluded) lines.push(...excludedLines(fileExcluded, 4));
     lines.push('    exports = {');

@@ -1708,11 +1708,20 @@ end
 -- PlanSentence(week) -> { sentence, footnote }. `week` is the same inputs table
 -- every other function here takes: the whole week, which is what the Vault tab's
 -- headline is about.
+--
+-- `week.scenarioNote` is the companion's own sentence about the questions its
+-- last run did not ask (C-12, WKE-577). It becomes the FOOTNOTE whenever the
+-- plan the screen is following has no document behind it, because that is the
+-- exact case the owner hit on 2026-09-14: the Vault tab followed `thisWeek`,
+-- the companion had skipped `thisWeek` for want of vault gear, and the tab fell
+-- back to `asOffered` without a word. A plan read off a different question than
+-- the one on the label is worth saying out loud.
 function Roads.PlanSentence(week)
     week = type(week) == "table" and week or {}
-    local entry = Roads.Plan(week)
+    local note = type(week.scenarioNote) == "string" and week.scenarioNote ~= "" and week.scenarioNote or nil
+    local entry, fellBack = Roads.Plan(week)
     if not entry then
-        return { sentence = nil, footnote = nil }
+        return { sentence = nil, footnote = note }
     end
     local verdict = entry.verdict
     local bySlot, allItems = topSetBySlot(verdict)
@@ -1831,8 +1840,15 @@ function Roads.PlanSentence(week)
         parts[#parts + 1] = string.format("Skip %s.", joinList(skips))
     end
 
+    -- The companion's sentence, said only when the plan on screen is not the
+    -- plan the screen asked for: with the highlighted scenario's own document
+    -- stored, the note is about questions this sentence never claimed to
+    -- answer, and the tab has other places to say it.
+    if fellBack and note then
+        footnote = footnote and (footnote .. " " .. note) or note
+    end
     if #parts == 0 then
-        return { sentence = Roads.NO_PLAN_SENTENCE, footnote = nil, plan = Roads.PlanName(entry.scenario) }
+        return { sentence = Roads.NO_PLAN_SENTENCE, footnote = footnote, plan = Roads.PlanName(entry.scenario) }
     end
     return { sentence = sentence(parts), footnote = footnote, plan = Roads.PlanName(entry.scenario) }
 end

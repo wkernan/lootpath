@@ -57,6 +57,9 @@ function harness(options) {
     });
     const fork = {
         calls: [],
+        // The owner's own week by default: something to catalyse and something
+        // below its cap, so every configured scenario is asked.
+        evidence: { clones: 1, raised: 1, readBase: true, cards: 40 },
         async run(runConfig, profileText, runLog, runOpts) {
             fork.calls.push(profileText);
             // What the status file says WHILE QE Live is being asked - the one
@@ -67,8 +70,21 @@ function harness(options) {
                 error.code = opts.forkCode;
                 throw error;
             }
-            const passes = (runOpts && runOpts.passes) || [];
+            // The gates C-12 put on the three what-ifs are settled inside the
+            // real driver, after each import, off QE Live's own pool. The
+            // double is handed what that pool would have said (`fork.evidence`)
+            // and settles them through the very same `configLib.gateVerdict`.
+            const scenarios = [];
+            const passes = ((runOpts && runOpts.passes) || []).filter((pass) => {
+                if (!pass.scenario) return true;
+                const settled = pass.gate
+                    ? configLib.gateVerdict(pass.gate.kind, fork.evidence)
+                    : { ran: true, reason: pass.why || 'asked whatever the pool holds', missing: [] };
+                scenarios.push({ name: pass.scenario, ran: settled.ran, reason: settled.reason, missing: settled.missing });
+                return settled.ran;
+            });
             return {
+                scenarios,
                 documents: passes.flatMap((pass) =>
                     pass.documents.map((doc) => ({
                         kind: doc.kind,
@@ -133,6 +149,37 @@ test('a run that writes a verdict says so, and says it was running while it ran'
     assert.match(log, /qe live: \d+ documents/);
     assert.match(log, /^\[\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\] /m);
     assert.ok(!log.includes(ACCOUNT), 'the account folder is an identifier and is masked in the log too');
+});
+
+// C-12 (WKE-577). "8 documents" was all the strip's tooltip could say about a
+// run that asked one question where the morning's asked four, and the owner had
+// no way in from the game to find out why. The sentence is the companion's own,
+// written once and put in both files it writes.
+test('a run that skipped a question says so in the status file, in the verdict\'s own words', async () => {
+    const h = harness();
+    h.fork.evidence = { clones: 0, raised: 0, readBase: true, cards: 40 };
+    assert.strictEqual(await h.run(), companion.EXIT.ok);
+
+    const note =
+        "The Catalyst question, this week's plan and the upgrade question went unasked:" +
+        ' nothing you hold can be catalysed and nothing you hold is below its upgrade cap.';
+    const status = h.statusText();
+    assert.match(status, /state = "idle"/);
+    assert.ok(status.includes(note), status);
+    assert.ok(status.includes('message = "8 documents - ' + note), status);
+    // The same words in the verdict, so the Vault tab's footnote and the
+    // strip's tooltip cannot say two things about one run.
+    assert.ok(fs.readFileSync(h.verdict, 'utf8').includes(`scenarioNote = "${note}"`));
+    assert.ok(h.logText().includes(note), h.logText());
+});
+
+// The week the owner is usually in: every question has an answer, so there is
+// no absence to explain and the tooltip is left saying what it always said.
+test('a run that asked everything adds nothing to the status message', async () => {
+    const h = harness();
+    assert.strictEqual(await h.run(), companion.EXIT.ok);
+    assert.match(h.statusText(), /message = "\d+ documents",/);
+    assert.ok(!fs.readFileSync(h.verdict, 'utf8').includes('scenarioNote'));
 });
 
 test('a second run with nothing to do says "no run" rather than nothing at all', async () => {

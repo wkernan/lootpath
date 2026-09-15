@@ -218,7 +218,7 @@ the defaults, which are the owner's machine. Every key is optional.
 | `forkUrl` | `http://localhost:3000` | |
 | `documents` | Top Gear and Upgrade Finder, Dungeon then Raid | `contentType` is QE Live's own string; it has no "Mythic+" |
 | `upgradeFinderKeyLevels` | `[2, 4, 6, 8, 10]` | key levels, sorted and deduplicated; the dungeon Upgrade Finder is run once per level |
-| `scenarios` | `["asOffered", "catalyzed", "thisWeek", "maxed"]` | the named what-ifs Top Gear is run under; must include `asOffered` |
+| `scenarios` | `["asOffered", "catalyzed", "thisWeek", "maxed"]` | the named what-ifs Top Gear is run under; must include `asOffered`. Each what-if is asked when its own question has an answer (C-12, below) |
 | `includeBank` | `true` | bank items only reach the profile if the bank was open when the capture ran |
 | `qeAutoUpgradeVault` | `false` | QE Live's "Upgrade Vault to Max Level" box **for the Upgrade Finder**; Top Gear takes its boxes from the scenario |
 | `qeAutoUpgradeAll` | `false` | his "Upgrade ALL to Max Level" box, likewise |
@@ -335,10 +335,48 @@ checkbox state at Submit (`SimCraftDialog.js` `handleSubmit`), so a box flipped
 afterwards changes nothing. Measured 2026-09-09, three scenarios over two content
 types: **three imports, six documents, 41.7 s warm**; the `thisWeek` import alone,
 measured the same day at 19:22 through the S-1 spike, took **39.3 s** for its two
-Top Gear and two Upgrade Finder documents. The two what-ifs are asked
-only when the profile carries a vault section with gear in it, or under
-`--force`; `asOffered` is always asked, because Equip Now and the Upgrade Map
-read that document and no other.
+Top Gear and two Upgrade Finder documents.
+
+**Which scenarios a run asks (C-12, WKE-577).** `asOffered` is always asked,
+because Equip Now and the Upgrade Map read that document and no other. Each of
+the other three is asked when ITS OWN question has an answer:
+
+| scenario | asked when |
+|---|---|
+| `catalyzed` | QE Live made at least one Catalyst clone out of what you hold |
+| `maxed` | at least one item you hold came back above the level the `asOffered` import valued it at, which is his engine saying it is below its cap |
+| `thisWeek` | either of those |
+
+The gate is settled INSIDE the run, after that pass's import, off the pool QE
+Live built: Catalyst eligibility is his `Item.canBeCatalyzed` and an upgrade cap
+is his `CONSTANTS.itemLevelCaps`, and Lootpath restates neither. So the driver
+opens Top Gear, reads the cards it already reads for C-8, and counts. What a
+skipped pass saves is its Top Gear documents, not its import. A profile with a
+vault section that has gear in it, and `--force`, waive the gate outright.
+
+It fails OPEN: a pool that could not be read, or a base pass that was never read,
+asks the pass anyway and says so. The defect this replaced was a question skipped
+for want of evidence, and it must not come back in through the guard.
+
+Until 2026-09-14 the gate was `profile.counts.vault > 0` alone. The owner's first
+refresh after claiming his vault reward refuted it: he was holding a Catalyst
+candidate and a weapon two crest steps short of its cap, and the run asked about
+neither because the vault was empty.
+
+Every pass says which way its gate went, and why, in the log:
+
+```
+  catalyzed: asked - 1 Catalyst clone of what you hold
+  maxed: SKIPPED - nothing you hold is below its upgrade cap
+```
+
+and a run that skipped anything says it once more, in one sentence, in the status
+file's `message` (the strip's tooltip) and in the verdict's `scenarioNote` (the
+Vault tab's plan footnote):
+
+```
+The upgrade question went unasked: nothing you hold is below its upgrade cap.
+```
 
 The file the addon reads carries the pair at file level:
 
@@ -390,7 +428,11 @@ turns the configured lists into the PASSES one run makes over QE Live - an impor
 with one set of checkboxes, then every document that import can answer - and
 `plannedDocuments`, which is that flattened. A pass exists because the boxes act
 at import (C-6); inside one, the dungeon Upgrade Finder is fanned out over
-`upgradeFinderKeyLevels` (C-7).
+`upgradeFinderKeyLevels` (C-7). Since C-12 a what-if pass also carries a `gate`
+for the driver to settle after its import, and the pure half of that decision -
+`levelsByItem`, `poolEvidence`, `gateVerdict`, `scenarioNote` - lives there too,
+so every word the log, the status file and the verdict say about a skipped
+question is written in one place.
 
 ## What the addon gets
 
@@ -407,6 +449,8 @@ ns.companionVerdict = {
         autoUpgradeVault = false,
         autoUpgradeAll = false,
     },
+    -- Only when a run asked fewer questions than the config lists (C-12).
+    scenarioNote = "The upgrade question went unasked: nothing you hold is below its upgrade cap.",
     exports = {
         { schema = "qe-live-droptimizer", contentType = "Dungeon", bytes = 16315, json = "..." },
         { schema = "qe-live-upgradefinder", contentType = "Dungeon", keyLevel = 2, bytes = 118981, json = "..." },
