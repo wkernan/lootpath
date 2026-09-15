@@ -509,12 +509,42 @@ frame:RegisterEvent("PLAYER_LOGIN")
 -- `SystemDocumentation.lua`: `LiteralName = "PLAYER_LOGOUT", SynchronousEvent =
 -- true`), and nothing after it is allowed to be asynchronous.
 frame:RegisterEvent("PLAYER_LOGOUT")
+-- M3-16a (WKE-581). The vault question M3-16 asked from inside the refresh is
+-- asked here instead, once per session, so the refresh never has to wait for it
+-- and its `ReloadUI` stays the player's own action. What is asked, what is not,
+-- and why, is `ns.Companion.AskVaultAtLogin`; this file owns only the
+-- lifecycle half.
+--
+-- `PLAYER_ENTERING_WORLD` rather than `PLAYER_LOGIN` because it fires again
+-- after every loading screen and after a `/reload`, which is when the client
+-- has its world data; the handler unregisters it after the first one, which is
+-- what "once per session" means. `PLAYER_REGEN_ENABLED` is registered only when
+-- that first one landed in combat, where nothing runs.
+frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 frame:SetScript("OnEvent", function(self, event, arg1)
     if event == "ADDON_LOADED" and arg1 == ADDON then
         self:UnregisterEvent("ADDON_LOADED")
         onAddonLoaded()
     elseif event == "PLAYER_LOGIN" then
         ns.Log("v%s loaded. /lootpath opens the frame; /lootpath help lists commands.", ns.VERSION)
+    elseif event == "PLAYER_ENTERING_WORLD" or event == "PLAYER_REGEN_ENABLED" then
+        self:UnregisterEvent("PLAYER_ENTERING_WORLD")
+        -- Guarded the way the logout is: the question is a convenience, and a
+        -- client that errors on it must not be the first thing a login shows.
+        -- `AskVaultAtLogin` answers nil for exactly one reason - it was in
+        -- combat and deferred - so that is the only thing that keeps the
+        -- regen listener alive. A question that errored is not retried: it
+        -- would error again, and the refresh's popup already covers the case.
+        local deferred = false
+        if ns.Companion and ns.Companion.AskVaultAtLogin then
+            local ok, result = pcall(ns.Companion.AskVaultAtLogin)
+            deferred = ok and result == nil
+        end
+        if deferred then
+            self:RegisterEvent("PLAYER_REGEN_ENABLED")
+        else
+            self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+        end
     elseif event == "PLAYER_LOGOUT" then
         -- Guarded rather than assumed: a logout is the one moment where an
         -- error in the addon would be the last thing the player sees.

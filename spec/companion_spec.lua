@@ -536,6 +536,20 @@ describe("/lootpath refresh", function()
         assert.equal(1, world.reloads)
     end)
 
+    -- M3-16a (WKE-581). The client refuses `ReloadUI` unless it can attribute
+    -- it to the player's own hardware event, so with nothing to wait for the
+    -- reload has to happen INSIDE the slash command's execution - not from a
+    -- timer, not from a callback, and with no box in the way. Proven red by
+    -- deferring the call (`C_Timer.After(0, ReloadUI)`): the count is 0 when
+    -- the command returns and the assertion fails on the line below.
+    it("calls ReloadUI synchronously from the command when nothing had to wait", function()
+        ns.HandleSlash("refresh")
+        assert.equal(1, world.reloads)
+        assert.equal(0, #world.popupsShown)
+        world.runTimers(30)
+        assert.equal(1, world.reloads)
+    end)
+
     it("hands back every snapshot it stored", function()
         local result = ns.Companion.Refresh()
         assert.is_true(result.ok)
@@ -670,15 +684,25 @@ describe("/lootpath refresh", function()
             assert.is_nil(ns.db.global.captures.currencies)
         end)
 
-        it("reloads once the client answers, with all four snapshots taken", function()
+        -- M3-16a (WKE-581). This is the defect the owner hit: all four
+        -- snapshots were taken, `ReloadUI()` was called from the vault
+        -- event's continuation, and the client answered "Interface action
+        -- failed because of an AddOn" and reloaded nothing. The chain must
+        -- ASK here instead. Proven red by putting `ReloadUI()` back in place
+        -- of `Companion.AskForReload`: `world.reloads` is 1 and the popup
+        -- assertion fails, which is exactly the shape of the bug.
+        it("asks for the reload instead of calling it, with all four snapshots taken", function()
             local final
             ns.Companion.Refresh(function(result)
                 final = result
             end)
             world.runTimers(10)
             assert.is_true(final.ok)
-            assert.is_true(final.reloaded)
-            assert.equal(1, world.reloads)
+            assert.is_false(final.reloaded)
+            assert.equal("popup", final.reloadPending)
+            assert.equal(0, world.reloads)
+            assert.equal(1, #world.popupsShown)
+            assert.equal(ns.Companion.RELOAD_POPUP, world.popupsShown[1].which)
             assert.equal(1, #ns.db.global.captures.vault)
             assert.equal(1, #ns.db.global.captures.currencies)
             assert.equal(1, #ns.db.global.captures.vault[1].data.interact.after.rewardLinks)
@@ -687,17 +711,68 @@ describe("/lootpath refresh", function()
             end
         end)
 
-        it("reloads after the bound when the client never answers", function()
+        -- The click is the whole point: a StaticPopup button is the hardware
+        -- event the client requires, which is why the dialog calls ReloadUI
+        -- from OnAccept and nothing else does. Proven red by emptying the
+        -- `OnAccept` body: the click reloads nothing.
+        it("reloads when the player clicks Reload, and not when he clicks Not now", function()
+            ns.Companion.Refresh()
+            world.runTimers(10)
+            local dialog = _G.StaticPopupDialogs[ns.Companion.RELOAD_POPUP]
+            assert.equal("Gear captured. Reload to send it?", dialog.text)
+            assert.equal("Reload", dialog.button1)
+            assert.equal("Not now", dialog.button2)
+            assert.equal(0, dialog.timeout)
+            assert.is_nil(dialog.OnCancel)
+            assert.equal(0, world.reloads)
+            assert.is_true(world.clickPopup(ns.Companion.RELOAD_POPUP))
+            assert.equal(1, world.reloads)
+        end)
+
+        it("asks the same way after the bound when the client never answers", function()
             world.vault.answerOnInteract = nil
             local final
             ns.Companion.Refresh(function(result)
                 final = result
             end)
-            assert.equal(0, world.reloads)
+            assert.equal(0, #world.popupsShown)
             world.runTimers(ns.VAULT_INTERACT_TIMEOUT_SECONDS + 1)
-            assert.equal(1, world.reloads)
-            assert.is_true(final.reloaded)
+            assert.equal(0, world.reloads)
+            assert.equal(1, #world.popupsShown)
+            assert.equal("popup", final.reloadPending)
             assert.is_true(ns.db.global.captures.vault[1].data.interact.timedOut)
+        end)
+
+        -- R-6's wait line counts from `refreshStartedAt`, and its click is a
+        -- plain ReloadUI. Writing the stamp on this path too is what leaves a
+        -- player who clicked Not now with somewhere to click. Proven red by
+        -- moving `ns.Drift.RefreshStarting()` back under the synchronous
+        -- branch: `Drift.Waiting` is nil and the click runs a second refresh
+        -- instead of reloading.
+        it("writes R-6's stamp on the popup path, so the strip's wait line carries the same click", function()
+            ns.Companion.Refresh()
+            world.runTimers(10)
+            assert.is_string(ns.db.global.drift.refreshStartedAt)
+            assert.is_truthy(ns.Drift.Waiting())
+            assert.equal("wait", ns.Drift.Model().kind)
+            assert.equal("reloaded", ns.Drift.Click())
+            assert.equal(1, world.reloads)
+        end)
+
+        -- The one client that cannot show a box still has to be told, because
+        -- the captures are sitting in memory either way. Proven red by
+        -- dropping the `StaticPopup_Show` type check: the refresh errors
+        -- instead of saying anything.
+        it("says it in chat when the client has no StaticPopup_Show", function()
+            _G.StaticPopup_Show = nil
+            local final
+            ns.Companion.Refresh(function(result)
+                final = result
+            end)
+            world.runTimers(10)
+            assert.equal("chat", final.reloadPending)
+            assert.equal(0, world.reloads)
+            assert.is_truthy(world.output():find("type /reload to send them", 1, true))
         end)
 
         -- The strip's own clause, and the chat line under it. Proven red by
@@ -1845,6 +1920,205 @@ describe("Companion and the later Top Gear passes", function()
         local second = ns.Companion.ImportAll(raw)
         assert.equal(0, #second.imported)
         assert.equal(2, #second.unchanged)
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- M3-16a (WKE-581). M3-16 asked the vault question from inside the refresh, and
+-- the wait that followed turned the refresh's `ReloadUI` into an addon's action
+-- the client refuses. The question moves to login: the same one interaction,
+-- one call earlier, with nothing waiting on it - and by the time the player
+-- types the refresh the client is carrying the rewards, so the chain is
+-- synchronous and the reload is his own again.
+
+describe("the vault question at login", function()
+    local ns, world
+
+    local VAULT_ITEM = "|cffa335ee|Hitem:210003::::::::80:105::13:2:7:8::::::|h[Vault Chest]|h|r"
+    local ANSWERED = {
+        activities = {
+            {
+                type = 1,
+                index = 1,
+                threshold = 1,
+                progress = 2,
+                id = 11,
+                level = 10,
+                rewards = { { type = 1, id = 210003, quantity = 1, itemDBID = "9001" } },
+            },
+        },
+        links = { ["9001"] = VAULT_ITEM },
+        examples = { [11] = { VAULT_ITEM } },
+    }
+
+    -- The measured state (docs/ARCHITECTURE.md §9, 2026-09-09/10): rewards are
+    -- waiting and not one activity carries one.
+    local function withheld()
+        world.vault.hasAvailable = true
+        world.vault.currentPeriod = false
+        world.vault.generated = true
+        world.vault.activities = {
+            { type = 1, index = 1, threshold = 1, progress = 2, id = 11, level = 1, rewards = {} },
+        }
+        world.vault.answerOnInteract = ANSWERED
+        world.vault.answerDelaySeconds = 0.4
+    end
+
+    before_each(function()
+        ns, world = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- Proven red by unregistering PLAYER_ENTERING_WORLD on Core.lua's frame:
+    -- OnUIInteract is never called and the count is 0, which is the state
+    -- M3-16 left the login in.
+    it("asks the client once, closes the interaction, and captures nothing", function()
+        withheld()
+        world.fireEvent("PLAYER_ENTERING_WORLD")
+        world.runTimers(10)
+        assert.equal(1, world.vault.interact.onUIInteract)
+        assert.equal(1, world.vault.interact.closeInteraction)
+        assert.is_true(ns.vaultLoginAsk.askedAtLogin)
+        assert.is_true(ns.vaultLoginAsk.updateFired)
+        assert.is_number(ns.vaultLoginAsk.waitedMs)
+        -- No capture, no reload: the client is just left holding its own data.
+        assert.is_nil(ns.db.global.captures.vault)
+        assert.is_nil(ns.db.global.captures.env)
+        assert.equal(0, world.reloads)
+    end)
+
+    -- Closing the interaction on a timeout is M3-16's rule and this inherits it
+    -- whole, because it is the same `ns.VaultInteract`. Proven red by returning
+    -- before `record.close` in that function: the count is 0.
+    it("closes the interaction on the timeout too", function()
+        withheld()
+        world.vault.answerOnInteract = nil
+        world.fireEvent("PLAYER_ENTERING_WORLD")
+        assert.equal(1, world.vault.interact.onUIInteract)
+        assert.equal(0, world.vault.interact.closeInteraction)
+        world.runTimers(ns.VAULT_INTERACT_TIMEOUT_SECONDS + 1)
+        assert.equal(1, world.vault.interact.closeInteraction)
+        assert.is_true(ns.vaultLoginAsk.timedOut)
+    end)
+
+    -- The exception is allowed only in the state it was allowed for. Proven red
+    -- by making `loginAskNeeded` return true unconditionally.
+    it("does not ask when no rewards are waiting", function()
+        world.vault.hasAvailable = false
+        world.fireEvent("PLAYER_ENTERING_WORLD")
+        assert.equal(0, world.vault.interact.onUIInteract)
+        assert.is_false(ns.vaultLoginAsk.askedAtLogin)
+        assert.equal(ns.Companion.LOGIN_ASK_NOTHING, ns.vaultLoginAsk.reason)
+    end)
+
+    it("does not ask when the activities already carry rewards", function()
+        world.vault.hasAvailable = true
+        world.vault.activities = ANSWERED.activities
+        world.vault.links = ANSWERED.links
+        world.fireEvent("PLAYER_ENTERING_WORLD")
+        assert.equal(0, world.vault.interact.onUIInteract)
+        assert.is_false(ns.vaultLoginAsk.askedAtLogin)
+        assert.equal(ns.Companion.LOGIN_ASK_CARRIED, ns.vaultLoginAsk.reason)
+    end)
+
+    -- Once per session, and the module says so itself rather than leaning on
+    -- Core.lua having unregistered the event: `PLAYER_ENTERING_WORLD` fires
+    -- again after every loading screen, and a question per zone change is not
+    -- what the owner allowed. Called directly for that reason. Proven red by
+    -- dropping the `Companion.loginAsked` guard: the second call asks again
+    -- and the count is 2.
+    it("asks once a session however many times it is called", function()
+        withheld()
+        -- The client that NEVER answers is where the guard is the only thing
+        -- holding: after an ask that worked the activities carry rewards and
+        -- `loginAskNeeded` would refuse a second one anyway, so a test built
+        -- on the happy path proves nothing about the guard.
+        world.vault.answerOnInteract = nil
+        ns.Companion.AskVaultAtLogin()
+        world.runTimers(ns.VAULT_INTERACT_TIMEOUT_SECONDS + 1)
+        assert.equal(1, world.vault.interact.onUIInteract)
+        ns.Companion.AskVaultAtLogin()
+        world.runTimers(ns.VAULT_INTERACT_TIMEOUT_SECONDS + 1)
+        assert.equal(1, world.vault.interact.onUIInteract)
+        -- And through the event, which is the path the client takes.
+        world.fireEvent("PLAYER_ENTERING_WORLD")
+        world.runTimers(ns.VAULT_INTERACT_TIMEOUT_SECONDS + 1)
+        assert.equal(1, world.vault.interact.onUIInteract)
+    end)
+
+    -- Nothing runs in combat (CLAUDE.md). Proven red by removing the
+    -- `InCombatLockdown` check: the question is asked mid-fight.
+    it("asks nothing in combat, and asks when the fight is over", function()
+        withheld()
+        world.inCombat = true
+        world.fireEvent("PLAYER_ENTERING_WORLD")
+        assert.equal(0, world.vault.interact.onUIInteract)
+        assert.is_false(ns.vaultLoginAsk.askedAtLogin)
+        assert.equal(ns.Companion.LOGIN_ASK_COMBAT, ns.vaultLoginAsk.reason)
+        world.inCombat = false
+        world.fireEvent("PLAYER_REGEN_ENABLED")
+        world.runTimers(10)
+        assert.equal(1, world.vault.interact.onUIInteract)
+        assert.is_true(ns.vaultLoginAsk.askedAtLogin)
+        -- And once the fight-end asked it, another one does not ask again.
+        world.fireEvent("PLAYER_REGEN_ENABLED")
+        world.runTimers(10)
+        assert.equal(1, world.vault.interact.onUIInteract)
+    end)
+
+    -- THE POINT OF THE WHOLE ISSUE. After the login ask the client carries the
+    -- rewards, so the vault capture has nothing to ask for, the chain finishes
+    -- inside the slash command, and `ReloadUI` is the player's own action
+    -- again. Proven red by making `AskVaultAtLogin` return without calling
+    -- `ns.VaultInteract`: the refresh goes back to waiting and the popup path,
+    -- and `world.reloads` is 0 on the line below.
+    it("leaves the refresh synchronous: it reloads at once and shows no box", function()
+        withheld()
+        world.fireEvent("PLAYER_ENTERING_WORLD")
+        world.runTimers(10)
+        local before = world.vault.interact.onUIInteract
+        local result = ns.Companion.Refresh()
+        assert.is_true(result.ok)
+        assert.is_true(result.reloaded)
+        assert.equal(1, world.reloads)
+        assert.equal(0, #world.popupsShown)
+        assert.is_false(ns.Companion.waitingForVault)
+        -- And the capture did not ask a second time: the client already had it.
+        assert.equal(before, world.vault.interact.onUIInteract)
+        assert.is_false(ns.db.global.captures.vault[1].data.interact.attempted)
+    end)
+
+    -- The transcript is the only proof the question was asked at all, since no
+    -- capture was taken at the time. Proven red by removing the field from the
+    -- env capture: the snapshot carries nothing about the login.
+    it("is recorded in the next env snapshot", function()
+        withheld()
+        world.fireEvent("PLAYER_ENTERING_WORLD")
+        world.runTimers(10)
+        ns.HandleSlash("capture env")
+        local record = ns.db.global.captures.env[1].data.vaultLoginAsk
+        assert.is_true(record.askedAtLogin)
+        assert.is_true(record.updateFired)
+        assert.is_number(record.waitedMs)
+    end)
+
+    it("records that the login looked and found nothing to ask about", function()
+        world.vault.hasAvailable = false
+        world.fireEvent("PLAYER_ENTERING_WORLD")
+        ns.HandleSlash("capture env")
+        local record = ns.db.global.captures.env[1].data.vaultLoginAsk
+        assert.is_false(record.askedAtLogin)
+        assert.equal(ns.Companion.LOGIN_ASK_NOTHING, record.reason)
+    end)
+
+    -- A capture taken before any login event still says so rather than looking
+    -- like a login that found nothing.
+    it("records `absent` when no login event has run", function()
+        ns.HandleSlash("capture env")
+        assert.is_true(ns.db.global.captures.env[1].data.vaultLoginAsk.absent)
     end)
 end)
 

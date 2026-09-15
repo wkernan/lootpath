@@ -1082,6 +1082,10 @@ function Stub.install()
             calls = { set = 0, clear = 0, canUpgrade = 0 },
         },
         reloads = 0,
+        -- M3-16a (WKE-581): every StaticPopup_Show, in order, and every
+        -- StaticPopup_Hide key.
+        popupsShown = {},
+        popupsHidden = {},
         -- `currentPeriod` and `generated` are M3-16's two extra reads
         -- (AreRewardsForCurrentRewardPeriod, HasGeneratedRewards); `interact`
         -- counts the two calls the vault capture may make, and
@@ -1321,6 +1325,44 @@ function Stub.install()
     define("ReloadUI", function()
         world.reloads = world.reloads + 1
     end)
+    -- StaticPopup (M3-16a, WKE-581). The dialog table is Blizzard's global that
+    -- addons add an entry to, and `StaticPopup_Show(which)` is what puts one on
+    -- screen (`.luals/.../Blizzard_StaticPopup/StaticPopup.lua.annotated.lua`
+    -- line 278: `StaticPopup_Show(which, text_arg1, text_arg2, data,
+    -- insertedFrame, customOnHideScript)`). The stub records which keys were
+    -- shown and hands the registered entry back, so a test clicks a button by
+    -- calling `OnAccept` the way the real dialog does - which is the point: the
+    -- client only allows `ReloadUI` from that click.
+    define("StaticPopupDialogs", {})
+    define("StaticPopup_Show", function(which, text_arg1, text_arg2, data)
+        world.popupsShown[#world.popupsShown + 1] = {
+            which = which,
+            text_arg1 = text_arg1,
+            text_arg2 = text_arg2,
+            data = data,
+        }
+        return _G.StaticPopupDialogs[which]
+    end)
+    define("StaticPopup_Hide", function(which)
+        world.popupsHidden[#world.popupsHidden + 1] = which
+    end)
+    -- Clicks a shown popup's button the way the client does: `OnAccept(dialog,
+    -- data)`, with no dialog frame, because nothing Lootpath registers touches
+    -- one. Returns false when that key was never shown.
+    function world.clickPopup(which, button)
+        for _, shown in ipairs(world.popupsShown) do
+            if shown.which == which then
+                local entry = _G.StaticPopupDialogs[which]
+                local handler = entry and entry[button or "OnAccept"]
+                if type(handler) == "function" then
+                    handler(nil, shown.data)
+                    return true
+                end
+                return false
+            end
+        end
+        return false
+    end
     define("debugprofilestop", function()
         return os.clock() * 1000
     end)

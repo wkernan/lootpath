@@ -83,12 +83,16 @@ already edited the shared checkout, move the work to a worktree first
   exceptions:
   `capture journal` sets the Adventure Guide's view state because the API has
   no other way to ask for loot, and restores what it can (ARCHITECTURE.md §7);
-  `capture vault` calls `C_WeeklyRewards.OnUIInteract()`, waits a bounded few
-  seconds for `WEEKLY_REWARDS_UPDATE` and then calls `CloseInteraction()` -
-  always, including on timeout - because after the week's first progress the
-  client stops carrying last week's unclaimed rewards until something interacts
-  with the vault, and that pair is what Blizzard's own vault frame calls on
-  every open and close (decision 2026-09-14, ARCHITECTURE.md §7); and
+  `capture vault` **and once at login** call `C_WeeklyRewards.OnUIInteract()`,
+  wait a bounded few seconds for `WEEKLY_REWARDS_UPDATE` and then call
+  `CloseInteraction()` - always, including on timeout - because after the
+  week's first progress the client stops carrying last week's unclaimed rewards
+  until something interacts with the vault, and that pair is what Blizzard's
+  own vault frame calls on every open and close (decision 2026-09-14,
+  ARCHITECTURE.md §7). The login ask captures nothing and reloads nothing: it
+  is the same one interaction moved off the refresh, because a refresh that
+  waits for it can no longer reload - the client refuses a `ReloadUI` it cannot
+  attribute to the player (M3-16a, 2026-09-15, ARCHITECTURE.md §7). And
   `capture upgrade` puts each owned upgradeable item into the OPEN upgrade
   vendor's window (`SetItemUpgradeFromLocation`) to read its crest type and
   cost, because the client answers `GetItemUpgradeItemInfo()` only about the
