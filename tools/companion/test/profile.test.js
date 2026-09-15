@@ -99,3 +99,21 @@ test('the no-vault-reward warning follows the reward list the profile actually r
     assert.strictEqual(withoutRewards.counts.vault, 0);
     assert.ok(withoutRewards.warnings.some((w) => w.includes(VAULT_WARNING)), withoutRewards.warnings.join(' | '));
 });
+
+// M3-16b (WKE-583): the choice of vault read is on the built profile, because
+// the companion logs it. `0 vault` on the owner's reset day was a choice
+// between snapshots and nothing said so.
+test('the profile says which vault read it was built from', () => {
+    // Proven red by dropping `vaultChoice` from the build's return: the
+    // companion's log goes quiet about a choice that decided the vault
+    // section.
+    const withRewards = profileLib.build(WITH_REWARDS, {});
+    assert.ok(withRewards.ok, withRewards.ok ? '' : withRewards.reason);
+    assert.strictEqual(withRewards.counts.vault, 4);
+    assert.strictEqual(withRewards.vaultChoice, 'the newest read that carries rewards; none of them asked');
+
+    // A transcript with no vault capture at all says that, rather than nothing.
+    const none = profileLib.build(TRANSCRIPT.replace(/\["vault"\]/g, '["vault_none"]'), {});
+    assert.ok(none.ok, none.ok ? '' : none.reason);
+    assert.strictEqual(none.vaultChoice, 'there is no vault snapshot in this transcript');
+});

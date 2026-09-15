@@ -488,14 +488,82 @@ describe("captures", function()
                 assert.equal(1, world.vault.interact.closeInteraction)
             end)
 
-            -- A second WEEKLY_REWARDS_UPDATE - the client fires it for its own
-            -- reasons - must not store a second snapshot or close twice.
-            it("settles once, however many updates arrive", function()
+            -- A second WEEKLY_REWARDS_UPDATE after the answer has arrived - the
+            -- client fires it for its own reasons - must not store a second
+            -- snapshot or close twice.
+            it("settles once, however many updates arrive after the answer", function()
                 ns.RunCapture("vault")
                 world.runTimers(10)
                 world.fireEvent("WEEKLY_REWARDS_UPDATE")
                 world.runTimers(10)
                 assert.equal(1, #ns.db.global.captures.vault)
+                assert.equal(1, world.vault.interact.closeInteraction)
+            end)
+
+            -- M3-16b (WKE-583). Blizzard's own frame re-reads on EVERY update
+            -- while it is shown, and until this issue the capture read on the
+            -- first and closed - so an update that brought nothing ended the
+            -- whole ask. Here the first two updates bring nothing and the third
+            -- brings the rewards; the capture reads all three, records what each
+            -- one carried, and settles on the one that answered. Proven red by
+            -- settling on the first update again (`return true` from the
+            -- capture's `onUpdate`): one row in `updates`, no `after` links, and
+            -- the snapshot is stored before the rewards ever arrive.
+            it("reads on every update inside the bound and settles on the one that carries rewards", function()
+                world.vault.answerOnInteract = nil
+                ns.RunCapture("vault")
+                world.fireEvent("WEEKLY_REWARDS_UPDATE")
+                world.fireEvent("WEEKLY_REWARDS_UPDATE")
+                -- Still open: nothing has been stored and the interaction has
+                -- not been closed.
+                assert.is_nil(ns.db.global.captures.vault)
+                assert.equal(0, world.vault.interact.closeInteraction)
+
+                world.vault.activities = {
+                    {
+                        type = 1,
+                        index = 1,
+                        threshold = 1,
+                        progress = 2,
+                        id = 11,
+                        level = 10,
+                        rewards = { { type = 1, id = 210003, quantity = 1, itemDBID = "9001" } },
+                    },
+                }
+                world.vault.links["9001"] = VAULT_ITEM
+                world.fireEvent("WEEKLY_REWARDS_UPDATE")
+
+                local data = ns.db.global.captures.vault[1].data
+                assert.is_true(data.interact.updateFired)
+                assert.is_false(data.interact.timedOut)
+                assert.equal(3, #data.interact.updates)
+                assert.equal(0, data.interact.updates[1].links)
+                assert.equal(1, data.interact.updates[1].activities)
+                assert.equal(0, data.interact.updates[2].links)
+                assert.equal(1, data.interact.updates[3].links)
+                for _, update in ipairs(data.interact.updates) do
+                    assert.is_true(type(update.ms) == "number" and update.ms >= 0)
+                end
+                -- The lists kept are the LAST read's, and the first read is
+                -- still beside them untouched.
+                assert.equal(1, #data.interact.after.rewardLinks)
+                assert.same({}, data.rewardLinks)
+                assert.equal(1, world.vault.interact.closeInteraction)
+            end)
+
+            -- And when no update ever carries rewards the bound ends it, says
+            -- the bound ended it, and keeps what the updates did carry.
+            it("gives up after the bound even when updates fired, and says which", function()
+                world.vault.answerOnInteract = nil
+                ns.RunCapture("vault")
+                world.fireEvent("WEEKLY_REWARDS_UPDATE")
+                world.runTimers(ns.VAULT_INTERACT_TIMEOUT_SECONDS + 1)
+
+                local data = ns.db.global.captures.vault[1].data
+                assert.is_true(data.interact.updateFired)
+                assert.is_true(data.interact.timedOut)
+                assert.equal(1, #data.interact.updates)
+                assert.equal(0, data.interact.updates[1].links)
                 assert.equal(1, world.vault.interact.closeInteraction)
             end)
 

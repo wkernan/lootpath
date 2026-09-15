@@ -383,3 +383,118 @@ test("snapshotRewardLinks prefers the after read and never merges the two", () =
   assert.deepEqual(snapshotRewardLinks({ data: { rewardLinks: before, interact: { after: { rewardLinks: after } } } }), after);
   assert.equal(snapshotRewardLinks(undefined), undefined);
 });
+
+// --- which vault snapshot the profile is built from (M3-16b, WKE-583) --------
+//
+// Over the owner's own reset day, trimmed to its vault evidence:
+// `spec/fixtures/captures/Lootpath-20260915-142722-vault.lua` carries the 13
+// vault snapshots and 9 login-ask `env` snapshots of 2026-09-15 out of his 12.5
+// MB pull (the pull itself is too large to commit; README.md names it). In it:
+// four refresh reads that ASKED the client and got nothing back, seven flush
+// reads that did not ask, then - after he opened the Great Vault window - a
+// hand capture and a flush read that each carry 9 reward links. Before M3-16b
+// the newest snapshot simply won, which on the morning of that day was a flush
+// read with nothing in it.
+const RESET_DAY = path.join(REPO, "spec", "fixtures", "captures", "Lootpath-20260915-142722-vault.lua");
+const resetDayText = fs.readFileSync(RESET_DAY, "latin1");
+
+const vaultSnapshots = luaArray(parseSavedVariables(resetDayText).LootpathDB.global.captures.vault);
+const at = (snapshot) => new Date(snapshot.capturedAt * 1000).toISOString();
+
+test("the reset-day transcript is the evidence this rule was written from", () => {
+  assert.equal(vaultSnapshots.length, 13);
+  const asked = vaultSnapshots.filter((s) => (s.data.interact || {}).attempted === true);
+  assert.equal(asked.length, 4);
+  for (const snapshot of asked) {
+    assert.equal(luaArray(snapshotRewardLinks(snapshot)).length, 0, `${at(snapshot)} carried links after all`);
+    assert.equal(snapshot.data.interact.updateFired, true);
+    assert.equal(snapshot.data.interact.timedOut, false);
+  }
+  // The two reads taken once the Great Vault window had been opened.
+  const withLinks = vaultSnapshots.filter((s) => luaArray(snapshotRewardLinks(s)).length > 0);
+  assert.deepEqual(withLinks.map(at), ["2026-09-15T19:27:16.000Z", "2026-09-15T19:27:22.000Z"]);
+  // Taken by hand with the window open, and it did not ask: the capture's own
+  // gate saw rewards in the activities already.
+  assert.equal(withLinks[0].trigger, "command");
+  assert.equal(withLinks[0].data.interact.attempted, false);
+  assert.equal(withLinks[0].data.interact.reason, "the activities already carry rewards");
+  assert.equal(withLinks[0].data.frameShown[1], true);
+});
+
+test("the profile is built from a vault read that carries rewards, not simply the newest", () => {
+  const transcript = readTranscript(resetDayText, {});
+  assert.equal(at(transcript.vault), "2026-09-15T19:27:22.000Z");
+  assert.equal(luaArray(snapshotRewardLinks(transcript.vault)).length, 9);
+  assert.equal(transcript.vaultChoice, "the newest read that carries rewards; none of them asked");
+});
+
+test("a read that asked wins over one that did not when both carry rewards", () => {
+  // Proven red by dropping the `asked` branch of chooseVaultSnapshot: the
+  // later plain read wins and the reason reads "none of them asked".
+  const text = [
+    "LootpathDB = {",
+    '["global"] = {',
+    '["captures"] = {',
+    '["vault"] = {',
+    "[1] = {",
+    '["capturedAt"] = 1000,',
+    '["trigger"] = "refresh",',
+    '["data"] = { ["secondsUntilWeeklyReset"] = { [1] = 500000, ["n"] = 1 },',
+    '["interact"] = { ["attempted"] = true, ["after"] = { ["rewardLinks"] = { [1] = { ["itemDBID"] = "asked" } } } },',
+    '["rewardLinks"] = { } },',
+    "},",
+    "[2] = {",
+    '["capturedAt"] = 2000,',
+    '["trigger"] = "command",',
+    '["data"] = { ["secondsUntilWeeklyReset"] = { [1] = 499000, ["n"] = 1 },',
+    '["interact"] = { ["attempted"] = false },',
+    '["rewardLinks"] = { [1] = { ["itemDBID"] = "plain" } } },',
+    "},",
+    "},",
+    "},",
+    "},",
+    "}",
+  ].join("\n");
+  const transcript = readTranscript(text, {});
+  assert.equal(transcript.vault.capturedAt, 1000);
+  assert.equal(transcript.vaultChoice, "the newest read that asked the client and carries rewards");
+});
+
+test("a read from the previous reward period never wins this week's", () => {
+  // Same two snapshots, except the one carrying rewards belongs to last week:
+  // its reset lands a week earlier, so it is out of the running and the empty
+  // read of this week is what the profile is built from. Proven red by
+  // dropping the period filter: last week's rewards are carried into this
+  // week's profile.
+  const text = [
+    "LootpathDB = {",
+    '["global"] = {',
+    '["captures"] = {',
+    '["vault"] = {',
+    "[1] = {",
+    '["capturedAt"] = 1000,',
+    '["trigger"] = "refresh",',
+    '["data"] = { ["secondsUntilWeeklyReset"] = { [1] = 100, ["n"] = 1 },',
+    '["rewardLinks"] = { [1] = { ["itemDBID"] = "last week" } } },',
+    "},",
+    "[2] = {",
+    '["capturedAt"] = 2000,',
+    '["trigger"] = "refresh",',
+    '["data"] = { ["secondsUntilWeeklyReset"] = { [1] = 604800, ["n"] = 1 },',
+    '["rewardLinks"] = { } },',
+    "},",
+    "},",
+    "},",
+    "},",
+    "}",
+  ].join("\n");
+  const transcript = readTranscript(text, {});
+  assert.equal(transcript.vault.capturedAt, 2000);
+  assert.equal(transcript.vaultChoice, "the newest read; no snapshot this reward period carries a reward link");
+});
+
+test("--vault-snapshot still names one outright, and says so", () => {
+  const transcript = readTranscript(resetDayText, { vaultSnapshot: 0 });
+  assert.equal(at(transcript.vault), at(vaultSnapshots[0]));
+  assert.equal(transcript.vaultChoice, "snapshot 0, named on the command line");
+});

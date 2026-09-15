@@ -86,3 +86,26 @@ with every loop rather than by request.
   0 combat returns; by frame `ShoppingTooltip1` 1,490, `ShoppingTooltip2` 706,
   `GameTooltip` 250, `PawnPrivateTooltip1` 120. Every earlier snapshot
   repeats. No secrets.
+- Lootpath-20260915-142722-vault.lua - **an extract, not a raw pull**, and the
+  only one in this folder: the owner's 2026-09-15 14:27 local SavedVariables
+  are 12.5 MB, which is more than this repo should carry, so M3-16b (WKE-583)
+  commits the vault evidence out of it and names the whole file here. The full
+  pull is `Lootpath-20260915-142722.lua` on the owner's own box, beside the
+  13:58 one of the same day (11.5 MB); both predate R-7a's four-per-kind bound
+  (WKE-582), which is why they grew that large. What is kept is every `vault`
+  snapshot and every login-ask `env` snapshot taken after the 2026-09-15 weekly
+  reset - 13 and 9 of them - written back in Blizzard's own SavedVariables
+  format with the companion's parser (`tools/companion/lib/lua-savedvariables.js`)
+  and re-serialised; no value is altered, only whole snapshots left out.
+  What it shows, and what M3-16b was built from: four `refresh` reads that
+  ASKED the client (`interact.attempted`, `updateFired`, 66.7 / 77.1 / 113.2 /
+  130.9 ms) and came back with the same 10 activities, every `rewards = {}`,
+  0 reward links, `hasGeneratedRewards` false; seven `flush` reads that did not
+  ask and carried the same nothing; then 19:27:16Z, a `command` capture taken
+  with the Great Vault window OPEN (`frameShown` true) - 11 activities, 5
+  carrying rewards, `hasGeneratedRewards` and `canClaimRewards` true, 9 reward
+  links (Preyhunter's Lantern, Enigmatic Dreamwatcher's Leggings, Kyrakka's
+  Searing Embers, five Mythic Keystones, a Thalassian Token of Merit) - and
+  19:27:22Z, the flush six seconds after the window closed, carrying the same
+  11 and 9. The window generated them; the addon's interaction did not.
+  No secrets seen.

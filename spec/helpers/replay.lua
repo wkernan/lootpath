@@ -96,6 +96,13 @@ function R.vault(world, snapshot)
     world.vault.activities = (data.activities and data.activities[1]) or {}
     world.vault.hasAvailable = (data.hasAvailableRewards and data.hasAvailableRewards[1]) == true
     world.vault.canClaim = (data.canClaimRewards and data.canClaimRewards[1]) == true
+    -- M3-16b (WKE-583): the two reads that tell the reset-day vault from the
+    -- mid-week withheld one. Replayed like the others rather than left at the
+    -- stub's default, because they are the whole difference between the Vault
+    -- tab naming the window and naming the refresh.
+    world.vault.generated = (data.hasGeneratedRewards and data.hasGeneratedRewards[1]) == true
+    world.vault.currentPeriod = (data.areRewardsForCurrentRewardPeriod and data.areRewardsForCurrentRewardPeriod[1])
+        == true
     world.vault.links = {}
     for _, entry in ipairs(data.rewardLinks or {}) do
         local link = entry.link and entry.link[1]

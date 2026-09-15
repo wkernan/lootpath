@@ -1182,14 +1182,20 @@ end
 --     `SystemDocumentation.lua`: `LiteralName = "PLAYER_LOGOUT", SynchronousEvent
 --     = true`, read 2026-09-15) and the client stops running Lua after it, so a
 --     timer or an event listener registered here would never fire. Every capture
---     therefore has to finish inside this call - which is why the vault capture
---     is handed `skipInteract`, below.
---   * **The vault is read plainly.** M3-16's interaction asks the server for the
---     withheld rewards and waits up to `ns.VAULT_INTERACT_TIMEOUT_SECONDS` for
---     `WEEKLY_REWARDS_UPDATE`. There is no time to wait at the flush, so
---     `OnUIInteract` is not called at all and the snapshot records
---     `interact.skipped = "flush"` - the read is the plain one and says so,
---     rather than looking like a refresh's read that found nothing.
+--     therefore has to finish inside this call - which is why the vault is not
+--     one of them, below.
+--   * **The vault is not captured at all (M3-16b, WKE-583).** M3-16's
+--     interaction asks the server for the withheld rewards and waits up to
+--     `ns.VAULT_INTERACT_TIMEOUT_SECONDS` for `WEEKLY_REWARDS_UPDATE`, and this
+--     event has no time for a wait. R-7 read the vault here plainly and labelled
+--     the read; the owner's reset day is what that cost. On 2026-09-15 the
+--     refresh at 19:09:29Z asked the client and stored its answer, the flush at
+--     the refresh's own reload stored the same read two seconds later, and being
+--     the newest snapshot the plain one is what the companion built the profile
+--     from - `0 vault`, `warning: no generated Great Vault reward`. A read that
+--     cannot ask can only shadow one that did, so `Companion.FLUSH_CAPTURES` is
+--     the refresh's four without it, and the vault snapshot stays the refresh's
+--     and the login ask's: the reads that ask.
 --   * **Nothing here can fail loudly.** Each capture goes through `ns.RunCapture`,
 --     which already pcalls the capture body, and through a `pcall` of its own on
 --     top, so a capture that throws leaves the ones after it to run and cannot
@@ -1202,10 +1208,17 @@ end
 -- `{ ok = false, reason = "combat" }` and touches nothing.
 Companion.FLUSH_TRIGGER = "flush"
 
--- Handed to the vault capture as its `args`. A table rather than a string
--- because `/lootpath capture vault <text>` passes a string, and nobody typing at
--- the chat frame should be able to reach into the capture's own behaviour.
-Companion.FLUSH_VAULT_ARGS = { skipInteract = Companion.FLUSH_TRIGGER }
+-- What the flush takes: the refresh's captures except the vault, for the reason
+-- above. Built from `REFRESH_CAPTURES` rather than written out again, so a
+-- capture added to the refresh is taken at the flush too unless it is named
+-- here.
+Companion.FLUSH_SKIPS = { vault = true }
+Companion.FLUSH_CAPTURES = {}
+for _, name in ipairs(Companion.REFRESH_CAPTURES) do
+    if not Companion.FLUSH_SKIPS[name] then
+        Companion.FLUSH_CAPTURES[#Companion.FLUSH_CAPTURES + 1] = name
+    end
+end
 
 function Companion.CaptureAtFlush()
     if InCombatLockdown() then
@@ -1219,15 +1232,14 @@ function Companion.CaptureAtFlush()
     -- label can prove, because `PLAYER_LOGOUT` fires on both (R-7a).
     ns.captureTrigger = Companion.FLUSH_TRIGGER
     local snapshots, failures = {}, {}
-    for _, name in ipairs(Companion.REFRESH_CAPTURES) do
-        local args = name == "vault" and Companion.FLUSH_VAULT_ARGS or nil
+    for _, name in ipairs(Companion.FLUSH_CAPTURES) do
         local ok, err = pcall(ns.RunCapture, name, function(final)
             if final.ok then
                 snapshots[name] = final.snapshot
             else
                 failures[#failures + 1] = { capture = name, reason = final.reason }
             end
-        end, args)
+        end)
         if not ok then
             failures[#failures + 1] = { capture = name, reason = tostring(err) }
         end

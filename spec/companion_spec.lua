@@ -2161,14 +2161,32 @@ describe("the capture at the flush", function()
     -- Proven red by unregistering PLAYER_LOGOUT on Core.lua's frame: no
     -- snapshot is stored at all and the count is 0, which is the behaviour this
     -- issue exists to change.
-    it("runs the same four captures the refresh runs, exactly once, and never reloads", function()
+    it("runs the refresh's captures except the vault, exactly once, and never reloads", function()
         local calls = recordCaptures()
         world.fireEvent("PLAYER_LOGOUT")
-        assert.same({ "env", "inventory", "vault", "currencies" }, calls)
-        for _, name in ipairs(ns.Companion.REFRESH_CAPTURES) do
+        assert.same({ "env", "inventory", "currencies" }, calls)
+        assert.same({ "env", "inventory", "currencies" }, ns.Companion.FLUSH_CAPTURES)
+        for _, name in ipairs(ns.Companion.FLUSH_CAPTURES) do
             assert.equal(1, #ns.db.global.captures[name])
         end
         assert.equal(0, world.reloads)
+    end)
+
+    -- M3-16b (WKE-583): the vault is not one of them, and the reason is the
+    -- owner's reset day. His refresh at 19:09:29Z asked the client and stored
+    -- the answer; the flush at the refresh's own reload stored the same read
+    -- two seconds later and, being the newest, was what the companion built the
+    -- profile from. A read that cannot ask can only shadow one that did.
+    -- Proven red by putting "vault" back into `Companion.FLUSH_SKIPS`' way -
+    -- that is, by running `REFRESH_CAPTURES` here again: a vault snapshot is
+    -- stored at the flush and this fails on both counts.
+    it("never captures the vault at the flush", function()
+        local calls = recordCaptures()
+        world.fireEvent("PLAYER_LOGOUT")
+        for _, name in ipairs(calls) do
+            assert.not_equal("vault", name)
+        end
+        assert.is_nil(ns.db.global.captures.vault)
     end)
 
     -- The reload is the refresh's last step and must not be the logout's: the
@@ -2189,7 +2207,7 @@ describe("the capture at the flush", function()
     -- and the companion's line is the hand-capture one.
     it("labels every snapshot `flush`, and leaves the trigger clean behind it", function()
         ns.Companion.CaptureAtFlush()
-        for _, name in ipairs(ns.Companion.REFRESH_CAPTURES) do
+        for _, name in ipairs(ns.Companion.FLUSH_CAPTURES) do
             assert.equal("flush", ns.db.global.captures[name][1].trigger)
             assert.not_equal("logout", ns.db.global.captures[name][1].trigger)
         end
@@ -2229,7 +2247,7 @@ describe("the capture at the flush", function()
         assert.is_truthy(tostring(result.failures[1].reason):find("C_Container", 1, true))
         assert.equal(1, #ns.db.global.captures.env)
         assert.is_nil(ns.db.global.captures.inventory)
-        assert.equal(1, #ns.db.global.captures.vault)
+        assert.is_nil(ns.db.global.captures.vault)
         assert.equal(1, #ns.db.global.captures.currencies)
     end)
 
@@ -2258,12 +2276,10 @@ describe("the capture at the flush", function()
     end)
 
     -- M3-16's interaction asks the server for the withheld rewards and waits
-    -- for WEEKLY_REWARDS_UPDATE. At logout there is no time to wait and nothing
-    -- left running to receive the answer, so it never happens and the snapshot
-    -- says which read this was. Proven red by dropping the `skipInteract`
-    -- branch in the vault capture: OnUIInteract is called once, the capture is
-    -- left pending on a timer that can never fire, and no vault snapshot is
-    -- stored at all.
+    -- for WEEKLY_REWARDS_UPDATE. At the flush there is no time to wait and
+    -- nothing left running to receive the answer. R-7 read the vault plainly
+    -- here and said so; M3-16b takes it out of the sequence altogether, so the
+    -- client is not asked and nothing is stored.
     describe("with the client holding the vault rewards back", function()
         before_each(function()
             world.vault.hasAvailable = true
@@ -2274,15 +2290,43 @@ describe("the capture at the flush", function()
             }
         end)
 
-        it("never asks the client, and says the read was the plain one", function()
+        -- Proven red by running `REFRESH_CAPTURES` in `CaptureAtFlush` again:
+        -- OnUIInteract is called once, the capture is left pending on a timer
+        -- that can never fire, and the empty read is stored over the refresh's.
+        it("never asks the client, and stores no vault snapshot at all", function()
             ns.Companion.CaptureAtFlush()
-            local interact = ns.db.global.captures.vault[1].data.interact
-            assert.equal("flush", interact.skipped)
-            assert.is_false(interact.attempted)
-            assert.equal(ns.VAULT_SKIPPED_REASON, interact.reason)
-            assert.is_nil(interact.after)
+            assert.is_nil(ns.db.global.captures.vault)
             assert.equal(0, world.vault.interact.onUIInteract)
             assert.equal(0, world.vault.interact.closeInteraction)
+        end)
+
+        -- And the refresh's answer is what survives the flush that follows it,
+        -- which is the whole point: the owner's 19:09:29Z read, not the
+        -- 19:09:31Z one.
+        it("leaves the refresh's vault snapshot as the newest one", function()
+            world.vault.answerOnInteract = {
+                activities = {
+                    {
+                        type = 1,
+                        index = 1,
+                        threshold = 1,
+                        progress = 2,
+                        id = 11,
+                        level = 10,
+                        rewards = { { type = 1, id = 210003, quantity = 1, itemDBID = "9001" } },
+                    },
+                },
+                links = { ["9001"] = "|cffa335ee|Hitem:210003::::::::80:105::::::|h[Placeholder]|h|r" },
+                examples = {},
+            }
+            ns.Companion.Refresh()
+            world.runTimers(10)
+            local stored = ns.db.global.captures.vault
+            assert.equal(1, #stored)
+            ns.Companion.CaptureAtFlush()
+            assert.equal(1, #ns.db.global.captures.vault)
+            assert.is_true(ns.db.global.captures.vault[1].data.interact.attempted)
+            assert.equal(1, #ns.db.global.captures.vault[1].data.interact.after.rewardLinks)
         end)
 
         -- Nothing asynchronous: `PLAYER_LOGOUT` is synchronous and the client
