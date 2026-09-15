@@ -1005,6 +1005,7 @@ function Companion.Refresh(onDone)
         end
         settled = result
         Companion.waitingForVault = false
+        ns.captureTrigger = nil
         if onDone then
             onDone(result)
         end
@@ -1022,6 +1023,12 @@ function Companion.Refresh(onDone)
     end
     local snapshots = {}
     local index = 0
+    -- R-6 (WKE-578): every snapshot this chain stores is labelled as the
+    -- refresh's own, so the companion can tell a write carrying a fresh capture
+    -- from a write that is a logout flushing the last one again. Cleared on
+    -- every exit from `done` below, so a later `/lootpath capture` is a command
+    -- again.
+    ns.captureTrigger = "refresh"
     local function step()
         index = index + 1
         local name = Companion.REFRESH_CAPTURES[index]
@@ -1029,6 +1036,9 @@ function Companion.Refresh(onDone)
             Companion.waitingForVault = false
             ns.Log(Companion.REFRESH_CAPTURED_LINE, Companion.RefreshSummary(snapshots))
             ns.Log("%s", Companion.REFRESH_SECOND_LINE)
+            -- R-6 (WKE-578): the stamp the wait line counts from, written
+            -- BEFORE the reload, because the reload is what puts it on disk.
+            ns.Drift.RefreshStarting()
             ReloadUI()
             return done({ ok = true, reloaded = true, captured = snapshots })
         end

@@ -22,6 +22,36 @@ its job is to load the file this program wrote. `journal` is never part of a
 refresh: it is asynchronous, the profile reads none of it, and the loot map's
 own cache is untouched.
 
+**The game tells you when you are behind, so you do not have to remember (R-6,
+WKE-578).** Claim a vault reward, loot a drop, catalyst or crest a piece, and a
+second row appears under the window's status strip - `your gear changed since
+this plan (2 items) - click to refresh` - with a small badge on the minimap
+button. Clicking it is the first refresh. After the reload the same row says the
+rating is being made and roughly how long that takes, and clicking it again is
+the second refresh. The two-reload floor has not moved; what has changed is that
+nobody has to know it is there.
+
+**About "log out and your plan is current next time you log in": not on its
+own.** A logout does flush SavedVariables and this program does wake on that
+write. But what the write carries is the gear the last CAPTURE recorded, not the
+gear you were wearing when you logged out - the addon takes its snapshots when
+you run `/lootpath refresh`, and never behind your back. So a logout after a
+refresh really does leave a current plan waiting at the next login; a logout
+after an evening of looting, with no refresh in it, saves the morning's gear
+again and the run is skipped as unchanged. **Refresh once before you log out and
+the story is true.** The log says which happened, in one line per run:
+
+```
+run after /lootpath refresh (gear captured at the click)
+run after a logout or a plain reload - nothing new was captured
+```
+
+That second line names two possibilities on purpose. A logout and a `/reload`
+produce the same write, and nothing in the SavedVariables tells them apart; what
+the file does record, since R-6, is how each snapshot was TAKEN (`trigger =
+"refresh"` or `"command"`) and when, which is what makes the distinction above
+possible at all.
+
 **A refresh with unchanged gear costs nothing.** Since C-4 (WKE-537) the
 companion fingerprints the profile it is about to ask QE Live about, remembers
 the fingerprint of the last verdict it actually wrote, and skips the run when

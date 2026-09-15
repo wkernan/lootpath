@@ -338,10 +338,19 @@ function ns.RegisterCapture(name, help, run, opts)
     ns.captures[name] = { help = help or "", run = run, async = (opts and opts.async) or false }
 end
 
+-- How the capture that is running was asked for: "refresh" while
+-- `ns.Companion.Refresh` is driving the chain, and nil - which stores as
+-- "command" - for a `/lootpath capture` typed by hand. R-6 (WKE-578): the
+-- companion reads it off the newest `env` snapshot to say, in its own log,
+-- whether the write it woke on carried a fresh capture or is a logout flushing
+-- the last one again.
+ns.captureTrigger = nil
+
 local function storeSnapshot(name, data, startedAt)
     local copy, sawSecret = ns.CopyRaw(data)
     local snapshot = {
         name = name,
+        trigger = ns.captureTrigger or "command",
         capturedAt = time(),
         capturedAtLocal = date("%Y-%m-%dT%H:%M:%S"),
         build = ns.Probe(GetBuildInfo),
@@ -441,7 +450,12 @@ ns.DB_DEFAULTS = {
         ufImports = {},
         upgradeMap = { collapsedSlots = {}, expandedRuns = {} },
     },
-    global = { journalCache = {}, captures = {} },
+    -- `drift` is R-6's two remembered facts (WKE-578): `refreshStartedAt`, the
+    -- stamp written just before the first reload so the wait line can count
+    -- from it, and `runSeconds`, how long the last FINISHED companion run took,
+    -- which is the only figure the wait line is allowed to quote. Global
+    -- because the companion is one per machine, not one per character.
+    global = { journalCache = {}, captures = {}, drift = {} },
     -- `vaultScenario` is the Vault tab's HIGHLIGHT only; Equip Now and the
     -- Upgrade Map read `asOffered` and nothing else, whatever this says. It
     -- defaults to `thisWeek` since M3-13 (WKE-548) because that is the question

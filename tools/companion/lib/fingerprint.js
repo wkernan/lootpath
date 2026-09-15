@@ -216,8 +216,26 @@ function isCurrent(state, hash, target) {
     return { current: true, writtenAt: state.writtenAt };
 }
 
+// R-6 (WKE-578): did this write carry a capture the last run had not already
+// read? The client flushes SavedVariables on a logout and on every reload, and
+// the watcher runs on every write, so most writes carry the SAME captures over
+// again - the gear the last refresh recorded, saved out a second time. Comparing
+// the newest `env` snapshot's own stamp to the one the last written run read is
+// what tells those apart, and it is the only thing that can: nothing in the file
+// says how the WRITE was triggered, only how the CAPTURE was.
+//
+// Unknown - a transcript from before R-6, or a state file from before it - reads
+// as `null` rather than as either answer.
+function captureIsNew(state, capturedAt) {
+    if (typeof capturedAt !== 'number') return null;
+    const seen = state && state.envCapturedAt;
+    if (typeof seen !== 'number') return null;
+    return capturedAt > seen;
+}
+
 module.exports = {
     fingerprint,
+    captureIsNew,
     settingsLine,
     keyLevelsLine,
     scenariosLine,
