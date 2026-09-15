@@ -127,25 +127,145 @@ test('with a vault to ask about, each scenario is one import and one Top Gear ru
     }
 });
 
-// Without a vault section there is nothing to catalyze or upgrade that is not
-// already the character's, and the two extra imports would cost a browser minute
-// a week for an answer nobody asked for.
-test('with no vault gear only asOffered is asked, and --force asks anyway', () => {
+// C-12 (WKE-577) replaced the vault gate. Every configured scenario is planned
+// whatever the vault holds; what an empty vault costs is the WAIVER, so the
+// three what-ifs arrive carrying their own gate for the run to settle.
+test('with no vault gear every scenario is still planned, each carrying its own gate', () => {
     const config = configLib.load(null);
     assert.deepStrictEqual(
         configLib.plannedPasses(config, NO_VAULT).map((p) => p.scenario),
-        ['asOffered']
-    );
-    assert.deepStrictEqual(
-        configLib.plannedPasses(config, { hasVaultGear: false, force: true }).map((p) => p.scenario),
         ['asOffered', 'catalyzed', 'thisWeek', 'maxed']
     );
-    // The Upgrade Finder is never one of the things skipped: it does not depend
-    // on the vault at all.
+    assert.deepStrictEqual(
+        configLib.plannedPasses(config, NO_VAULT).map((p) => p.gate && p.gate.kind),
+        [null, 'catalyst', 'either', 'upgrade']
+    );
+    // A vault with gear in it, and --force, waive the gate outright rather than
+    // paying for a pool read that could only agree.
+    for (const opts of [WITH_VAULT, { hasVaultGear: false, force: true }]) {
+        const passes = configLib.plannedPasses(config, opts);
+        assert.deepStrictEqual(
+            passes.map((p) => p.scenario),
+            ['asOffered', 'catalyzed', 'thisWeek', 'maxed']
+        );
+        assert.ok(passes.every((p) => p.gate === null), JSON.stringify(passes.map((p) => p.gate)));
+        assert.ok(passes.slice(1).every((p) => typeof p.why === 'string' && p.why.length));
+    }
+    // The Upgrade Finder is never one of the things gated: it does not depend on
+    // the vault, the Catalyst or an upgrade cap at all.
     assert.strictEqual(
         configLib.plannedDocuments(config, NO_VAULT).filter((d) => d.kind === 'upgradefinder').length,
         6
     );
+});
+
+// --- the gates (C-12, WKE-577) ----------------------------------------------
+
+// The owner's week, 2026-09-14: vault claimed and empty, a Catalyst candidate on
+// his shoulders and a staff at 315 two crest steps short of 321. Both questions
+// have answers and the old gate asked neither.
+const POOL_BOTH = { clones: 1, raised: 1, readBase: true, cards: 40 };
+const POOL_NOTHING = { clones: 0, raised: 0, readBase: true, cards: 40 };
+
+test('a profile with no vault and one Catalyst candidate runs catalyzed', () => {
+    const catalyzed = configLib.gateVerdict('catalyst', { clones: 1, raised: 0, readBase: true, cards: 40 });
+    assert.strictEqual(catalyzed.ran, true);
+    assert.match(catalyzed.reason, /1 Catalyst clone/);
+    // And thisWeek, which is the two questions together, rides on that half
+    // alone.
+    assert.strictEqual(configLib.gateVerdict('either', { clones: 1, raised: 0, readBase: true, cards: 40 }).ran, true);
+});
+
+test('a profile with no vault and one item below its cap runs maxed', () => {
+    const maxed = configLib.gateVerdict('upgrade', { clones: 0, raised: 1, readBase: true, cards: 40 });
+    assert.strictEqual(maxed.ran, true);
+    assert.match(maxed.reason, /1 item you hold below its upgrade cap/);
+    assert.strictEqual(configLib.gateVerdict('either', { clones: 0, raised: 1, readBase: true, cards: 40 }).ran, true);
+    // The Catalyst question is still its own, and still unanswered.
+    assert.strictEqual(configLib.gateVerdict('catalyst', { clones: 0, raised: 1, readBase: true, cards: 40 }).ran, false);
+});
+
+test('a pool with nothing to catalyse and nothing below its cap asks asOffered alone, with the reason', () => {
+    const records = [
+        { name: 'asOffered', ran: true, reason: 'it is what you have now' },
+        { name: 'catalyzed', ...configLib.gateVerdict('catalyst', POOL_NOTHING) },
+        { name: 'thisWeek', ...configLib.gateVerdict('either', POOL_NOTHING) },
+        { name: 'maxed', ...configLib.gateVerdict('upgrade', POOL_NOTHING) },
+    ];
+    assert.deepStrictEqual(
+        records.filter((r) => r.ran).map((r) => r.name),
+        ['asOffered']
+    );
+    // Three passes, two facts: the sentence says each fact once. It is read on
+    // the Vault tab by a person, so it says what the scenarios ARE - the four
+    // contract names stay in the log, where the pass-by-pass lines carry them.
+    assert.strictEqual(
+        configLib.scenarioNote(records),
+        "The Catalyst question, this week's plan and the upgrade question went unasked:" +
+            ' nothing you hold can be catalysed and nothing you hold is below its upgrade cap.'
+    );
+    // The other reachable shape: something to catalyse, nothing below its cap.
+    // `thisWeek` is not in it, because either half is enough for that one.
+    const halfWay = { clones: 1, raised: 0, readBase: true, cards: 40 };
+    assert.strictEqual(
+        configLib.scenarioNote([
+            { name: 'asOffered', ran: true },
+            { name: 'catalyzed', ...configLib.gateVerdict('catalyst', halfWay) },
+            { name: 'thisWeek', ...configLib.gateVerdict('either', halfWay) },
+            { name: 'maxed', ...configLib.gateVerdict('upgrade', halfWay) },
+        ]),
+        'The upgrade question went unasked: nothing you hold is below its upgrade cap.'
+    );
+    // A run that asked everything says nothing: the sentence exists to explain
+    // an absence, and there is none.
+    assert.strictEqual(
+        configLib.scenarioNote([
+            { name: 'asOffered', ran: true },
+            { name: 'catalyzed', ...configLib.gateVerdict('catalyst', POOL_BOTH) },
+        ]),
+        null
+    );
+});
+
+// A question skipped for want of evidence is the defect C-12 exists to fix, so
+// the guard fails OPEN: no pool, no base pass, or a gate kind this build does
+// not know all ask anyway, and say why.
+test('a gate with nothing to read asks its pass anyway and says so', () => {
+    const noPool = configLib.gateVerdict('catalyst', { clones: 0, raised: 0, readBase: true, cards: 0 });
+    assert.strictEqual(noPool.ran, true);
+    assert.match(noPool.reason, /pool could not be read/);
+    const noBase = configLib.gateVerdict('upgrade', { clones: 0, raised: 0, readBase: false, cards: 40 });
+    assert.strictEqual(noBase.ran, true);
+    assert.match(noBase.reason, /base pool was never read/);
+    const unknown = configLib.gateVerdict('nonsense', { clones: 0, raised: 0, readBase: true, cards: 40 });
+    assert.strictEqual(unknown.ran, true);
+    assert.match(unknown.reason, /not one this build knows/);
+});
+
+// The pool arithmetic itself, over the card records lib/fork.js reads off his
+// page (C-8/C-10's `cardFromRow` shape).
+test('the pool is counted off QE Live own cards, clones apart from levels', () => {
+    const base = configLib.levelsByItem([
+        { itemID: 271528, level: 315, catalyst: false },
+        { itemID: 271528, level: 308, catalyst: false },
+        { itemID: 900001, level: 999, catalyst: true },
+    ]);
+    // The best of the two, and the clone is not in it at all.
+    assert.deepStrictEqual([...base], [[271528, 315]]);
+
+    // The same staff, valued at its cap by an `autoUpgradeAll` import.
+    const raised = configLib.poolEvidence([{ itemID: 271528, level: 321, catalyst: false }], base);
+    assert.strictEqual(raised.raised, 1);
+    assert.strictEqual(raised.clones, 0);
+    // Nothing moved: it is already at its cap.
+    assert.strictEqual(configLib.poolEvidence([{ itemID: 271528, level: 315, catalyst: false }], base).raised, 0);
+    // A clone is a Catalyst answer, never an upgrade one: its ID is a tier
+    // piece the character does not own, so it is in no base pool.
+    const cloned = configLib.poolEvidence([{ itemID: 900001, level: 315, catalyst: true }], base);
+    assert.strictEqual(cloned.clones, 1);
+    assert.strictEqual(cloned.raised, 0);
+    // No base pass read at all is not "nothing moved".
+    assert.strictEqual(configLib.poolEvidence([{ itemID: 271528, level: 321, catalyst: false }], null).readBase, false);
 });
 
 // C-5's pair still means something, and it means the UPGRADE FINDER's boxes.
@@ -327,17 +447,20 @@ test('the fourth scenario is the vault box on, the ALL box off, and the charge s
     assert.strictEqual(configLib.SCENARIO_ORDER.indexOf('thisWeek'), 2);
 });
 
-// It is a what-if about vault options, so it is gated exactly as the other two
-// are: skipped when the profile carries no vault gear, asked under --force.
-test('the fourth scenario is gated on the vault like the other what-ifs', () => {
+// It is the two what-ifs together - take one thing, upgrade it, spend the one
+// charge - so since C-12 it is gated on either of them having an answer.
+test('the fourth scenario is gated on either of the other two questions', () => {
     const config = configLib.load(null);
-    assert.ok(!configLib.plannedPasses(config, NO_VAULT).some((p) => p.scenario === 'thisWeek'));
-    assert.ok(configLib.plannedPasses(config, WITH_VAULT).some((p) => p.scenario === 'thisWeek'));
-    assert.ok(
-        configLib
-            .plannedPasses(config, { hasVaultGear: false, force: true })
-            .some((p) => p.scenario === 'thisWeek')
+    for (const opts of [NO_VAULT, WITH_VAULT, { hasVaultGear: false, force: true }]) {
+        assert.ok(configLib.plannedPasses(config, opts).some((p) => p.scenario === 'thisWeek'), JSON.stringify(opts));
+    }
+    assert.strictEqual(configLib.gateOf('thisWeek'), 'either');
+    assert.strictEqual(
+        configLib.plannedPasses(config, NO_VAULT).find((p) => p.scenario === 'thisWeek').gate.kind,
+        'either'
     );
+    // Waived by a vault with gear in it, like the other two.
+    assert.strictEqual(configLib.plannedPasses(config, WITH_VAULT).find((p) => p.scenario === 'thisWeek').gate, null);
 });
 
 // Adding it to the list is a new question and has to cost a run, which is the

@@ -548,6 +548,20 @@ async function runTopGear(page, log) {
     return { json: await readJson(page), excluded: selection.excluded };
 }
 
+// The pool one pass's import built, read and nothing else (C-12, WKE-577).
+//
+// The three what-ifs are gated on their own question now, and the only thing
+// that can answer "is there anything here to catalyse" or "is anything here
+// below its cap" is QE Live: Catalyst eligibility is his `Item.canBeCatalyzed`
+// and an upgrade cap is his `CONSTANTS.itemLevelCaps`, and Lootpath restates
+// neither. So after the import the driver opens Top Gear, reads the cards it
+// already knows how to read (C-8, C-10) and counts. Nothing is clicked, nothing
+// is scored, and no document is produced by this.
+async function probePool(page) {
+    await goTo(page, '/topgear');
+    return readCards(page);
+}
+
 // -------------------------------------------------------------------------
 // The Mythic+ key selector (WKE-543, C-7).
 //
@@ -703,6 +717,14 @@ async function run(config, profileText, log, options) {
     page.setDefaultTimeout(20000);
     const documents = [];
     const timings = [];
+    // Which named scenarios this run asked and which it did not, with the
+    // reason either way (C-12, WKE-577). The caller writes it into the log, the
+    // status file and the verdict.
+    const scenarios = [];
+    // The base pass's pool, by item ID, which is what "below its upgrade cap"
+    // is measured against. Only read when some pass is gated on it.
+    const needBase = passes.some((pass) => pass.gate && (pass.gate.kind === 'upgrade' || pass.gate.kind === 'either'));
+    let baseLevels = null;
     // What was actually asked for, read back off the page, so the verdict file
     // records the run rather than the intention.
     let qeSettings = null;
@@ -734,6 +756,28 @@ async function run(config, profileText, log, options) {
             // was actually produced under.
             if (!qeSettings || pass.scenario === configLib.DEFAULT_SCENARIO) {
                 qeSettings = { autoUpgradeAll: !!settings.autoUpgradeAll, autoUpgradeVault: !!settings.autoUpgradeVault };
+            }
+
+            // The pool, when this run needs it (C-12): for a gated pass, to
+            // settle its own gate; for the base pass, because the upgrade gate
+            // is "higher than the base pass valued it at" and that is the only
+            // pass that can say what that was.
+            let cards = null;
+            if (pass.gate || (needBase && pass.scenario === configLib.DEFAULT_SCENARIO)) {
+                done = log.stage(`  pool (${asked})`);
+                cards = await probePool(page);
+                timings.push([`pool (${asked})`, done(`${cards.length} cards`)]);
+            }
+            if (cards && pass.scenario === configLib.DEFAULT_SCENARIO) {
+                baseLevels = configLib.levelsByItem(cards);
+            }
+            if (pass.scenario) {
+                const settled = pass.gate
+                    ? configLib.gateVerdict(pass.gate.kind, configLib.poolEvidence(cards, baseLevels))
+                    : { ran: true, reason: pass.why || 'asked whatever the pool holds' };
+                scenarios.push({ name: pass.scenario, ran: settled.ran, reason: settled.reason });
+                log.info(`  ${pass.scenario}: ${settled.ran ? 'asked' : 'SKIPPED'} - ${settled.reason}`);
+                if (!settled.ran) continue;
             }
 
             // The content select is re-read per pass rather than remembered
@@ -788,7 +832,7 @@ async function run(config, profileText, log, options) {
     } finally {
         await context.close().catch(() => {});
     }
-    return { documents, timings, qeSettings, excluded };
+    return { documents, timings, qeSettings, excluded, scenarios };
 }
 
 module.exports = {
@@ -797,6 +841,7 @@ module.exports = {
     isUp,
     readCards,
     readCardRows,
+    probePool,
     parseWowhead,
     cardFromRow,
     chooseSelection,

@@ -413,6 +413,11 @@ function Companion.Validate(raw, now)
         companionVersion = safeString(safe.companionVersion),
         qeSettings = Companion.Settings(safe.qeSettings),
         excluded = Companion.Excluded(safe.excluded),
+        -- C-12 (WKE-577): the one sentence the companion writes about the
+        -- questions it did NOT ask this run, and why. Carried as it was
+        -- written; nothing here reasons over it, and its absence means every
+        -- configured scenario was asked.
+        scenarioNote = safeString(safe.scenarioNote),
         exports = exports,
     }
 end
@@ -481,6 +486,7 @@ end
 
 -- Import every export the file carries. Returns
 --   { ok, writtenAt, writtenAtEpoch, companionVersion, qeSettings, excluded,
+--     scenarioNote,
 --     imported = { { contentType, spec, items, warnings } },
 --     skipped  = { { index, reason, contentType, stale } },
 --     unchanged = { contentType } }
@@ -499,6 +505,7 @@ function Companion.ImportAll(raw, now)
         companionVersion = file.companionVersion,
         qeSettings = file.qeSettings,
         excluded = file.excluded,
+        scenarioNote = file.scenarioNote,
         imported = {},
         skipped = {},
         unchanged = {},
@@ -585,6 +592,13 @@ function Companion.ImportAll(raw, now)
                     -- never inherits the file's list.
                     if entry.schema == Companion.TOP_GEAR_SCHEMA then
                         verdict.excluded = entry.excluded or file.excluded
+                        -- Carried for the same reason and by the same rule
+                        -- (C-12): the Vault tab's plan sentence is drawn off
+                        -- whichever verdict is on screen, and it is the one
+                        -- surface that can tell the reader his week's question
+                        -- was never asked. An Upgrade Finder verdict gets none:
+                        -- it is about drops and answers no scenario.
+                        verdict.scenarioNote = file.scenarioNote
                     end
                     local stored = importer.Store(verdict)
                     if not stored.ok then

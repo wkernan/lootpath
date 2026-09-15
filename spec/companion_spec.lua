@@ -1284,6 +1284,33 @@ describe("Companion excluded items", function()
         assert.is_nil(ns.QEImport.ForContentType("Raid").excluded)
     end)
 
+    -- C-12 (WKE-577). The companion writes one sentence about the questions it
+    -- did not ask; the addon carries it and nothing more.
+    it("carries the run's scenario note onto a Top Gear verdict and never onto an Upgrade Finder one", function()
+        ns = H.load()
+        local file = fileWith(nil)
+        file.scenarioNote = "catalyzed, thisWeek and maxed skipped: nothing you hold can be catalysed"
+        local result = ns.Companion.ImportAll(file)
+        assert.is_true(result.ok)
+        assert.equal(file.scenarioNote, result.scenarioNote)
+        assert.equal(file.scenarioNote, ns.QEImport.ForContentType("Raid").scenarioNote)
+        assert.is_nil(ns.UFImport.ForContentType("Raid").scenarioNote)
+    end)
+
+    it("stores no scenario note for a run that asked everything, or for one that says nonsense", function()
+        ns = H.load()
+        assert.is_nil(ns.Companion.ImportAll(fileWith(nil)).scenarioNote)
+        assert.is_nil(ns.QEImport.ForContentType("Raid").scenarioNote)
+        H.unload()
+
+        ns = H.load()
+        local file = fileWith(nil)
+        file.scenarioNote = { "not a sentence" }
+        local result = ns.Companion.ImportAll(file)
+        assert.is_true(result.ok, "a note it cannot read is silence, never a refused file")
+        assert.is_nil(result.scenarioNote)
+    end)
+
     it("drops an entry it cannot read rather than repairing it", function()
         ns = H.load()
         ns.Companion.ImportAll(fileWith({

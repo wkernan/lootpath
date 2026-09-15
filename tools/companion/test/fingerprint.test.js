@@ -54,14 +54,31 @@ function harness(savedVariables) {
     const fork = {
         calls: [],
         passes: [],
+        // What QE Live's own pool would say about the two what-if questions
+        // (C-12). The real driver reads this off the cards after each import;
+        // the double is handed it, and then settles the gates through exactly
+        // the same `configLib.gateVerdict` the driver calls, so a test that
+        // says "asked" or "skipped" is testing the rule and not a second copy
+        // of it. The default is the owner's own week: something to catalyse and
+        // something below its cap.
+        evidence: { clones: 1, raised: 1, readBase: true, cards: 40 },
         async run(runConfig, profileText, runLog, runOpts) {
             fork.calls.push(profileText);
-            fork.passes.push(((runOpts && runOpts.passes) || []).map((pass) => pass.scenario));
+            const all = (runOpts && runOpts.passes) || [];
+            const scenarios = [];
+            const passes = all.filter((pass) => {
+                if (!pass.scenario) return true;
+                const settled = pass.gate
+                    ? configLib.gateVerdict(pass.gate.kind, fork.evidence)
+                    : { ran: true, reason: pass.why || 'asked whatever the pool holds', missing: [] };
+                scenarios.push({ name: pass.scenario, ran: settled.ran, reason: settled.reason, missing: settled.missing });
+                return settled.ran;
+            });
+            fork.passes.push(passes.map((pass) => pass.scenario));
             // The real driver answers the PASSES it was handed (C-6), so this
             // double does too: a document carries the scenario it was run under
             // and the three boxes that produced it, which is what the writer
             // now insists on.
-            const passes = (runOpts && runOpts.passes) || [];
             return {
                 documents: passes.flatMap((pass) =>
                     pass.documents.map((doc) => ({
@@ -73,6 +90,7 @@ function harness(savedVariables) {
                         json: '{"player":{"spec":"Guardian"}}',
                     }))
                 ),
+                scenarios,
                 timings: [],
                 // The real driver reads the boxes back off the page after
                 // clicking them (C-5); this double reports what it was asked
@@ -384,26 +402,50 @@ test('the key levels are hashed as one canonical line, next to the import settin
     assert.strictEqual(print.hash, fingerprintLib.fingerprint('druid="Hotornot"', settings, [2, 10]).hash);
 });
 
-// --- C-6 (WKE-540): the two what-ifs are only asked when there is a vault -----
+// --- C-12 (WKE-577): each what-if is asked when ITS OWN question has an answer
 
 // The committed transcript this harness runs on has no generated Great Vault
 // reward, so its profile carries no vault section (the run says so out loud:
 // "no generated Great Vault reward ... the profile has no vault section").
-// With nothing offered there is nothing to catalyze or upgrade that is not
-// already the character's, and two more imports would cost a browser minute for
-// an answer nobody asked for.
-test('with no vault gear only asOffered is asked, and the log says which were skipped', async () => {
+// Until 2026-09-14 that alone silenced the three what-ifs. It is the week the
+// owner was actually in - vault claimed, a Catalyst candidate on his shoulders,
+// a staff two crest steps short of its cap - and both of his questions went
+// unasked.
+test('with no vault gear the what-ifs are still asked when the pool has answers', async () => {
     const h = harness();
     await h.run();
-    assert.deepStrictEqual(h.fork.passes, [['asOffered']]);
-    assert.ok(h.said('QE Live scenarios: asOffered (catalyzed, thisWeek, maxed skipped'), h.lines.join(' | '));
+    assert.deepStrictEqual(h.fork.passes, [['asOffered', 'catalyzed', 'thisWeek', 'maxed']]);
     const written = fs.readFileSync(h.verdict, 'utf8');
-    assert.ok(written.includes('scenario = "asOffered",'), written.slice(0, 800));
+    for (const name of ['asOffered', 'catalyzed', 'thisWeek', 'maxed']) {
+        assert.ok(written.includes('scenario = "' + name + '",'), name + ' is missing from the verdict file');
+    }
+    // Nothing was skipped, so the file says nothing about skips.
+    assert.ok(!written.includes('scenarioNote'), written.slice(0, 900));
+});
+
+// The other week: nothing to catalyse and nothing below its cap. Then - and
+// only then - the run is `asOffered` alone, and the reason is on the record in
+// all three places the owner can read it.
+test('a pool with no answers asks asOffered alone, and the log, the status file and the verdict say why', async () => {
+    const h = harness();
+    h.fork.evidence = { clones: 0, raised: 0, readBase: true, cards: 40 };
+    await h.run();
+    assert.deepStrictEqual(h.fork.passes, [['asOffered']]);
+    const note =
+        "The Catalyst question, this week's plan and the upgrade question went unasked:" +
+        ' nothing you hold can be catalysed and nothing you hold is below its upgrade cap.';
+    assert.ok(h.said(note), h.lines.join(' | '));
+    const written = fs.readFileSync(h.verdict, 'utf8');
+    assert.ok(written.includes('scenario = "asOffered",'), written.slice(0, 900));
     assert.ok(!written.includes('scenario = "catalyzed"'), 'a scenario that was skipped must not appear in the file');
+    assert.ok(written.includes(`scenarioNote = "${note}"`), written.slice(0, 900));
+    // The status file is the third place, and it is C-9's recorder: test/visible.test.js
+    // owns that end, where a real one is wired in.
 });
 
 test('--force asks the what-ifs anyway', async () => {
     const h = harness();
+    h.fork.evidence = { clones: 0, raised: 0, readBase: true, cards: 40 };
     await h.run({ force: true });
     assert.deepStrictEqual(h.fork.passes, [['asOffered', 'catalyzed', 'thisWeek', 'maxed']]);
     const written = fs.readFileSync(h.verdict, 'utf8');

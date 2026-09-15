@@ -59,6 +59,15 @@ const EXIT = {
     watching: 7,
 };
 
+// What each gate is waiting for, in the log's own words. The reasons a gate
+// gives AFTER it is settled are lib/config.js's (`gateVerdict`); this is the
+// half said before the run, when nothing has been counted yet.
+const GATE_WORDS = {
+    catalyst: 'you hold something the Catalyst can convert',
+    upgrade: 'you hold something below its upgrade cap',
+    either: 'either of those is true',
+};
+
 function parseArgs(argv) {
     const args = { watch: false, profileOnly: false, force: false, config: null, out: null };
     for (let i = 0; i < argv.length; i++) {
@@ -144,7 +153,15 @@ async function once(config, log, args, deps) {
     // C-7 (WKE-543). The key levels the Upgrade Finder is asked about are the
     // other half of the question, so they are the other half of the print.
     // C-6 (WKE-540). So are the named scenarios Top Gear is run under.
-    const print = fingerprintLib.fingerprint(profile.text, wanted, config.upgradeFinderKeyLevels, config.scenarios);
+    // C-12 (WKE-577). The PLANNED list, not the configured one: what a run asks
+    // is the question, and a run that would ask a different set of questions
+    // must not be skipped as unchanged. Which of the planned what-ifs actually
+    // produce documents is settled later, off the pool QE Live builds out of
+    // this very profile text - so that half of the decision is already in the
+    // hash, through the profile.
+    const hasVaultGear = profile.counts.vault > 0;
+    const planned = configLib.plannedScenarios(config, { hasVaultGear, force: args.force });
+    const print = fingerprintLib.fingerprint(profile.text, wanted, config.upgradeFinderKeyLevels, planned);
     if (!args.force) {
         const stored = fingerprintLib.readState(stateDir);
         if (!stored.ok && !stored.absent) {
@@ -162,25 +179,26 @@ async function once(config, log, args, deps) {
         }
     }
 
-    // C-6 (WKE-540). The two what-if scenarios only mean something when there is
-    // a vault section to ask about: with nothing in the vault, "if I catalyzed
-    // what I was offered" has no offer behind it, and the two extra imports cost
-    // a browser minute for an answer nobody asked. `asOffered` is always run.
-    const hasVaultGear = profile.counts.vault > 0;
+    // C-6 (WKE-540), rewritten by C-12 (WKE-577). Each what-if is planned
+    // whatever the vault holds, and gated on its own question: `catalyzed` on
+    // whether anything the character holds can be catalysed at all, `maxed` on
+    // whether anything is below its upgrade cap, `thisWeek` on either. Only QE
+    // Live can answer those, so the gate is settled inside the run, after that
+    // pass's import, off the pool it built - and what is saved when the answer
+    // is no is the pass's Top Gear documents, not the import.
     const passes = configLib.plannedPasses(config, { hasVaultGear, force: args.force });
     const plan = passes.flatMap((pass) => pass.documents);
-    const ran = passes.map((pass) => pass.scenario).filter(Boolean);
-    const skipped = config.scenarios.filter((name) => !ran.includes(name));
+    const gated = passes.filter((pass) => pass.gate);
     log.info(
         `Mythic+ key levels: ${config.upgradeFinderKeyLevels.map((level) => '+' + level).join(', ')}` +
             ` - one Upgrade Finder run per key level (QE Live values dungeon drops at one key at a time)`
     );
     log.info(
-        `QE Live scenarios: ${ran.join(', ') || 'none'}` +
-            (skipped.length
-                ? ` (${skipped.join(', ')} skipped: the profile carries no vault gear, so there is nothing to catalyze or upgrade that is not already yours - --force asks anyway)`
-                : '') +
-            ` - ${passes.length} imports, ${plan.length} documents`
+        `QE Live scenarios: ${planned.join(', ') || 'none'}` +
+            (gated.length
+                ? ` (${gated.map((pass) => `${pass.scenario} asked only if ${GATE_WORDS[pass.gate.kind]}`).join(', ')})`
+                : ' (every one of them asked outright)') +
+            ` - up to ${passes.length} imports, ${plan.length} documents`
     );
     log.info(
         `QE Live Upgrade Finder import settings: autoUpgradeVault=${wanted.autoUpgradeVault}, autoUpgradeAll=${wanted.autoUpgradeAll}` +
@@ -205,6 +223,12 @@ async function once(config, log, args, deps) {
         return code;
     }
     done(`${run.documents.length} documents`);
+    // What the run actually asked, and why it did not ask the rest (C-12). A
+    // driver that reports nothing - the injected one in the tests - leaves the
+    // record empty, and an empty record is no note rather than a wrong one.
+    const scenarios = Array.isArray(run.scenarios) ? run.scenarios : [];
+    const scenarioNote = configLib.scenarioNote(scenarios);
+    if (scenarioNote) log.info(`QE Live scenarios asked: ${scenarios.filter((s) => s.ran).map((s) => s.name).join(', ') || 'none'} - ${scenarioNote}`);
     for (const doc of run.documents) {
         let spec = null;
         try {
@@ -239,6 +263,11 @@ async function once(config, log, args, deps) {
             // driver that reports nothing writes no list, which is what every
             // file written before C-8 carries.
             excluded: run.excluded || null,
+            // Which questions this run left unasked, and why, in one sentence
+            // (C-12, WKE-577). The same string goes into the status file below,
+            // so the strip's tooltip and the Vault tab's footnote are one set
+            // of words read out of two files. Absent when everything was asked.
+            scenarioNote: scenarioNote,
             documents: run.documents,
         });
         const written = output.writeVerdict(target, text);
@@ -250,7 +279,9 @@ async function once(config, log, args, deps) {
     }
     // Only now: the status file says a verdict was written when one was, and
     // never a moment before.
-    status.wrote(writtenAt, { message: `${run.documents.length} documents` });
+    status.wrote(writtenAt, {
+        message: `${run.documents.length} documents` + (scenarioNote ? ` - ${scenarioNote}` : ''),
+    });
     // After the write, never before: the fingerprint records what the addon can
     // actually read. A state file that will not write costs one extra run next
     // time and nothing else, so it is a warning and not a failed run.

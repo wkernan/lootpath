@@ -274,7 +274,12 @@ test('an Upgrade Finder run without a key level leaves his selector alone', asyn
 // --- the plan ---------------------------------------------------------------
 
 test('the dungeon Upgrade Finder is planned once per key level, everything else once', () => {
-    const config = configLib.load(null);
+    // One scenario, so this test is about the key levels and nothing else.
+    // Since C-12 every configured scenario is PLANNED whatever the vault holds
+    // (its documents are dropped later, when QE Live's own pool says its
+    // question has no answer), so the four-scenario default would put fourteen
+    // documents in this list and bury the five key levels it is about.
+    const config = { ...configLib.load(null), scenarios: ['asOffered'] };
     assert.deepStrictEqual(config.upgradeFinderKeyLevels, [2, 4, 6, 8, 10]);
     assert.deepStrictEqual(configLib.plannedDocuments(config, { hasVaultGear: false }), [
         { kind: 'topgear', contentType: 'Dungeon', scenario: 'asOffered' },

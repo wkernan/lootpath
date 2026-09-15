@@ -742,6 +742,74 @@ describe("Roads over the owner's week of 2026-09-08", function()
         assert.is_nil(ns.Roads.PlanSentence(nil).sentence)
     end)
 
+    -- C-12 (WKE-577). The owner's screen on 2026-09-14: the Vault tab follows
+    -- `thisWeek`, the companion had asked `asOffered` and nothing else, and the
+    -- tab drew the fallback plan without a word about the one it was labelled
+    -- with.
+    describe("a plan whose scenario was never asked", function()
+        local NOTE = "The upgrade question went unasked: nothing you hold is below its upgrade cap."
+
+        local function asOfferedOnly(extra)
+            local week = {
+                verdicts = {
+                    {
+                        verdict = document(AS_OFFERED_RAID, "asOffered", {
+                            autoUpgradeVault = false,
+                            autoUpgradeAll = false,
+                            autoCatalyze = false,
+                        }),
+                        scenario = "asOffered",
+                    },
+                },
+                highlightedScenario = "thisWeek",
+            }
+            for key, value in pairs(extra or {}) do
+                week[key] = value
+            end
+            return week
+        end
+
+        it("says the companion's own words as the footnote", function()
+            local plan = ns.Roads.PlanSentence(asOfferedOnly({ scenarioNote = NOTE }))
+            assert.equal(ns.Roads.NO_PLAN_SENTENCE, plan.sentence)
+            assert.equal(NOTE, plan.footnote)
+            -- The plan on screen is still named for the document that answered
+            -- it, never for the one that was asked for.
+            assert.equal("as offered", plan.plan)
+        end)
+
+        it("stays silent when the companion said nothing", function()
+            assert.is_nil(ns.Roads.PlanSentence(asOfferedOnly()).footnote)
+            assert.is_nil(ns.Roads.PlanSentence(asOfferedOnly({ scenarioNote = "" })).footnote)
+            assert.is_nil(ns.Roads.PlanSentence(asOfferedOnly({ scenarioNote = {} })).footnote)
+        end)
+
+        it("does not say it when the plan on screen IS the one that was asked for", function()
+            local week = asOfferedOnly({ scenarioNote = NOTE })
+            week.highlightedScenario = "asOffered"
+            assert.is_nil(ns.Roads.PlanSentence(week).footnote)
+        end)
+
+        it("says it after the charge footnote rather than instead of it", function()
+            local week = {}
+            for key, value in pairs(inputs) do
+                week[key] = value
+            end
+            week.highlightedScenario = "notAScenarioAnyoneAsked"
+            week.scenarioNote = NOTE
+            local plan = ns.Roads.PlanSentence(week)
+            assert.equal(
+                "The plan would catalyst the Hide chest too, but you've only got one charge. " .. NOTE,
+                plan.footnote
+            )
+        end)
+
+        it("is the whole answer when there is no plan stored at all", function()
+            assert.equal(NOTE, ns.Roads.PlanSentence({ scenarioNote = NOTE }).footnote)
+            assert.is_nil(ns.Roads.PlanSentence({ scenarioNote = NOTE }).sentence)
+        end)
+    end)
+
     -- -----------------------------------------------------------------------
     -- R-3b (WKE-576): the pick that has already arrived.
     --
