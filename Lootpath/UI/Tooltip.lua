@@ -107,6 +107,12 @@ Tooltip.RATED = "rated %s"
 -- A verdict with no time on it is the one thing principle 2 forbids a surface
 -- to hide, so the header says the age is missing rather than leaving it off.
 Tooltip.RATED_UNKNOWN = "rated at an unknown time"
+-- What a plan that is behind the bags says about itself (R-3b, WKE-576,
+-- defect 4). `rated 8 hours ago` beside `not rated · new since the last
+-- refresh` is the addon knowing the document is behind the world; the header
+-- is where it already says how old the document is, so it is where it says
+-- what to do about it. The command, not a verb: a tooltip has no buttons.
+Tooltip.REFRESH = "/lootpath refresh"
 
 -- "1d 2h ago" is `ns.UI.AgeText`'s, which is what the status strip and the
 -- Vault tab already print, so one number never reads two ways.
@@ -126,6 +132,9 @@ function Tooltip.HeaderText(answer, now)
     end
     local age = Tooltip.AgeText(type(answer) == "table" and answer.exportedAt or nil, now)
     parts[#parts + 1] = age and string.format(Tooltip.RATED, age) or Tooltip.RATED_UNKNOWN
+    if type(answer) == "table" and answer.stale == true then
+        parts[#parts + 1] = Tooltip.REFRESH
+    end
     return table.concat(parts, Tooltip.SEPARATOR)
 end
 

@@ -296,6 +296,15 @@ function Cache.Rebuild()
         return state.map, reason
     end
     state.map = Cache.Build(model)
+    -- The names the client can already answer, before anything is asked for.
+    -- A sentence is written inside `Build` and `ns.Roads.ShortName` reads the
+    -- road's item, so a name that lands after the build lands too late: it
+    -- reaches the row and never the sentence. When the fill changes anything
+    -- the map is built once more over the same, now-named, roads (R-3b,
+    -- WKE-576).
+    if Cache.FillNames(state.map) > 0 then
+        state.map = Cache.Build(model)
+    end
     state.map.builtAt = time()
     Cache.RequestNames(state.map)
     -- A bag that is already open is showing the old map until something tells
@@ -314,28 +323,70 @@ end
 -- rows already use; here it fires once per item ID for the session and rebuilds
 -- the map when the name lands, which is what puts the name on the tooltip.
 --
--- Not in `Build`: that function is pure and stays so. This is the one place
--- that reads the client on the cache's behalf, and it runs after the build.
+-- Not in `Build`: that function is pure and stays so. These two are the one
+-- place that reads the client on the cache's behalf, and they run after it.
+--
+-- **The request alone was not enough** (R-3b, WKE-576): the owner read `a vault
+-- reward (321)` and `a crafted piece (331)` eight hours and several reloads
+-- after R-2a shipped, on a screen where one of the two was the weapon he had
+-- equipped - a name his client certainly held. Asking and rebuilding put the
+-- name nowhere, because a rebuild re-reads the road's item off the SOURCE
+-- record, and a document's item entry has no name field at all; nothing ever
+-- looked at what the client had answered. `FillNames` is that look.
+
+-- Every road of the map, once, in the map's own slot order.
+function Cache.EachRoad(map, fn)
+    if type(map) ~= "table" then
+        return
+    end
+    for _, slot in ipairs(map.slots or {}) do
+        for _, group in ipairs(ns.Roads.GROUP_ORDER) do
+            for _, road in ipairs((((map.bySlot or {})[slot] or {}).groups or {})[group] or {}) do
+                fn(road)
+            end
+        end
+    end
+end
+
+-- Every nameless road the client can name right now, named. Returns how many.
+function Cache.FillNames(map)
+    if not (ns.ItemData and ns.ItemData.Cached) then
+        return 0
+    end
+    local named = 0
+    Cache.EachRoad(map, function(road)
+        local item = road.item
+        local itemID = type(item) == "table" and item.itemID or nil
+        if itemID and not item.name then
+            local cached = ns.ItemData.Cached(itemID)
+            if cached and cached.name then
+                item.name = cached.name
+                named = named + 1
+            end
+        end
+    end)
+    return named
+end
+
+-- Every road still nameless after that, asked for once per item ID for the
+-- session. `Cache.Changed` brings the answer back through a rebuild, whose
+-- `FillNames` is what actually puts it on the road.
 function Cache.RequestNames(map)
     if not (ns.ItemData and ns.ItemData.Request) then
         return 0
     end
     local asked = 0
-    for _, slot in ipairs(map.slots or {}) do
-        for _, group in ipairs(ns.Roads.GROUP_ORDER) do
-            for _, road in ipairs(((map.bySlot[slot] or {}).groups or {})[group] or {}) do
-                local item = road.item
-                local itemID = type(item) == "table" and item.itemID or nil
-                if itemID and not item.name and not state.named[itemID] then
-                    state.named[itemID] = true
-                    asked = asked + 1
-                    ns.ItemData.Request(itemID, function()
-                        Cache.Changed()
-                    end)
-                end
-            end
+    Cache.EachRoad(map, function(road)
+        local item = road.item
+        local itemID = type(item) == "table" and item.itemID or nil
+        if itemID and not item.name and not state.named[itemID] then
+            state.named[itemID] = true
+            asked = asked + 1
+            ns.ItemData.Request(itemID, function()
+                Cache.Changed()
+            end)
         end
-    end
+    end)
     return asked
 end
 

@@ -65,6 +65,8 @@ local MISTSTALKER = "272244:6652:12822:13663"
 local SEEDPODS = "250022:3174:6652:12806:13340:13440:13574"
 local VAULT_SPAULDERS = "251146:6652:12699:12842:13440:13662"
 local VAULT_WORLDROOT = "251935:6652:12841"
+-- The other weapon in his bags this week: a 259 the rating never saw.
+local DECAPITATOR = "275222:6652:12793:13334"
 
 -- A link the plan will never point at, taken out of R-2a's own `glow` capture
 -- rather than written here: bag 0 slot 1 of the owner's 2026-09-14 bags, which
@@ -230,8 +232,11 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         --     until it lands the tooltip says what kind of thing it is.
         --   * the Seedpods row is a NO RATING road, and it took a line under a
         --     best-set pick to say nothing. Rated roads only, here.
+        -- R-3b (WKE-576) added the fourth clause: this slot's bags hold the
+        -- Miststalker's Spaulders, which the rating never saw, so the header
+        -- says what cures that.
         assert.same({
-            "Lootpath · Shoulder · rated 5 hours ago",
+            "Lootpath · Shoulder · rated 5 hours ago · /lootpath refresh",
             "Catalyst this one.",
             "Catalyst · Venom-Cursed Lynx's Spaulders (295) · into the tier shoulders · in your best set",
             "Other roads for this slot",
@@ -352,7 +357,7 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
 
     it("says the pick's part of the plan on the vault weapon, crest clause and all", function()
         local block = lines(VAULT_WORLDROOT)
-        assert.equal("Lootpath · 2H Weapon · rated 5 hours ago", block[1])
+        assert.equal("Lootpath · 2H Weapon · rated 5 hours ago · /lootpath refresh", block[1])
         assert.equal("Grab this from the vault and crest it.", block[2])
     end)
 
@@ -365,7 +370,7 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         -- already existed. What it never had was a way in for an item no road
         -- carries.
         local block = lines(MISTSTALKER)
-        assert.equal("Lootpath · Shoulder · rated 5 hours ago", block[1])
+        assert.equal("Lootpath · Shoulder · rated 5 hours ago · /lootpath refresh", block[1])
         assert.equal("Skip this one, the plan uses your Lynx shoulders.", block[2])
         -- The honesty phrase keeps its place under the sentence: it is the
         -- item's own road line, and it is still the whole truth about the
@@ -1007,6 +1012,128 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         -- The tooltip is bag-independent and is unaffected.
         assert.is_truthy(hover(LYNX):find("Catalyst this one.", 1, true))
         ns.UI.Bags.adapters = adapters
+    end)
+
+    -- -----------------------------------------------------------------------
+    -- R-3b (WKE-576): the bag item that IS the plan's vault pick, and the names
+    -- the documents never carried.
+
+    -- The owner's screen of 2026-09-14 night, over this week's own files. The
+    -- claimed copy is hand-built - no capture has one, because the claim
+    -- happens between two refreshes - and everything about it except its bonus
+    -- ID is this week's: item 251935, the 2H Weapon slot, the name the vault
+    -- reward itself carries. The bonus ID has to be a third one (12841 is the
+    -- vault's copy, 12838 the 308 still on him), which is the whole point: the
+    -- key is new and the item ID is not.
+    local CLAIMED_LINK_BONUS = "12844"
+
+    local function claimWorldroot()
+        local worn
+        for _, record in ipairs(gathered.inventory.records) do
+            if record.location == "equipped" and record.itemID == 251935 then
+                worn = record
+            end
+        end
+        assert.is_table(worn)
+        local link = worn.link:gsub("12838", CLAIMED_LINK_BONUS)
+        local parsed = ns.ParseItemLink(link)
+        assert.is_table(parsed)
+        local record = {
+            key = parsed.key,
+            itemID = parsed.itemID,
+            link = link,
+            name = "Lightgrasp Worldroot",
+            slot = "2H Weapon",
+            itemLevel = 315,
+            location = "bag",
+        }
+        table.insert(gathered.inventory.records, record)
+        model = ns.UpgradeMapPanel.Model(gathered)
+        ns.RoadsCache.SetMap(ns.RoadsCache.Build(model))
+        return record
+    end
+
+    it("tells the player the vault weapon has arrived, not to skip it", function()
+        -- Every line of the block the owner read was honest about the document
+        -- and the sentence was wrong about the world: this item IS the vault
+        -- weapon, claimed and crested since the rating was made. The sentence
+        -- now says so, the honesty phrase under it still says the item is not
+        -- rated, and the vault road above no longer offers a walk to the vault.
+        local claimed = claimWorldroot()
+        local block = lines(claimed.key)
+        assert.equal("Lootpath · 2H Weapon · rated 5 hours ago · /lootpath refresh", block[1])
+        assert.equal("This is the vault Worldroot the plan wanted. Refresh to rate it at 315.", block[2])
+        assert.equal(ns.Roads.PHRASE_NOT_RATED_NEW, block[3])
+        assert.equal("Other roads for this slot", block[4])
+        assert.is_true(block[5]:find("Vault · claimed · in your bags", 1, true) == 1)
+        assert.equal("Why this? · /lootpath map", block[#block])
+    end)
+
+    it("takes no position on a claimed pick it has no rating for", function()
+        -- Principle 12: the sentence is not a verdict and the item is not
+        -- rated, so nothing about it glows.
+        local claimed = claimWorldroot()
+        assert.is_false(ns.Glow.Wants(claimed.key))
+    end)
+
+    -- -----------------------------------------------------------------------
+    -- Defect 3: the names the request never delivered.
+
+    -- The road's name comes off the SOURCE record, and a QE Live item entry has
+    -- no name field at all - so a road built from a document is nameless until
+    -- something names it. R-2a asked the client and rebuilt when the answer
+    -- landed; the rebuild re-read the same nameless source, so the name reached
+    -- the row and never the road. This is the look at what the client answered.
+    local function namelessVault()
+        for _, option in ipairs(gathered.vault.options) do
+            for _, reward in ipairs(option.rewards or {}) do
+                reward.name = nil
+                reward.link = nil
+            end
+        end
+        local m = ns.UpgradeMapPanel.Model(gathered)
+        ns.RoadsCache.SetMap(ns.RoadsCache.Build(m))
+        return m
+    end
+
+    -- The owner's own sentence, reproduced: `the plan uses the vault weapon` is
+    -- what a nameless vault pick reads as, because `ns.Roads.ShortName` falls
+    -- back to the slot's word when there is no name to shorten.
+    it("carries a name the client answers into the sentence, not only the row", function()
+        local wornLink
+        for _, record in ipairs(gathered.inventory.records) do
+            if record.location == "equipped" and record.itemID == 251935 then
+                wornLink = record.link
+            end
+        end
+        assert.is_string(wornLink)
+        local m = namelessVault()
+        assert.equal("Skip this one, the plan uses the vault weapon.", ns.RoadsCache.Lookup(DECAPITATOR).sentence)
+
+        -- The client can name item 251935: the owner is wearing one. Asked by
+        -- item ID, which is how `ns.ItemData` asks.
+        world.items[251935] = world.items[wornLink]
+        local map = ns.RoadsCache.Map()
+        assert.is_true(ns.RoadsCache.FillNames(map) > 0)
+        assert.equal("Lightgrasp Worldroot", map.bySlot["2H Weapon"].groups[ns.Roads.GROUP_SET][1].item.name)
+        -- A sentence is written inside the build, so the map is built once more
+        -- over the roads the fill has named - which is what `Cache.Rebuild`
+        -- does with the count this returns.
+        ns.RoadsCache.SetMap(ns.RoadsCache.Build(m))
+        assert.equal("Skip this one, the plan uses the vault Worldroot.", ns.RoadsCache.Lookup(DECAPITATOR).sentence)
+    end)
+
+    it("asks the client only for what no link and no record named", function()
+        local m = namelessVault()
+        local map = ns.RoadsCache.Map()
+        -- Nothing in this world answers GetItemInfo for a bare item ID, so the
+        -- fill finds nothing and every nameless road is asked about instead.
+        assert.equal(0, ns.RoadsCache.FillNames(map))
+        assert.is_true(ns.RoadsCache.RequestNames(map) > 0)
+        -- And a second pass asks for nothing: one request per item ID for the
+        -- session, which is what R-2a made it.
+        assert.equal(0, ns.RoadsCache.RequestNames(map))
+        assert.is_table(m)
     end)
 
     -- -----------------------------------------------------------------------

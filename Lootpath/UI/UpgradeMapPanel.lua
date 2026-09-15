@@ -862,6 +862,8 @@ function Panel.Model(opts)
             -- The slot's own line, in the same voice as the week's: built from
             -- the slot's roads, so the header and the rows cannot disagree.
             section.plan = section.roads.plan
+            -- Whether this slot's bags are ahead of the document (R-3b).
+            section.staleBags = section.roads.staleBags == true
             section.roadGroups = Panel.RoadGroups(section.roads, previewLevel)
         end
     end
@@ -895,7 +897,7 @@ function Panel.Lines(model)
         add(model.upgradeDocumentsNote)
     end
     for _, section in ipairs(model.slots) do
-        add(section.slot)
+        add(Panel.SectionHeaderText(section))
         for _, record in ipairs(section.equipped) do
             add(string.format("  equipped: %s (%s)", record.name or record.link or "?", tostring(record.itemLevel)))
         end
@@ -1454,6 +1456,29 @@ Panel.ELEMENT_ROAD = "road"
 Panel.GROUP_SET_TAIL = "the pick first, then the rated alternatives"
 Panel.ROAD_SEPARATOR = " · "
 
+-- What a slot whose bags have moved past the plan says about itself (R-3b,
+-- WKE-576, defect 4). The same words the tooltip's header carries
+-- (`ns.UI.Tooltip.REFRESH`), in the same place - the header that already says
+-- how old the answer is - so the two surfaces say one thing.
+--
+-- It is text rather than a button because a slot header has one column beside
+-- its name and the drop count is in it; the rows below carry the Refresh VERB,
+-- which is where principle 9's button belongs.
+Panel.SECTION_REFRESH = "/lootpath refresh"
+
+-- The slot header's own line: the slot, and the refresh when the slot holds
+-- something the plan has not seen.
+function Panel.SectionHeaderText(section)
+    local slot = type(section) == "table" and section.slot or nil
+    if type(slot) ~= "string" then
+        return ""
+    end
+    if type(section) == "table" and section.staleBags == true then
+        return slot .. Panel.ROAD_SEPARATOR .. Panel.SECTION_REFRESH
+    end
+    return slot
+end
+
 -- The muted second figures a rated row carries, in his own words for them:
 -- `bonus` is the upgraded listing and `max` is the track's cap for that run
 -- (ns.Roads' `extraLevelLabel`). "upgraded 321 at +0.38%" reads with the "at";
@@ -1555,8 +1580,11 @@ function Panel.RoadTag(road)
     if not tag then
         return nil
     end
-    if road.openNow then
-        return tag .. Panel.ROAD_SEPARATOR .. road.openNow
+    -- Once the reward is in the bags the vault road says so instead of saying
+    -- the vault is open (R-3b, WKE-576): the reader already walked it.
+    local when = road.claimed or road.openNow
+    if when then
+        return tag .. Panel.ROAD_SEPARATOR .. when
     end
     return tag
 end
@@ -1980,6 +2008,7 @@ function Panel.Elements(model, state)
             kind = Panel.ELEMENT_SECTION,
             height = Panel.SectionHeight(not shut and section.plan or nil),
             slot = section.slot,
+            header = Panel.SectionHeaderText(section),
             worn = section.worn,
             -- The count names what the section opens onto: its roads once it
             -- has them, the drops it listed before.
@@ -2019,6 +2048,7 @@ function Panel.Elements(model, state)
             kind = Panel.ELEMENT_SECTION,
             height = Panel.SECTION_HEIGHT,
             slot = Panel.PENDING_SECTION,
+            header = Panel.PENDING_SECTION,
             count = model.pending.count,
             collapsed = shut,
         })
@@ -2666,7 +2696,7 @@ function Panel.InitElement(panel, element, data)
         else
             UI.ItemLine.ClearIcon(element.sectionIcon)
         end
-        element.sectionName:SetText(data.slot)
+        element.sectionName:SetText(data.header or data.slot)
         element.sectionCount:SetText(string.format("%d drop(s)", data.count or 0))
         element.sectionPlan:SetText(data.plan or "")
         element.sectionPlan:SetShown(data.plan ~= nil)
@@ -2790,6 +2820,14 @@ function Panel.FollowVerb(panel, row)
     end
     if row.verb == ns.Roads.VERB_SHOW_IN_VAULT and row.vaultKey then
         return ns.VaultPanel.ShowReward(row.vaultKey)
+    end
+    -- The one row whose destination is not a screen: a claimed pick the plan
+    -- has not seen yet, whose next step is the refresh itself (R-3b, WKE-576).
+    -- It is `/lootpath refresh` and nothing else - the same captures, the same
+    -- two reloads, the same combat refusal (principle 15).
+    if row.verb == ns.Roads.VERB_REFRESH and ns.Companion and ns.Companion.Refresh then
+        ns.Companion.Refresh()
+        return true
     end
     return false
 end

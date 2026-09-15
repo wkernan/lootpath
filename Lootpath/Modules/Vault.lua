@@ -162,16 +162,11 @@ end
 -- Measured 2026-09-09 08:59: `|cnIQ1:|Hitem:275547:...|h[]|h|r` - an empty
 -- pair of brackets - is what GetItemHyperlink answers before the client has
 -- loaded the item. Nothing here ever prints that link.
-function Vault.LinkName(link)
-    if type(link) ~= "string" then
-        return nil
-    end
-    local name = link:match("|h%[(.-)%]|h")
-    if name == nil or name == "" then
-        return nil
-    end
-    return name
-end
+--
+-- The reader itself moved to `ns.LinkName` in R-3b (WKE-576), beside the link
+-- parser, because the road model needs the same name off the same link; this
+-- stays the name the Vault module's own callers use, and it is that function.
+Vault.LinkName = ns.LinkName
 
 -- Blizzard's own test for "this item's data has not arrived yet": its journal
 -- draws RETRIEVING_ITEM_INFO when `itemInfo.name` is missing. Here the name is
