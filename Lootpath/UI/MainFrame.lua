@@ -316,21 +316,27 @@ end
 -- Which import is on screen and where it came from - "pasted", or "companion,
 -- written 4 minutes ago" (C-2). The source is on the line the window keeps,
 -- not the status line the next paste overwrites.
+--
+-- Since V-2 (WKE-573) the sentence names the EXPORT as well as the content
+-- type - "the Dungeon Top Gear export" - because the strip's line no longer
+-- does and this sentence is where the strip's tooltip keeps it. Nothing is
+-- lost, only moved: the same two words, one surface further in.
 function UI.VerdictNoteText(now)
     local verdict, contentType, fellBack = UI.ActiveVerdict()
     if not verdict then
         return "No export on this character yet."
     end
     local source = ns.Companion.SourceText(verdict, now)
+    local export = string.format("%s %s", contentType or "unknown content type", UI.KIND_LABEL[UI.KIND_TOP_GEAR])
     if fellBack then
         return string.format(
             "|cffffd43bShowing the %s export|r (%s) - nothing has been imported for %s yet.",
-            contentType,
+            export,
             source,
             UI.Options.Get()
         )
     end
-    return string.format("Showing the %s export (%s).", contentType, source)
+    return string.format("Showing the %s export (%s).", export, source)
 end
 
 -- ---------------------------------------------------------------------------
@@ -369,8 +375,9 @@ function UI.SecondsUntilWeeklyReset()
 end
 
 -- The one line under the title: what is on screen, whose it is, how old, and
--- what the companion last did - `QE Live | spec | content type kind |
--- source, age | scenario tag | companion`, from the same facts
+-- what the companion last did - `spec | source, age | scenario tag |
+-- companion` since V-2 (WKE-573) dropped the content type and the export's
+-- name off it into the tooltip, from the same facts
 -- UI.VerdictNoteText states in a sentence, ns.Companion.SourceText names the
 -- source with and ns.Companion.StatusText reads out of the companion's own
 -- status file. Returns a model rather than a string so the age can be toned
@@ -384,7 +391,9 @@ end
 -- opinion. nil (not false) when the client does not say when the reset is; only
 -- a true makes the age amber.
 function UI.StatusStripModel(now)
-    local verdict, contentType, fellBack = UI.ActiveVerdict()
+    -- The content type is deliberately dropped on the floor here: since V-2 it
+    -- is the tooltip's, through UI.VerdictNoteText, and not the line's.
+    local verdict, _, fellBack = UI.ActiveVerdict()
     local tooltip = { UI.VerdictNoteText(now) }
     -- C-9 (WKE-559): the sixth fact, and the only one that is about the
     -- companion rather than the export - what its last run did. It is on the
@@ -413,7 +422,6 @@ function UI.StatusStripModel(now)
             tooltip = tooltip,
         }
     end
-    local kind = UI.KIND_LABEL[UI.KIND_TOP_GEAR]
     local source = ns.Companion.SourceText(verdict, now) or "imported"
     if not source:find("written", 1, true) then
         source = source .. ", exported " .. UI.AgeText(verdict.exportedAt, now)
@@ -424,9 +432,16 @@ function UI.StatusStripModel(now)
         tooltip[#tooltip + 1] = UI.STALE_STRIP_TOOLTIP
     end
     local scenario = ns.UI.Options.GetVaultScenario()
+    -- V-2 (WKE-573): FOUR facts, not five. `Dungeon Top Gear` used to sit
+    -- second and the line was cut at the window's width with C-9's companion
+    -- clause - the one fact on it a player acts on - the half lost (R-3a,
+    -- WKE-570; the owner's screen, 2026-09-14). The content type is already on
+    -- the Vault tab's dropdown and the Upgrade Map's filter, and both words are
+    -- kept in this strip's own tooltip through UI.VerdictNoteText, so dropping
+    -- them here moves a fact rather than losing one (owner's decision,
+    -- 2026-09-14 evening).
     local parts = {
         verdict.spec or "unknown spec",
-        string.format("%s %s", contentType or "unknown content type", kind),
         source,
         UI.SCENARIO_TAG[scenario] or ("vault pick: " .. tostring(scenario)),
         companion,

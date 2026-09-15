@@ -471,6 +471,41 @@ describe("Core", function()
             assert.truthy(out:find(ns.UI.Bags.NO_LINK, 1, true), out)
         end)
 
+        it("samples a piece of gear from the bags, not the first thing in slot 1", function()
+            -- V-2 (WKE-573). On the owner's first run (2026-09-14 night) the
+            -- bare command took bag 0 slot 1 and reported on item 6948, the
+            -- Hearthstone: `item: key 6948 - NOT in the map - glow no`, which
+            -- is true of every Hearthstone and diagnoses nothing. The bags here
+            -- are shaped the same way his are: a Hearthstone in slot 1 and gear
+            -- behind it.
+            local hearth = "|Hitem:6948::::::::80:105::::::|h[Hearthstone]|h"
+            local helm = "|Hitem:222222::::::::80:105::::::|h[Miststalker's Hood]|h"
+            world.items[hearth] = { instant = { 6948, "Miscellaneous", "Other", "", 134414, 15, 0 } }
+            world.items[helm] = { instant = { 222222, "Armor", "Leather", "INVTYPE_HEAD", 134415, 4, 2 } }
+            world.bags[0] = {
+                numSlots = 2,
+                items = { [1] = { link = hearth }, [2] = { link = helm } },
+            }
+
+            ns.HandleSlash("glow")
+            local out = world.output()
+            assert.truthy(out:find("sampled Miststalker's Hood from your bags", 1, true), out)
+            assert.truthy(out:find("item: key 222222", 1, true), out)
+            assert.is_nil(out:find("6948", 1, true), out)
+        end)
+
+        it("says so when there is no gear in the bags to sample", function()
+            local hearth = "|Hitem:6948::::::::80:105::::::|h[Hearthstone]|h"
+            world.items[hearth] = { instant = { 6948, "Miscellaneous", "Other", "", 134414, 15, 0 } }
+            world.bags[0] = { numSlots = 1, items = { [1] = { link = hearth } } }
+
+            ns.HandleSlash("glow")
+            local out = world.output()
+            assert.truthy(out:find(ns.GLOW_NO_GEAR, 1, true), out)
+            -- and it still tells him how to ask about one himself
+            assert.truthy(out:find(ns.UI.Bags.NO_LINK, 1, true), out)
+        end)
+
         it("asks about the item a link was shift-clicked into the command", function()
             ns.HandleSlash("glow |Hitem:99999::::::::80:105::::::|h[Nothing]|h")
             local out = world.output()
