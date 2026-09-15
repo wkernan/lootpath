@@ -21,10 +21,14 @@ exclude_files = {
 -- LootpathToggle is the AddOn Compartment's entry point: `## AddonCompartmentFunc`
 -- names a GLOBAL function, which Blizzard's AddonCompartmentMixin looks up in
 -- _G, so this global is defined rather than only read.
+-- StaticPopupDialogs is FrameXML's table of dialog definitions, keyed by name;
+-- adding an entry to it is how every addon (and Blizzard's own GameDialogDefs)
+-- registers a popup, so it is mutated rather than only read (M3-16a, WKE-581).
 globals = {
     "LootpathToggle",
     "SLASH_LOOTPATH1",
     "SlashCmdList",
+    "StaticPopupDialogs",
     "UISpecialFrames",
 }
 
@@ -79,8 +83,11 @@ read_globals = {
     "InCombatLockdown",
     "ItemLocation",
     -- Protected in combat, which is why Companion.Refresh checks
-    -- InCombatLockdown before it calls this.
+    -- InCombatLockdown before it calls this. Since M3-16a (WKE-581) it is also
+    -- refused outside the player's own hardware event, which is why the
+    -- refresh's other path goes through StaticPopup_Show instead.
     "ReloadUI",
+    "StaticPopup_Show",
     "UnitClass",
     "UnitLevel",
     "UnitName",

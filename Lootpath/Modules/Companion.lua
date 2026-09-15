@@ -963,6 +963,67 @@ Companion.REFRESH_WAITING_LINE = "waiting for the vault: the client is holding t
 -- local: the strip has no other way to say that the refresh is still going.
 Companion.waitingForVault = false
 
+-- M3-16a (WKE-581): the reload the player has to click.
+--
+-- **Why a click and not a call.** `ReloadUI` is refused - "Interface action
+-- failed because of an AddOn" - unless the client can attribute it to the
+-- player's own hardware event. Before M3-16 the chain was synchronous, so the
+-- `ReloadUI` at its end was still inside the slash command's execution and the
+-- client allowed it. M3-16 made the vault capture wait for
+-- `WEEKLY_REWARDS_UPDATE`, and a `ReloadUI` called from that event's
+-- continuation is no longer the player's: the owner's screen on 2026-09-15
+-- printed all three refresh lines and then the refusal, and nothing reloaded
+-- (docs/ARCHITECTURE.md 9).
+--
+-- So: when the chain finishes inside the command it reloads immediately, as it
+-- did before M3-16. When it had to wait, it asks instead. A `StaticPopup`
+-- button IS a hardware event - Blizzard's own `TOO_MANY_LUA_ERRORS` and
+-- `ADDON_ACTION_FORBIDDEN` dialogs call `ReloadUI` from `OnAccept`
+-- (`.luals/.../Blizzard_StaticPopup_Game/GameDialogDefs.lua.annotated.lua`
+-- lines 482-489 and 568-575, read 2026-09-15) - and this is the same shape.
+-- The login ask below is what makes the wait rare in the first place.
+Companion.RELOAD_POPUP = "LOOTPATH_RELOAD_AFTER_REFRESH"
+Companion.RELOAD_POPUP_TEXT = "Gear captured. Reload to send it?"
+Companion.RELOAD_POPUP_ACCEPT = "Reload"
+Companion.RELOAD_POPUP_CANCEL = "Not now"
+Companion.REFRESH_POPUP_LINE = "captured %s - click Reload to send them. After a wait the reload has to be "
+    .. "your own click; the client refuses any other kind."
+Companion.REFRESH_POPUP_ABSENT_LINE = "captured %s - type /reload to send them. After a wait the reload has to "
+    .. "be your own, and this client cannot show the box that asks."
+
+if type(StaticPopupDialogs) == "table" then
+    StaticPopupDialogs[Companion.RELOAD_POPUP] = {
+        text = Companion.RELOAD_POPUP_TEXT,
+        button1 = Companion.RELOAD_POPUP_ACCEPT,
+        button2 = Companion.RELOAD_POPUP_CANCEL,
+        OnAccept = function()
+            if type(ReloadUI) == "function" then
+                ReloadUI()
+            end
+        end,
+        -- No timeout: a box that vanished on its own would leave the captures
+        -- in memory with nothing on screen saying so. `whileDead` because a
+        -- player who died to the pull he refreshed before is still owed the
+        -- reload, and `hideOnEscape` because Not now is always allowed - the
+        -- strip's R-6 wait line keeps the same click either way.
+        timeout = 0,
+        whileDead = 1,
+        hideOnEscape = 1,
+    }
+end
+
+-- Shows it, or says the same thing in chat on a client that has no
+-- StaticPopup_Show. Returns "popup" or "chat" so the caller can record which.
+function Companion.AskForReload(summary)
+    if type(StaticPopup_Show) == "function" then
+        ns.Log(Companion.REFRESH_POPUP_LINE, summary)
+        StaticPopup_Show(Companion.RELOAD_POPUP)
+        return "popup"
+    end
+    ns.Log(Companion.REFRESH_POPUP_ABSENT_LINE, summary)
+    return "chat"
+end
+
 -- What the four snapshots hold, in the owner's words rather than the capture
 -- names. The bank half is read back out of the snapshot that was just taken -
 -- `C_Bank.CanViewBank` for the character's own bank, which the 2026-09-05
@@ -984,20 +1045,34 @@ function Companion.RefreshSummary(snapshots)
 end
 
 -- The captures run one after another and the reload is the LAST thing, after
--- all four (M3-16): `vault` is asynchronous now - when the client says rewards
+-- all four (M3-16): `vault` can be asynchronous - when the client says rewards
 -- are waiting and lists none of them it asks for them and waits a bounded few
 -- seconds for `WEEKLY_REWARDS_UPDATE` - and a `ReloadUI()` in the middle of
--- that wait would throw away the very snapshot the refresh exists to take. So
--- the chain is captures, then the vault's wait, then `ReloadUI`, never
--- `ReloadUI` mid-wait.
+-- that wait would throw away the very snapshot the refresh exists to take.
 --
--- `Refresh` therefore returns `{ ok = true, pending = true }` when it is still
--- waiting, the way `ns.RunCapture` does, and `onDone` (optional) is called with
--- the final result exactly once either way. Every synchronous path is
--- unchanged: with nothing to ask for, all four captures finish inside this call
--- and it returns the reloaded result as it always did.
+-- **M3-16a (WKE-581): the reload is never called from that wait's
+-- continuation.** It is refused there; see `Companion.RELOAD_POPUP` above. The
+-- chain therefore ends in one of two ways:
+--
+--   * **Nothing had to wait** - the ordinary week, and every week at all once
+--     the login ask below has run - so all four captures finished inside the
+--     slash command's own execution and `ReloadUI()` is still the player's
+--     action. It reloads immediately, exactly as it did before M3-16.
+--   * **Something waited** - the login ask failed, timed out, or never ran -
+--     so this code is running from an event callback. It asks for the reload
+--     with a `StaticPopup` whose button is a hardware event, and returns
+--     `reloadPending`.
+--
+-- `Refresh` returns `{ ok = true, pending = true }` while it is still waiting,
+-- the way `ns.RunCapture` does, and `onDone` (optional) is called with the
+-- final result exactly once either way.
 function Companion.Refresh(onDone)
     Companion.waitingForVault = false
+    -- Set the moment a capture answers `pending`, and never cleared: it is what
+    -- says this chain left the player's command, which is what decides between
+    -- the reload and the popup. Not the same thing as `waitingForVault`, which
+    -- is the strip's live clause and goes false again when the wait ends.
+    local waited = false
     local settled
     local function done(result)
         if settled then
@@ -1034,11 +1109,21 @@ function Companion.Refresh(onDone)
         local name = Companion.REFRESH_CAPTURES[index]
         if not name then
             Companion.waitingForVault = false
-            ns.Log(Companion.REFRESH_CAPTURED_LINE, Companion.RefreshSummary(snapshots))
-            ns.Log("%s", Companion.REFRESH_SECOND_LINE)
+            local summary = Companion.RefreshSummary(snapshots)
             -- R-6 (WKE-578): the stamp the wait line counts from, written
             -- BEFORE the reload, because the reload is what puts it on disk.
+            -- Written on the popup path too, and for the same reason: the
+            -- reload is still coming, and until it does the strip's wait line
+            -- carries the same click the popup's Reload button does, so a
+            -- player who dismissed the box is not stranded.
             ns.Drift.RefreshStarting()
+            if waited then
+                local asked = Companion.AskForReload(summary)
+                ns.Log("%s", Companion.REFRESH_SECOND_LINE)
+                return done({ ok = true, reloaded = false, reloadPending = asked, captured = snapshots })
+            end
+            ns.Log(Companion.REFRESH_CAPTURED_LINE, summary)
+            ns.Log("%s", Companion.REFRESH_SECOND_LINE)
             ReloadUI()
             return done({ ok = true, reloaded = true, captured = snapshots })
         end
@@ -1055,6 +1140,7 @@ function Companion.Refresh(onDone)
         -- for the rewards. Said out loud, once, because the refresh looks
         -- stopped otherwise and the reload is genuinely still coming.
         if type(result) == "table" and result.pending and not settled then
+            waited = true
             Companion.waitingForVault = true
             ns.Log("%s", Companion.REFRESH_WAITING_LINE)
             if ns.UI and ns.UI.RefreshStrip then
@@ -1150,6 +1236,113 @@ function Companion.CaptureAtLogout()
         failures = failures,
         elapsedMs = elapsedMs,
     }
+end
+
+-- ---------------------------------------------------------------------------
+-- The vault question, asked once at login (M3-16a, WKE-581).
+--
+-- M3-16 put the question where the answer was wanted: inside the refresh, which
+-- then had to wait for it. That wait is what made the refresh's `ReloadUI` an
+-- addon's action rather than the player's, and the client refused it
+-- (`Companion.RELOAD_POPUP` above). Asking at login instead costs the same one
+-- interaction, happens where nothing is waiting on it, and means that by the
+-- time the player types `/lootpath refresh` the client already carries the
+-- rewards: `vaultNeedsInteraction` answers "the activities already carry
+-- rewards", the vault capture finishes inside the call, and the whole chain is
+-- synchronous again.
+--
+-- What is the same as M3-16, exactly: `OnUIInteract`, a bounded wait of
+-- `ns.VAULT_INTERACT_TIMEOUT_SECONDS` for `WEEKLY_REWARDS_UPDATE`, and
+-- `CloseInteraction` on every path out including the timeout - one
+-- `ns.VaultInteract`, not a copy. What is different: nothing is captured and
+-- nothing is reloaded. The client is simply left holding its own data.
+--
+-- What is NOT asked, and why: the question is only asked in the state the
+-- 2026-09-09/10 measurement described - `HasAvailableRewards()` true and not
+-- one activity carrying a reward. A vault with nothing waiting, or one whose
+-- rewards the client is already carrying, is left alone.
+--
+-- Combat: nothing runs in combat, so a login that lands in a fight defers to
+-- `PLAYER_REGEN_ENABLED` and asks when it is over. Once per session either way.
+--
+-- **What is NOT verified, and what says so:** whether the client answers
+-- `HasAvailableRewards()` truthfully as early as `PLAYER_ENTERING_WORLD`, and
+-- whether `WEEKLY_REWARDS_UPDATE` fires at all outside the Great Vault window
+-- (M3-16's own open question, never measured). The record below is the whole
+-- answer to both - `askedAtLogin` says the login found the state, `updateFired`
+-- and `waitedMs` say the client answered and how fast - and the next `env`
+-- capture carries it. If the login ask turns out to find nothing, the refresh
+-- still works: it captures, waits, and asks for the reload with a click.
+Companion.LOGIN_ASK_NOTHING = "the client says no rewards are waiting"
+Companion.LOGIN_ASK_CARRIED = "the activities already carry rewards"
+Companion.LOGIN_ASK_NO_API = "this client has no C_WeeklyRewards.OnUIInteract"
+Companion.LOGIN_ASK_COMBAT = "deferred: the login was in combat"
+
+-- Guards the once-per-session rule. `ns.vaultLoginAsk` is the record itself,
+-- which the next `env` capture copies into its snapshot; this is only whether
+-- the question has been settled, because a record that says `askedAtLogin =
+-- false` still means the login looked.
+Companion.loginAsked = false
+
+-- Whether the client is in the state the question is for. Deliberately NOT
+-- `Captures.lua`'s `vaultNeedsInteraction`: that one is local to the capture
+-- and reads the reward links the capture had just built, while this one asks
+-- the client the two questions directly and builds nothing.
+local function loginAskNeeded()
+    local W = C_WeeklyRewards
+    if type(W and W.OnUIInteract) ~= "function" then
+        return false, Companion.LOGIN_ASK_NO_API
+    end
+    if ns.Safe(ns.Probe(W.HasAvailableRewards)[1]) ~= true then
+        return false, Companion.LOGIN_ASK_NOTHING
+    end
+    -- Through `ns.Safe` rather than iterated raw: a secret table comes back as
+    -- a marker string and `type` then sends it past the loop, which is the
+    -- client rule and not a guess about what the vault returns.
+    local activities = ns.Safe(ns.Probe(W.GetActivities)[1])
+    if type(activities) == "table" then
+        for _, activity in ipairs(activities) do
+            local rewards = type(activity) == "table" and ns.Safe(activity.rewards) or nil
+            for _, reward in ipairs(type(rewards) == "table" and rewards or {}) do
+                if type(reward) == "table" and ns.Safe(reward.itemDBID) ~= nil then
+                    return false, Companion.LOGIN_ASK_CARRIED
+                end
+            end
+        end
+    end
+    return true, "rewards are waiting and no activity carries one"
+end
+
+-- Returns the record, or nil when the ask was deferred to the end of combat.
+-- `onDone` (optional) is called with the record exactly once, whenever it
+-- settles; nothing in the addon needs it, the tests do.
+function Companion.AskVaultAtLogin(onDone)
+    if Companion.loginAsked then
+        return ns.vaultLoginAsk
+    end
+    if InCombatLockdown() then
+        -- Not settled: the session still owes itself the question, and
+        -- `PLAYER_REGEN_ENABLED` is what asks it.
+        ns.vaultLoginAsk = { askedAtLogin = false, reason = Companion.LOGIN_ASK_COMBAT }
+        return nil
+    end
+    Companion.loginAsked = true
+    local needed, reason = loginAskNeeded()
+    if not needed then
+        ns.vaultLoginAsk = { askedAtLogin = false, reason = reason }
+        if onDone then
+            onDone(ns.vaultLoginAsk)
+        end
+        return ns.vaultLoginAsk
+    end
+    local record = { askedAtLogin = true, reason = reason, updateFired = false, timedOut = false }
+    ns.vaultLoginAsk = record
+    ns.VaultInteract(record, nil, function()
+        if onDone then
+            onDone(record)
+        end
+    end)
+    return record
 end
 
 ns.onReady[#ns.onReady + 1] = function()

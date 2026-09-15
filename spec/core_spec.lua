@@ -594,3 +594,74 @@ describe("ns.VERSION", function()
         assert.equal("dev", ns.VERSION)
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- M3-16a (WKE-581). Core.lua owns only the lifecycle half of the login ask:
+-- which event asks it, when it stops listening, and what a question that
+-- errored must not do. What is asked and why is `Companion.AskVaultAtLogin`,
+-- which spec/companion_spec.lua covers.
+
+describe("the login ask's lifecycle", function()
+    local ns, world
+
+    local function lootpathFrame()
+        -- The one frame Core.lua registers ADDON_LOADED on: the stub keeps
+        -- every frame ever created, so it is found by what it listens to
+        -- rather than by an index that other modules could shift.
+        for _, f in ipairs(world.frames) do
+            if f.events["PLAYER_LOGOUT"] then
+                return f
+            end
+        end
+        return nil
+    end
+
+    before_each(function()
+        ns, world = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- Proven red by removing the `frame:RegisterEvent("PLAYER_ENTERING_WORLD")`
+    -- line: the frame never listens and the login never asks.
+    it("listens for PLAYER_ENTERING_WORLD and stops after the first one", function()
+        local frame = lootpathFrame()
+        assert.is_truthy(frame)
+        assert.is_true(frame.events["PLAYER_ENTERING_WORLD"])
+        world.fireEvent("PLAYER_ENTERING_WORLD")
+        assert.is_nil(frame.events["PLAYER_ENTERING_WORLD"])
+        -- Nothing was deferred, so it is not waiting on the end of a fight
+        -- either: the session's question is settled.
+        assert.is_nil(frame.events["PLAYER_REGEN_ENABLED"])
+    end)
+
+    -- A login in combat is the one reason to keep listening, and the end of
+    -- the fight is what ends that. Proven red by registering
+    -- PLAYER_REGEN_ENABLED unconditionally: the listener outlives the answer.
+    it("waits for the end of the fight only when the login was in combat", function()
+        local frame = lootpathFrame()
+        world.inCombat = true
+        world.fireEvent("PLAYER_ENTERING_WORLD")
+        assert.is_true(frame.events["PLAYER_REGEN_ENABLED"])
+        world.inCombat = false
+        world.fireEvent("PLAYER_REGEN_ENABLED")
+        assert.is_nil(frame.events["PLAYER_REGEN_ENABLED"])
+    end)
+
+    -- The login is the one moment where an error in the addon is the first
+    -- thing the player sees, so the question is pcalled the way the logout's
+    -- capture is - and a question that threw is not asked again on every
+    -- fight end. Proven red by calling `ns.Companion.AskVaultAtLogin()`
+    -- directly instead of through `pcall`: the event handler errors.
+    it("survives a question that throws, and does not retry it", function()
+        local frame = lootpathFrame()
+        ns.Companion.AskVaultAtLogin = function()
+            error("no vault here")
+        end
+        world.fireEvent("PLAYER_ENTERING_WORLD")
+        assert.is_nil(frame.events["PLAYER_REGEN_ENABLED"])
+        assert.is_nil(frame.events["PLAYER_ENTERING_WORLD"])
+    end)
+end)

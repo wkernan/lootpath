@@ -207,6 +207,20 @@ ns.RegisterCapture("env", "build, player facts, addon list, secret/combat state,
             NUM_BAG_SLOTS = NUM_BAG_SLOTS,
             NUM_TOTAL_EQUIPPED_BAG_SLOTS = NUM_TOTAL_EQUIPPED_BAG_SLOTS,
         },
+        -- M3-16a (WKE-581): what the login ask did, if it ran. Written by
+        -- `ns.Companion.AskVaultAtLogin` and carried here untouched, so the
+        -- transcript proves the question was asked one call earlier than the
+        -- refresh - `askedAtLogin`, `updateFired`, `waitedMs` - even though no
+        -- capture was taken at the time. `{ askedAtLogin = false, reason }`
+        -- when the login found nothing to ask about.
+
+        -- M3-16a (WKE-581): what the login ask did, if it ran. Written by
+        -- `ns.Companion.AskVaultAtLogin` and carried here untouched, so the
+        -- transcript proves the question was asked one call earlier than the
+        -- refresh - `askedAtLogin`, `updateFired`, `waitedMs` - even though no
+        -- capture was taken at the time. `{ askedAtLogin = false, reason }`
+        -- when the login found nothing to ask about.
+        vaultLoginAsk = ns.vaultLoginAsk and ns.CopyRaw(ns.vaultLoginAsk) or { absent = true },
         -- R-0 (WKE-561): the key, and which bag frames are live. Both are
         -- recorded raw and shown nowhere.
         keystone = keystoneProbe(),
@@ -436,6 +450,76 @@ local function vaultLists(W)
     return { activities = activities, rewardLinks = rewardLinks, exampleLinks = exampleLinks }
 end
 
+-- **The interaction itself, with nothing around it (M3-16a, WKE-581).**
+--
+-- Two callers ask the server the same question: the `vault` capture below, and
+-- `ns.Companion.AskVaultAtLogin`, which asks once at login so that by the time
+-- the player types `/lootpath refresh` the client already carries the rewards
+-- and the refresh chain is synchronous again. One function rather than two
+-- copies, because the exception the owner allowed on 2026-09-14 is exactly
+-- this pair of calls and it must not be able to drift into two versions.
+--
+-- `record` is filled IN PLACE - `interact`, `updateFired`, `timedOut`,
+-- `waitedMs`, `close` - so the caller keeps whatever else it wrote there.
+-- `onFired`, when given, runs while the interaction is still open and the
+-- server's answer is fresh (the capture reads the lists a second time there).
+-- `onDone` runs exactly once on every path out, after `CloseInteraction`.
+--
+-- CloseInteraction is the other half of OnUIInteract and runs on every path out
+-- of here - the update, the timeout, and a client that errors on OnUIInteract
+-- itself. Blizzard's frame calls it from OnHide for the same reason: an
+-- interaction the server is never told ended is the one thing this could leave
+-- behind.
+function ns.VaultInteract(record, onFired, onDone)
+    local W = C_WeeklyRewards
+    local startedAt = debugprofilestop and debugprofilestop() or nil
+    local listener = CreateFrame("Frame")
+    local settled = false
+
+    local function settle(fired)
+        if settled then
+            return
+        end
+        settled = true
+        listener:UnregisterEvent("WEEKLY_REWARDS_UPDATE")
+        listener:SetScript("OnEvent", nil)
+        record.updateFired = fired
+        record.timedOut = not fired
+        if startedAt and debugprofilestop then
+            record.waitedMs = debugprofilestop() - startedAt
+        end
+        if fired and onFired then
+            onFired(record)
+        end
+        record.close = ns.Probe(W.CloseInteraction)
+        if onDone then
+            onDone(record)
+        end
+    end
+
+    listener:SetScript("OnEvent", function(_, event)
+        if event == "WEEKLY_REWARDS_UPDATE" then
+            settle(true)
+        end
+    end)
+    listener:RegisterEvent("WEEKLY_REWARDS_UPDATE")
+    record.interact = ns.Probe(W.OnUIInteract)
+    if record.interact.error then
+        -- The client refused the question; there is nothing to wait for, and
+        -- CloseInteraction still runs on the way out.
+        settle(false)
+        return record
+    end
+    if C_Timer and C_Timer.After then
+        C_Timer.After(ns.VAULT_INTERACT_TIMEOUT_SECONDS, function()
+            settle(false)
+        end)
+    else
+        settle(false)
+    end
+    return record
+end
+
 -- True when the vault is in exactly the state the measurement described: the
 -- client says rewards are waiting and lists not one of them. Anything else - no
 -- rewards at all, or rewards already in the list - is left alone, so the
@@ -502,53 +586,14 @@ ns.RegisterCapture(
 
         local record = { attempted = true, reason = reason, updateFired = false, timedOut = false }
         data.interact = record
-        local startedAt = debugprofilestop and debugprofilestop() or nil
-        local listener = CreateFrame("Frame")
-        local settled = false
-
-        -- CloseInteraction is the other half of OnUIInteract and runs on every
-        -- path out of here - the update, the timeout, and a client that errors
-        -- on OnUIInteract itself. Blizzard's frame calls it from OnHide for the
-        -- same reason: an interaction the server is never told ended is the one
-        -- thing this capture could leave behind.
-        local function settle(fired)
-            if settled then
-                return
-            end
-            settled = true
-            listener:UnregisterEvent("WEEKLY_REWARDS_UPDATE")
-            listener:SetScript("OnEvent", nil)
-            record.updateFired = fired
-            record.timedOut = not fired
-            if startedAt and debugprofilestop then
-                record.waitedMs = debugprofilestop() - startedAt
-            end
-            if fired then
-                record.after = vaultLists(W)
-            end
-            record.close = ns.Probe(W.CloseInteraction)
+        ns.VaultInteract(record, function()
+            -- While the interaction is still open and the server's answer is
+            -- fresh: the second read, kept beside the first rather than
+            -- replacing it.
+            record.after = vaultLists(W)
+        end, function()
             finish(data)
-        end
-
-        listener:SetScript("OnEvent", function(_, event)
-            if event == "WEEKLY_REWARDS_UPDATE" then
-                settle(true)
-            end
         end)
-        listener:RegisterEvent("WEEKLY_REWARDS_UPDATE")
-        record.interact = ns.Probe(W.OnUIInteract)
-        if record.interact.error then
-            -- The client refused the question; there is nothing to wait for,
-            -- and CloseInteraction still runs on the way out.
-            return settle(false)
-        end
-        if C_Timer and C_Timer.After then
-            C_Timer.After(ns.VAULT_INTERACT_TIMEOUT_SECONDS, function()
-                settle(false)
-            end)
-        else
-            settle(false)
-        end
     end,
     { async = true }
 )
