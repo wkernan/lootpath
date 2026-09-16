@@ -253,6 +253,22 @@ local function attachTextureSurface(r)
     function r:SetTexCoord(...)
         self.texCoord = { ... }
     end
+    -- TextureBase:SetMask(file) (Core/Widget/Base/TextureBase.lua:142): the
+    -- one-file form of a MaskTexture, which crops the texture to the mask's
+    -- alpha over the texture's own bounds. Recorded, never drawn - a test can
+    -- only ask WHICH mask, not what it looked like (M5-2a, WKE-593).
+    function r:SetMask(file)
+        self.mask = file
+    end
+    function r:GetMask()
+        return self.mask
+    end
+    -- The layer a texture was created in, as Frame:CreateTexture's second
+    -- argument names it. The real client returns the sub-level too; nothing
+    -- here sets one, so it answers the default 0.
+    function r:GetDrawLayer()
+        return self.drawLayer, 0
+    end
 end
 
 local function newRegion(kind, parent)
@@ -791,8 +807,10 @@ function newFrame(kind, world, parent, template)
         self.regions[#self.regions + 1] = fs
         return fs
     end
-    function f:CreateTexture()
+    function f:CreateTexture(name, drawLayer)
         local tex = newRegion("Texture", self)
+        tex.frameName = name
+        tex.drawLayer = drawLayer
         self.regions[#self.regions + 1] = tex
         return tex
     end
