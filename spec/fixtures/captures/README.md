@@ -141,3 +141,17 @@ with every loop rather than by request.
   `Data/CompanionStatus.lua`), the verdict untouched. The addon half - the
   refusal and `leavingWorld` - waits on the NEXT real logout, which will be
   the first taken by the new code. No secrets.
+- Lootpath-20260916-142559.lua - **the fourth real logout, and the first on
+  the R-7b build (WKE-591): the measurement, and it closes the question.** The
+  owner logged out for real at 14:25:58 local on `main` `6417440` (loaded at
+  his login after the 14:00 one), logged in, and ran `sync.ps1 -Pull`. The
+  flush's `env` snapshot carries `leavingWorld = { equipped = 0, elapsedMs =
+  0.069 }` - at `PLAYER_LEAVING_WORLD` the client already answers
+  `GetInventoryItemLink` with nothing for every slot - and `flushRefusals`
+  naming `inventory` with R-7b's reason; no `inventory` snapshot was stored
+  for that flush, so the four stored ones are the three reload reads of
+  12:22-12:53 (`equipped 15`) and the 14:00:11 empty one the pre-R-7b addon
+  stored. So a real logout reads no gear at either event, and the flush on a
+  logout can keep `env`, `vault` and `currencies` current but never the gear;
+  R-7c (WKE-594) retires the promise in the words. The watcher on this write
+  (19:26:02Z) again refused the 14:00:11 read with exit 8. No secrets.
