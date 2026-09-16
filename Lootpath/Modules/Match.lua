@@ -293,7 +293,15 @@ function Match.Build(inventory, verdict)
         -- shown (C-8, WKE-558). This function matches what he answered against
         -- what is owned; "and these he was not asked about" is the panel's
         -- line, and the panel reads it off the match it drew.
-        excluded = verdict.excluded,
+        --
+        -- The run's list and not this document's (C-11a, WKE-586). Since C-11
+        -- the plan is pass 1 of a sequence, and pass 1's own `excluded` is what
+        -- the later passes went on to ask about, not what nothing asked;
+        -- `ns.Companion.Unrated` is the one place that difference is decided.
+        -- Never `or verdict.excluded`: a run whose last pass left nothing out
+        -- has nothing to say, and falling back to the plan's own list here
+        -- would put 586's own defect back one line lower down.
+        excluded = ns.Companion and ns.Companion.Unrated(verdict) or nil,
     }
 end
 

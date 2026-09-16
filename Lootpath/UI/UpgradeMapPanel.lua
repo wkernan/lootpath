@@ -1872,12 +1872,17 @@ function Panel.RoadInputs(opts, extra)
     -- different question.
     if inputs.excluded == nil or inputs.passes == nil then
         local entry = ns.Roads.Plan(inputs)
-        if inputs.excluded == nil then
-            inputs.excluded = entry and entry.verdict and entry.verdict.excluded or nil
-        end
+        -- The passes FIRST, because the leftover list is read off them (C-11a,
+        -- WKE-586): what nothing in the run was asked about is what the LAST
+        -- pass left out, and pass 1's own list is what the later passes went on
+        -- to rate. `beyond the rating's item limit` is the one tail that may be
+        -- read off it, and it is the same list the two tab headers count.
         if inputs.passes == nil and entry and entry.verdict then
             inputs.passes =
                 ns.QEImport.Passes(ns.QEImport.ContentTypeKey(entry.verdict), ns.QEImport.ScenarioKey(entry.verdict))
+        end
+        if inputs.excluded == nil and entry and entry.verdict then
+            inputs.excluded = ns.Companion.Unrated(entry.verdict, inputs.passes)
         end
     end
     return inputs

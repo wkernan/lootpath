@@ -332,6 +332,56 @@ function Companion.IsConsidered(considered, key, item)
     return Companion.IsExcluded(considered, key, item)
 end
 
+-- Which of the character's items NO pass of this run was ever shown (C-11a,
+-- WKE-586). This is the one list the "weren't rated this time" line and the
+-- `beyond the rating's item limit` tail may be read off, and the ONE function
+-- both tabs take their number from.
+--
+-- It is not the same question as "what could this pass not fit". A Top Gear run
+-- is a sequence of passes since C-11, and pass 1's leftovers are exactly the
+-- cards passes 2 and 3 went on to ask about: reading the plan's own `excluded`
+-- told the owner 25 of his items were unrated on a run whose every item was
+-- rated (his screens, 2026-09-15 ~15:50, ARCHITECTURE.md §9). The truthful list
+-- is the LAST pass's leftovers, because each pass is shown what the one before
+-- it left out, so what the last pass left out is what nothing was asked about.
+--
+-- `passes` is `ns.QEImport.Passes(contentType, scenario)` for this verdict's own
+-- run - the same list `Roads.LaterPass` walks, so the header and the tail cannot
+-- disagree about which items no pass saw. Omitted, it is looked up, because
+-- `Match.Build` is handed a verdict and not a run.
+--
+-- A verdict with no later passes answers with its own list, which is right for
+-- all three cases that have one: a single-pass run, every file written before
+-- C-11, and every paste.
+--
+-- This is the same list the companion writes as the file-level one
+-- (`tools/companion/lib/fork.js` ~988, "the base pass's LAST pass"), read per
+-- scenario rather than per file - the Catalyst passes have clones to leave out
+-- that the base pass never had, so the file's list is not the catalyzed run's.
+function Companion.Unrated(verdict, passes)
+    if type(verdict) ~= "table" then
+        return nil
+    end
+    if passes == nil and ns.QEImport and ns.QEImport.Passes then
+        passes = ns.QEImport.Passes(ns.QEImport.ContentTypeKey(verdict), ns.QEImport.ScenarioKey(verdict))
+    end
+    local last = nil
+    -- In pass order, so the last entry is the highest pass. `Passes` is the one
+    -- place that order is decided and this does not invent a second one.
+    for _, entry in ipairs(type(passes) == "table" and passes or {}) do
+        if type(entry) == "table" and type(entry.verdict) == "table" then
+            last = entry.verdict
+        end
+    end
+    if last then
+        -- Not `or verdict.excluded`: a last pass that left nothing out is the
+        -- answer "nothing", and falling through to the plan's own list is the
+        -- defect this function exists to fix.
+        return last.excluded
+    end
+    return verdict.excluded
+end
+
 -- One left-out item as words: "Lynx Spaulders (Shoulder, 678)". The slot and
 -- the level are QE Live's own strings and his own number, and either may be
 -- missing, so the brackets appear only when there is something to put in them.

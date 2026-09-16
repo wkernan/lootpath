@@ -2861,6 +2861,66 @@ describe("VaultPanel and the items QE Live never saw", function()
         end
         assert.is_truthy(containsText(drawnTexts(frame), "weren't rated this time"))
     end)
+
+    -- C-11a (WKE-586): the line counts what NO pass was shown.
+    --
+    -- The owner's 14:31 run, whose every scenario's pass 3 logged `0 still to
+    -- ask about`, and whose Vault tab said `29 of your items weren't rated this
+    -- time` anyway. Pass 1's leftovers are the cards its later passes rated.
+    local function storePasses(plan, lastLeftovers)
+        ns.QEImport.Store(plan)
+        ns.QEImport.Store({
+            contentType = plan.contentType,
+            scenario = plan.scenario,
+            pass = 2,
+            excluded = ns.Companion.Excluded(EXCLUDED),
+        })
+        ns.QEImport.Store({
+            contentType = plan.contentType,
+            scenario = plan.scenario,
+            pass = 3,
+            excluded = lastLeftovers,
+        })
+    end
+
+    local function modelFor(verdict)
+        return ns.VaultPanel.Model({
+            vault = ns.Vault.Options(),
+            verdict = verdict,
+            now = 1788700000,
+            captures = false,
+        })
+    end
+
+    it("says nothing when the later passes went on to rate every one of them", function()
+        local verdict = realVerdict(ns)
+        verdict.excluded = ns.Companion.Excluded(EXCLUDED)
+        assert.equal(2, #verdict.excluded, "the plan's own document left two behind")
+        storePasses(verdict, nil)
+        local model = modelFor(verdict)
+        assert.is_nil(model.excluded)
+        assert.is_nil(model.excludedNote)
+        for _, line in ipairs(ns.VaultPanel.NoteLines(model)) do
+            assert.is_nil(line:find("weren't rated this time", 1, true))
+        end
+    end)
+
+    it("names the last pass's leftovers, and only those, when the bound left some", function()
+        local verdict = realVerdict(ns)
+        verdict.excluded = ns.Companion.Excluded(EXCLUDED)
+        local last = ns.Companion.Excluded({ { slot = "Trinket", name = "Seed of Radiant Hope", level = 308 } })
+        storePasses(verdict, last)
+        local model = modelFor(verdict)
+        assert.same(last, model.excluded)
+        assert.equal(
+            "1 of your items weren't rated this time: Seed of Radiant Hope (Trinket, 308).",
+            model.excludedNote
+        )
+        -- Neither of pass 1's own two reaches the tab, and Equip Now's header
+        -- reads the same list off the same function.
+        assert.is_nil(model.excludedNote:find("Lynx Spaulders", 1, true))
+        assert.same(last, ns.Companion.Unrated(verdict))
+    end)
 end)
 
 -- M3-16b (WKE-583): the Vault tab over the owner's own reset day.

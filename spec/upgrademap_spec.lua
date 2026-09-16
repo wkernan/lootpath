@@ -2756,3 +2756,94 @@ describe("UpgradeMapPanel Crafting and Delves cards", function()
         assert.same({ ns.UpgradeMapPanel.EMPTY_NOTE }, ns.UpgradeMapPanel.RunLines(runs))
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- C-11a (WKE-586): the road inputs carry the RUN's leftover list.
+--
+-- `beyond the rating's item limit` is the one tail read off that list, and on a
+-- run whose last pass left nothing behind it may appear on no tooltip at all.
+-- Off the plan's own document it appeared on every card pass 1 could not fit -
+-- which is every card passes 2 and 3 went on to rate.
+describe("UpgradeMapPanel.RoadInputs and the items no pass was shown", function()
+    local ns
+
+    before_each(function()
+        ns = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- Pass 1 could not fit this one; pass 2 was shown it.
+    local LEFT = { slot = "Finger", name = "Band of Whatever", level = 678, itemID = 222, bonusIDs = { 7 } }
+    -- And this one nothing was ever shown.
+    local LAST = { slot = "Trinket", name = "Seed of Radiant Hope", level = 308, itemID = 333, bonusIDs = { 9 } }
+
+    local function facts(item)
+        return { name = item.name, level = item.level }
+    end
+
+    local function key(item)
+        return ns.ItemKey(item.itemID, item.bonusIDs)
+    end
+
+    local function storeRun(lastLeftovers)
+        local plan = realVerdict(ns)
+        plan.excluded = ns.Companion.Excluded({ LEFT })
+        ns.QEImport.Store(plan)
+        ns.QEImport.Store({
+            contentType = plan.contentType,
+            scenario = plan.scenario,
+            pass = 2,
+            considered = ns.Companion.Excluded({ LEFT }),
+        })
+        ns.QEImport.Store({
+            contentType = plan.contentType,
+            scenario = plan.scenario,
+            pass = 3,
+            excluded = lastLeftovers,
+        })
+        return plan
+    end
+
+    local function inputsFor(plan)
+        return ns.UpgradeMapPanel.RoadInputs({
+            scenarios = { { scenario = ns.QEImport.ScenarioKey(plan), verdict = plan } },
+        }, {})
+    end
+
+    it("leaves the limit tail on no card when the last pass left nothing behind", function()
+        local plan = storeRun(nil)
+        local inputs = inputsFor(plan)
+        assert.equal(2, #inputs.passes)
+        assert.is_nil(inputs.excluded)
+        -- Proved red: off the plan's own list, with no later pass to ask, this
+        -- is the limit tail, which is the tooltip the owner read.
+        assert.equal(
+            ns.Roads.PHRASE_NOT_RATED_LIMIT,
+            ns.Roads.NotRatedPhrase(plan.excluded, facts(LEFT), key(LEFT), nil)
+        )
+        -- And off the run's, it is not: pass 2 rated it.
+        assert.not_equal(
+            ns.Roads.PHRASE_NOT_RATED_LIMIT,
+            ns.Roads.NotRatedPhrase(inputs.excluded, facts(LEFT), key(LEFT), inputs.passes)
+        )
+    end)
+
+    it("keeps the limit tail for an item the pass bound really left behind", function()
+        local plan = storeRun(ns.Companion.Excluded({ LAST }))
+        local inputs = inputsFor(plan)
+        assert.equal(1, #inputs.excluded)
+        assert.equal("Seed of Radiant Hope", inputs.excluded[1].name)
+        assert.equal(
+            ns.Roads.PHRASE_NOT_RATED_LIMIT,
+            ns.Roads.NotRatedPhrase(inputs.excluded, facts(LAST), key(LAST), inputs.passes)
+        )
+        -- Pass 1's own leftover is still not on it: one pass saw it.
+        assert.not_equal(
+            ns.Roads.PHRASE_NOT_RATED_LIMIT,
+            ns.Roads.NotRatedPhrase(inputs.excluded, facts(LEFT), key(LEFT), inputs.passes)
+        )
+    end)
+end)

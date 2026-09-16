@@ -517,4 +517,56 @@ describe("the items QE Live never saw", function()
         -- And a refusal is still a refusal rather than a place to hang a note.
         assert.is_nil(ns.UI.EquipPanel.ExcludedText({ ok = false, reason = "combat" }))
     end)
+
+    -- C-11a (WKE-586): the header counts what NO pass was shown.
+    --
+    -- The owner's 14:31 run, whose pass 3 logged `0 still to ask about`, and
+    -- whose Equip Now tab said `25 of your items weren't rated this time`
+    -- anyway. Pass 1's leftovers are the cards passes 2 and 3 went on to rate.
+    local function storePasses(plan, lastLeftovers)
+        ns.QEImport.Store(plan)
+        ns.QEImport.Store({
+            contentType = plan.contentType,
+            scenario = plan.scenario,
+            pass = 2,
+            excluded = ns.Companion.Excluded({ { slot = "Finger", name = "Band of Whatever", level = 678 } }),
+        })
+        ns.QEImport.Store({
+            contentType = plan.contentType,
+            scenario = plan.scenario,
+            pass = 3,
+            excluded = lastLeftovers,
+        })
+    end
+
+    it("says nothing when the later passes went on to rate every one of them", function()
+        local scan = scanFrom(ns, world, true)
+        local carried = verdictFrom(ns, REAL_EXPORT)
+        carried.excluded = ns.Companion.Excluded(EXCLUDED)
+        assert.equal(2, #carried.excluded, "the plan's own document left two behind")
+        storePasses(carried, nil)
+        local match = ns.Match.Build(scan, carried)
+        assert.is_nil(match.excluded)
+        assert.is_nil(ns.UI.EquipPanel.ExcludedText(match))
+        assert.is_nil(ns.UI.EquipPanel.NoteText(match):find("weren't rated this time", 1, true))
+        assert.same({}, ns.UI.EquipPanel.ExcludedLines(match))
+    end)
+
+    it("names the last pass's leftovers, and only those, when the bound left some", function()
+        local scan = scanFrom(ns, world, true)
+        local carried = verdictFrom(ns, REAL_EXPORT)
+        carried.excluded = ns.Companion.Excluded(EXCLUDED)
+        local last = ns.Companion.Excluded({ { slot = "Trinket", name = "Seed of Radiant Hope", level = 308 } })
+        storePasses(carried, last)
+        local match = ns.Match.Build(scan, carried)
+        assert.same(last, match.excluded)
+        assert.equal(
+            "1 of your items weren't rated this time: Seed of Radiant Hope (Trinket, 308).",
+            ns.UI.EquipPanel.ExcludedText(match)
+        )
+        -- And neither of pass 1's own two is on the line or in the tooltip.
+        local lines = ns.UI.EquipPanel.ExcludedLines(match)
+        assert.equal(1, #lines)
+        assert.is_nil(ns.UI.EquipPanel.NoteText(match):find("Lynx Spaulders", 1, true))
+    end)
 end)
