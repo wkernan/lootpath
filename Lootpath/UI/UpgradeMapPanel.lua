@@ -402,6 +402,29 @@ local function sortCandidates(rows)
     end)
 end
 
+-- What a hover says when the row has no link of its own. The client would
+-- draw the item as it exists in its own expansion - the base level and the
+-- stats that came with it - and nothing on that tooltip would say so, which is
+-- how a 305 row read as Item Level 28 (M5-3a). The row says it instead, and
+-- names the one thing that fixes it. No link is ever synthesised from an ID
+-- and a level: a made-up link would be a made-up item.
+Panel.BASE_LEVEL_NOTE = "shown at its base level - /lootpath capture journal to read it at +%d"
+Panel.BASE_LEVEL_NOTE_PLAIN = "shown at its base level - /lootpath capture journal to read it at this row's level"
+
+-- The keystone level is only part of the sentence where the row has one: a
+-- raid drop is not read at a key level, so it gets the plain form rather than
+-- a number that means nothing there.
+function Panel.BaseLevelNote(entry, previewLevel)
+    local level = previewLevel
+    if entry and entry.difficultyID ~= mythicPlusDifficulty() then
+        level = nil
+    end
+    if type(level) == "number" then
+        return string.format(Panel.BASE_LEVEL_NOTE, level)
+    end
+    return Panel.BASE_LEVEL_NOTE_PLAIN
+end
+
 -- One journal entry as a candidate row, without any number on it. Both views
 -- build their rows here, so a row means the same thing in the slot view and in
 -- the run view and neither can drift into saying something the other does not.
@@ -431,6 +454,13 @@ local function candidateRow(itemID, entry, owned, difficultyLabels, previewLevel
         -- file IDs, carried; nil on a walk taken before they were recorded.
         icon = entry.icon,
         instanceImage = entry.instanceImage,
+        -- The link the walk read this row's item level off, carried so the
+        -- hover shows the item AT that level (M5-3a). A walk taken before the
+        -- link was kept has none, and then the row carries the note that says
+        -- so instead: an old-expansion base tooltip is never left to pass for
+        -- the level the row prints.
+        link = entry.link,
+        levelNote = entry.link == nil and entry.pending ~= true and Panel.BaseLevelNote(entry, previewLevel) or nil,
     }
 end
 
@@ -1747,6 +1777,14 @@ function Panel.RoadRow(road, previewMythicPlusLevel)
         tag = Panel.RoadTag(road),
         planPick = road.planPick == true,
         itemID = road.item and road.item.itemID or nil,
+        -- A drop road draws a journal entry, so it has the same hover as the
+        -- map's own rows: the client's link where the walk kept one, and the
+        -- base-level note where it did not (M5-3a). A road that is not a drop
+        -- carries neither - its item is named by a document, not by a walk.
+        link = road.item and road.item.link or nil,
+        levelNote = (road.kind == ns.Roads.KIND_DROP and not (road.item and road.item.link))
+                and Panel.BaseLevelNote(road.source, previewMythicPlusLevel)
+            or nil,
         name = road.item and road.item.name or nil,
         icon = road.item and road.item.icon or nil,
         quality = road.item and road.item.quality or nil,
@@ -2749,6 +2787,8 @@ function Panel.InitElement(panel, element, data)
         local row = data.row or {}
         UI.ItemLine.Set(ensureItem(element), {
             itemID = row.itemID,
+            link = row.link,
+            levelNote = row.levelNote,
             name = row.name,
             itemLevel = row.itemLevel,
             icon = row.icon,
@@ -2803,6 +2843,8 @@ function Panel.InitRoad(panel, element, row)
     element.roadLine:SetPoint("RIGHT", frame, "RIGHT", -4, 0)
     UI.ItemLine.Set(element.roadLine, {
         itemID = row.itemID,
+        link = row.link,
+        levelNote = row.levelNote,
         name = row.name,
         itemLevel = row.itemLevel,
         icon = row.icon,

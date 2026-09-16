@@ -988,6 +988,7 @@ local function aggregate(targets, wanted)
                             existing.itemKey = parsed and parsed.key or nil
                             existing.name = type(info.name) == "string" and info.name or nil
                             existing.icon = rowIcon(info, row) or existing.icon
+                            existing.link = type(info.link) == "string" and info.link or nil
                         end
                     else
                         local entry = {
@@ -1010,6 +1011,14 @@ local function aggregate(targets, wanted)
                             -- name: an item line drawn from the cache shows
                             -- the right icon with no round trip (M5-3).
                             icon = rowIcon(info, row),
+                            -- The client's own link for this row, kept whole
+                            -- (M5-3a): it is the string the walk already read
+                            -- the item level off, under the previewed keystone
+                            -- level, so a tooltip drawn from it shows the item
+                            -- at the level the row says rather than the base
+                            -- item of its own expansion. Nothing new is asked
+                            -- of the client; the link was simply thrown away.
+                            link = (not pending) and type(info.link) == "string" and info.link or nil,
                             instanceImage = art and art.instanceImage or nil,
                             instanceImage2 = art and art.instanceImage2 or nil,
                             instanceBackground = art and art.instanceBackground or nil,

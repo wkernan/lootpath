@@ -146,6 +146,37 @@ describe("UI.ItemLine over a cached item", function()
         assert.equal(ITEM_ID, world.tooltip.itemID)
         assert.is_nil(world.tooltip.hyperlink)
     end)
+
+    -- M5-3a. A journal drop's link carries the previewed key level, so the
+    -- hover reads at the level the row prints; with only an id the client
+    -- draws the item as it exists in its own expansion and says nothing about
+    -- it, which is how a 305 row hovered as Item Level 28.
+    it("says so when it can only show the item at its base level", function()
+        ns.UI.ItemLine.Set(line, {
+            itemID = ITEM_ID,
+            levelNote = "shown at its base level - /lootpath capture journal to read it at +10",
+        })
+        line.iconButton.stub:Enter()
+        assert.equal(ITEM_ID, world.tooltip.itemID)
+        local text = world.tooltip.stub.Text()
+        assert.is_truthy(
+            text:find("shown at its base level - /lootpath capture journal to read it at +10", 1, true),
+            "the base-level line was not on the tooltip: " .. text
+        )
+        line.iconButton.stub:Leave()
+
+        -- With a link there is nothing to say: the tooltip is the item at the
+        -- level the link carries, and the note is not drawn even when a caller
+        -- hands one in.
+        ns.UI.ItemLine.Set(line, {
+            itemID = ITEM_ID,
+            link = "|Hitem:271528|h[Placeholder Hood]|h",
+            levelNote = "shown at its base level - /lootpath capture journal to read it at +10",
+        })
+        line.iconButton.stub:Enter()
+        assert.equal("|Hitem:271528|h[Placeholder Hood]|h", world.tooltip.hyperlink)
+        assert.is_nil(world.tooltip.stub.Text():find("base level", 1, true))
+    end)
 end)
 
 describe("UI.ItemLine over an item the client has not loaded", function()
