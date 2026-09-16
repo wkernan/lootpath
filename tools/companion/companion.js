@@ -64,19 +64,36 @@ const EXIT = {
     // happened was an empty read three hours earlier, and a wrapper reading
     // exit codes could not tell "QE Live broke" from "we sent it nothing".
     emptyGear: 8,
+    // C-14 (WKE-603): the profile is missing a slot QE Live insists on, so
+    // its `Go!` button would be disabled and the run could never finish. Its
+    // own code beside `emptyGear` for the same reason that one has one: a
+    // wrapper reading exit codes must be able to tell "we sent it nothing"
+    // from "we sent it something it will not rate".
+    emptySlot: 9,
 };
 
 // The exit codes that are a SKIP rather than a failure (R-7c, WKE-594): the run
 // ended early on purpose, nothing broke, and the previous verdict is the best
 // answer there is. The status file already says `skipped` for these; this is
 // what keeps the log from saying `failed` in the same breath.
-const SKIPPED_EXITS = new Set([EXIT.emptyGear]);
+const SKIPPED_EXITS = new Set([EXIT.emptyGear, EXIT.emptySlot]);
 
 // Said before the fork is touched, and the only thing said: a profile with no
 // equipped gear is not a question QE Live can be asked. The previous verdict
 // stays on disk, which is the sentence's own promise (R-7b, WKE-591).
 const EMPTY_GEAR_LINE =
     'refusing to rate a profile with no equipped gear (the newest inventory read is empty); the previous verdict is untouched';
+
+// The same sentence for a profile that carries gear but not in every slot QE
+// Live insists on (C-14, WKE-603). The slot names are QE Live's own, out of
+// `lib/profile.js`'s mirror of its `checkSlots`.
+function emptySlotLine(slots) {
+    const named = slots.join(', ');
+    return (
+        `refusing to rate a profile with an empty slot (${named}); ` +
+        'the previous verdict is untouched'
+    );
+}
 
 // What each gate is waiting for, in the log's own words. The reasons a gate
 // gives AFTER it is settled are lib/config.js's (`gateVerdict`); this is the
@@ -196,6 +213,25 @@ async function once(config, log, args, deps) {
         log.skipped(EMPTY_GEAR_LINE);
         status.skipped(EMPTY_GEAR_LINE, { exitCode: EXIT.emptyGear });
         return EXIT.emptyGear;
+    }
+
+    // C-14 (WKE-603). **The companion never sends a profile QE Live will not
+    // rate.** Sibling of the refusal above, and for the same reason: the owner's
+    // 16:26:34 read had 14 equipped records - slot 7, legs, absent - and QE Live
+    // disables `Go!` while a slot it insists on has nothing selected. Both runs
+    // over that write opened the fork, spent a minute selecting cards, and then
+    // clicked a disabled button for twenty seconds before Playwright gave up
+    // (`Data/companion.log` 21:26-21:28Z). Nothing broke: the read was short one
+    // slot and the verdict on disk is still the best answer there is, so this is
+    // a `skipped` with its own exit code, said before the browser is opened.
+    //
+    // The rule is read out of the fork, not written here (see `missingSlots`).
+    const missing = profile.missingSlots || [];
+    if (missing.length) {
+        const line = emptySlotLine(missing);
+        log.skipped(line);
+        status.skipped(line, { exitCode: EXIT.emptySlot });
+        return EXIT.emptySlot;
     }
 
     // C-4 (WKE-537). Two reloads is the floor of the loop, so the second one
@@ -538,4 +574,4 @@ if (require.main === module) {
     );
 }
 
-module.exports = { parseArgs, once, visibility, whatThisWriteCarried, EXIT, VERSION };
+module.exports = { parseArgs, once, visibility, whatThisWriteCarried, emptySlotLine, EXIT, VERSION };

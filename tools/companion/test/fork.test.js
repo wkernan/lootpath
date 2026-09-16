@@ -330,6 +330,12 @@ function fakeTopGearPage(cards, cap) {
             if (name === 'Go!') {
                 return {
                     first: () => ({ async click() {} }),
+                    // C-14 (WKE-603): the driver reads the button's state
+                    // before it clicks it. `page.goEnabled = false` is a QE
+                    // Live that will not rate this pool.
+                    async isEnabled() {
+                        return page.goEnabled !== false;
+                    },
                     async click() {
                         page.exports.push(page.cards.filter((c) => c.active).map((c) => c.name).sort());
                     },
@@ -744,4 +750,37 @@ test('C-11: what a pass says it considered is exactly what the verdict writer ac
     assert.ok(text.includes('            considered = {'), 'and so does the pool it saw');
     const first = passes[1].considered[0];
     assert.ok(text.includes(`slot = ${JSON.stringify(first.slot)}, name = ${JSON.stringify(first.name)}, level = ${first.level}`));
+});
+
+// ---------------------------------------------------------------------------
+// C-14 (WKE-603): the driver never clicks a disabled Go!.
+//
+// On 2026-09-16 QE Live disabled `Go!` for a pool that filled no Legs slot, and
+// Playwright clicked it for twenty seconds before it gave up - twice, once per
+// run, ending in `locator.click: Timeout 20000ms exceeded` and a page of call
+// log that went into the status file and onto the owner's screen. A disabled
+// button is a decision, not a timing problem.
+test('C-14: a disabled Go! is refused in one sentence rather than clicked for twenty seconds', async () => {
+    const cards = ownersPage({});
+    const page = fakeTopGearPage(cards, 30);
+    page.goEnabled = false;
+    await assert.rejects(
+        () => forkLib.runTopGear(page, quietLog(), { baseline: forkLib.baselineOf(cards), maxPasses: 4 }),
+        (e) => {
+            assert.strictEqual(e.code, forkLib.REFUSED, 'the profile is what is wrong, not the fork');
+            assert.match(e.message, /^QE Live's Go! button is disabled for this pool - \d+ of \d+ selected, \d+ baseline$/);
+            // One sentence: no newline, no call log, nothing to cap.
+            assert.ok(!e.message.includes('\n'), 'a refusal is one line');
+            return true;
+        }
+    );
+    assert.strictEqual(page.exports.length, 0, 'nothing was submitted');
+});
+
+test('C-14: an enabled Go! is clicked exactly as it always was', async () => {
+    const cards = ownersPage({});
+    const page = fakeTopGearPage(cards, 30);
+    const passes = await forkLib.runTopGear(page, quietLog(), { baseline: forkLib.baselineOf(cards), maxPasses: 4 });
+    assert.ok(passes.length >= 1);
+    assert.strictEqual(page.exports.length, passes.length, 'one Go! per pass, still');
 });

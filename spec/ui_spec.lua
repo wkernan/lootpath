@@ -2018,6 +2018,35 @@ describe("the nudge row (R-6)", function()
         local _, saidTwice = world.tooltip.stub:Text():gsub("rating your gear", "")
         assert.equal(1, saidTwice)
     end)
+    -- C-14 (WKE-603): the nudge row hovers as ONE line, and never the strip's.
+    --
+    -- The owner photographed a tooltip the height of his screen ending in
+    -- Playwright's call log. The companion's note belongs to the STRIP,
+    -- one row up, and this is the guard that the nudge row cannot inherit it:
+    -- with a status file carrying a dump, the row's hover is its own line and the
+    -- newest arrival, and nothing else at all.
+    --
+    -- Proven red by giving the row the strip's tooltip lines: the companion's
+    -- sentence lands on it and every assertion below fails at once.
+    it("hovers as the nudge alone, with no companion note on it", function()
+        ns.companionStatus = {
+            state = "failed",
+            stage = "qe live",
+            message = "driving QE Live failed: locator.click: Timeout 20000ms exceeded.",
+            finishedAt = "2026-09-14T22:48:41Z",
+        }
+        behind(1, "Lightgrasp Worldroot")
+        ns.UI.RefreshStrip(frame)
+        frame.nudgeButton:GetScript("OnEnter")(frame.nudgeButton)
+        local shown = world.tooltip.stub:Text()
+        assert.is_truthy(shown:find("click to refresh", 1, true))
+        assert.is_truthy(shown:find("Lightgrasp Worldroot", 1, true))
+        assert.is_nil(shown:find("companion", 1, true))
+        assert.is_nil(shown:find("locator.click", 1, true))
+        -- and the STRIP, one row up, is where that sentence really lives
+        frame.statusStrip:GetScript("OnEnter")(frame.statusStrip)
+        assert.is_truthy(world.tooltip.stub:Text():find("locator.click", 1, true))
+    end)
 end)
 
 -- M3-16b (WKE-583): the wait indicator, on the strip's own row.

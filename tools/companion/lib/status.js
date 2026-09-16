@@ -42,6 +42,31 @@ function stamp(at) {
     return at.toISOString().replace(/\.\d+Z$/, 'Z');
 }
 
+// ONE SENTENCE, ALWAYS (C-14, WKE-603).
+//
+// `message` has said "one sentence for the strip's tooltip" since C-9 and
+// nothing enforced it. On 2026-09-16 the fork's click timed out and Playwright's
+// whole error went in - its call log, its retry lines, and its ANSI colour
+// codes, which the game's font draws as boxes - and from there onto the status
+// strip's tooltip, which the owner read as a blob the height of his screen.
+//
+// So the file gets the first line, with the escape sequences taken out and a
+// cap on its length; `Data/companion.log` keeps the whole text, which is where
+// a reader who wants the call log should be looking anyway.
+const MESSAGE_MAX = 200;
+
+function oneSentence(message) {
+    if (typeof message !== 'string') {
+        return message;
+    }
+    const clean = message.replace(/\u001b\[[0-9;]*m/g, '');
+    const first = clean.split(/\r?\n/)[0].trim();
+    if (first.length <= MESSAGE_MAX) {
+        return first;
+    }
+    return first.slice(0, MESSAGE_MAX - 3).trimEnd() + '...';
+}
+
 // The chunk, rendered from a plain record. Every string goes through the
 // verdict writer's escaper - the one that is tested against quotes,
 // backslashes, "]]", newlines and control bytes - because a message here is
@@ -63,7 +88,7 @@ function render(record) {
         'ns.companionStatus = {',
     ];
     for (const key of STRING_FIELDS) {
-        const value = record[key];
+        const value = key === 'message' ? oneSentence(record[key]) : record[key];
         if (value === undefined || value === null || value === '') {
             continue;
         }
@@ -156,7 +181,9 @@ function make(options) {
         failed(stage, message, exitCode) {
             record.state = 'failed';
             record.stage = stage;
-            record.message = message;
+            // C-14 (WKE-603): the first line, stripped and capped. The log
+            // already has the whole thing.
+            record.message = oneSentence(message);
             record.finishedAt = stamp(clock());
             record.exitCode = exitCode;
             return flush();
@@ -177,4 +204,4 @@ function make(options) {
     return status;
 }
 
-module.exports = { make, render, stamp, STATES, STAGES, STRING_FIELDS };
+module.exports = { make, render, stamp, oneSentence, STATES, STAGES, STRING_FIELDS, MESSAGE_MAX };

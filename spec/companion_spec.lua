@@ -1893,6 +1893,22 @@ describe("Companion.StatusText", function()
         assert.equal(8, ns.Companion.EXIT_EMPTY_GEAR)
     end)
 
+    -- C-14 (WKE-603). The THIRD skip, and the third piece of news: the gear was
+    -- read and a slot in it was bare, so nothing could be rated. Told apart from
+    -- the other two by its own exit code, for the same reason.
+    it("tells a skip over an empty slot from the other two skips", function()
+        assert.equal(
+            "companion: a gear slot was empty, no run (" .. at("2026-09-13T22:06:00Z") .. ") - see companion.log",
+            text({
+                state = "skipped",
+                finishedAt = "2026-09-13T22:06:00Z",
+                exitCode = ns.Companion.EXIT_EMPTY_SLOT,
+            })
+        )
+        assert.equal(9, ns.Companion.EXIT_EMPTY_SLOT)
+        assert.not_equal(ns.Companion.EXIT_EMPTY_GEAR, ns.Companion.EXIT_EMPTY_SLOT)
+    end)
+
     it("says where a run died, and where to read why", function()
         assert.equal(
             "companion: FAILED at profile (" .. at("2026-09-13T21:06:00Z") .. ") - see companion.log",
@@ -1936,6 +1952,54 @@ describe("Companion.StatusText", function()
         )
         -- a status with nothing to add adds nothing
         assert.is_nil(ns.Companion.StatusTooltip({ state = "idle" }, ns.EpochFromISO(NOW)))
+    end)
+
+    -- C-14 (WKE-603). **The tooltip is one line, whatever the file holds.**
+    --
+    -- The companion caps its own `message` now, but a status file written before
+    -- it does not - and the owner has one on disk from 2026-09-16 16:28. The
+    -- input here is that very message: the text the companion wrote at
+    -- 21:27:27Z, committed under `spec/fixtures/companion/`, Playwright's whole
+    -- call log with the ANSI colour codes the game's font draws as boxes.
+    --
+    -- Proven red by taking `Companion.OneLine` back out of `StatusTooltip`: the
+    -- tooltip comes back seventeen lines long with the escapes in it, which is
+    -- the blob in the owner's screenshot.
+    it("gives the strip one line even when the status file carries a whole dump", function()
+        local source = assert(io.open("spec/fixtures/companion/playwright-go-disabled.txt", "rb"))
+        local dump = source:read("*a")
+        source:close()
+        -- the fixture really is the thing: many lines, with escape bytes in it
+        assert.is_truthy(dump:find(string.char(10), 1, true))
+        assert.is_truthy(dump:find(string.char(27), 1, true))
+
+        local tooltip = ns.Companion.StatusTooltip({
+            state = "failed",
+            stage = "qe live",
+            message = dump,
+            finishedAt = "2026-09-13T21:06:00Z",
+        }, ns.EpochFromISO(NOW))
+
+        assert.equal(
+            "The companion's last run: driving QE Live failed: locator.click: Timeout 20000ms exceeded. ("
+                .. at("2026-09-13T21:06:00Z")
+                .. ")",
+            tooltip
+        )
+        assert.is_nil(tooltip:find(string.char(10), 1, true))
+        assert.is_nil(tooltip:find(string.char(27), 1, true))
+        assert.is_nil(tooltip:find("MuiButton", 1, true))
+    end)
+
+    -- And a message long enough to fill the screen on ONE line is cut too.
+    it("caps a single line that is too long to be a tooltip", function()
+        local long = string.rep("x", ns.Companion.TOOLTIP_MAX + 50)
+        local capped = ns.Companion.OneLine(long)
+        assert.equal(ns.Companion.TOOLTIP_MAX, #capped)
+        assert.equal("...", capped:sub(-3))
+        -- a sentence that fits is untouched, byte for byte
+        local fits = "refusing to rate a profile with an empty slot (legs); the previous verdict is untouched"
+        assert.equal(fits, ns.Companion.OneLine(fits))
     end)
 
     -- V-4 (WKE-589), the owner's screen at 2026-09-15 17:22 Central Daylight

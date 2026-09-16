@@ -908,3 +908,116 @@ describe("no player-facing string promises that a logout captures gear (R-7c)", 
         assert.equal("", table.concat(offences, "\n"))
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- C-14 (WKE-603): the nudge's `54 items`, and what the owner actually did.
+--
+-- At 16:30 on 2026-09-16 his nudge row read `your gear changed since this plan
+-- (54 items)`. He had taken one piece off. Everything below is his own
+-- SavedVariables, `spec/fixtures/captures/Lootpath-20260916-162655.lua`, copied
+-- out of the game folder unchanged: its inventory list is four reads, of which
+-- 15:29:53 has 15 equipped and 16:26:34 - the reload flush behind that screen -
+-- has 14, with inventory slot 7, legs, gone into a bag.
+local LEGS_OFF = "spec/fixtures/captures/Lootpath-20260916-162655.lua"
+-- Their indexes in that file's `inventory` list, in the order they were taken.
+local DRESSED_SNAPSHOT = 3 -- 2026-09-16T15:29:53, 15 equipped
+local LEGS_OFF_SNAPSHOT = 4 -- 2026-09-16T16:26:34, 14 equipped
+
+describe("ns.Drift over the owner's 2026-09-16 legs-off read (C-14)", function()
+    local ns, world
+
+    local function count(set)
+        local n = 0
+        for _ in pairs(set) do
+            n = n + 1
+        end
+        return n
+    end
+
+    before_each(function()
+        ns, world = H.load()
+        R.inventory(world, R.snapshot("inventory", DRESSED_SNAPSHOT, LEGS_OFF))
+        ns.Drift.Rebase()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- The two reads are the file's own; the stamps are asserted so a later pull
+    -- landing in this directory cannot quietly move what is being compared.
+    it("is the 15:29:53 and 16:26:34 reads, 15 equipped and 14", function()
+        assert.equal("2026-09-16T15:29:53", R.snapshot("inventory", DRESSED_SNAPSHOT, LEGS_OFF).capturedAtLocal)
+        assert.equal("2026-09-16T16:26:34", R.snapshot("inventory", LEGS_OFF_SNAPSHOT, LEGS_OFF).capturedAtLocal)
+        assert.equal(15, count(ns.Drift.Read().slots))
+        R.inventory(world, R.snapshot("inventory", LEGS_OFF_SNAPSHOT, LEGS_OFF))
+        assert.equal(14, count(ns.Drift.Read().slots))
+    end)
+
+    -- **WHAT THE 54 WERE.** Every gear key he owned that minute - what he wore
+    -- and what his five bags held - counted as if all of it had just arrived.
+    -- That is what a comparison against an EMPTY baseline counts, and it is the
+    -- number that was on his screen.
+    it("reproduces the 54: it is his whole key set against an empty baseline", function()
+        R.inventory(world, R.snapshot("inventory", LEGS_OFF_SNAPSHOT, LEGS_OFF))
+        local keys = ns.Drift.Now()
+        assert.equal(54, count(keys))
+        local against = ns.Drift.Compare({}, keys)
+        assert.equal(54, against.count)
+    end)
+
+    -- And what the two reads really differ by: nothing appeared, nothing went,
+    -- one worn slot went bare.
+    it("says (1 slot), because one slot is what changed", function()
+        R.inventory(world, R.snapshot("inventory", LEGS_OFF_SNAPSHOT, LEGS_OFF))
+        local behind = ns.Drift.Check()
+        assert.is_table(behind)
+        assert.equal(0, behind.pieces)
+        assert.equal(1, behind.slots)
+        assert.equal(1, behind.count)
+        assert.equal("your gear changed since this plan (1 slot) \194\183 click to refresh", ns.Drift.Model().text)
+    end)
+
+    -- A slot and a loose piece are different things and are said as different
+    -- things. The piece is his own Lightgrasp Worldroot, which these bags really
+    -- do carry at 16:26:34 - the companion's own pool line of 21:26:46Z names it
+    -- among the cards it had not asked about yet - leaving them.
+    it("says both when both moved", function()
+        R.inventory(world, R.snapshot("inventory", LEGS_OFF_SNAPSHOT, LEGS_OFF))
+        assert.is_string(outOfBags(world, 251935), "his bags carry the Worldroot at 16:26:34")
+        local behind = ns.Drift.Check()
+        assert.equal(1, behind.slots)
+        assert.equal(1, behind.pieces)
+        assert.equal(
+            "your gear changed since this plan (1 slot and 1 item) \194\183 click to refresh",
+            ns.Drift.Model().text
+        )
+    end)
+
+    -- **A read that is wearing nothing is not a baseline.** This is how the
+    -- empty one gets taken in the first place: a scan that ran before the client
+    -- would answer about gear, the same silence R-7b and R-7c measured at the
+    -- other end of a session. Nothing is stored, so the next check takes another
+    -- one, and `54 items` can never be reported again.
+    it("refuses an empty read as a baseline rather than counting everything against it", function()
+        ns.Drift.Reset()
+        world.equipped = {}
+        world.bags = {}
+        assert.is_nil(ns.Drift.Rebase())
+        assert.is_nil(ns.Drift.Behind())
+        -- the client answers again, and the FIRST good read becomes the baseline
+        R.inventory(world, R.snapshot("inventory", LEGS_OFF_SNAPSHOT, LEGS_OFF))
+        assert.is_nil(ns.Drift.Check())
+        assert.equal(54, count(ns.Drift.Now()))
+        assert.is_nil(ns.Drift.Behind())
+    end)
+
+    -- The same silence from the other side: a good baseline, then a scan that
+    -- answers nothing, must not read as "everything went".
+    it("never counts a scan that answers nothing as fifty-four pieces leaving", function()
+        world.equipped = {}
+        world.bags = {}
+        assert.is_nil(ns.Drift.Check())
+        assert.is_nil(ns.Drift.Behind())
+    end)
+end)

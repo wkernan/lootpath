@@ -660,6 +660,28 @@ async function readJson(page) {
     return text;
 }
 
+// C-14 (WKE-603). **The driver never clicks a disabled button.**
+//
+// On 2026-09-16 the owner's profile was short one worn slot, QE Live disabled
+// `Go!` for the pass whose selection did not fill it, and Playwright clicked the
+// disabled button for twenty seconds before it gave up - twice, sixty seconds of
+// a run each time, ending in `locator.click: Timeout 20000ms exceeded` and a
+// page of call log (`Data/companion.log`, 21:26-21:28Z).
+//
+// A disabled `Go!` is not a timing problem and waiting cannot fix it: QE Live
+// has decided it will not rate this pool. So the state is READ first and the
+// refusal is one sentence naming what QE Live would not run. `REFUSED`, not
+// `DRIVE`: the profile is the thing that is wrong, which is the same class as
+// QE Live refusing the import outright.
+async function clickGo(page, what) {
+    const button = page.getByRole('button', { name: 'Go!' });
+    if (!(await button.isEnabled())) {
+        throw new ForkError(`QE Live's Go! button is disabled ${what}`, REFUSED);
+    }
+    await button.click();
+}
+
+
 // Every Top Gear document one import produces, in pass order (C-11, WKE-572).
 //
 // The document AND the pool it was produced over (C-8): a Top Gear answer that
@@ -696,7 +718,10 @@ async function runTopGear(page, log, options) {
             break;
         }
         for (const ident of selection.activated) done.add(ident);
-        await page.getByRole('button', { name: 'Go!' }).click();
+        await clickGo(
+            page,
+            `for this pool - ${selection.selected} of ${selection.cap} selected, ${selection.active} baseline`
+        );
         await page.waitForURL((u) => /\/report\/[a-z0-9]+/.test(u.pathname), { timeout: 120000 });
         passes.push({
             pass: pass,
@@ -840,7 +865,7 @@ async function runUpgradeFinder(page, keyLevel, log) {
     if (keyLevel !== null && keyLevel !== undefined) {
         chosen = await selectKeyLevel(page, keyLevel, log);
     }
-    await page.getByRole('button', { name: 'Go!' }).click();
+    await clickGo(page, `for this Upgrade Finder run${chosen ? ` ("${chosen.label}")` : ''}`);
     await page.waitForURL((u) => u.pathname.includes('/upgradereport'), { timeout: 120000 });
     const json = await readJson(page);
     if (chosen) {

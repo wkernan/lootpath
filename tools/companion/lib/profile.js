@@ -42,6 +42,82 @@ function refusedCaptures(env) {
         .filter((name) => typeof name === 'string');
 }
 
+// --- QE Live's own empty-slot rule (C-14, WKE-603) ---------------------------
+//
+// The owner's 2026-09-16 16:26:34 inventory read had 14 equipped records: slot
+// 7, legs, absent. Two companion runs built that profile, opened the fork, spent
+// a minute selecting cards, and then clicked a `Go!` button QE Live had
+// disabled, for twenty seconds, twice (`Data/companion.log`, 21:26-21:28Z).
+//
+// **The rule is QE Live's, read out of the fork, not a list of ours.**
+// `src/General/Modules/TopGear/TopGear.tsx:852` is the button:
+//
+//     disabled={checkSlots(gameType).length > 0 || !btnActive}
+//
+// and `checkSlots` (`:307`, "Check that the player has selected an item in every
+// slot") counts the SELECTED items per slot, skipping vault items, and reports
+// every slot standing at zero - with Finger and Trinket needing two apiece.
+//
+// WHAT IS MIRRORED AND WHAT IS NOT. `checkSlots` also counts `2H Weapon`,
+// `1H Weapon` and `Offhand`, with a rule (`:339-346`) that a two-hander
+// satisfies all three. That half is deliberately NOT mirrored here: a SimC
+// profile carries `main_hand=` and `off_hand=` item strings and nothing that
+// says which of the three kinds the main hand is, so a companion-side weapon
+// check would refuse every two-hander in the game - and the owner plays a staff.
+// The disabled button itself is the guard for the weapon half (`lib/fork.js`),
+// which is why that guard exists as well as this one.
+//
+// Note what this is ABOUT: the twelve slots the character is WEARING. QE Live
+// counts what a pass has selected, and a pass selects the equipped baseline plus
+// whatever it clicked - so an empty worn slot poisons any pass whose clicks
+// happen not to fill it, which is exactly how pass 3 of both runs came to be
+// refused while passes 1 and 2 ran.
+const QE_LIVE_SLOT_GROUPS = {
+    head: 'head',
+    neck: 'neck',
+    shoulder: 'shoulder',
+    back: 'back',
+    chest: 'chest',
+    wrist: 'wrist',
+    hands: 'hands',
+    waist: 'waist',
+    legs: 'legs',
+    feet: 'feet',
+    finger1: 'finger',
+    finger2: 'finger',
+    trinket1: 'trinket',
+    trinket2: 'trinket',
+};
+
+// One entry per group, in the order `checkSlots` walks its own table, with how
+// many QE Live wants: two rings, two trinkets, one of everything else.
+const QE_LIVE_SLOT_WANTED = [
+    ['head', 1],
+    ['neck', 1],
+    ['shoulder', 1],
+    ['back', 1],
+    ['chest', 1],
+    ['wrist', 1],
+    ['hands', 1],
+    ['waist', 1],
+    ['legs', 1],
+    ['feet', 1],
+    ['finger', 2],
+    ['trinket', 2],
+];
+
+// The slot names QE Live would report as missing for a character wearing
+// `equippedSlots` (SimC names, as `buildProfile` returns them), in its own
+// order. An empty list is a profile QE Live will take.
+function missingSlots(equippedSlots) {
+    const worn = {};
+    for (const slot of equippedSlots || []) {
+        const group = QE_LIVE_SLOT_GROUPS[slot];
+        if (group) worn[group] = (worn[group] || 0) + 1;
+    }
+    return QE_LIVE_SLOT_WANTED.filter(([group, wanted]) => (worn[group] || 0) < wanted).map(([group]) => group);
+}
+
 // `text` is the SavedVariables file, verbatim.
 function build(text, options) {
     const opts = options || {};
@@ -71,6 +147,11 @@ function build(text, options) {
         text: built.text,
         warnings,
         counts: built.counts,
+        // C-14 (WKE-603): which slots the character is wearing something in,
+        // and which of QE Live's twelve are empty. `missing` is what the
+        // refusal names; an empty list is a profile QE Live will take.
+        equippedSlots: built.equippedSlots,
+        missingSlots: missingSlots(built.equippedSlots),
         capturedAtLocal: built.capturedAtLocal,
         // M3-16b (WKE-583): which of the transcript's vault snapshots the
         // profile was built from, and why (see chooseVaultSnapshot in
@@ -114,4 +195,4 @@ function specMismatch(verdictSpec, capturedSpec) {
     return `QE Live valued "${verdictSpec}" but the SavedVariables were captured in "${capturedSpec}"; the numbers are for QE Live's spec. Pick the right spec in the fork, or capture again in the spec you play`;
 }
 
-module.exports = { build, specMismatch, PROFILE_CAPTURE };
+module.exports = { build, specMismatch, missingSlots, PROFILE_CAPTURE, QE_LIVE_SLOT_WANTED };
