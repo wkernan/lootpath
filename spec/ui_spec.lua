@@ -2120,10 +2120,89 @@ describe("the launcher (M5-2)", function()
         local x, y = ns.UI.MinimapButtonOffset(0, 200, 200)
         assert.equal(100 + ns.UI.MINIMAP_MARGIN, x)
         assert.is_true(math.abs(y) < 1e-9)
-        -- the default 140-point map is the old 80
+        -- the default 140-point map puts the button at 75, which is where
+        -- LibDBIcon's `lib.radius` of 5 puts every other addon's button
+        -- (M5-2a, WKE-593; it was 80, five points off the ring they share)
         x = ns.UI.MinimapButtonOffset(0, 140, 140)
-        assert.equal(80, x)
-        assert.equal(80, ns.UI.MINIMAP_RADIUS)
+        assert.equal(75, x)
+        assert.equal(75, ns.UI.MINIMAP_RADIUS)
+        assert.equal(5, ns.UI.MINIMAP_MARGIN)
+    end)
+
+    it("draws LibDBIcon's retail geometry, so it reads as one of the row it sits in", function()
+        -- M5-2a (WKE-593): ours had the library's CLASSIC branch - a 20-point
+        -- icon in the BACKGROUND with no disc behind it under a 53-point
+        -- border - which is what made a square spec icon overrun the ring.
+        local button = ns.UI.minimapButton
+        assert.equal(31, button.width)
+
+        local border = button.border
+        assert.equal(50, border.width)
+        assert.equal(50, border.height)
+        assert.equal("OVERLAY", border.drawLayer)
+        assert.same({ "TOPLEFT", button, "TOPLEFT", 0, 0 }, border.points[1])
+        assert.equal("Interface/Minimap/MiniMap-TrackingBorder", border:GetTexture())
+
+        local background = button.background
+        assert.equal(24, background.width)
+        assert.equal(24, background.height)
+        assert.equal("BACKGROUND", background.drawLayer)
+        assert.same({ "CENTER", button, "CENTER", 0, 0 }, background.points[1])
+        assert.equal("Interface/Minimap/UI-Minimap-Background", background:GetTexture())
+
+        local icon = button.icon
+        assert.equal(18, icon.width)
+        assert.equal(18, icon.height)
+        assert.equal("ARTWORK", icon.drawLayer)
+        assert.same({ "CENTER", button, "CENTER", 0, 0 }, icon.points[1])
+        -- and round, by the mask PortraitFrameTemplate puts on its portrait
+        assert.equal("Interface/CharacterFrame/TempPortraitAlphaMask", icon:GetMask())
+    end)
+
+    it("trims the icon's own edge off, by five percent of whatever range it carries", function()
+        -- LibDBIcon's `updateCoord`: the trim is of the RANGE, so a class
+        -- circle's quarter of the sheet is trimmed by a quarter as much and
+        -- stays centred on its own art.
+        assert.same({ 0.05, 0.95, 0.05, 0.95 }, { ns.UI.TrimIconCoords(nil) })
+        assert.same({ 0.05, 0.95, 0.05, 0.95 }, { ns.UI.TrimIconCoords({ 0, 1, 0, 1 }) })
+        local x1, x2, y1, y2 = ns.UI.TrimIconCoords({ 0, 0.25, 0.5, 0.75 })
+        assert.is_true(math.abs(x1 - 0.0125) < 1e-9)
+        assert.is_true(math.abs(x2 - 0.2375) < 1e-9)
+        assert.is_true(math.abs(y1 - 0.5125) < 1e-9)
+        assert.is_true(math.abs(y2 - 0.7375) < 1e-9)
+        -- the spec icon on the button carries that trim
+        assert.same({ 0.05, 0.95, 0.05, 0.95 }, ns.UI.minimapButton.icon.texCoord)
+    end)
+
+    it("shows the spec, else the class circle, else the question mark", function()
+        -- The same three steps ApplyPortrait takes, shared rather than copied,
+        -- so the button and the window cannot disagree about the spec.
+        local texture, coords, kind = ns.UI.MinimapIcon()
+        assert.equal(world.spec.icon, texture)
+        assert.is_nil(coords)
+        assert.equal("spec", kind)
+
+        world.spec = nil
+        texture, coords, kind = ns.UI.MinimapIcon()
+        assert.equal(ns.UI.CLASS_ICON_FILE, texture)
+        assert.same(_G.CLASS_ICON_TCOORDS.DRUID, coords)
+        assert.equal("class", kind)
+
+        local saved = _G.CLASS_ICON_TCOORDS
+        _G.CLASS_ICON_TCOORDS = nil
+        texture, coords, kind = ns.UI.MinimapIcon()
+        assert.equal("Interface/Icons/INV_Misc_QuestionMark", texture)
+        assert.is_nil(coords)
+        assert.equal("fallback", kind)
+        _G.CLASS_ICON_TCOORDS = saved
+    end)
+
+    it("puts the class circle on the button, trimmed and masked, when there is no spec", function()
+        world.spec = nil
+        assert.equal("class", ns.UI.ApplyMinimapIcon())
+        local icon = ns.UI.minimapButton.icon
+        assert.equal(ns.UI.CLASS_ICON_FILE, icon:GetTexture())
+        assert.same({ ns.UI.TrimIconCoords(_G.CLASS_ICON_TCOORDS.DRUID) }, icon.texCoord)
     end)
 
     it("hugs a square minimap's edge instead of a circle inside it", function()
@@ -2135,7 +2214,14 @@ describe("the launcher (M5-2)", function()
         -- the corner: on the diagonal, within the margin of the edge, never
         -- past it (LibDBIcon's convention, so the button does not poke out)
         assert.is_true(math.abs(x - y) < 1e-9)
-        assert.is_true(x > w - ns.UI.MINIMAP_MARGIN and x <= w)
+        assert.is_true(x > w - ns.UI.MINIMAP_DIAGONAL_INSET and x <= w)
+        -- the diagonal pull-back is LibDBIcon's flat 10, not the margin: the
+        -- two were equal by accident while the margin was 10 (M5-2a)
+        assert.equal(10, ns.UI.MINIMAP_DIAGONAL_INSET)
+        -- at 60 degrees the x half of the diagonal is still inside the edge,
+        -- so it is the unclamped value and pins the inset exactly
+        local dx = ns.UI.MinimapButtonOffset(60, 200, 200, "SQUARE")
+        assert.is_true(math.abs(dx - math.cos(math.rad(60)) * (math.sqrt(2 * w * w) - 10)) < 1e-9)
         -- and on a circle the same angle would sit well inside that corner
         local rx = ns.UI.MinimapButtonOffset(45, 200, 200, "ROUND")
         assert.is_true(rx < x)
@@ -2180,6 +2266,45 @@ describe("the launcher (M5-2)", function()
         assert.equal(ns.UI.MINIMAP_RADIUS, button.points[#button.points][4])
         button:GetScript("OnDragStop")(button)
         assert.is_nil(button:GetScript("OnUpdate"))
+    end)
+
+    it("fixes the icon at login without the window ever being opened", function()
+        -- M5-2a (WKE-593): the button is built at ADDON_LOADED, and on the
+        -- owner's client the spec read is nil that early - so after every
+        -- reload the button showed a question mark until the window had been
+        -- opened AND the spec changed. The button now carries the events
+        -- itself.
+        H.unload()
+        local other, otherWorld = H.load({
+            beforeLoad = function(w)
+                w.spec = nil
+                _G.CLASS_ICON_TCOORDS = nil
+            end,
+        })
+        -- nothing named a spec or a class at load, so the button starts blank
+        assert.is_nil(other.UI.frame)
+        assert.equal("Interface/Icons/INV_Misc_QuestionMark", other.UI.minimapButton.icon:GetTexture())
+
+        -- the client answers the spec read a moment later; no window exists
+        otherWorld.spec = { index = 4, id = 105, name = "Restoration", icon = 136041, role = "HEALER" }
+        otherWorld.fireEvent("PLAYER_LOGIN")
+        assert.is_nil(other.UI.frame)
+        assert.equal(136041, other.UI.minimapButton.icon:GetTexture())
+
+        -- and PLAYER_ENTERING_WORLD answers too, whichever of the two the
+        -- client gets there first with
+        otherWorld.spec = { index = 2, id = 103, name = "Feral", icon = 132115, role = "DAMAGER" }
+        otherWorld.fireEvent("PLAYER_ENTERING_WORLD", true, false)
+        assert.is_nil(other.UI.frame)
+        assert.equal(132115, other.UI.minimapButton.icon:GetTexture())
+
+        -- as does a spec change, still with no window
+        otherWorld.spec = { index = 4, id = 105, name = "Restoration", icon = 136041, role = "HEALER" }
+        otherWorld.fireEvent("PLAYER_SPECIALIZATION_CHANGED", "player")
+        assert.is_nil(other.UI.frame)
+        assert.equal(136041, other.UI.minimapButton.icon:GetTexture())
+
+        H.unload()
     end)
 
     it("survives a client with no minimap at all", function()

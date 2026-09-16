@@ -37,6 +37,9 @@ local NOT_A_FRAME = {
     "SetAtlas",
     "GetAtlas",
     "SetTexCoord",
+    "SetMask",
+    "GetMask",
+    "GetDrawLayer",
     -- ScrollFrame's (Core/Widget/Frame/ScrollFrame.lua).
     "SetScrollChild",
     "GetScrollChild",
@@ -45,7 +48,8 @@ local NOT_A_FRAME = {
     "UpdateScrollChildRect",
 }
 
-local TEXTURE_ONLY = { "SetTexture", "GetTexture", "SetAtlas", "GetAtlas", "SetTexCoord" }
+local TEXTURE_ONLY =
+    { "SetTexture", "GetTexture", "SetAtlas", "GetAtlas", "SetTexCoord", "SetMask", "GetMask", "GetDrawLayer" }
 local FONTSTRING_ONLY = {
     "SetText",
     "GetText",

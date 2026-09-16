@@ -599,6 +599,55 @@ function UI.ApplyPortrait(frame)
     return nil
 end
 
+-- M5-2a (WKE-593): what the minimap button shows, in the same three steps
+-- ApplyPortrait takes and from the same two readers - the spec icon, else the
+-- class circle with its four coordinates, else the question mark. Returns the
+-- texture, its coordinates (nil meaning the whole texture), and which of the
+-- three it is, so the button and the window can never disagree about the spec
+-- and a question mark is only ever a client that names neither spec nor class.
+UI.MINIMAP_FALLBACK_ICON = "Interface/Icons/INV_Misc_QuestionMark"
+
+function UI.MinimapIcon()
+    local icon = UI.SpecIcon()
+    if icon then
+        return icon, nil, "spec"
+    end
+    local coords = UI.ClassIconCoords()
+    if coords then
+        return UI.CLASS_ICON_FILE, coords, "class"
+    end
+    return UI.MINIMAP_FALLBACK_ICON, nil, "fallback"
+end
+
+-- LibDBIcon trims 5% off each edge of whatever coordinates an icon carries
+-- (`updateCoord`, LibDBIcon-1.0 minor 55), which is what keeps a square icon's
+-- outer edge from touching the tracking ring. The 5% is of the RANGE, not of
+-- the axis, so a class circle's quarter of the sheet is trimmed by a quarter as
+-- much and stays centred on its own art.
+UI.MINIMAP_ICON_TRIM = 0.05
+
+function UI.TrimIconCoords(coords)
+    local c = coords or { 0, 1, 0, 1 }
+    local dx = (c[2] - c[1]) * UI.MINIMAP_ICON_TRIM
+    local dy = (c[4] - c[3]) * UI.MINIMAP_ICON_TRIM
+    return c[1] + dx, c[2] - dx, c[3] + dy, c[4] - dy
+end
+
+-- Puts that icon on the button, trimmed. Called at creation and from every
+-- event that can change the answer, on the button itself and in the window's
+-- handler, so the icon is right without the window ever having been opened.
+function UI.ApplyMinimapIcon(button)
+    button = button or UI.minimapButton
+    local icon = button and button.icon
+    if not icon then
+        return nil
+    end
+    local texture, coords, kind = UI.MinimapIcon()
+    icon:SetTexture(texture)
+    icon:SetTexCoord(UI.TrimIconCoords(coords))
+    return kind
+end
+
 function UI.Import(text)
     local result = UI.ImportAny(text)
     if UI.frame then
@@ -1037,10 +1086,33 @@ end
 -- The angle is degrees counter-clockwise from east, which is the convention
 -- LibDBIcon's saved variables use and the one a dragged position is measured
 -- back into.
-UI.MINIMAP_MARGIN = 10
+-- M5-2a (WKE-593): the margin is LibDBIcon's `lib.radius`, 5, not 10. Every
+-- other addon's minimap button is a LibDBIcon button and sits at
+-- `width / 2 + 5`; at 10 ours sat five points further out on every angle and
+-- read as off the ring the others share (the owner's screenshot, 2026-09-16).
+UI.MINIMAP_MARGIN = 5
 UI.MINIMAP_DEFAULT_SIZE = 140
 UI.MINIMAP_RADIUS = UI.MINIMAP_DEFAULT_SIZE / 2 + UI.MINIMAP_MARGIN
 UI.MINIMAP_BUTTON_SIZE = 31
+-- The square minimap's diagonal reach is pulled back by a flat 10 points, which
+-- is the literal LibDBIcon uses (`sqrt(2*w^2)-10`, LibDBIcon-1.0 minor 55, read
+-- from the installed DandersFrames copy). It is NOT the margin: the two were
+-- equal by accident while the margin was 10, and the corner is clamped to the
+-- edge anyway, so tying them would move the corners for no reason.
+UI.MINIMAP_DIAGONAL_INSET = 10
+-- The three files LibDBIcon's retail branch draws with, by path rather than by
+-- the file IDs it hardcodes (136430, 136467), and the circle mask
+-- PortraitFrameTemplate puts on its portrait.
+UI.MINIMAP_BORDER_TEXTURE = "Interface/Minimap/MiniMap-TrackingBorder"
+UI.MINIMAP_BACKGROUND_TEXTURE = "Interface/Minimap/UI-Minimap-Background"
+UI.CIRCLE_MASK_FILE = "Interface/CharacterFrame/TempPortraitAlphaMask"
+-- The two events that can answer the spec read after the button is built at
+-- ADDON_LOADED, registered on the BUTTON so the icon is right whether or not
+-- the window has ever been created. Which of the two first answers
+-- C_SpecializationInfo.GetSpecialization() on a real client is not measured
+-- here (ARCHITECTURE.md §7, M5-2a): both are taken, and applying the icon twice
+-- costs two texture sets.
+UI.MINIMAP_ICON_EVENTS = { "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_SPECIALIZATION_CHANGED" }
 
 -- The minimap's shape, as the client's minimap addon publishes it: a global
 -- `GetMinimapShape()` returning "ROUND" or "SQUARE" (and, for some addons,
@@ -1068,8 +1140,8 @@ function UI.MinimapButtonOffset(angle, width, height, shape)
     local h = (tonumber(height) or UI.MINIMAP_DEFAULT_SIZE) / 2 + UI.MINIMAP_MARGIN
     local cx, cy = math.cos(radians), math.sin(radians)
     if shape == "SQUARE" then
-        local dw = math.sqrt(2 * w * w) - UI.MINIMAP_MARGIN
-        local dh = math.sqrt(2 * h * h) - UI.MINIMAP_MARGIN
+        local dw = math.sqrt(2 * w * w) - UI.MINIMAP_DIAGONAL_INSET
+        local dh = math.sqrt(2 * h * h) - UI.MINIMAP_DIAGONAL_INSET
         return math.max(-w, math.min(cx * dw, w)), math.max(-h, math.min(cy * dh, h))
     end
     return cx * w, cy * h
@@ -1156,19 +1228,48 @@ function UI.MinimapButton()
     button:RegisterForDrag("LeftButton")
     button:SetMovable(true)
 
-    local icon = button:CreateTexture(nil, "BACKGROUND")
-    icon:SetSize(20, 20)
-    icon:SetPoint("CENTER", button, "CENTER", 0, 1)
-    -- The spec the verdict is for, the same fact the portrait ring carries; the
-    -- question mark until the client names one.
-    icon:SetTexture(UI.SpecIcon() or "Interface/Icons/INV_Misc_QuestionMark")
+    -- M5-2a (WKE-593): LibDBIcon's RETAIL geometry, point for point, so this
+    -- button reads as one of the row it sits in - a dark disc, a small icon
+    -- trimmed off its own edge, and the tracking ring around both. Ours had the
+    -- library's CLASSIC branch: a 20-point icon in the BACKGROUND with no disc
+    -- behind it under a 53-point border, which is what made a square spec icon
+    -- overrun the ring (the owner's screenshot, 2026-09-16).
+    local background = button:CreateTexture(nil, "BACKGROUND")
+    background:SetSize(24, 24)
+    background:SetPoint("CENTER", button, "CENTER", 0, 0)
+    background:SetTexture(UI.MINIMAP_BACKGROUND_TEXTURE)
+    button.background = background
+
+    local icon = button:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(18, 18)
+    icon:SetPoint("CENTER", button, "CENTER", 0, 0)
     button.icon = icon
+    -- And round, which LibDBIcon does not do: a spec icon is square art like
+    -- any other, and the ring is a circle. The mask file is the one
+    -- PortraitFrameTemplate puts on its own portrait
+    -- (Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.xml:564, read under
+    -- .luals/), so the button and the window's ring crop their icon the same
+    -- way.
+    if type(icon.SetMask) == "function" then
+        icon:SetMask(UI.CIRCLE_MASK_FILE)
+    end
+    -- The spec the verdict is for, the same fact the portrait ring carries;
+    -- the class circle when the client names no spec, and the question mark
+    -- only when it names neither.
+    UI.ApplyMinimapIcon(button)
 
     local border = button:CreateTexture(nil, "OVERLAY")
-    border:SetSize(53, 53)
+    border:SetSize(50, 50)
     border:SetPoint("TOPLEFT", button, "TOPLEFT", 0, 0)
-    border:SetTexture("Interface/Minimap/MiniMap-TrackingBorder")
+    border:SetTexture(UI.MINIMAP_BORDER_TEXTURE)
     button.border = border
+
+    for _, event in ipairs(UI.MINIMAP_ICON_EVENTS) do
+        button:RegisterEvent(event)
+    end
+    button:SetScript("OnEvent", function(self)
+        UI.ApplyMinimapIcon(self)
+    end)
 
     button:SetScript("OnClick", function(_, mouseButton)
         if mouseButton == "RightButton" then
@@ -1282,9 +1383,7 @@ end
 local function onEvent(frame, event)
     if event == "PLAYER_SPECIALIZATION_CHANGED" then
         UI.ApplyPortrait(frame)
-        if UI.minimapButton and UI.minimapButton.icon then
-            UI.minimapButton.icon:SetTexture(UI.SpecIcon() or "Interface/Icons/INV_Misc_QuestionMark")
-        end
+        UI.ApplyMinimapIcon()
     end
     if frame:IsShown() then
         UI.Refresh()
