@@ -1517,7 +1517,18 @@ describe("the status strip (M5-2)", function()
     -- Four facts since V-2 (WKE-573), not five: the content type and the
     -- export's name came off the line into the tooltip's own sentence, so the
     -- companion clause is not the half the window's width cuts (R-3a, WKE-570).
+    --
+    -- The clock is PINNED here, and it has to be. `UI.StatusStripModel` reads
+    -- staleness off the real `time()` when no caller gives it one, and the
+    -- committed export this test pastes was written at 2026-09-06T21:14:24Z -
+    -- so "is this verdict from before the last weekly reset" stopped being
+    -- false at a wall-clock instant, and the assertion below started failing on
+    -- `main` in the small hours of 2026-09-16 UTC with nothing having changed.
+    -- V-4's modelled clock (WKE-589) is what makes the question answerable
+    -- again: `now` is an hour after the export, inside its own week, so the
+    -- test asks what it always meant to ask.
     it("names the spec, the source, the scenario and the companion over a pasted one", function()
+        H.chicagoClock(world, 1788729264 + 3600)
         importDungeon()
         local model = ns.UI.RefreshStrip(frame)
         assert.is_false(model.stale)
