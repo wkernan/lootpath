@@ -311,6 +311,35 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
         )
     end)
 
+    -- M5-3a: a drop road draws a journal entry, and the hover has to read at
+    -- the level the row prints. The cold 2026-09-06 20:09 walk this file is
+    -- built on is one the aggregator kept links on, so the rows carry them.
+    it("carries the drop's own link onto its road row", function()
+        local groups = section(model(), "Shoulder").roadGroups
+        local drop
+        for _, group in ipairs(groups) do
+            for _, row in ipairs(group.rows) do
+                if row.kind == ns.Roads.KIND_DROP and row.link then
+                    drop = drop or row
+                end
+            end
+        end
+        assert.is_table(drop, "no drop road carried a link")
+        assert.equal(drop.itemID, tonumber(drop.link:match("|Hitem:(%d+)")))
+        assert.is_nil(drop.levelNote)
+
+        -- A road whose entry has no link - every entry of a cache written
+        -- before M5-3a - says at what level the client is about to draw it.
+        local bare = ns.UpgradeMapPanel.RoadRow({
+            kind = ns.Roads.KIND_DROP,
+            item = { itemID = drop.itemID, name = "Scavenger's Spaulders" },
+            source = { difficultyID = 8 },
+            arrivesAt = 305,
+        }, 10)
+        assert.is_nil(bare.link)
+        assert.equal("shown at its base level - /lootpath capture journal to read it at +10", bare.levelNote)
+    end)
+
     -- WKE-530 finding 4 survives the change of rows: the client answers item
     -- level 1 for a cosmetic or a quest drop, so those are hidden and counted,
     -- and the section still says how many rather than listing them.

@@ -192,7 +192,8 @@ end
 -- Blizzard's own placeholders. `pending` says the client cannot name the item
 -- yet - the row is readable either way, which is the whole point.
 --
--- item = { itemID, link, name, quality, itemLevel, icon, second, badge, tags }
+-- item = { itemID, link, levelNote, name, quality, itemLevel, icon, second,
+--          badge, tags }
 function ItemLine.Resolve(item)
     if type(item) ~= "table" then
         return { pending = false, name = ItemLine.PLACEHOLDER_NAME, icon = ItemLine.PLACEHOLDER_ICON }
@@ -225,6 +226,9 @@ function ItemLine.Resolve(item)
     return {
         itemID = itemID,
         link = item.link,
+        -- Only ever read where there is no link: what the hover says about a
+        -- tooltip the client can only draw at the item's base level (M5-3a).
+        levelNote = item.levelNote,
         name = name,
         quality = quality,
         itemLevel = itemLevel,
@@ -279,12 +283,21 @@ function ItemLine.ShowTooltip(line, anchorTo)
         return false
     end
     GameTooltip:SetOwner(anchorTo or line, "ANCHOR_RIGHT")
-    if type(item.link) == "string" and GameTooltip.SetHyperlink then
+    local hasLink = type(item.link) == "string"
+    if hasLink and GameTooltip.SetHyperlink then
         GameTooltip:SetHyperlink(item.link)
     elseif item.itemID and GameTooltip.SetItemByID then
         GameTooltip:SetItemByID(item.itemID)
     else
         GameTooltip:SetText(item.name, 1, 1, 1, 1, true)
+    end
+    -- With a link, the client draws the item at the level the link carries and
+    -- there is nothing to say. Without one - an older walk, a row built before
+    -- the link was kept - it draws the item as it exists in its own expansion,
+    -- and the reader is told that in the first line under it rather than left
+    -- to read Item Level 28 as if it were the row's number (M5-3a).
+    if not hasLink and type(item.levelNote) == "string" and item.levelNote ~= "" and GameTooltip.AddLine then
+        GameTooltip:AddLine(colored(ItemLine.GREY, item.levelNote))
     end
     GameTooltip:Show()
     -- The shopping compare, which is what makes "what does this actually have

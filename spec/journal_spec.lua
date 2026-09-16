@@ -970,6 +970,82 @@ describe("ns.Journal over the 2026-09-06 transcript", function()
         assert.is_not.equal("251153:3524", ns.ItemKey(251153, { 13440, 6652, 13662, 12699, 12835 }))
     end)
 
+    it("keeps the client's own link on every keyed entry, and none on a pending one", function()
+        -- M5-3a: the link is the one string that carries the previewed key
+        -- level, and the walk used to read the item level off it and throw it
+        -- away, which is why a 305 row hovered as the base item. Read from the
+        -- committed 2026-09-06 transcript: 189 keyed entries, 369 pending.
+        local linked, pending = 0, 0
+        for _, list in pairs(sources) do
+            for _, source in ipairs(list) do
+                if source.pending then
+                    pending = pending + 1
+                    assert.is_nil(source.link)
+                else
+                    linked = linked + 1
+                    assert.is_string(source.link)
+                    assert.equal(source.itemKey:match("^(%d+):"), source.link:match("|Hitem:(%d+)"))
+                end
+            end
+        end
+        assert.equal(189, linked)
+        assert.equal(369, pending)
+
+        -- The row of the owner's screenshot, verbatim from the transcript:
+        -- itemID 251159 under Den of Nalorakk at difficultyID 8, the target the
+        -- walk previewed at key level 10, and the link the walk read 305 off.
+        local chest = sources[251159]
+        local keyed
+        for _, source in ipairs(chest) do
+            if source.difficultyID == 8 then
+                keyed = source
+            end
+        end
+        assert.is_table(keyed)
+        assert.equal("War Trial Vestments", keyed.name)
+        assert.equal(305, keyed.itemLevel)
+        assert.equal(
+            "|cnIQ4:|Hitem:251159::::::::90:105::16:1:3524:1:28:1279:::::|h[War Trial Vestments]|h|r",
+            keyed.link
+        )
+    end)
+
+    it("fills a pending entry's link when a later row of the same key carries one", function()
+        -- The duplicate path: one key seen twice in a walk, pending first. The
+        -- entry is created without a link and the row that carries one fills
+        -- it, the same way it already fills the name, the icon and the level.
+        -- Built on a COPY of the transcript, with a bare row spliced in ahead
+        -- of the real one (spec.helpers.replay caches the snapshot).
+        local copy = Stub.deepcopy(snapshot)
+        local target, index
+        for _, candidate in ipairs(copy.data.walk.targets) do
+            if candidate.difficultyID == 8 and candidate.instanceID == 1311 then
+                for position, row in ipairs(candidate.loot.rows) do
+                    if row.itemInfo[1].itemID == 251159 then
+                        target, index = candidate, position
+                    end
+                end
+            end
+        end
+        assert.is_table(target)
+        local whole = target.loot.rows[index].itemInfo[1]
+        table.insert(target.loot.rows, index, {
+            index = 0,
+            itemInfo = { { itemID = whole.itemID, encounterID = whole.encounterID }, n = 1 },
+        })
+        local filled, filledSummary = ns.Journal:Build({ snapshot = copy, refresh = true })
+        assert.equal(1, filledSummary.duplicateRows)
+        local keyed
+        for _, source in ipairs(filled[251159]) do
+            if source.difficultyID == 8 then
+                keyed = source
+            end
+        end
+        assert.is_nil(keyed.pending)
+        assert.equal(whole.link, keyed.link)
+        assert.equal(305, keyed.itemLevel)
+    end)
+
     it("records the M+ level the walk previewed, because the client has no getter for it", function()
         assert.equal(10, summary.previewMythicPlusLevel)
         local _, overridden = ns.Journal:Build({ snapshot = snapshot, refresh = true, previewMythicPlusLevel = 12 })

@@ -1542,7 +1542,16 @@ function Roads.ForSlot(slot, inputs)
                     Roads.KIND_DROP,
                     rated and Roads.GROUP_ITEM or Roads.GROUP_NONE,
                     slot,
-                    itemFacts(source, { itemID = itemID, key = source.itemKey, level = source.itemLevel })
+                    itemFacts(source, {
+                        itemID = itemID,
+                        key = source.itemKey,
+                        level = source.itemLevel,
+                        -- The journal's own link for this drop, carried so the
+                        -- road's row can hover at the level it prints rather
+                        -- than at the base item's (M5-3a). A walk taken before
+                        -- the link was kept has none, and the row says so.
+                        link = source.link,
+                    })
                 )
                 road.tag = source.isRaid and Roads.TAG_RAID or Roads.TAG_MYTHIC_PLUS
                 road.arrivesAt = source.itemLevel

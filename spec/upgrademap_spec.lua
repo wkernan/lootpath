@@ -9,6 +9,7 @@
 -- than that the panel is empty.
 local H = require("spec.helpers.addon")
 local R = require("spec.helpers.replay")
+local Stub = require("spec.stubs.wow")
 
 local QE_EXPORT = "spec/fixtures/qe/qe-droptimizer-Hotornot-cxeiassqdyvz.json"
 
@@ -150,6 +151,55 @@ describe("UpgradeMapPanel model over the committed walk", function()
             ns.UpgradeMapPanel.NOTE
         )
         assert.equal(ns.UpgradeMapPanel.NOTE, ns.UpgradeMapPanel.Model({ sources = sources }).note)
+    end)
+
+    -- M5-3a: the hover is only as good as what the row hands the tooltip.
+    it("carries each drop's own link onto its row, and the base-level note when there is none", function()
+        local model = ns.UpgradeMapPanel.Model({ sources = sources, summary = summary })
+        local row = findRow(model, 251159, 8)
+        assert.is_table(row)
+        assert.equal(
+            "|cnIQ4:|Hitem:251159::::::::90:105::16:1:3524:1:28:1279:::::|h[War Trial Vestments]|h|r",
+            row.link
+        )
+        assert.equal(305, row.itemLevel)
+        assert.is_nil(row.levelNote)
+
+        -- A drawn row hands the link on, so the tooltip is the client's own
+        -- for that link rather than the base item behind the id.
+        local frame = ns.UpgradeMapPanel.Create()
+        local element = CreateFrame("Frame", nil, frame)
+        ns.UpgradeMapPanel.InitElement(frame, element, { kind = ns.UpgradeMapPanel.ELEMENT_ITEM, row = row })
+        assert.equal(row.link, element.line.resolved.link)
+
+        -- A walk taken before the link was kept - every entry in a cache
+        -- written by an older build - carries none, and then the row says at
+        -- what level the client is about to draw the item.
+        local older = Stub.deepcopy(sources)
+        for _, list in pairs(older) do
+            for _, entry in ipairs(list) do
+                entry.link = nil
+            end
+        end
+        local oldModel = ns.UpgradeMapPanel.Model({ sources = older, summary = summary })
+        local oldRow = findRow(oldModel, 251159, 8)
+        assert.is_nil(oldRow.link)
+        assert.equal("shown at its base level - /lootpath capture journal to read it at +10", oldRow.levelNote)
+        ns.UpgradeMapPanel.InitElement(frame, element, { kind = ns.UpgradeMapPanel.ELEMENT_ITEM, row = oldRow })
+        assert.equal(oldRow.levelNote, element.line.resolved.levelNote)
+
+        -- A raid drop is not read at a key level, so its note names none.
+        local raid
+        for _, candidate in ipairs(everyCandidate(oldModel)) do
+            if candidate.isRaid and candidate.levelNote then
+                raid = raid or candidate
+            end
+        end
+        assert.is_table(raid)
+        assert.equal(
+            "shown at its base level - /lootpath capture journal to read it at this row's level",
+            raid.levelNote
+        )
     end)
 
     it("files every candidate under a slot, or under the unidentified list", function()
