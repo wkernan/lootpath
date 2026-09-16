@@ -1324,7 +1324,12 @@ function Panel.Model(opts)
         -- run was never shown. Per scenario and not per file, because the
         -- Catalyst passes have clones to leave out that the base pass never
         -- had, and the tab's whole subject is what the Catalyst would do.
-        excluded = type(verdict) == "table" and verdict.excluded or nil,
+        --
+        -- Per RUN and not per document since C-11a (WKE-586): the highlighted
+        -- verdict is pass 1, and what pass 1 could not fit is what its later
+        -- passes were shown. The Equip Now tab takes its number from the same
+        -- `ns.Companion.Unrated`, so the two headers cannot disagree.
+        excluded = ns.Companion and ns.Companion.Unrated(verdict) or nil,
         -- C-12 (WKE-577): what the companion's last run did not ask, in its own
         -- words. File-level, not per scenario - it is about the run - and it is
         -- carried onto every Top Gear verdict the file wrote.

@@ -1578,6 +1578,112 @@ ns.companionVerdict = {
 end)
 
 -- ---------------------------------------------------------------------------
+-- C-11a (WKE-586): the "weren't rated this time" line counts the items NO pass
+-- of the run was shown, not the cards pass 1 could not fit.
+--
+-- The failure this guards is the one the owner read on 2026-09-15 ~15:50, over
+-- the 14:31 verdict whose every scenario logged `0 still to ask about`: Equip
+-- Now said `25 of your items weren't rated this time` and the Vault tab said
+-- 29, and both numbers were pass 1's leftovers - exactly the cards passes 2
+-- and 3 went on to rate.
+
+describe("the items no pass was shown", function()
+    local ns
+
+    before_each(function()
+        ns = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- `count` items with identities of their own, so the join is C-10's and not
+    -- the name+level fallback.
+    local function leftovers(count, first)
+        local list = {}
+        for index = 1, count do
+            list[index] = {
+                slot = "Finger",
+                name = "ring " .. (first + index - 1),
+                level = 280 + index,
+                itemID = 900 + first + index,
+                bonusIDs = { 3 },
+            }
+        end
+        return ns.Companion.Excluded(list)
+    end
+
+    -- The 14:31 log's shape: pass 1 leaves 27, pass 2 leaves 12, pass 3 leaves
+    -- nothing. Pass 1 is the plan and goes on the scenario shelf; the later two
+    -- go on the pass shelf, which is where `QEImport.Passes` reads them.
+    local function run(passThreeLeaves)
+        local plan = { contentType = "Dungeon", scenario = "asOffered", pass = 1, excluded = leftovers(27, 1) }
+        ns.QEImport.Store(plan)
+        ns.QEImport.Store({ contentType = "Dungeon", scenario = "asOffered", pass = 2, excluded = leftovers(12, 100) })
+        ns.QEImport.Store({
+            contentType = "Dungeon",
+            scenario = "asOffered",
+            pass = 3,
+            excluded = passThreeLeaves > 0 and leftovers(passThreeLeaves, 500) or nil,
+        })
+        return plan
+    end
+
+    it("reads the last pass's leftovers and not the plan's own", function()
+        local plan = run(0)
+        -- Proved red: the plan's own list is the 27 cards pass 1 could not fit,
+        -- and reading it off the verdict is what put 25 on his screen.
+        assert.equal(27, #plan.excluded)
+        assert.equal(
+            "27 of your items weren't rated this time: ring 1 (Finger, 281), ring 2 (Finger, 282),"
+                .. " ring 3 (Finger, 283) and 24 more.",
+            ns.Companion.ExcludedText(plan.excluded)
+        )
+        -- And the run's answer, which is the truth: pass 3 asked about the rest.
+        assert.is_nil(ns.Companion.Unrated(plan))
+        assert.is_nil(ns.Companion.ExcludedText(ns.Companion.Unrated(plan)))
+    end)
+
+    it("names the last pass's leftovers, and only those, when the bound really left some", function()
+        local plan = run(3)
+        local unrated = ns.Companion.Unrated(plan)
+        assert.equal(3, #unrated)
+        assert.equal(
+            "3 of your items weren't rated this time: ring 500 (Finger, 281), ring 501 (Finger, 282),"
+                .. " ring 502 (Finger, 283).",
+            ns.Companion.ExcludedText(unrated)
+        )
+        -- None of pass 1's or pass 2's leftovers is among them.
+        for _, entry in ipairs(unrated) do
+            assert.is_nil(ns.Companion.IsExcluded(plan.excluded, ns.Companion.ExcludedKey(entry)))
+        end
+    end)
+
+    it("answers with the document's own list when the run had no later pass", function()
+        -- A single-pass run, every file written before C-11, and every paste.
+        local plan = { contentType = "Raid", scenario = "asOffered", pass = 1, excluded = leftovers(2, 1) }
+        ns.QEImport.Store(plan)
+        assert.same(plan.excluded, ns.Companion.Unrated(plan))
+        assert.is_nil(ns.Companion.Unrated(nil))
+        assert.is_nil(ns.Companion.Unrated({ contentType = "Raid" }))
+    end)
+
+    it("takes the passes it is handed rather than looking them up", function()
+        local plan = { contentType = "Dungeon", scenario = "asOffered", pass = 1, excluded = leftovers(27, 1) }
+        local handed = {
+            { pass = 2, verdict = { excluded = leftovers(12, 100) } },
+            { pass = 3, verdict = { excluded = leftovers(1, 700) } },
+        }
+        local unrated = ns.Companion.Unrated(plan, handed)
+        assert.equal(1, #unrated)
+        assert.equal("ring 700", unrated[1].name)
+        -- An empty list is a run with no later pass, not "ask the database".
+        assert.same(plan.excluded, ns.Companion.Unrated(plan, {}))
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
 -- C-9 (WKE-559): the companion's own status file.
 
 describe("the committed Data/CompanionStatus.lua placeholder", function()
