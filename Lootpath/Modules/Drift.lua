@@ -38,6 +38,11 @@ Drift.EVENTS = {
     "PLAYER_EQUIPMENT_CHANGED",
     "WEEKLY_REWARDS_UPDATE",
     "ITEM_UPGRADE_MASTER_UPDATE",
+    -- H-1 (WKE-596). Not a gear event: it is what takes a standing nudge, the
+    -- minimap badge and the bag marks down the moment the player changes spec,
+    -- through the one function that already owns all three (`Drift.Check`).
+    -- Blizzard's own name, in Ketho's `Core/Data/Event.lua:1175`.
+    "PLAYER_SPECIALIZATION_CHANGED",
 }
 
 -- A burst of those events - a bag sort fires BAG_UPDATE_DELAYED once per bag,
@@ -339,6 +344,45 @@ function Drift.Check()
         state.deferred = true
         return state.behind
     end
+    -- H-1 (WKE-596): the healing gate. In a non-healer spec the nudge row and
+    -- the minimap badge say nothing at all - a player who is tanking is not
+    -- behind on anything Lootpath rates, and telling him to refresh would send
+    -- him round a loop that is refused at the other end. A nudge that was
+    -- already standing when he changed spec comes DOWN here: this runs on
+    -- `PLAYER_SPECIALIZATION_CHANGED` (`Drift.EVENTS`), so the row and the badge
+    -- are taken off the screen by the change itself, and the bag marks with
+    -- them. The gate is re-read, never remembered, so switching back puts the
+    -- baseline and the nudge back on the next scan.
+    if ns.Companion and ns.Companion.Gate and ns.Companion.Gate() then
+        local changed = state.behind ~= nil or state.gated ~= true
+        state.behind = nil
+        state.gated = true
+        if changed then
+            if ns.UI and ns.UI.RefreshStrip then
+                ns.UI.RefreshStrip()
+            end
+            if ns.UI and ns.UI.RefreshMinimapDot then
+                ns.UI.RefreshMinimapDot()
+            end
+            -- The marks already drawn in an open bag window. `ns.Glow.Wants`
+            -- answers false from the moment the gate is up, so a slot drawn
+            -- after this is unmarked anyway; this is what takes down the ones
+            -- that were drawn before the player changed spec.
+            if ns.UI and ns.UI.Bags and ns.UI.Bags.Refresh then
+                ns.UI.Bags.Refresh()
+            end
+        end
+        return nil
+    end
+    -- Back in a healing spec (or in a spec the client does not name, which is
+    -- never gated): the marks the gate took down are drawn again by the same
+    -- redraw, and everything below runs as it always has.
+    if state.gated then
+        state.gated = false
+        if ns.UI and ns.UI.Bags and ns.UI.Bags.Refresh then
+            ns.UI.Bags.Refresh()
+        end
+    end
     local stamp = Drift.PlanStamp()
     local current = Drift.Read()
     if current == nil then
@@ -392,6 +436,7 @@ function Drift.Reset()
     state.behind = nil
     state.pending = false
     state.deferred = false
+    state.gated = nil
 end
 
 -- ---------------------------------------------------------------------------
@@ -709,6 +754,17 @@ end
 -- Returns the line it printed, or nil.
 function Drift.LoadLine(now)
     now = now or time()
+    -- H-1 (WKE-596): in a non-healer spec the load says the gate's own sentence
+    -- and nothing else - not a refresh state, not the spec clause, not the
+    -- gear-unread line. Every one of those is about a rating for healing gear,
+    -- and the player has just been told that healing gear is all Lootpath rates.
+    -- The wait's stamp is left alone: a rating started before the spec change is
+    -- still out there, and it is still waiting when he switches back.
+    local gateLine = ns.Companion.GateLine and ns.Companion.GateLine() or nil
+    if gateLine then
+        ns.Log("%s", gateLine)
+        return gateLine
+    end
     local decision, status = Drift.Decide(now)
     if not decision then
         clearWait(store())

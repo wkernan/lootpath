@@ -294,6 +294,26 @@ local function inventoryIsEmpty(data)
     return nil
 end
 
+-- **H-1 (WKE-596): a non-healer spec's gear is not stored either.** The read
+-- itself is fine - the client answers it - but storing it would make it the
+-- newest `inventory` snapshot, and the companion rates the newest: one `/reload`
+-- in Guardian and the rating on screen is about the Guardian set, which is the
+-- noise the owner saw. So it is refused on the same path R-7b's empty read is
+-- refused on: nothing is stored, the newest good read stays newest, and a flush
+-- records the refusal and its reason on its own `env` snapshot
+-- (`CaptureAtFlush`'s `flushRefusals`).
+--
+-- `env`, `vault`, `currencies` and `upgrade` are untouched - `env` is what
+-- records which spec this was - and a role the client does not name is not
+-- gated, so a flush that reads no spec stores gear exactly as it did before.
+local function inventoryIsGated()
+    return ns.Companion and ns.Companion.GateCaptureReason and ns.Companion.GateCaptureReason() or nil
+end
+
+local function refuseInventory(data)
+    return inventoryIsGated() or inventoryIsEmpty(data)
+end
+
 ns.RegisterCapture(
     "inventory",
     "equipped slots, every bag index, bank state (open the bank first for that half)",
@@ -374,7 +394,7 @@ ns.RegisterCapture(
 
         return { equipped = equipped, bags = bags, bank = bank }
     end,
-    { refuse = inventoryIsEmpty }
+    { refuse = refuseInventory }
 )
 
 -- vault: the same C_WeeklyRewards calls the SimulationCraft addon makes, raw.

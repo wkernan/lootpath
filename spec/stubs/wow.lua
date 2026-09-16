@@ -1121,6 +1121,21 @@ function Stub.install()
         -- The active specialization, or nil for a client that names none.
         -- Placeholder in every particular except the shape (M2-2, M5-2).
         spec = { index = 4, id = 105, name = "Restoration", icon = 136041, role = "HEALER" },
+        -- Every specialization this character's class has, which is what
+        -- `GetNumSpecializations` counts and what `GetSpecializationInfo(i)`
+        -- describes for an index that is not the active one (H-1, WKE-596:
+        -- `ns.Companion.HealingSpecName` walks them to name the healing spec
+        -- without a table of its own). Placeholders in every particular except
+        -- the shape and the ROLE strings, which are Blizzard's own words
+        -- (`ClubFinder.lua:827`, `Blizzard_CompactRaidFrameManager.lua:1177`,
+        -- under .luals/). A test giving a class no healing spec sets this to a
+        -- list without one; `{}` is a client that describes none at all.
+        specs = {
+            { index = 1, id = 102, name = "Balance", icon = 136096, role = "DAMAGER" },
+            { index = 2, id = 103, name = "Feral", icon = 132115, role = "DAMAGER" },
+            { index = 3, id = 104, name = "Guardian", icon = 132276, role = "TANK" },
+            { index = 4, id = 105, name = "Restoration", icon = 136041, role = "HEALER" },
+        },
         -- The keystone the character owns, or nil for one holding none, which
         -- the client answers as 0/0/0 (R-0, WKE-561). A test that wants a key
         -- sets { level = 8, challengeMapID = 542, mapID = 2664 }.
@@ -1397,9 +1412,24 @@ function Stub.install()
     define("GetSpecialization", function()
         return world.spec and world.spec.index or nil
     end)
+    -- How many specializations the class has, for the walk that names its
+    -- healing one (H-1, WKE-596). A global and only a global: Ketho's
+    -- annotations carry `GetNumSpecializations` in `Core/Data/Wiki.lua:5896`
+    -- and `C_SpecializationInfo` has no twin of it, only
+    -- `GetNumSpecializationsForClassID`.
+    define("GetNumSpecializations", function()
+        return #(world.specs or {})
+    end)
+    -- The active spec answers about itself whatever `world.specs` says, so a
+    -- test can set `world.spec` alone and be describing a real client; any
+    -- other index is described out of `world.specs`, which is the only way an
+    -- addon can be told about a spec the player is not standing in.
     define("GetSpecializationInfo", function(index)
         local spec = world.spec
         if not spec or index ~= spec.index then
+            spec = (world.specs or {})[index]
+        end
+        if not spec then
             return nil
         end
         return spec.id, spec.name, "placeholder", spec.icon, spec.role, 4

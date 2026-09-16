@@ -329,6 +329,60 @@ describe("captures", function()
                 assert.equal(0, #result.snapshot.data.equipped)
             end)
         end)
+
+        -- H-1 (WKE-596): the second refusal, on the same path and for the same
+        -- reason - the newest `inventory` snapshot is what the companion rates,
+        -- and the gear worn in a non-healer spec is not a set Lootpath rates.
+        -- The read itself is fine; STORING it is what would make the rating on
+        -- screen about a Guardian's gear after one `/reload`.
+        describe("a read taken in a non-healer spec", function()
+            local GUARDIAN = { index = 3, id = 104, name = "Guardian", icon = 132276, role = "TANK" }
+
+            -- Proven red by taking the gate out of `refuseInventory`: the read
+            -- is stored, `result.ok` is true, and the Guardian set is newest.
+            it("is refused, stores nothing, and says why", function()
+                world.equipped[1] = { link = HELM, id = 210001 }
+                world.spec = GUARDIAN
+                local result = ns.RunCapture("inventory")
+                assert.is_false(result.ok)
+                assert.is_true(result.refusedStore)
+                assert.truthy(
+                    result.reason:find(
+                        "you're in Guardian; Lootpath rates healing gear, so this read is not stored",
+                        1,
+                        true
+                    )
+                )
+                assert.is_nil(ns.db.global.captures.inventory)
+            end)
+
+            it("leaves the healing read the newest one", function()
+                world.equipped[1] = { link = HELM, id = 210001 }
+                assert.is_true(ns.RunCapture("inventory").ok)
+                world.spec = GUARDIAN
+                ns.RunCapture("inventory")
+                assert.equal(1, #ns.db.global.captures.inventory)
+            end)
+
+            -- The other captures are untouched: `env` is what records which
+            -- spec this was, and the currencies are a fact about the character
+            -- rather than about a set.
+            it("does not touch env or currencies", function()
+                world.spec = GUARDIAN
+                assert.is_true(ns.RunCapture("env").ok)
+                assert.is_true(ns.RunCapture("currencies").ok)
+                assert.equal(1, #ns.db.global.captures.env)
+                assert.equal(1, #ns.db.global.captures.currencies)
+            end)
+
+            it("stores the read as it always did in the healing spec and with no spec at all", function()
+                world.equipped[1] = { link = HELM, id = 210001 }
+                assert.is_true(ns.RunCapture("inventory").ok)
+                world.spec = nil
+                assert.is_true(ns.RunCapture("inventory").ok)
+                assert.equal(2, #ns.db.global.captures.inventory)
+            end)
+        end)
     end)
 
     describe("vault", function()

@@ -1076,10 +1076,12 @@ function Companion.SpecFromEnv(envData)
     return safeString(info[2])
 end
 
--- The spec the client says you are in right now, or nil. The namespaced pair
--- first and the globals behind it, for the reason `ns.UI.SpecIcon` gives: the
--- annotations deprecate the globals and not every client has moved.
-function Companion.CurrentSpec()
+-- The client's own specialization pair: the index it says you are in, and the
+-- function that describes one. The namespaced pair first and the globals behind
+-- it, for the reason `ns.UI.SpecIcon` gives: the annotations deprecate the
+-- globals and not every client has moved. Either half can be nil, and every
+-- caller below says what it does about that.
+local function specReaders()
     local index, info
     if C_SpecializationInfo and type(C_SpecializationInfo.GetSpecialization) == "function" then
         index = C_SpecializationInfo.GetSpecialization()
@@ -1089,11 +1091,160 @@ function Companion.CurrentSpec()
         index = GetSpecialization()
         info = _G.GetSpecializationInfo
     end
+    -- A client that names no index can still describe a specialization, which
+    -- is what `HealingSpecName`'s walk needs and `CurrentRole` does not.
+    if type(info) ~= "function" then
+        if C_SpecializationInfo and type(C_SpecializationInfo.GetSpecializationInfo) == "function" then
+            info = C_SpecializationInfo.GetSpecializationInfo
+        elseif type(_G.GetSpecializationInfo) == "function" then
+            info = _G.GetSpecializationInfo
+        else
+            info = nil
+        end
+    end
+    return index, info
+end
+
+-- The spec the client says you are in right now, or nil.
+function Companion.CurrentSpec()
+    local index, info = specReaders()
     if index == nil or type(info) ~= "function" then
         return nil
     end
     local probed = ns.Probe(info, index)
     return safeString(probed[2])
+end
+
+-- ---------------------------------------------------------------------------
+-- H-1 (WKE-596): the healing gate's one reading of "am I healing".
+--
+-- **Keyed on the ROLE, which is the client's own word, never on a class or a
+-- spec table of ours.** `GetSpecializationInfo`'s fifth return is `role`
+-- (Ketho's `SpecializationInfoDocumentation.lua:82-100`, read 2026-09-16:
+-- `specId, name, description, icon, role, primaryStat, ...`), and `"HEALER"` is
+-- the string Blizzard's own frames compare against (`ClubFinder.lua:827`,
+-- `Blizzard_CompactRaidFrameManager.lua:1177`, in the same annotations). A
+-- class Lootpath has never heard of is gated or not gated by the same read.
+Companion.HEALER_ROLE = "HEALER"
+
+-- The role the client says you are in right now, or nil when it names none.
+--
+-- **nil is NOT "not healing".** At `ADDON_LOADED`, and on a real logout, the
+-- spec read is empty (R-7b, §9 2026-09-16): a gate keyed on nil would silence
+-- the whole addon at exactly the moments it has nothing to go on. Every caller
+-- below treats nil as today's behaviour, never as the gate.
+function Companion.CurrentRole()
+    local index, info = specReaders()
+    if index == nil or type(info) ~= "function" then
+        return nil
+    end
+    local probed = ns.Probe(info, index)
+    return safeString(probed[5])
+end
+
+-- The healing specialization's own name for this class - `Restoration` for a
+-- Druid, `Holy` for a Paladin - read by asking the client about each of its
+-- specializations in turn, so the sentence names the right one without a table
+-- of ours. nil for a class that has no healing spec, and nil on a client that
+-- answers neither call.
+--
+-- `GetNumSpecializations` is a global: Ketho's annotations carry it in
+-- `Core/Data/Wiki.lua:5896-5900` (`isInspect, isPet -> numSpecializations`) and
+-- `C_SpecializationInfo` has no namespaced twin of it, only
+-- `GetNumSpecializationsForClassID`, which would need a class ID this does not
+-- have to ask for.
+function Companion.HealingSpecName()
+    local _, info = specReaders()
+    if type(info) ~= "function" or type(_G.GetNumSpecializations) ~= "function" then
+        return nil
+    end
+    local count = ns.Probe(_G.GetNumSpecializations)[1]
+    if type(count) ~= "number" then
+        return nil
+    end
+    for index = 1, count do
+        local probed = ns.Probe(info, index)
+        if safeString(probed[5]) == Companion.HEALER_ROLE then
+            return safeString(probed[2])
+        end
+    end
+    return nil
+end
+
+-- What the gate is, once, for every surface: nil when the addon behaves as it
+-- always has (healing, or a role the client does not name), and otherwise the
+-- three facts every gated sentence is made of.
+--
+-- **Asked of the client every time, never remembered.** The issue asks for the
+-- role to be re-evaluated on `PLAYER_SPECIALIZATION_CHANGED` and
+-- `PLAYER_ENTERING_WORLD` and for every surface to read it live; a live read is
+-- the stronger of the two and makes the other unnecessary, so there is no
+-- cached answer here to go stale and no surface holding a copy of its own. The
+-- first build of this DID memoise it, dropped on those two events, and the
+-- suite is what said no: the R-7b tests set the spec after the load and the
+-- remembered answer was still the spec from before it. A cache a test cannot
+-- see is a gate a test cannot prove.
+--
+-- The two events are still what REDRAW the surfaces - `ns.Drift.EVENTS` carries
+-- the spec change, and the window registers it itself - and that is a different
+-- job from reading the role.
+Companion.GATE_SPEC_UNNAMED = "this spec"
+
+function Companion.Gate()
+    local role = Companion.CurrentRole()
+    if role == nil or role == Companion.HEALER_ROLE then
+        return nil
+    end
+    return {
+        role = role,
+        spec = Companion.CurrentSpec() or Companion.GATE_SPEC_UNNAMED,
+        healer = Companion.HealingSpecName(),
+    }
+end
+
+-- The three sentences the gate says, in the three places it says them. One
+-- owner for each string (V-1, WKE-569), and every one of them nil when the gate
+-- is down, so a caller is `local line = ...; if line then` and nothing else.
+Companion.GATE_CAPTURE_REASON = "you're in %s; Lootpath rates healing gear, so this read is not stored"
+Companion.GATE_REFRESH_LINE = "you're in %s; switch to %s to refresh"
+Companion.GATE_REFRESH_LINE_NO_HEALER = "you're in %s; Lootpath rates healing gear, and this class has none"
+Companion.GATE_LINE = "you're in %s; Lootpath rates healing gear for now - switch to %s and it's all here."
+Companion.GATE_LINE_NO_HEALER = "you're in %s; Lootpath rates healing gear for now."
+
+-- What a refusal from the gate is called in a result table. Not player-facing:
+-- the sentences above are, and this is what a caller tests against.
+Companion.GATE_REFRESH_REASON = "healing gate"
+
+function Companion.GateCaptureReason()
+    local gate = Companion.Gate()
+    if not gate then
+        return nil
+    end
+    return string.format(Companion.GATE_CAPTURE_REASON, gate.spec)
+end
+
+function Companion.GateRefreshLine()
+    local gate = Companion.Gate()
+    if not gate then
+        return nil
+    end
+    if not gate.healer then
+        return string.format(Companion.GATE_REFRESH_LINE_NO_HEALER, gate.spec)
+    end
+    return string.format(Companion.GATE_REFRESH_LINE, gate.spec, gate.healer)
+end
+
+-- The load line's sentence, and `/lootpath status`'s first line: the same words
+-- the window's own screen says, so the two surfaces cannot disagree.
+function Companion.GateLine()
+    local gate = Companion.Gate()
+    if not gate then
+        return nil
+    end
+    if not gate.healer then
+        return string.format(Companion.GATE_LINE_NO_HEALER, gate.spec)
+    end
+    return string.format(Companion.GATE_LINE, gate.spec, gate.healer)
 end
 
 -- The sentence, or nil when there is nothing to say: no plan, no spec named on
@@ -1327,6 +1478,17 @@ function Companion.Refresh(onDone)
     if InCombatLockdown() then
         ns.Log("%s", Companion.REFRESH_COMBAT_REASON)
         return done({ ok = false, reason = "combat" })
+    end
+    -- H-1 (WKE-596): the healing gate, before anything is captured and before
+    -- the reload is even looked for. A refresh in a non-healer spec would
+    -- capture that spec's gear, reload, and hand the companion a set to rate
+    -- that Lootpath will not rate - so it says which spec would be refreshed
+    -- and stops. Nothing is captured, nothing is stored, nothing reloads; the
+    -- rating on screen is left exactly as it is, which is the point.
+    local gateLine = Companion.GateRefreshLine()
+    if gateLine then
+        ns.Log("%s", gateLine)
+        return done({ ok = false, reason = Companion.GATE_REFRESH_REASON })
     end
     -- Checked before anything is captured: four snapshots the owner cannot
     -- flush are four snapshots written for nothing.

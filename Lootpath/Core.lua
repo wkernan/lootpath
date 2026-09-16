@@ -811,6 +811,16 @@ local function captureCommand(rest)
 end
 
 local function statusCommand()
+    -- H-1 (WKE-596): the gate first, in the same words the window's screen and
+    -- the load line use (`ns.Companion.GateLine` owns them), because a player
+    -- who types this in a non-healer spec is owed the reason the surfaces
+    -- around him have gone quiet before he reads what is stored. Everything
+    -- below still prints: what is captured and what is rated are facts either
+    -- way, and this command is where a player goes to read them.
+    local gateLine = ns.Companion and ns.Companion.GateLine and ns.Companion.GateLine() or nil
+    if gateLine then
+        ns.Log("%s", gateLine)
+    end
     if not ns.db then
         ns.Log("database not loaded yet.")
         return
