@@ -109,3 +109,18 @@ with every loop rather than by request.
   19:27:22Z, the flush six seconds after the window closed, carrying the same
   11 and 9. The window generated them; the addon's interaction did not.
   No secrets seen.
+- empty-equipment-flush.lua - **hand-written, not a pull**, and the only one in
+  this folder that is: the write carrying the real thing was four snapshots deep
+  and the flushes after it pushed it off the end before it could be pulled. The
+  shape is read, not invented - the owner's live SavedVariables, parsed
+  2026-09-16 with `tools/companion/lib/lua-savedvariables.js`, carry the flush of
+  his 2026-09-15 22:11:52 logout with `equipped 0`, all twenty bag records
+  answering `numSlots 0`, and the whole capture 0.58 ms, beside `equipped 15` and
+  14.4-29.6 ms for the two reload flushes and the refresh of the next day. The
+  `env` read of that same flush still answers `UnitLevel 90` and `UnitClass
+  Druid`, carries `trigger = "flush"` and `capturedOn = "flush"`, and names no
+  spec at all (`GetSpecializationInfo` answers id 0 and no name at
+  `PLAYER_LOGOUT`). Built through `tools/companion/lib/profile.js` it produces
+  `0 equipped, 0 in bags, 0 in the bank, 0 vault, 14 lines` - the owner's
+  2026-09-15 22:07 terminal, line for line. It is what R-7b (WKE-591) pins the
+  companion's refusal and the flush label against. No secrets.

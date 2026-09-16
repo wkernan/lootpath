@@ -852,6 +852,15 @@ Companion.STATUS_NEVER = "companion: never seen"
 Companion.STATUS_UNREADABLE = "companion: status file not understood"
 Companion.STATUS_LOG_HINT = " - see companion.log"
 
+-- R-7b (WKE-591). A `skipped` run can now mean one of two things, and they are
+-- opposite: C-4's is "your plan is already right" and this one is "we could not
+-- send anything, so your plan is whatever it was". The companion tells them
+-- apart with the exit code it writes into the status file - `tools/companion`
+-- `EXIT.emptyGear` - because the message is prose and a clause must not be
+-- chosen by reading prose.
+Companion.EXIT_EMPTY_GEAR = 8
+Companion.STATUS_EMPTY_GEAR = "companion: no gear to rate, no run"
+
 -- Status(raw) -> { absent = true } for the committed placeholder, which is not
 -- an error; { ok = false, reason } for a file that is there but says nothing
 -- this can read; or the whole record.
@@ -953,6 +962,9 @@ function Companion.StatusText(raw, now)
         return "companion: run started " .. at
     end
     if status.state == "skipped" then
+        if status.exitCode == Companion.EXIT_EMPTY_GEAR then
+            return withClock(Companion.STATUS_EMPTY_GEAR, status.finishedAt, now) .. Companion.STATUS_LOG_HINT
+        end
         return withClock("companion: profile unchanged, no run", status.finishedAt, now)
     end
     if status.state == "failed" then
@@ -984,6 +996,107 @@ function Companion.StatusTooltip(raw, now)
     end
     local when = status.finishedAt or status.startedAt
     return withClock(string.format("The companion's last run: %s", status.message), when, now)
+end
+
+-- ---------------------------------------------------------------------------
+-- The spec you are in, against the spec the plan was rated for (R-7b, WKE-591).
+--
+-- The owner asked, the night his logout captured nothing, whether being logged
+-- in as Guardian had caused it. It had not - the scan never looks at spec, and
+-- the `env` read of that same 19:19 flush records class Druid with `specInfo`
+-- absent - but the question named a real hole beside it. A refresh taken in a
+-- non-healing spec captures THAT spec's equipment as "what you wear", the
+-- profile says so, and the plan then reads that gear as worn.
+--
+-- `tools/companion/lib/profile.js` `specMismatch` already catches one half of
+-- this: QE Live's own browser profile against the capture. This is the other
+-- half, and the only one that can be said before the mistake is made - the
+-- client knows what spec you are in right now, and the verdict on screen says
+-- what it was rated for.
+--
+-- **Nothing is refused and no rating is touched.** A player may want a plan for
+-- the spec he is not standing in. This says which is which, in one sentence, at
+-- the three moments he is looking: the strip, the load after a refresh, and the
+-- refresh itself before it captures.
+Companion.SPEC_MISMATCH_LINE = "you're in %s; this plan is for %s - switch and refresh"
+
+-- The spec named by an `env` capture's `specInfo` probe, or nil.
+-- `GetSpecializationInfo`'s second return is the spec's own name (Ketho's
+-- annotations), which is the field the capture stores and the one `profile.js`
+-- reads for its own half of the check. `{ absent = true }` - what the capture
+-- writes when the client names no spec, and what the flush's `env` carries
+-- every time (the owner's 2026-09-16 file: `specIndex 4`, `specInfo` id 0 and
+-- no name at all at `PLAYER_LOGOUT`) - has no second value and answers nil.
+function Companion.SpecFromEnv(envData)
+    if type(envData) ~= "table" then
+        return nil
+    end
+    local info = ns.Safe(envData.specInfo)
+    if type(info) ~= "table" then
+        return nil
+    end
+    return safeString(info[2])
+end
+
+-- The spec the client says you are in right now, or nil. The namespaced pair
+-- first and the globals behind it, for the reason `ns.UI.SpecIcon` gives: the
+-- annotations deprecate the globals and not every client has moved.
+function Companion.CurrentSpec()
+    local index, info
+    if C_SpecializationInfo and type(C_SpecializationInfo.GetSpecialization) == "function" then
+        index = C_SpecializationInfo.GetSpecialization()
+        info = C_SpecializationInfo.GetSpecializationInfo
+    end
+    if index == nil and type(_G.GetSpecialization) == "function" then
+        index = GetSpecialization()
+        info = _G.GetSpecializationInfo
+    end
+    if index == nil or type(info) ~= "function" then
+        return nil
+    end
+    local probed = ns.Probe(info, index)
+    return safeString(probed[2])
+end
+
+-- The sentence, or nil when there is nothing to say: no plan, no spec named on
+-- either side, or the two agree. Compared the way `profile.js` compares its own
+-- pair - `verdict.spec` is QE Live's word for the same thing, and one of the
+-- two can be the longer phrasing - so a containment either way is agreement.
+--
+-- `envData` is the fallback the live read needs: at a flush, and in combat, the
+-- client names no spec at all, and the newest capture is then the only thing
+-- that does.
+function Companion.SpecClause(verdict, envData)
+    if type(verdict) ~= "table" then
+        return nil
+    end
+    local planned = safeString(verdict.spec)
+    local current = Companion.CurrentSpec() or Companion.SpecFromEnv(envData)
+    if not planned or not current then
+        return nil
+    end
+    local a, b = planned:lower(), current:lower()
+    if a:find(b, 1, true) or b:find(a, 1, true) then
+        return nil
+    end
+    return string.format(Companion.SPEC_MISMATCH_LINE, current, planned)
+end
+
+-- The newest `env` snapshot's data, for the fallback above. The companion reads
+-- the newest of each name and so does this; `ns.CAPTURE_HISTORY` keeps four.
+function Companion.NewestEnvData()
+    local list = ns.db and ns.db.global and ns.db.global.captures and ns.db.global.captures.env
+    if type(list) ~= "table" or #list == 0 then
+        return nil
+    end
+    local newest = list[#list]
+    return type(newest) == "table" and newest.data or nil
+end
+
+-- The clause for whichever surface is asking, off the plan on screen.
+function Companion.SpecClauseNow()
+    local verdict = ns.UI and ns.UI.ActiveVerdict and (ns.UI.ActiveVerdict())
+    return Companion.SpecClause(verdict, Companion.NewestEnvData())
 end
 
 -- `/lootpath refresh` - the loop from inside the game, in one word. It takes
@@ -1175,6 +1288,15 @@ function Companion.Refresh(onDone)
         ns.Log("%s", Companion.REFRESH_NO_RELOAD_REASON)
         return done({ ok = false, reason = Companion.REFRESH_NO_RELOAD_REASON })
     end
+    -- R-7b (WKE-591): said BEFORE the captures, and it never stops them. The
+    -- refresh is the one moment the player has asked for his gear to be read,
+    -- so it is the last moment worth telling him that the gear about to be read
+    -- is not the set the plan on screen was rated for. He may mean it; the
+    -- refresh happens either way.
+    local specClause = Companion.SpecClauseNow()
+    if specClause then
+        ns.Log("%s", specClause)
+    end
     local snapshots = {}
     local index = 0
     -- R-6 (WKE-578): every snapshot this chain stores is labelled as the
@@ -1334,6 +1456,21 @@ function Companion.CaptureAtFlush()
     if snapshots.env then
         snapshots.env.capturedOn = Companion.FLUSH_TRIGGER
         snapshots.env.flushMs = elapsedMs
+        -- R-7b (WKE-591): what this flush read and threw away, and why. A
+        -- refusal stores no snapshot of its own - that is the point - so the
+        -- only place it can leave a trace is the one record of the same flush
+        -- that IS stored. Without it a pull shows an `inventory` history whose
+        -- newest entry is hours older than the `env` beside it and nothing
+        -- saying so. Nothing in the addon reads this; it is for the transcript.
+        if #failures > 0 then
+            snapshots.env.flushRefusals = ns.CopyRaw(failures)
+        end
+        -- The other half of the same question, and the one the addon cannot
+        -- answer from a desk: does the gear still exist one event earlier?
+        -- See `ns.leavingWorld` in Core.lua.
+        if ns.leavingWorld then
+            snapshots.env.leavingWorld = ns.CopyRaw(ns.leavingWorld)
+        end
     end
     return {
         ok = #failures == 0,

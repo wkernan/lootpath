@@ -382,6 +382,109 @@ describe("Core", function()
             assert.is_nil(ns.db.global.captures.broken)
         end)
 
+        -- R-7b (WKE-591). A capture may look at what it has just read and
+        -- refuse to store it. The refusal is the whole point of the issue: an
+        -- `inventory` read that came back empty on a real logout used to be
+        -- stored, and being the newest it was what the companion built its
+        -- profile from - so the newest GOOD read has to stay the newest.
+        describe("a capture that refuses its own read", function()
+            before_each(function()
+                ns.RegisterCapture("picky", "", function()
+                    return { empty = true }
+                end, {
+                    refuse = function(data)
+                        return data.empty and "it read nothing" or nil
+                    end,
+                })
+            end)
+
+            -- Proven red by returning `storeSnapshot(...)` from `ns.RunCapture`
+            -- without consulting `entry.refuse`: the snapshot is stored, the
+            -- result is ok, and both assertions below fail.
+            it("stores nothing at all and answers with the reason", function()
+                local result = ns.RunCapture("picky")
+                assert.is_false(result.ok)
+                assert.is_true(result.refusedStore)
+                assert.truthy(result.reason:find("it read nothing", 1, true))
+                assert.truthy(result.reason:find("picky", 1, true))
+                assert.is_nil(ns.db.global.captures.picky)
+            end)
+
+            -- What the refusal exists to protect: the history is four deep, so
+            -- a stored refusal would push the newest good read one place
+            -- towards the edge every time.
+            it("leaves the newest good snapshot the newest", function()
+                ns.RegisterCapture("picky", "", function()
+                    return { empty = false, mark = "good" }
+                end, {
+                    refuse = function(data)
+                        return data.empty and "it read nothing" or nil
+                    end,
+                })
+                assert.is_true(ns.RunCapture("picky").ok)
+                ns.RegisterCapture("picky", "", function()
+                    return { empty = true }
+                end, {
+                    refuse = function(data)
+                        return data.empty and "it read nothing" or nil
+                    end,
+                })
+                ns.RunCapture("picky")
+                local list = ns.db.global.captures.picky
+                assert.equal(1, #list)
+                assert.equal("good", list[#list].data.mark)
+            end)
+
+            it("stores when the refusal answers nil", function()
+                ns.RegisterCapture("picky", "", function()
+                    return { empty = false }
+                end, {
+                    refuse = function()
+                        return nil
+                    end,
+                })
+                assert.is_true(ns.RunCapture("picky").ok)
+                assert.equal(1, #ns.db.global.captures.picky)
+            end)
+
+            -- A `refuse` that throws must never turn a good read into a lost
+            -- one. Proven red by calling `entry.refuse` directly instead of
+            -- through the pcall: the error escapes `ns.RunCapture` entirely.
+            it("stores when the refusal itself errors", function()
+                ns.RegisterCapture("picky", "", function()
+                    return { empty = true }
+                end, {
+                    refuse = function()
+                        error("the refusal is broken")
+                    end,
+                })
+                assert.is_true(ns.RunCapture("picky").ok)
+                assert.equal(1, #ns.db.global.captures.picky)
+            end)
+
+            -- The async half of the same gate, because `capture journal` and
+            -- `capture vault` reach `storeSnapshot` down a different path.
+            it("refuses an async capture's read too", function()
+                ns.RegisterCapture("slowpicky", "", function(finish)
+                    finish({ empty = true })
+                end, {
+                    async = true,
+                    refuse = function(data)
+                        return data.empty and "it read nothing" or nil
+                    end,
+                })
+                local final
+                ns.RunCapture("slowpicky", function(result)
+                    final = result
+                end)
+                assert.is_false(final.ok)
+                assert.is_true(final.refusedStore)
+                assert.is_nil(ns.db.global.captures.slowpicky)
+                -- and the one-at-a-time latch is released, not left held
+                assert.is_nil(ns.runningCapture)
+            end)
+        end)
+
         it("masks secrets and flags the snapshot", function()
             ns.RegisterCapture("leaky", "", function()
                 return { hp = world.secret("hp") }

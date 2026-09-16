@@ -57,7 +57,20 @@ const EXIT = {
     // fine; this one would be the second, and two watchers over one
     // SavedVariables file is the failure the rule has named since C-1.
     watching: 7,
+    // R-7b (WKE-591): the profile carries no equipped gear, so there is
+    // nothing to rate and the fork is never opened. Its own code, distinct
+    // from `fork` and from `profile`: the owner's 2026-09-15 22:07 run died as
+    // a fork failure (exit 4, "Selected Items: 0/30") when what had actually
+    // happened was an empty read three hours earlier, and a wrapper reading
+    // exit codes could not tell "QE Live broke" from "we sent it nothing".
+    emptyGear: 8,
 };
+
+// Said before the fork is touched, and the only thing said: a profile with no
+// equipped gear is not a question QE Live can be asked. The previous verdict
+// stays on disk, which is the sentence's own promise (R-7b, WKE-591).
+const EMPTY_GEAR_LINE =
+    'refusing to rate a profile with no equipped gear (the newest inventory read is empty); the previous verdict is untouched';
 
 // What each gate is waiting for, in the log's own words. The reasons a gate
 // gives AFTER it is settled are lib/config.js's (`gateVerdict`); this is the
@@ -149,6 +162,31 @@ async function once(config, log, args, deps) {
     if (args.profileOnly) {
         process.stdout.write(profile.text);
         return EXIT.ok;
+    }
+
+    // R-7b (WKE-591). **The companion never rates nothing.**
+    //
+    // The owner's 2026-09-15 22:07 run built a profile of `0 equipped, 0 in
+    // bags`, sent it to QE Live anyway, and died three stages later at the fork
+    // with `Selected Items: 0/30` - a fork failure, exit 4, for a question that
+    // was empty before the browser was opened. The safety at the far end held
+    // and the verdict file was untouched, but the log named the wrong thing and
+    // the owner spent the wait watching a browser that never had a chance.
+    //
+    // A profile with no equipped gear is not a question. It is refused here, in
+    // one line, before the fork is started, with its own exit code and a
+    // `skipped` status - not `failed`, because nothing broke: the addon's read
+    // was empty and the plan on disk is still the best one there is. The
+    // `skipped` state is what carries it into the game, where the strip's
+    // clause and R-6a's load line read `exitCode` to tell this skip from C-4's
+    // "your gear hasn't changed" one.
+    //
+    // After `--profile-only`, deliberately: that flag opens nothing and writes
+    // nothing, and printing the empty profile is how this gets diagnosed.
+    if (profile.counts.equipped === 0) {
+        log.error(EMPTY_GEAR_LINE);
+        status.skipped(EMPTY_GEAR_LINE, { exitCode: EXIT.emptyGear });
+        return EXIT.emptyGear;
     }
 
     // C-4 (WKE-537). Two reloads is the floor of the loop, so the second one

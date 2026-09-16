@@ -425,13 +425,28 @@ function UI.StatusStripModel(now)
     -- displaces them. The displaced facts go to the TOP of the tooltip, under
     -- the wait's own sentence: they are the line the reader was looking at a
     -- moment ago, and the sentence says what took their place.
+    --
+    -- **R-7b (WKE-591): the spec disagreement displaces them the same way, and
+    -- the wait wins over it.** A plan rated for a spec the player is not in is
+    -- a plan about gear he is not wearing, and every fact on the line is a fact
+    -- about that plan - so the sentence that says which spec it is for belongs
+    -- where the facts were, not a surface in, for the same reason M3-16b moved
+    -- the wait there. It is rare by construction: it says nothing at all unless
+    -- the two specs genuinely disagree.
+    local specClause = ns.Companion.SpecClauseNow and ns.Companion.SpecClauseNow() or nil
     local function lineFrom(parts, tooltip)
-        if not wait then
+        if not wait and not specClause then
             return table.concat(parts, UI.SEPARATOR)
         end
         table.insert(tooltip, 1, table.concat(parts, UI.SEPARATOR))
-        table.insert(tooltip, 1, wait.tooltip)
-        return wait.text
+        if wait then
+            table.insert(tooltip, 1, wait.tooltip)
+            if specClause then
+                tooltip[#tooltip + 1] = specClause
+            end
+            return wait.text
+        end
+        return specClause
     end
     -- The content type is deliberately dropped on the floor here: since V-2 it
     -- is the tooltip's, through UI.VerdictNoteText, and not the line's.
@@ -462,6 +477,7 @@ function UI.StatusStripModel(now)
             text = lineFrom({ UI.NO_VERDICT_STRIP, companion }, tooltip),
             companion = companion,
             wait = wait,
+            specClause = specClause,
             tooltip = tooltip,
         }
     end
@@ -505,6 +521,7 @@ function UI.StatusStripModel(now)
         fellBack = fellBack,
         companion = companion,
         wait = wait,
+        specClause = specClause,
         tooltip = tooltip,
     }
 end

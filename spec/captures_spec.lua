@@ -275,6 +275,60 @@ describe("captures", function()
             assert.is_false(called)
             assert.is_nil(result.snapshot.data.bank.predicates.AutoDepositItemsIntoBank)
         end)
+
+        -- R-7b (WKE-591). **An empty read is not a capture.**
+        --
+        -- The owner's live SavedVariables, parsed 2026-09-16 with
+        -- `tools/companion/lib/lua-savedvariables.js`: the flush of his
+        -- 2026-09-15 22:11:52 logout stored `equipped 0`, all twenty bag
+        -- records present with `numSlots 0` and no items, `durationMs 0.58` -
+        -- beside `equipped 15` and 14.4-29.6 ms for the two reload flushes and
+        -- the refresh of the next day. The `env` read of that same flush still
+        -- answered `UnitLevel 90` and `UnitClass Druid`. That pair is the tell.
+        describe("an empty equipment read", function()
+            before_each(function()
+                -- The client answering nothing: no links in any slot. The
+                -- character is untouched - still a level-90 Druid, which is
+                -- what makes the read a refusal rather than a naked player.
+                world.equipped = {}
+            end)
+
+            -- Proven red by deleting `{ refuse = inventoryIsEmpty }` from the
+            -- capture's registration: the read is stored, `result.ok` is true,
+            -- and the snapshot with no gear in it becomes the newest.
+            it("is refused, and stores nothing", function()
+                local result = ns.RunCapture("inventory")
+                assert.is_false(result.ok)
+                assert.is_true(result.refusedStore)
+                assert.truthy(result.reason:find(ns.INVENTORY_EMPTY_REASON, 1, true))
+                assert.is_nil(ns.db.global.captures.inventory)
+            end)
+
+            it("leaves the last good read the newest", function()
+                world.equipped[1] = { link = HELM, id = 210001 }
+                assert.is_true(ns.RunCapture("inventory").ok)
+                world.equipped = {}
+                ns.RunCapture("inventory")
+                local list = ns.db.global.captures.inventory
+                assert.equal(1, #list)
+                assert.equal(1, #list[1].data.equipped)
+            end)
+
+            -- The guard must never refuse a read that is genuinely empty. A
+            -- character with no level and no class is not a character the
+            -- client is holding gear for. Proven red by dropping the level and
+            -- class test from `inventoryIsEmpty`: this stores nothing and
+            -- fails on the line below.
+            it("is stored when the client names no character either", function()
+                world.playerLevel = 0
+                _G.UnitClass = function()
+                    return nil
+                end
+                local result = ns.RunCapture("inventory")
+                assert.is_true(result.ok)
+                assert.equal(0, #result.snapshot.data.equipped)
+            end)
+        end)
     end)
 
     describe("vault", function()

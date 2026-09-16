@@ -263,6 +263,7 @@ hand.
 | 5 | QE Live refused the profile (its own message is quoted) |
 | 6 | the write failed; the previous verdict file is untouched |
 | 7 | `--watch` only: another companion is already watching (it names the pid) |
+| 8 | the profile carries no equipped gear, so QE Live was never asked and the previous verdict is untouched (R-7b) |
 
 ## Configuration
 

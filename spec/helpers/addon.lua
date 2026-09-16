@@ -76,4 +76,21 @@ function H.chicagoClock(world, now)
     return now
 end
 
+-- R-7b (WKE-591). The stub world starts with `equipped = {}` - a level-90 Druid
+-- wearing nothing - and since R-7b that is not a character, it is exactly the
+-- empty read the `inventory` capture now refuses (`ns.INVENTORY_EMPTY_REASON`).
+-- A test whose subject is a capture CHAIN rather than the gear in it dresses the
+-- character first, which is what every real run has; a test that means to see the
+-- refusal strips it again.
+--
+-- One helm, because one is the whole difference between "the client answered"
+-- and "the client answered with nothing". A test about gear replays the owner's
+-- own transcript instead (`spec/helpers/replay.lua`).
+H.HELM = "|cffa335ee|Hitem:210001::::::::80:105::13:2:1:2::::::|h[Test Helm]|h|r"
+
+function H.dress(world)
+    world.equipped[1] = { link = H.HELM, id = 210001 }
+    return world
+end
+
 return H
