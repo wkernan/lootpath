@@ -783,8 +783,8 @@ describe("ns.Drift and a logout that could not read the gear (R-7c)", function()
         assert.equal("gearunread", ns.Drift.Decide(at(NOW)))
         local line = ns.Drift.LoadLine(at(NOW))
         assert.equal(
-            "your logout couldn't read your gear, so this plan is from 40 minutes ago \194\183 "
-                .. "/lootpath refresh rates what you wear now",
+            "your gear wasn't read at logout - last rated 40 minutes ago \194\183 "
+                .. "/lootpath refresh to rate what you wear now",
             line
         )
         said(line)

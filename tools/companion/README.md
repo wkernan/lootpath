@@ -44,8 +44,8 @@ before either event fires, so no ordering of them would help. R-7's "log out and
 your plan is current next login" is therefore retired: what a logout keeps
 current is the character, the vault and your currencies, and the gear is whatever
 the last reload or refresh read. The addon says so in game when it matters -
-`your logout couldn't read your gear, so this plan is from 17 hours ago -
-/lootpath refresh rates what you wear now` - and stops saying it the moment a
+`your gear wasn't read at logout - last rated 17 hours ago -
+/lootpath refresh to rate what you wear now` - and stops saying it the moment a
 newer read exists. The empty read is refused rather than stored, so the newest
 good one stays newest (R-7b, WKE-591). Nothing is asked of the server on the way
 out either: there is no time to wait for an answer.

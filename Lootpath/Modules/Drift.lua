@@ -99,8 +99,8 @@ Drift.LOAD_SKIPPED_EMPTY = "your gear didn't reach the companion - the last read
 -- and your plan is current next login" is retired, and this is where it is
 -- retired in the player's own words instead of in a comment. The age is the
 -- newest stored read's, because that read is what the plan on screen is about.
-Drift.LOAD_GEAR_UNREAD = "your logout couldn't read your gear, so this plan is from %s "
-    .. "\194\183 /lootpath refresh rates what you wear now"
+Drift.LOAD_GEAR_UNREAD = "your gear wasn't read at logout - last rated %s "
+    .. "\194\183 /lootpath refresh to rate what you wear now"
 Drift.LOAD_DONE = "rated just now; the plan is current."
 Drift.LOAD_FAILED = "the rating failed%s; see companion.log."
 Drift.LOAD_UNSEEN = "the companion hasn't been seen; is it running?"
