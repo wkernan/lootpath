@@ -13,6 +13,13 @@
 
 local Stub = {}
 
+-- What one character is worth when a headless FontString is asked how wide its
+-- text is (M5-2b, WKE-601). Not a measurement of any font: the client measures
+-- glyphs and a test cannot, so the stub answers something PROPORTIONAL to the
+-- string instead, which is all a "does this fit" decision needs. Tests read it
+-- from here rather than writing 6 twice.
+Stub.CHAR_WIDTH = 6
+
 local function deepcopy(value, seen)
     if type(value) ~= "table" then
         return value
@@ -221,6 +228,19 @@ local function attachFontSurface(r)
     end
     function r:SetTextColor(red, green, blue, alpha)
         self.textColor = { red, green, blue, alpha }
+    end
+    -- FontString:GetStringWidth (Font/FontString.lua:115) is real, and since
+    -- M5-2b (WKE-601) the status strip and the vault's currency chips fit
+    -- themselves with it. Nothing headless can measure a glyph, so the stub
+    -- answers a fixed width PER CHARACTER of the text it is holding
+    -- (`Stub.CHAR_WIDTH`) - enough for a test to build a line that does or does
+    -- not fit a given row - and records every string it was asked about in
+    -- `region.measured`, so a test can also see WHICH candidates the fit tried.
+    function r:GetStringWidth()
+        local text = self.text or ""
+        self.measured = self.measured or {}
+        self.measured[#self.measured + 1] = text
+        return #text * Stub.CHAR_WIDTH
     end
     for _, name in ipairs(IGNORED_FONT_METHODS) do
         r[name] = function() end
@@ -701,14 +721,40 @@ end
 -- caption instead (the KeyValue at MenuTemplates.xml:69). That difference is
 -- what the owner's client raised as "attempt to call a nil value" on the
 -- Upgrade Map tab on 2026-09-10. GetDefaultText / SetDefaultText are
--- MenuTemplates.lua:578 / :582; SetSelectionText (:591) and SetTooltip (:659)
--- are real too and are deliberately not modelled, because no panel calls them.
+-- MenuTemplates.lua:578 / :582; SetTooltip (:659) is real too and is still not
+-- modelled, because no panel calls it.
+--
+-- SetSelectionText (:591) IS modelled since M5-2b (WKE-601), because the Vault
+-- tab now calls it: the menu's rows keep the long sentence and the CLOSED
+-- control says the scenario's short name. What the client does with it is
+-- UpdateToMenuSelections (:604): the selection function's answer wins, the
+-- selected row's own text is the fallback, and the default text is what is left
+-- when nothing is selected. `dropdown.stub:Caption()` is that reading - the
+-- words a player would see on the closed control - and it is on the shelf
+-- because the real widget has no getter for them.
 local function attachDropdownSelectionText(dropdown)
     function dropdown:SetDefaultText(text)
         self.defaultText = text
     end
     function dropdown:GetDefaultText()
         return self.defaultText
+    end
+    function dropdown:SetSelectionText(selectionFunc)
+        self.selectionFunc = selectionFunc
+    end
+    function dropdown.stub.Caption()
+        local index = dropdown.stub:SelectedIndex()
+        local selected = index and dropdown.menuElements[index] or nil
+        if type(dropdown.selectionFunc) == "function" then
+            local text = dropdown.selectionFunc(selected and { selected } or nil)
+            if text ~= nil then
+                return text
+            end
+        end
+        if selected then
+            return selected.text
+        end
+        return dropdown.defaultText
     end
 end
 

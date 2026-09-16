@@ -69,8 +69,11 @@ local SCROLLFRAME_ONLY = {
     "UpdateScrollChildRect",
 }
 -- DropdownSelectionTextMixin's, which only some dropdown templates mix in
--- (Blizzard_Menu/MenuTemplates.lua:578 GetDefaultText, :582 SetDefaultText).
-local SELECTION_TEXT = { "SetDefaultText", "GetDefaultText" }
+-- (Blizzard_Menu/MenuTemplates.lua:578 GetDefaultText, :582 SetDefaultText,
+-- :591 SetSelectionText - the third is modelled since M5-2b, WKE-601, because
+-- the Vault tab's dropdown calls it, and it is on the same mixin as the other
+-- two, so the template that lacks them lacks it).
+local SELECTION_TEXT = { "SetDefaultText", "GetDefaultText", "SetSelectionText" }
 
 local function assertAbsent(widget, names, why)
     for _, name in ipairs(names) do
@@ -127,6 +130,24 @@ describe("the headless stub's widget surface", function()
         -- SetVertexColor and SetAlpha are Region's (Base/Region.lua:75, :71), so
         -- a FontString has them as much as a Texture does.
         assertPresent(fs, { "SetAlpha", "SetVertexColor" }, "a FontString")
+    end)
+
+    -- M5-2b (WKE-601): GetStringWidth (FontString.lua:115) is a FontString's
+    -- alone and a Frame has none of it. Headless it cannot be a measurement of
+    -- any font - nothing here loads one - so it answers something PROPORTIONAL
+    -- to the string, which is all a "does this fit" decision needs, and it
+    -- records every string it was asked about so a test can see which
+    -- candidates a fit tried.
+    it("measures a FontString's text by the character, and records what it was asked", function()
+        local frame = CreateFrame("Frame", nil, UIParent)
+        local fs = frame:CreateFontString()
+        assert.is_nil(frame.GetStringWidth)
+        assert.equal(0, fs:GetStringWidth())
+        fs:SetText("abcd")
+        assert.equal(4 * Stub.CHAR_WIDTH, fs:GetStringWidth())
+        fs:SetText("abcdefgh")
+        assert.equal(8 * Stub.CHAR_WIDTH, fs:GetStringWidth())
+        assert.same({ "", "abcd", "abcdefgh" }, fs.measured)
     end)
 
     it("gives a Texture its texture setters and none of a FontString's", function()
@@ -271,6 +292,42 @@ describe("the headless stub's widget surface", function()
         assert.equal("one", chosen)
         assert.is_false(dropdown.stub:SelectByText("three"))
         assert.is_false(dropdown.stub:Pick(9))
+    end)
+
+    -- M5-2b (WKE-601): the words on the CLOSED control, read the way
+    -- DropdownSelectionTextMixin:UpdateToMenuSelections reads them
+    -- (MenuTemplates.lua:604-638) - the selection function's answer first, the
+    -- selected row's own text next, the default text when nothing is selected.
+    -- The real widget has no getter for them, so the reading is on the shelf.
+    it("says what a closed dropdown would read, the selection function winning", function()
+        local dropdown = CreateFrame("DropdownButton", nil, UIParent, "WowStyle1DropdownTemplate")
+        assertAbsent(dropdown, { "Caption" }, "a dropdown")
+        dropdown:SetDefaultText("Vault highlight")
+        local chosen
+        dropdown:SetupMenu(function(_, root)
+            for _, label in ipairs({ "a long explaining sentence", "another long one" }) do
+                root:CreateRadio(label, function(data)
+                    return chosen == data
+                end, function(data)
+                    chosen = data
+                end, label)
+            end
+        end)
+        -- nothing selected: the default text
+        assert.equal("Vault highlight", dropdown.stub:Caption())
+        -- selected, with no selection function: the row's own text
+        dropdown.stub:Pick(1)
+        assert.equal("a long explaining sentence", dropdown.stub:Caption())
+        -- and with one: its answer, over the row's text
+        dropdown:SetSelectionText(function()
+            return "short"
+        end)
+        assert.equal("short", dropdown.stub:Caption())
+        -- a selection function that answers nothing falls back to the row
+        dropdown:SetSelectionText(function()
+            return nil
+        end)
+        assert.equal("a long explaining sentence", dropdown.stub:Caption())
     end)
 
     -- ---------------------------------------------------------------------

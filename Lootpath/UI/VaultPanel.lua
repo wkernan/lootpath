@@ -186,6 +186,26 @@ Panel.SCENARIO_HEADLINE_LABEL = {
     thisWeek = "vault upgraded, Catalyst used",
 }
 
+-- M5-2b (WKE-601): the four plain names, and nothing else, for the one place
+-- that has no room for a sentence - the CLOSED scenario dropdown on the tab's
+-- header row. The owner's screen on 2026-09-16 read
+-- `Everything upgraded (Catalyst and f...`: the control is as wide as the
+-- header lets it be, and the Settings page's explaining label does not fit in
+-- it. The menu's own rows keep that label, so the explanation is one click
+-- away and this table is only the caption.
+Panel.SCENARIO_SHORT_LABEL = {
+    asOffered = "as offered",
+    catalyzed = "catalyzed",
+    thisWeek = "this week",
+    maxed = "everything upgraded",
+}
+
+-- The plain name, or the scenario's own key when this build does not know it -
+-- the same rule ScenarioLabel follows, for the same reason.
+function Panel.ScenarioShortLabel(scenario)
+    return Panel.SCENARIO_SHORT_LABEL[scenario] or tostring(scenario)
+end
+
 -- What a line says when the number on it is about QE Live's catalyzed copy of
 -- the option rather than the option as the vault hands it over. His clone keeps
 -- the slot, the level and the bonus IDs and changes the item ID, so the reader
@@ -1783,6 +1803,20 @@ local GRID_ROW_GAP = 8
 local CELL_ICON_SIZE = 32
 local CHIP_ICON_SIZE = 14
 local CHIP_GAP = 12
+-- M5-2b (WKE-601): the strip of currency chips wraps, so it needs a row height
+-- and the air between two rows of its own. The chip frame is the icon plus the
+-- two points the text sits inside (the height `chip()` gives it); the gap is
+-- this file's own.
+local CHIP_ROW_HEIGHT = CHIP_ICON_SIZE + 2
+local CHIP_ROW_GAP = 4
+-- The points between a chip's icon and its words, and the narrowest a chip is
+-- drawn - both were already in the width this file set on a chip before it
+-- wrapped, and they are named here because the wrap arithmetic needs them.
+local CHIP_TEXT_GAP = 4
+local CHIP_MIN_TEXT_WIDTH = 40
+-- Headless nothing measures a glyph; a character costs this many points, the
+-- same estimate the chip's width used before this issue.
+local CHIP_CHAR_WIDTH = 6
 
 -- QE Live's gold as the three numbers a texture tint wants, off the same hex
 -- the badge uses. Read from the constant rather than written out again, so the
@@ -1807,6 +1841,52 @@ function Panel.PlanHeight(text, rowHeight)
         return 0
     end
     return math.max(1, math.ceil(#text / Panel.PLAN_CHARS_PER_LINE)) * rowHeight
+end
+
+-- M5-2b (WKE-601): where each currency chip goes, and how many rows they take.
+-- The owner's screen on 2026-09-16 read
+-- `Venomblight Manaflux 2 of 8 · Adventurer Mistcrest 329 · Veteran Mistcrest
+-- 35 · Champio`: the chips were laid left to right on ONE row with nothing
+-- measuring them, and the fourth and fifth ran off the panel's right edge. So a
+-- chip that would cross that edge starts the next row instead. Nothing under
+-- the strip needs the space: the grid is above it and the strip's own height
+-- follows.
+--
+-- Pure, so the wrap is an assertion rather than a hope: `width` is the room the
+-- panel has and `measure(chip, index)` answers the width of that chip's words
+-- (the client's own GetStringWidth in the drawer below; nil headless, where the
+-- character estimate stands in). A width of nothing keeps every chip on one
+-- row, which is what this did before the issue.
+--
+-- Returns { placements, rows, height }: one placement per chip, in the chips'
+-- own order, each { index, row (1-based), x, width }.
+function Panel.ChipLayout(chips, width, measure)
+    chips = chips or {}
+    local placements = {}
+    local row, x = 1, 0
+    for index, data in ipairs(chips) do
+        local textWidth
+        if type(measure) == "function" then
+            local measured = measure(data, index)
+            if type(measured) == "number" and measured > 0 then
+                textWidth = measured
+            end
+        end
+        textWidth = math.max(CHIP_MIN_TEXT_WIDTH, textWidth or (#tostring(data.text) * CHIP_CHAR_WIDTH))
+        local chipWidth = CHIP_ICON_SIZE + CHIP_TEXT_GAP + textWidth
+        if x > 0 and type(width) == "number" and width > 0 and (x + chipWidth) > width then
+            row = row + 1
+            x = 0
+        end
+        placements[index] = { index = index, row = row, x = x, width = chipWidth }
+        x = x + chipWidth + CHIP_GAP
+    end
+    local rows = #placements > 0 and row or 0
+    return {
+        placements = placements,
+        rows = rows,
+        height = rows > 0 and (rows * CHIP_ROW_HEIGHT + (rows - 1) * CHIP_ROW_GAP) or 0,
+    }
 end
 
 local function colored(hex, text)
@@ -1881,10 +1961,61 @@ Panel.DROPDOWN_TEMPLATE = "WowStyle1DropdownTemplate"
 Panel.DROPDOWN_TAG = "MENU_LOOTPATH_VAULT_SCENARIO"
 Panel.DROPDOWN_WIDTH = 210
 Panel.DROPDOWN_HEIGHT = 22
+-- What the control needs beyond the words themselves: its arrow and its two
+-- insets. This addon's own allowance, not a read of Blizzard's art, and
+-- deliberately generous - the cost of too much is white space and the cost of
+-- too little is the cut this issue is about.
+Panel.DROPDOWN_PADDING = 40
+-- Headless nothing measures a glyph, so a character costs a fixed number of
+-- points and a layout test reproduces the width exactly; in the client the
+-- control's own font string measures itself, which is the real one. The same
+-- pair the Upgrade Map's controls use.
+Panel.DROPDOWN_CHAR_WIDTH = 6
+
+-- How wide the scenario dropdown has to be: the longest of the four plain
+-- names, plus the arrow and the insets (M5-2b, WKE-601). `measure` is the
+-- client's own GetStringWidth when there is a font string to ask; without one,
+-- or when it answers nothing, the character estimate stands in.
+function Panel.DropdownWidth(measure)
+    local widest = 0
+    for _, scenario in ipairs(ns.QEImport.SCENARIOS) do
+        local label = Panel.ScenarioShortLabel(scenario)
+        local width
+        if type(measure) == "function" then
+            local measured = measure(label)
+            if type(measured) == "number" and measured > 0 then
+                width = measured
+            end
+        end
+        width = width or (#label * Panel.DROPDOWN_CHAR_WIDTH)
+        if width > widest then
+            widest = width
+        end
+    end
+    return widest + Panel.DROPDOWN_PADDING
+end
 
 function Panel.ScenarioChoiceLabel(scenario)
     local labels = ns.UI and ns.UI.Options and ns.UI.Options.SCENARIO_CHOICE_LABEL or nil
     return (type(labels) == "table" and labels[scenario]) or Panel.ScenarioLabel(scenario)
+end
+
+-- The control's own font string, borrowed to measure a label and handed back
+-- with the text it was holding (M5-2b, WKE-601). nil when there is nothing to
+-- ask - a template with no font string, or a headless widget without the
+-- client's own measurement - and then the character estimate stands in.
+local function labelMeasure(control)
+    local text = type(control.GetFontString) == "function" and control:GetFontString() or nil
+    if type(text) ~= "table" or type(text.SetText) ~= "function" or type(text.GetStringWidth) ~= "function" then
+        return nil
+    end
+    return function(label)
+        local held = type(text.GetText) == "function" and text:GetText() or nil
+        text:SetText(label)
+        local ok, width = pcall(text.GetStringWidth, text)
+        text:SetText(held)
+        return ok and width or nil
+    end
 end
 
 local function buildScenarioDropdown(frame)
@@ -1892,7 +2023,7 @@ local function buildScenarioDropdown(frame)
     if not ok or type(dropdown) ~= "table" or type(dropdown.SetupMenu) ~= "function" then
         return nil
     end
-    dropdown:SetSize(Panel.DROPDOWN_WIDTH, Panel.DROPDOWN_HEIGHT)
+    dropdown:SetSize(Panel.DropdownWidth(labelMeasure(dropdown)), Panel.DROPDOWN_HEIGHT)
     dropdown:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
     -- The words on the closed dropdown. `SetDefaultText` belongs to
     -- DropdownSelectionTextMixin, which WowStyle1DropdownTemplate mixes in
@@ -1912,6 +2043,23 @@ local function buildScenarioDropdown(frame)
     -- setting. The headless stub cannot paper over either case since T-1: it
     -- gives the caption only to the template whose mixin chain has it.
     pcall(dropdown.SetDefaultText, dropdown, Panel.SCENARIO_DROPDOWN_LABEL)
+    -- M5-2b (WKE-601): the words on the closed control are the scenario's SHORT
+    -- name. Without this the client writes the SELECTED ROW's own text there -
+    -- `DropdownSelectionTextMixin:UpdateToMenuSelections` translates the
+    -- selection with `MenuUtil.GetElementText` when no selection function is
+    -- set (Blizzard_Menu/MenuTemplates.lua:604-638 under .luals/) - and the
+    -- row's text is the Settings page's explaining sentence, which does not fit
+    -- and came off the owner's screen as `Everything upgraded (Catalyst and
+    -- f...`. `SetSelectionText` (MenuTemplates.lua:591) is the template's own
+    -- way to say otherwise: its answer wins over the translation. The menu's
+    -- rows are untouched, so the sentence is still one click away.
+    --
+    -- pcall for the same reason as the line above it: a template that kept the
+    -- name and dropped the mixin leaves the caption Blizzard's, which is a long
+    -- caption rather than no dropdown.
+    pcall(dropdown.SetSelectionText, dropdown, function()
+        return Panel.ScenarioShortLabel(currentScenario())
+    end)
     dropdown:SetupMenu(function(_, rootDescription)
         if type(rootDescription) ~= "table" or type(rootDescription.CreateRadio) ~= "function" then
             return
@@ -2477,17 +2625,14 @@ function Panel.Refresh(self, opts)
         end
     end
 
-    -- The currency strip, under the grid.
+    -- The currency strip, under the grid. Since M5-2b (WKE-601) it wraps: the
+    -- chips are given their words first, so the client can measure them, and
+    -- Panel.ChipLayout decides which row each one is on.
     local chips = model.currencyChips or {}
-    local previous
+    local entries = {}
     for index, data in ipairs(chips) do
         local entry = chip(self, index)
         entry:ClearAllPoints()
-        if previous then
-            entry:SetPoint("LEFT", previous, "RIGHT", CHIP_GAP, 0)
-        else
-            entry:SetPoint("TOPLEFT", anchor, anchorPoint, 0, -GRID_ROW_GAP)
-        end
         if data.icon then
             entry.icon:SetTexture(data.icon)
             entry.icon:Show()
@@ -2495,9 +2640,28 @@ function Panel.Refresh(self, opts)
             entry.icon:Hide()
         end
         entry.text:SetText(data.text)
-        entry:SetWidth(CHIP_ICON_SIZE + 4 + math.max(40, #data.text * 6))
+        entries[index] = entry
+    end
+    local room = type(self.content.GetWidth) == "function" and self.content:GetWidth() or nil
+    local layout = Panel.ChipLayout(chips, room, function(_, index)
+        local text = entries[index] and entries[index].text or nil
+        if not (text and type(text.GetStringWidth) == "function") then
+            return nil
+        end
+        local ok, measured = pcall(text.GetStringWidth, text)
+        return ok and measured or nil
+    end)
+    for index, entry in ipairs(entries) do
+        local place = layout.placements[index]
+        entry:SetPoint(
+            "TOPLEFT",
+            anchor,
+            anchorPoint,
+            place.x,
+            -GRID_ROW_GAP - (place.row - 1) * (CHIP_ROW_HEIGHT + CHIP_ROW_GAP)
+        )
+        entry:SetWidth(place.width)
         entry:Show()
-        previous = entry
     end
     for index = #chips + 1, #self.chips do
         self.chips[index]:Hide()
@@ -2511,11 +2675,14 @@ function Panel.Refresh(self, opts)
         self.currencyNote:SetText("")
         self.currencyNote:Hide()
     end
-    used = used + CHIP_ICON_SIZE + GRID_ROW_GAP * 2
+    -- The strip's own height is the rows it took (M5-2b); with no chips at all
+    -- it is the one row the note sits on, which is what it was before.
+    local stripHeight = layout.rows > 0 and layout.height or CHIP_ICON_SIZE
+    used = used + stripHeight + GRID_ROW_GAP * 2
 
     -- Everything the client offers outside the three rows Blizzard draws.
     self.other:ClearAllPoints()
-    self.other:SetPoint("TOPLEFT", anchor, anchorPoint, 0, -GRID_ROW_GAP - CHIP_ICON_SIZE - GRID_ROW_GAP)
+    self.other:SetPoint("TOPLEFT", anchor, anchorPoint, 0, -GRID_ROW_GAP - stripHeight - GRID_ROW_GAP)
     self.other:SetPoint("RIGHT", self.content, "RIGHT", 0, 0)
     if grid.otherText then
         self.other:SetText(grid.otherText)
