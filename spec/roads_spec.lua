@@ -1278,15 +1278,37 @@ describe("Roads over the owner's week of 2026-09-08", function()
         )
     end)
 
-    it("refuses a worse copy of the pick, wherever it is sitting", function()
+    -- R-3e (WKE-585) retired the refusal this test used to make. A copy BELOW
+    -- the level the plan picked at used to be "a worse duplicate, not the pick
+    -- moved on"; it is now the pick with the crest half spent, and the LEVEL
+    -- words the sentence rather than deciding the identity. Proven red by
+    -- putting the gate back: both sentences go to "Skip this one, the plan uses
+    -- your Preyhunter cloak", which is the owner's own 2026-09-15 defect.
+    it("calls a copy short of the plan's level the pick, under-crested", function()
         bagPick()
+        local short = cloakCopy(289, "bag")
         local pick = ns.Roads.PlanPick(ns.Roads.ForSlot("Back", inputs))
-        -- 289 is below the 298 the plan picked, so this is a second, worse copy
-        -- in the bags and not the pick moved on: claiming and cresting only
-        -- ever raise a level.
-        assert.is_false(ns.Roads.IsArrivedPick(cloakCopy(289, "bag"), pick))
-        assert.is_false(ns.Roads.IsArrivedPick(cloakCopy(289, "equipped"), pick))
-        assert.is_nil(ns.Roads.ForSlot("Back", inputs).arrived)
+        assert.is_true(ns.Roads.IsArrivedPick(short, pick))
+        assert.is_true(ns.Roads.ArrivedShort(short, pick))
+        assert.is_false(ns.Roads.ArrivedCrested(short, pick))
+        assert.equal(
+            "This is the Preyhunter cloak the plan wanted, at 289. Crest it to 298; refresh to rate it.",
+            ns.Roads.ItemSentence(answerFor("Back", short.key))
+        )
+    end)
+
+    it("says the same about a copy short of the plan's level that you have put on", function()
+        bagPick()
+        local worn = cloakCopy(289, "equipped")
+        local pick = ns.Roads.PlanPick(ns.Roads.ForSlot("Back", inputs))
+        assert.is_true(ns.Roads.IsArrivedPick(worn, pick))
+        assert.equal(
+            "You've put this on at 289. Crest it to 298; refresh to rate it.",
+            ns.Roads.ItemSentence(answerFor("Back", worn.key))
+        )
+        -- The badge says where the piece has got to, and says nothing about a
+        -- crest that has not happened.
+        assert.equal(ns.Roads.ARRIVED_NOW_WORN, pick.claimed)
     end)
 
     -- -----------------------------------------------------------------------
@@ -1434,6 +1456,322 @@ describe("Roads over the owner's week of 2026-09-08", function()
         -- And under the plan the week is actually read through, the same road
         -- is differential 7 at 1.73%.
         assert.equal("1.73% behind", group("2H Weapon", ns.Roads.GROUP_SET)[2].rating.badge)
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- R-3e (WKE-585): the owner's Legs slot of 2026-09-15, after the claim.
+--
+-- What he read at ~15:45 local on `main` at 61b27fc, over the 14:31 verdict:
+--
+--   Lootpath · Legs · rated 75 minutes ago · /lootpath refresh
+--   Skip this one, the plan uses your Dreamwatcher legs.
+--   Catalyst · Enigmatic Dreamwatcher's Leggings (321) · into the tier legs
+--
+-- The plan's pick for Legs was those leggings and the tooltip over them said to
+-- skip them in favour of themselves. He had done exactly what the plan said:
+-- claimed the reward and crested it one step of the two, 315 -> 318.
+--
+-- **Why the road was a Catalyst road, read in the code and against
+-- ARCHITECTURE.md §9.** At 14:31, with the Great Vault window open, the same
+-- road read `Vault, open now, Enigmatic Dreamwatcher's Leggings (315), upgraded
+-- to 321` - which is right. What changed in the 75 minutes is not the document:
+-- the reward LEFT the vault when he claimed it. With the vault no longer
+-- offering 271527, `QEImport`'s conversion join stopped recognising the set item
+-- as the reward as offered and handed back a conversion with no source,
+-- `setItemKind` read "conversion" as "Catalyst", and the road's `arrivesAt`
+-- became the projected 321 rather than the vault's 315 - which is what then put
+-- the held 318 under the level gate.
+--
+-- So the scenario below is that pair of states over one document, and every
+-- figure in it is read from a file:
+--
+--   * the vault is `spec/fixtures/captures/Lootpath-20260915-142722-vault.lua`
+--     snapshot 12, his own reset-day capture with the window open: it offers
+--     `Enigmatic Dreamwatcher's Leggings` at **315**, link bonus IDs
+--     13693:12844:13440:6652:13698.
+--   * the claimed state is that same snapshot with that one reward gone, which
+--     is what his client held once he had taken it.
+--   * the top set's Legs entry is the vault link's own bonus IDs with the
+--     upgrade bonus advanced one step, 12844 -> **12846**, at **321**: 12846 is
+--     the 321 step measured in his own 16:20 documents (the worn staff
+--     `251935:6652:12846` at 321), and ARCHITECTURE.md §9 records the 14:31 top
+--     set carrying these leggings crested to 321.
+--   * the copy in his bags is the same link with **12845**, at **318** - the key
+--     his own 16:20 documents carry for the piece he crested.
+--   * the Shoulder entry is the committed `thisWeek` Dungeon document's own
+--     (271526 at 295, bonus IDs 6652:13662:12830), his real Catalyst clone of
+--     the Venom-Cursed Lynx's Spaulders in the 09-08 scan. It is here so the one
+--     charge has somewhere true to go.
+describe("Roads over the owner's claimed Legs pick of 2026-09-15 (R-3e)", function()
+    local ns, world, inputs
+
+    local LEGS = 271527
+    local VAULT_CAPTURE = "spec/fixtures/captures/Lootpath-20260915-142722-vault.lua"
+    local WINDOW_OPEN = 12
+    -- The vault's own link for the reward, read out of that snapshot.
+    local VAULT_LINK = "|cffa335ee|Hitem:271527::::::::90:105::35:5:13693:12844:13440:6652:13698::::::"
+        .. "|h[Enigmatic Dreamwatcher's Leggings]|h|r"
+
+    -- The one Legs entry of the 14:31 top set: the vault reward his run upgraded
+    -- to 321. `isVault` is the export's own flag for a reward this week's vault
+    -- is offering.
+    local function leggings()
+        return {
+            key = "271527:6652:12846:13440:13693:13698",
+            itemID = LEGS,
+            slot = "Legs",
+            level = 321,
+            setId = 2057,
+            isVault = true,
+            isExclusive = false,
+            count = 1,
+            bonusIDs = { 6652, 12846, 13440, 13693, 13698 },
+            source = { instanceId = -98, encounterId = -98 },
+        }
+    end
+
+    -- His Catalyst clone of the bag Spaulders, lifted from the committed
+    -- document rather than written here.
+    local function shoulderClone()
+        return {
+            key = "271526:6652:12830:13662",
+            itemID = 271526,
+            slot = "Shoulder",
+            level = 295,
+            setId = 2057,
+            isVault = false,
+            isExclusive = false,
+            count = 1,
+            bonusIDs = { 6652, 12830, 13662 },
+            source = {},
+        }
+    end
+
+    local function verdict()
+        local legs, shoulder = leggings(), shoulderClone()
+        return {
+            scenario = "thisWeek",
+            exportedAt = "2026-09-15T19:31:00Z",
+            qeSettings = { autoCatalyze = true, autoUpgradeVault = true, autoUpgradeAll = false },
+            topSet = {
+                score = 6115.012,
+                items = { [legs.key] = legs, [shoulder.key] = shoulder },
+                order = { legs.key, shoulder.key },
+            },
+            alternatives = {},
+            differentials = {},
+        }
+    end
+
+    before_each(function()
+        ns, world = H.load()
+        R.inventory(world, R.snapshot("inventory", PROFILE_SNAPSHOT, CAPTURE))
+        R.vault(world, R.snapshot("vault", WINDOW_OPEN, VAULT_CAPTURE))
+        world.currencyByID = { [3465] = CATALYST }
+
+        local inventory = ns.Inventory.Scan()
+        assert.is_true(inventory.ok, inventory.reason)
+        local vault = ns.Vault.Options()
+        assert.is_true(vault.ok, vault.reason)
+        local currencies = ns.Currencies.Read({ snapshot = R.snapshot("currencies", CURRENCY_SNAPSHOT, CURRENCIES) })
+        assert.is_true(currencies.ok)
+        currencies.catalyst = CATALYST
+        currencies.catalystCharges = CATALYST.quantity
+        currencies.catalystMax = CATALYST.maxQuantity
+
+        inputs = {
+            verdicts = { { verdict = verdict(), scenario = "thisWeek" } },
+            highlightedScenario = "thisWeek",
+            inventory = inventory,
+            vault = vault,
+            currencies = currencies,
+            now = 1789500000,
+        }
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- The reward as his client held it once he had taken it: gone from the
+    -- vault, and nothing else changed.
+    local function claimTheReward()
+        for _, option in ipairs(inputs.vault.options) do
+            local kept = {}
+            for _, reward in ipairs(option.rewards or {}) do
+                if tonumber(reward.itemID) ~= LEGS then
+                    kept[#kept + 1] = reward
+                end
+            end
+            option.rewards = kept
+        end
+    end
+
+    -- The 318 in his bags: the vault's own link, crested one step.
+    local function crestedTo318()
+        local link = VAULT_LINK:gsub("12844", "12845")
+        local parsed = ns.ParseItemLink(link)
+        assert.is_table(parsed)
+        assert.equal(LEGS, parsed.itemID)
+        assert.equal("271527:6652:12845:13440:13693:13698", parsed.key)
+        local record = {
+            key = parsed.key,
+            itemID = parsed.itemID,
+            link = link,
+            name = "Enigmatic Dreamwatcher's Leggings",
+            slot = "Legs",
+            itemLevel = 318,
+            location = "bag",
+        }
+        table.insert(inputs.inventory.records, record)
+        return record
+    end
+
+    local function pickFor(slot)
+        return ns.Roads.PlanPick(ns.Roads.ForSlot(slot, inputs))
+    end
+
+    local function answerFor(slot, key)
+        return ns.Roads.ForItemIn(ns.Roads.ForSlot(slot, inputs), key, inputs)
+    end
+
+    -- Defect 2. Proven red by putting `if conversion then return
+    -- Roads.KIND_CATALYST end` back at the top of `setItemKind`: the kind goes
+    -- to `catalyst`, `becomes` comes back as the leggings themselves,
+    -- `catalyzed` as true, and `arrivesAt` as 321 - the owner's own row.
+    it("keeps a claimed vault reward a vault road, not a Catalyst road", function()
+        claimTheReward()
+        local pick = pickFor("Legs")
+        assert.is_table(pick)
+        assert.equal(ns.Roads.KIND_VAULT, pick.kind)
+        assert.equal(LEGS, pick.item.itemID)
+        -- Nothing about it is a conversion, so its row says neither "into the
+        -- tier legs" nor anything about a charge.
+        assert.is_nil(pick.becomes)
+        assert.is_nil(pick.catalyzed)
+    end)
+
+    -- And with the reward still in the vault - his 14:31 screen, the window
+    -- open - the road reads what he actually saw that afternoon: the level the
+    -- vault offers it at, and the level his run upgraded it to.
+    it("reads the vault's own level while the reward is still in it", function()
+        local pick = pickFor("Legs")
+        assert.equal(ns.Roads.KIND_VAULT, pick.kind)
+        assert.equal(315, pick.arrivesAt)
+        assert.equal(321, pick.rating.level)
+        assert.equal("Enigmatic Dreamwatcher's Leggings", pick.item.name)
+        assert.equal("Grab this from the vault and crest it.", ns.Roads.ItemSentence(answerFor("Legs", pick.keys[1])))
+    end)
+
+    -- Defect 1, on the screen that filed it. Proven red by restoring the level
+    -- gate (`if level and arrivesAt and level < arrivesAt then return false
+    -- end`): the sentence goes back to "Skip this one, the plan uses the vault
+    -- legs."
+    it("calls the part-way crested copy the pick and says what is left", function()
+        claimTheReward()
+        local held = crestedTo318()
+        local pick = pickFor("Legs")
+        assert.equal(321, pick.arrivesAt)
+        assert.is_true(ns.Roads.IsArrivedPick(held, pick))
+        assert.is_true(ns.Roads.ArrivedShort(held, pick))
+        local answer = answerFor("Legs", held.key)
+        -- No road carries this key, so the line under the sentence still says
+        -- the document has never seen this copy. No rating is invented.
+        assert.is_nil(answer.own)
+        assert.equal(ns.Roads.PHRASE_NOT_RATED_NEW, answer.phrase)
+        -- Once the reward is out of the vault there is no vault record left to
+        -- read a name off, and the road's name on the real screen comes from
+        -- `RoadsCache.FillNames`, which `Roads.ForSlot` alone does not run. So
+        -- the sentence here says the slot's own word, and the owner's own words
+        -- are what it says once the road is named.
+        assert.equal(
+            "This is the vault legs the plan wanted, at 318. Crest it to 321; refresh to rate it.",
+            ns.Roads.ItemSentence(answer)
+        )
+        pick.item.name = "Enigmatic Dreamwatcher's Leggings"
+        assert.equal(
+            "This is the vault Dreamwatcher legs the plan wanted, at 318. Crest it to 321; refresh to rate it.",
+            ns.Roads.ArrivedSentence(held, pick)
+        )
+        -- The pick's own row says the reward is out of the vault.
+        assert.equal(ns.Roads.VAULT_CLAIMED, pick.claimed)
+        assert.equal("claimed · in your bags", pick.claimed)
+    end)
+
+    -- The worn variant, and the one refusal R-3e did NOT touch. A WORN copy of
+    -- a vault pick is still not recognised, because nothing the client says
+    -- tells it from a twin the player already had on (R-3b's measurement: the
+    -- vault offered the Worldroot at 305 while he wore 308). R-3e took the
+    -- LEVEL out of the identity and left the placement rule exactly where the
+    -- evidence stops, so this copy reads as what the plan does instead - and
+    -- the worn sentence itself is the cloak's, above.
+    it("still refuses a worn copy of a vault pick, level or no level", function()
+        claimTheReward()
+        local held = crestedTo318()
+        held.location = "equipped"
+        local pick = pickFor("Legs")
+        assert.is_false(ns.Roads.IsArrivedPick(held, pick))
+        -- And the sentence itself, asked directly, is the one the cloak reads.
+        held.location = "equipped"
+        assert.equal(
+            "You've put this on at 318. Crest it to 321; refresh to rate it.",
+            ns.Roads.ArrivedSentence(held, pick)
+        )
+    end)
+
+    -- The other state the same afternoon could have been in, and the reason the
+    -- kind is decided on the SOURCE rather than on the join's answer: a refresh
+    -- whose vault read came back with nothing in it. That happens - it is
+    -- M3-16b's whole subject (WKE-583, reset day) - and with no rewards to
+    -- vouch for anything the join falls back on its conservative reading and
+    -- hands over a conversion it cannot name. The road must still be the
+    -- vault's: unnamed means unknown, and a reward the plan takes out of the
+    -- vault is a vault road either way.
+    --
+    -- Proven red by putting `if conversion then return Roads.KIND_CATALYST end`
+    -- back at the top of `setItemKind`: the kind goes to `catalyst`, `becomes`
+    -- comes back as the leggings themselves and `catalyzed` as true - the
+    -- owner's own row, "Catalyst · ... (321) · into the tier legs".
+    it("keeps the vault road a vault road when the vault read came back empty", function()
+        for _, option in ipairs(inputs.vault.options) do
+            option.rewards = {}
+        end
+        local pick = pickFor("Legs")
+        assert.equal(ns.Roads.KIND_VAULT, pick.kind)
+        assert.is_nil(pick.becomes)
+        assert.is_nil(pick.catalyzed)
+        -- With nothing to read the reward's level off, the road arrives at the
+        -- level the document carries and says so; the vault's own 315 is not
+        -- invented.
+        assert.equal(321, pick.arrivesAt)
+        -- And the join's conservative count is untouched: with no snapshot to
+        -- vouch for anything, a vault tier clone is still a charge (M3-15).
+        assert.equal(1, #ns.QEImport.CatalyzedVault(inputs.verdicts[1].verdict, inputs.vault))
+    end)
+
+    -- Defect 2 on the week's sentence (M3-14's one charge, WKE-555). Proven red
+    -- the same way as the kind: with the Catalyst-first rule back, the join
+    -- counts the leggings and the sentence spends the charge on them.
+    it("sends the one charge to the bag shoulders and never to the leggings", function()
+        claimTheReward()
+        local plan = ns.Roads.PlanSentence({
+            verdicts = inputs.verdicts,
+            highlightedScenario = "thisWeek",
+            inventory = inputs.inventory,
+            vault = inputs.vault,
+            currencies = inputs.currencies,
+        })
+        assert.equal("Grab the legs from the vault. Catalyst the Lynx shoulders in your bag.", plan.sentence)
+        assert.is_nil(plan.footnote)
+        -- And the join itself: the leggings are not a conversion under either of
+        -- the two questions it asks.
+        for _, conversion in ipairs(ns.QEImport.CatalyzedOwned(inputs.verdicts[1].verdict, inputs.inventory)) do
+            assert.is_true(conversion.item.itemID ~= LEGS)
+        end
+        for _, conversion in ipairs(ns.QEImport.CatalyzedVault(inputs.verdicts[1].verdict, inputs.vault)) do
+            assert.is_true(conversion.item.itemID ~= LEGS)
+        end
     end)
 end)
 
