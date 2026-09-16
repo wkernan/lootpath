@@ -226,8 +226,35 @@ end
 -- vault reward or a drop the cost is not readable AT ALL and the wording says
 -- so permanently; for a piece you own it is merely not read yet (the engineering
 -- pass, docs/ROADS-UX.md Buildability).
+--
+-- **Since M3-17b (WKE-588) "not read yet" names its cure.** `/lootpath capture
+-- upgrade` at a crest vendor is the one thing that turns this clause into a
+-- number, and a reader who is told a thing is unread and not told how to read
+-- it has been given a dead end. The same words cover both ways a piece you own
+-- can be unpriced - never captured, and captured before it was crested - which
+-- is honest, because the cure is the same trip either way.
 Roads.CREST_NOT_READABLE = "crest type and cost not readable"
-Roads.CREST_NOT_READ = "crest type and cost not read"
+Roads.CREST_NOT_READ = "crest type and cost not read - visit a crest vendor and /lootpath capture upgrade"
+
+-- The cost itself, once a vendor transcript has one: how many steps, what they
+-- add up to per currency, and the money beside it. "2 steps · 40 Champion
+-- Mistcrest · 60g" is one clause rather than three because it is one answer to
+-- one question, and the separator is the panel's own so the row reads the same
+-- either way.
+Roads.CREST_STEPS_ONE = "1 step"
+Roads.CREST_STEPS_MANY = "%d steps"
+Roads.CREST_COST_SEPARATOR = " · "
+
+-- A currency the client named through no list this addon has read. The ID is
+-- said rather than a name being invented for it: the number is checkable and a
+-- guess is not.
+Roads.CURRENCY_UNNAMED = "currency %d"
+
+-- The holdings clause, once there is a cost to hold it against (M3-17b). It
+-- stops listing every crest in the bag and answers the question the cost
+-- raises: is what you are carrying enough for this.
+Roads.CREST_SHORT = "%d %s, %d short"
+Roads.CREST_ENOUGH = "%d %s, enough"
 
 -- Neither of these is readable either: the delve key's currency ID is in no
 -- capture and which delves are Bountiful is exposed by no `C_DelvesUI`
@@ -590,16 +617,103 @@ function Roads.ChargeText(charge)
     return string.format("%d held, %d max", charge.held, charge.max)
 end
 
--- What the client says you are carrying in crests, in its own order and its own
--- names, for a step that cannot say what an upgrade costs. Nothing is added up.
-function Roads.CrestHoldingText(currencies)
+-- What the client calls one currency ID. The name is never typed in here: it
+-- comes from the `currencies` read's own records, by ID, and an ID no read has
+-- named is said as its number (M3-17b, WKE-588).
+function Roads.CurrencyName(currencies, currencyID)
+    currencyID = tonumber(currencyID)
+    if not currencyID then
+        return nil
+    end
+    if type(currencies) == "table" and currencies.ok == true then
+        for _, crest in ipairs(currencies.crests or {}) do
+            if crest.currencyID == currencyID and crest.name then
+                return crest.name
+            end
+        end
+        local record = type(currencies.byID) == "table" and currencies.byID[currencyID] or nil
+        if type(record) == "table" and record.name then
+            return record.name
+        end
+    end
+    return string.format(Roads.CURRENCY_UNNAMED, currencyID)
+end
+
+-- How much of one currency the client says you are carrying, or nil when no
+-- read has answered for it at all - which is not zero and is never shown as
+-- one.
+function Roads.CurrencyHeld(currencies, currencyID)
+    currencyID = tonumber(currencyID)
+    if type(currencies) ~= "table" or currencies.ok ~= true or not currencyID then
+        return nil
+    end
+    for _, crest in ipairs(currencies.crests or {}) do
+        if crest.currencyID == currencyID and crest.quantity then
+            return crest.quantity
+        end
+    end
+    local record = type(currencies.byID) == "table" and currencies.byID[currencyID] or nil
+    if type(record) == "table" and tonumber(record.quantity) then
+        return tonumber(record.quantity)
+    end
+    return nil
+end
+
+-- The vendor's own quote for the steps this road takes, as one clause:
+-- "2 steps · 40 Champion Mistcrest · 60g". Every figure in it came out of
+-- `C_ItemUpgrade.GetItemUpgradeItemInfo` through `ns.UpgradeCost`; the
+-- currency name is the client's own, by ID; the money is the client's own
+-- denominations. Nothing here is a rate, a projection or a per-step average.
+function Roads.CrestCostText(cost, currencies)
+    if type(cost) ~= "table" or not cost.steps or cost.steps < 1 then
+        return nil
+    end
+    local parts = {
+        cost.steps == 1 and Roads.CREST_STEPS_ONE or string.format(Roads.CREST_STEPS_MANY, cost.steps),
+    }
+    for _, entry in ipairs(cost.currencies or {}) do
+        parts[#parts + 1] = string.format("%d %s", entry.cost, Roads.CurrencyName(currencies, entry.currencyID))
+    end
+    local money = ns.UpgradeCost.MoneyText(cost.money)
+    if money then
+        parts[#parts + 1] = money
+    end
+    return table.concat(parts, Roads.CREST_COST_SEPARATOR)
+end
+
+-- What the client says you are carrying in crests, for the step beside it.
+--
+-- With no cost to hold it against it is the whole list in the client's own
+-- order and the client's own names, and nothing is added up: that is what a
+-- step which cannot say what an upgrade costs is entitled to say.
+--
+-- With a cost (M3-17b, WKE-588) it becomes the comparison the cost raises, and
+-- only about the currencies that cost actually spends: "you hold 2 Champion
+-- Mistcrest, 38 short", or "..., enough". The subtraction is between two
+-- numbers the client gave - what it says you hold and what the vendor quoted -
+-- and it is the only arithmetic on this road.
+function Roads.CrestHoldingText(currencies, cost)
     if type(currencies) ~= "table" or currencies.ok ~= true then
         return nil
     end
     local parts = {}
-    for _, crest in ipairs(currencies.crests or {}) do
-        if crest.quantity and crest.quantity > 0 and crest.name then
-            parts[#parts + 1] = string.format("%d %s", crest.quantity, crest.name)
+    if type(cost) == "table" and type(cost.currencies) == "table" and #cost.currencies > 0 then
+        for _, entry in ipairs(cost.currencies) do
+            local held = Roads.CurrencyHeld(currencies, entry.currencyID)
+            if held then
+                local name = Roads.CurrencyName(currencies, entry.currencyID)
+                if held < entry.cost then
+                    parts[#parts + 1] = string.format(Roads.CREST_SHORT, held, name, entry.cost - held)
+                else
+                    parts[#parts + 1] = string.format(Roads.CREST_ENOUGH, held, name)
+                end
+            end
+        end
+    else
+        for _, crest in ipairs(currencies.crests or {}) do
+            if crest.quantity and crest.quantity > 0 and crest.name then
+                parts[#parts + 1] = string.format("%d %s", crest.quantity, crest.name)
+            end
         end
     end
     if #parts == 0 then
@@ -1380,12 +1494,25 @@ function Roads.ForSlot(slot, inputs)
                         road.steps[#road.steps + 1] = step(why, nil, true)
                     end
                 end
-                road.steps[#road.steps + 1] = step(Roads.CREST_NOT_READ, nil, true)
+                -- The cost, when the owner has stood at a crest vendor since
+                -- this piece was last crested (M3-17b, WKE-588). The steps are
+                -- the ones from `currUpgrade + 1` up to the level the plan
+                -- projects, which is the same `arrivesAt` the badge carries, so
+                -- the row cannot quote a price for a level it is not promising.
+                -- A snapshot that knows the item ID but not this key was taken
+                -- before the piece was crested and is not quoted from at all.
+                local cost
+                local upgradeRow, freshness = ns.UpgradeCost.Lookup(inputs.upgradeRows, record)
+                if projected and upgradeRow and freshness == "fresh" then
+                    cost = ns.UpgradeCost.Cost(upgradeRow, projected)
+                end
+                local costText = Roads.CrestCostText(cost, inputs.currencies)
+                road.steps[#road.steps + 1] = step(costText or Roads.CREST_NOT_READ, nil, true, costText ~= nil)
                 -- What the client says you hold in crests is the vendor row's
                 -- business, beside the cost it would pay: marked `cost` so the
                 -- panel keeps it and the tooltip drops it (R-2a's rule, applied
                 -- in R-3c to the longest clause on the owner's own block).
-                local holding = Roads.CrestHoldingText(inputs.currencies)
+                local holding = Roads.CrestHoldingText(inputs.currencies, cost)
                 if holding then
                     road.steps[#road.steps + 1] = step(holding, Roads.DONE_CLIENT, true, true)
                 end

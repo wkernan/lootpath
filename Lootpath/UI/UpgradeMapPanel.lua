@@ -1856,6 +1856,11 @@ function Panel.RoadInputs(opts, extra)
         inventory = opts.inventory,
         vault = opts.vault,
         currencies = opts.currencies,
+        -- What the crest vendor told the owner about the pieces he owns
+        -- (M3-17b, WKE-588). A capture rather than a read, because the client
+        -- answers about one item at a time and only in the vendor's own
+        -- window; nil until he has stood at one.
+        upgradeRows = opts.upgradeRows,
         journal = { sources = extra.sources, summary = opts.summary },
         difficultyLabels = extra.difficultyLabels,
         excluded = opts.excluded,
@@ -2238,6 +2243,7 @@ function Panel.Gather(opts)
     local scenarios = activeScenarios()
     local vault = ns.Vault.Options()
     local currencies = ns.Currencies.Read()
+    local upgradeRows = ns.UpgradeCost.Read()
     return {
         sources = sources,
         summary = type(summary) == "table" and summary.ok and summary or nil,
@@ -2249,6 +2255,7 @@ function Panel.Gather(opts)
         highlightScenario = (ns.VaultPanel.HighlightScenario(scenarios, activeHighlight())),
         vault = vault.ok and vault or nil,
         currencies = currencies.ok and currencies or nil,
+        upgradeRows = upgradeRows,
         inCombat = inventory.ok ~= true and inventory.reason == "combat" or nil,
     }
 end

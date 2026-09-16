@@ -692,16 +692,21 @@ describe("captures", function()
         end)
     end)
 
-    -- M3-17 (WKE-574). The third capture that is not purely a read: it puts
-    -- each owned upgradeable item in the open vendor window, reads the crest
-    -- cost the client will only answer for the item in the window, and clears
-    -- it again. Every number in `world.upgrade.items` below is a PLACEHOLDER in
-    -- Blizzard's documented shape (ItemUpgradeDocumentation.lua) - no
-    -- `/lootpath capture upgrade` transcript exists yet, and the owner's first
-    -- run at a vendor is what settles the real one. What these tests pin is the
-    -- SHAPE of the walk: every candidate asked about, the window set and
-    -- cleared once per item, the wait recorded rather than assumed, and nothing
-    -- that could spend a crest ever reached for.
+    -- M3-17 (WKE-574), rebuilt by M3-17b (WKE-588) after the owner's first run
+    -- at a vendor. The third capture that is not purely a read: it puts each
+    -- owned item in the open vendor window, reads the crest cost the client
+    -- will only answer for the item in the window, and clears it again.
+    --
+    -- Two things the transcript changed, and both are guarded below: the read
+    -- happens IMMEDIATELY after the set rather than after a 2 s wait per item
+    -- (the event fired for 10 of 20 items and the read was complete either
+    -- way), and `CanUpgradeItem` is recorded rather than obeyed (it refused two
+    -- items and the gate is what stopped the file explaining either). The costs
+    -- in `world.upgrade.items`
+    -- below are still PLACEHOLDERS in Blizzard's documented shape - the real
+    -- figures are tested against the committed transcript in
+    -- `spec/upgradecost_spec.lua`, which is where a number the owner's client
+    -- actually said belongs.
     describe("upgrade", function()
         -- The documented ItemUpgradeItemInfo shape, one upgrade level deep.
         local function upgradeInfo(name, currUpgrade, maxUpgrade, currencyID, cost)
@@ -809,9 +814,10 @@ describe("captures", function()
             assert.equal(ns.ItemKey(210001, { 1, 2 }), helm.key)
             assert.equal(210001, helm.itemID)
             assert.is_true(helm.canUpgrade[1])
-            assert.is_true(helm.eventFired)
-            assert.is_false(helm.timedOut)
-            assert.is_number(helm.waitedMs)
+            -- Nothing was waited for, so nothing had been delivered: the walk
+            -- never yields and the client delivers events between frames.
+            assert.equal(0, helm.eventsSeenAtRead)
+            assert.is_number(data.walkMs)
             -- The cost table exactly as the client returned it.
             local level = helm.info[1].upgradeLevelInfos[1]
             assert.equal(5, level.upgradeLevel)
@@ -839,28 +845,60 @@ describe("captures", function()
             assert.equal(2, world.upgrade.calls.set)
             assert.equal(3, world.upgrade.calls.clear)
             assert.is_nil(world.upgrade.current)
+            -- The events the walk provoked, counted at the settle rather than
+            -- waited for per item (M3-17b).
+            assert.equal(2, data.eventsSeen)
+            assert.equal(ns.UPGRADE_SETTLE_SECONDS, data.settleSeconds)
         end)
 
         -- The guard proven red in the other direction: a client that never
-        -- fires ITEM_UPGRADE_MASTER_SET_ITEM must produce a transcript that
-        -- SAYS the wait timed out, rather than one that looks like a fast
-        -- answer, and the window is still cleared.
-        it("gives up after the bound per item, says so, and clears the window anyway", function()
+        -- fires ITEM_UPGRADE_MASTER_SET_ITEM produces exactly the same reads,
+        -- because nothing waits for that event any more. What differs is the
+        -- one count that records it.
+        it("reads the same from a client that never fires the event, and says so", function()
             world.upgrade.answersWithEvent = false
             assert.is_true(ns.RunCapture("upgrade").pending)
-            world.runTimers(2 * ns.UPGRADE_SET_TIMEOUT_SECONDS + 1)
+            world.runTimers(1)
 
             local data = ns.db.global.captures.upgrade[1].data
             assert.equal(2, #data.items)
             for _, item in ipairs(data.items) do
-                assert.is_false(item.eventFired)
-                assert.is_true(item.timedOut)
-                -- It reads anyway: a timed-out wait is a suspect read, not a
-                -- missing one, and the hyperlink beside it says which.
+                assert.equal(0, item.eventsSeenAtRead)
+                -- It reads regardless: the event was never what made the read
+                -- complete, and the hyperlink beside it says which item the
+                -- window was answering about.
                 assert.is_table(item.info)
             end
-            assert.equal(ns.UPGRADE_SET_TIMEOUT_SECONDS, data.timeoutSeconds)
+            assert.equal(0, data.eventsSeen)
             assert.equal(3, world.upgrade.calls.clear)
+        end)
+
+        -- The whole point of dropping the wait: 20 items cost the owner
+        -- 20,026.6 ms of waiting for an answer that was already there. With
+        -- nothing to wait for, no per-item timer is ever scheduled.
+        it("waits for nothing per item: its own timer count does not grow with the items", function()
+            -- The stub's client schedules one timer per set to deliver its
+            -- event, so what is counted here is the rest: the capture's own.
+            local function ownTimers()
+                local before = #world.timers
+                world.upgrade.calls.set = 0
+                ns.RunCapture("upgrade")
+                world.runTimers(10)
+                return #world.timers - before - world.upgrade.calls.set, world.upgrade.calls.set
+            end
+            local two, twoSets = ownTimers()
+            assert.equal(2, twoSets)
+            -- A third item to walk. If anything waited per item, this grows.
+            world.bags[0].items[4] = { link = VAULT_ITEM, id = 210003 }
+            world.upgrade.items[VAULT_ITEM] = {
+                canUpgrade = true,
+                info = upgradeInfo("Test Cloak", 1, 8, 900001, 20),
+                currentLevel = { 590, false },
+                highWatermark = { 590, 596 },
+            }
+            local three, threeSets = ownTimers()
+            assert.equal(3, threeSets)
+            assert.equal(two, three)
         end)
 
         it("settles one item once, however many events arrive", function()
@@ -872,7 +910,10 @@ describe("captures", function()
             assert.equal(2, world.upgrade.calls.set)
         end)
 
-        it("records an item the vendor refuses and never puts it in the window", function()
+        -- M3-17b's second finding, as a guard. `CanUpgradeItem` refused two of
+        -- the owner's items and the old gate made it impossible to say why, so
+        -- its answer is recorded beside the read and never in front of it.
+        it("reads an item CanUpgradeItem refuses, and records the refusal beside it", function()
             world.upgrade.items[RING].canUpgrade = false
             ns.RunCapture("upgrade")
             world.runTimers(10)
@@ -881,10 +922,12 @@ describe("captures", function()
             local ring = data.items[2]
             assert.equal(RING, ring.link)
             assert.is_false(ring.canUpgrade[1])
-            assert.is_nil(ring.info)
-            assert.is_nil(ring.hyperlink)
-            assert.is_nil(ring.eventFired)
-            assert.same({ HELM }, world.upgrade.setLinks)
+            -- Read anyway, and the window says it was this item it answered
+            -- about.
+            assert.is_table(ring.info)
+            assert.equal(RING, ring.hyperlink[1])
+            assert.equal(2, ring.info[1].currUpgrade)
+            assert.same({ HELM, RING }, world.upgrade.setLinks)
         end)
 
         it("records a client that errors on one item and walks on to the next", function()
@@ -894,7 +937,10 @@ describe("captures", function()
 
             local data = ns.db.global.captures.upgrade[1].data
             assert.is_string(data.items[1].set.error)
-            assert.is_false(data.items[1].eventFired)
+            -- Nothing was read about an item the client refused to take, and
+            -- the window was cleared on the way past it anyway.
+            assert.is_nil(data.items[1].info)
+            assert.is_table(data.items[1].cleared)
             assert.equal(RING, data.items[2].hyperlink[1])
         end)
 

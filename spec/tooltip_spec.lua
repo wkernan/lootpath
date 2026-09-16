@@ -283,7 +283,7 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         assert.same({
             "Lootpath · Shoulder · rated 5 hours ago · /lootpath refresh",
             "Skip this one, the plan uses your Lynx shoulders.",
-            "Upgrade · Seedpods of the Luminous Bloom (289) · no rating · crest type and cost not read",
+            "Upgrade · Seedpods of the Luminous Bloom (289) · no rating · " .. ns.Roads.CREST_NOT_READ,
             "Other roads for this slot",
             "Catalyst · Venom-Cursed Lynx's Spaulders (295) · into the tier shoulders · in your best set",
             "Crafted · a crafted piece (331) · +1.11% · the rating assumes Crit / Haste · spark and materials not read",

@@ -839,20 +839,46 @@ ns.RegisterCapture(
 -- reads the inventory capture already makes, so every function the capture
 -- reaches is named in this file.
 --
--- **What is NOT known, and is what the transcript is for.** Whether
--- `SetItemUpgradeFromLocation` needs the vendor frame open at all, whether it
--- fires `ITEM_UPGRADE_MASTER_SET_ITEM` (Blizzard's frame re-reads on that
--- event, same file lines 42 and 83, which is the only reason to think it
--- does), how long the client takes to answer, and whether the info comes back
--- nil for an item the vendor will not take: none of that is in the exported
--- docs, and the Warcraft Wiki is stale after 10.1.7. So the capture asks for
--- the frame to be open, waits for the event per item with a bound, and records
--- for every item whether the event fired, how long it waited and exactly what
--- came back - rather than assuming any of it. The shape of
--- `ItemUpgradeItemInfo` IS documented (`currUpgrade`, `maxUpgrade`,
--- `upgradeLevelInfos[]`, each with `currencyCostsToUpgrade[]` and
--- `itemCostsToUpgrade[]`), and it is stored raw anyway: nothing is normalised
--- here, and no road reads it until the transcript is committed.
+-- **What the owner's first transcript settled** (M3-17b, WKE-588;
+-- `spec/fixtures/captures/Lootpath-20260915-162015.lua`, taken 2026-09-15
+-- 16:20 at a crest vendor, 128 candidates, 20,059 ms, no secret seen). Two
+-- things M3-17 guessed at are now measured, and both of them changed here.
+--
+--   1. **The wait was worth nothing.** `ITEM_UPGRADE_MASTER_SET_ITEM` fired
+--      for 10 of the 20 items the vendor took and never arrived for the other
+--      10, which sat out the whole 2 s bound - and the info read was complete
+--      for all 20. The waiting cost 20,026.6 ms of the capture's 20,059 ms.
+--      So the read happens immediately after `SetItemUpgradeFromLocation` and
+--      nothing is waited for. The event is still LISTENED for, over the whole
+--      walk rather than per item, and `data.eventsSeen` records how many
+--      arrived, because "we no longer wait for it" is not the same claim as
+--      "it does not happen". What tells a fresh read from a stale one is
+--      `record.hyperlink`, which was always the honest check and is still
+--      taken for every item.
+--
+--      The one thing the transcript does NOT settle is whether an immediate
+--      read is complete: every event that DID fire arrived 12.7-27.4 ms after
+--      its set, so a synchronous read is a frame or two ahead of it, and the
+--      ten that read complete without an event read 2 s late. The next
+--      transcript answers it, out of `hyperlink` and the info beside it.
+--
+--   2. **`CanUpgradeItem` is not the gate** - though not for the reason
+--      WKE-588 gave. It refused both copies of the Enigmatic Dreamwatcher's
+--      Leggings while taking 20 other items. The worn copy was at 321 in the
+--      `inventory` snapshot of the same minute, which is the top of the Hero
+--      track, so that refusal is right. The copy in his bags at 295 is
+--      unexplained by anything in the file, and cannot be explained from it,
+--      **because the gate is what stopped the read**. An answer recorded
+--      beside a read can be understood later; an answer that decided whether
+--      to read cannot. So every candidate now goes into the window and is
+--      read, `CanUpgradeItem`'s answer is recorded BESIDE the info, and what a
+--      reader gates on is the info's own `itemUpgradeable` and
+--      `currUpgrade < maxUpgrade` (`ns.UpgradeCost`).
+--
+-- The shape of `ItemUpgradeItemInfo` IS documented (`currUpgrade`,
+-- `maxUpgrade`, `upgradeLevelInfos[]`, each with `currencyCostsToUpgrade[]`
+-- and `itemCostsToUpgrade[]`), and it is stored raw anyway: nothing is
+-- normalised here. `ns.UpgradeCost` is the one reader.
 local UPGRADE_FUNCTION_NAMES = {
     "CanUpgradeItem",
     "ClearItemUpgrade",
@@ -863,19 +889,20 @@ local UPGRADE_FUNCTION_NAMES = {
     "SetItemUpgradeFromLocation",
 }
 
--- How long the capture waits for ITEM_UPGRADE_MASTER_SET_ITEM after setting
--- ONE item before it reads anyway and says it timed out. Nothing has measured
--- how fast the client answers - the owner's first run at a vendor is what will
--- say - so this is a bound, not a measurement, and every item's record carries
--- `eventFired` and `waitedMs` so the transcript can replace it with a figure.
-ns.UPGRADE_SET_TIMEOUT_SECONDS = 2
+-- The one wait that is left, and it is not per item: after the walk has set,
+-- read and cleared every candidate, the capture yields to the client once so
+-- that any ITEM_UPGRADE_MASTER_SET_ITEM the walk provoked can be counted
+-- before the snapshot is written. Zero seconds is the next frame, which is
+-- where the client delivers events; nothing is read in it and nothing depends
+-- on what it finds.
+ns.UPGRADE_SETTLE_SECONDS = 0
 
 -- Every owned item the vendor might take, in the order Blizzard's own flyout
 -- would collect them: the equipped slots first, then the bags. Only the two
 -- inventory reads and the two container reads the other captures already make.
--- `CanUpgradeItem` is asked about each one below, and an item it refuses is
--- recorded with that answer rather than dropped, because "the vendor will not
--- take this" is as much of a finding as a cost table.
+-- `CanUpgradeItem` is asked about each one below and its answer is recorded
+-- beside the read rather than in front of it (see above): it is a fact about
+-- the item, not a decision about whether to look at one.
 local function upgradeCandidates()
     local out = {}
     if not (ItemLocation and C_ItemUpgrade) then
@@ -916,8 +943,8 @@ local function upgradeCandidates()
 end
 
 -- Everything the vendor window says while ONE item sits in it, raw, written
--- FLAT onto the item's own record. Called once per item, after the client has
--- either answered or run out of time.
+-- FLAT onto the item's own record. Called once per item, immediately after the
+-- item was set and before the window is cleared again (M3-17b).
 --
 -- **Flat because of `ns.CopyRaw`'s depth guard, measured here rather than
 -- assumed** (busted, 2026-09-14): `MAX_COPY_DEPTH` is 10, and the deepest
@@ -960,7 +987,7 @@ ns.RegisterCapture(
             functionNames = UPGRADE_FUNCTION_NAMES,
             frameShown = shown,
             blizzardAddonLoaded = ns.Probe(C_AddOns and C_AddOns.IsAddOnLoaded, "Blizzard_ItemUpgradeUI"),
-            timeoutSeconds = ns.UPGRADE_SET_TIMEOUT_SECONDS,
+            settleSeconds = ns.UPGRADE_SETTLE_SECONDS,
             -- What was in the window before the capture touched it. The window
             -- is cleared when the capture is done and this is NOT put back:
             -- setting an item the owner did not choose is a change, and the
@@ -971,17 +998,20 @@ ns.RegisterCapture(
             items = {},
         }
 
-        local index = 0
-        local function nextItem()
-            index = index + 1
-            local candidate = candidates[index]
-            if not candidate then
-                -- The window is left empty on every path out of here,
-                -- including a client that errored on any one item.
-                data.clearedAtEnd = ns.Probe(U.ClearItemUpgrade)
-                return finish(data)
+        -- One listener for the whole walk, not one per item: nothing waits for
+        -- this event any more, and what is worth recording is how many of them
+        -- the walk provoked at all.
+        local listener = CreateFrame("Frame")
+        local eventsSeen = 0
+        listener:SetScript("OnEvent", function(_, event)
+            if event == "ITEM_UPGRADE_MASTER_SET_ITEM" then
+                eventsSeen = eventsSeen + 1
             end
+        end)
+        listener:RegisterEvent("ITEM_UPGRADE_MASTER_SET_ITEM")
 
+        local startedAt = debugprofilestop and debugprofilestop() or nil
+        for _, candidate in ipairs(candidates) do
             local parsed = ns.ParseItemLink(candidate.link)
             local record = {
                 source = candidate.source,
@@ -991,58 +1021,40 @@ ns.RegisterCapture(
                 link = candidate.link,
                 key = parsed and parsed.key or nil,
                 itemID = parsed and parsed.itemID or nil,
+                -- Recorded, never obeyed (M3-17b): the owner's transcript has
+                -- it saying false about an item with two levels left.
                 canUpgrade = ns.Probe(U.CanUpgradeItem, candidate.location),
             }
             data.items[#data.items + 1] = record
-
-            if ns.Safe(record.canUpgrade[1]) ~= true then
-                -- The vendor will not take it. Nothing was set, so there is
-                -- nothing to clear, and the answer itself is the record.
-                return nextItem()
-            end
-
-            local startedAt = debugprofilestop and debugprofilestop() or nil
-            local listener = CreateFrame("Frame")
-            local settled = false
-            local function settle(fired)
-                if settled then
-                    return
-                end
-                settled = true
-                listener:UnregisterEvent("ITEM_UPGRADE_MASTER_SET_ITEM")
-                listener:SetScript("OnEvent", nil)
-                record.eventFired = fired
-                record.timedOut = not fired
-                if startedAt and debugprofilestop then
-                    record.waitedMs = debugprofilestop() - startedAt
-                end
-                upgradeReadsInto(record, U, candidate.link)
-                record.cleared = ns.Probe(U.ClearItemUpgrade)
-                nextItem()
-            end
-
-            listener:SetScript("OnEvent", function(_, event)
-                if event == "ITEM_UPGRADE_MASTER_SET_ITEM" then
-                    settle(true)
-                end
-            end)
-            listener:RegisterEvent("ITEM_UPGRADE_MASTER_SET_ITEM")
             record.set = ns.Probe(U.SetItemUpgradeFromLocation, candidate.location)
-            if record.set.error then
-                -- The client refused to take the item; there is nothing to
-                -- wait for, and the window is still cleared on the way out.
-                return settle(false)
+            if not record.set.error then
+                -- Immediately. The 2 s bound M3-17 waited per item bought
+                -- nothing the transcript can find, and `hyperlink` beside the
+                -- read is what says which item the window was answering about.
+                upgradeReadsInto(record, U, candidate.link)
             end
-            if C_Timer and C_Timer.After then
-                C_Timer.After(ns.UPGRADE_SET_TIMEOUT_SECONDS, function()
-                    settle(false)
-                end)
-            else
-                settle(false)
-            end
+            -- The window is left empty after every item, on the error path too.
+            record.cleared = ns.Probe(U.ClearItemUpgrade)
+            -- How many of the events the walk has provoked had been delivered
+            -- by the time this item was read. The client delivers between
+            -- frames and this walk never yields, so this is expected to be
+            -- zero for every item; it is recorded rather than assumed.
+            record.eventsSeenAtRead = eventsSeen
         end
+        data.walkMs = startedAt and debugprofilestop and (debugprofilestop() - startedAt) or nil
+        data.clearedAtEnd = ns.Probe(U.ClearItemUpgrade)
 
-        nextItem()
+        local function stop()
+            listener:UnregisterEvent("ITEM_UPGRADE_MASTER_SET_ITEM")
+            listener:SetScript("OnEvent", nil)
+            data.eventsSeen = eventsSeen
+            finish(data)
+        end
+        if C_Timer and C_Timer.After then
+            C_Timer.After(ns.UPGRADE_SETTLE_SECONDS, stop)
+        else
+            stop()
+        end
     end,
     { async = true }
 )
