@@ -155,3 +155,26 @@ with every loop rather than by request.
   logout can keep `env`, `vault` and `currencies` current but never the gear;
   R-7c (WKE-594) retires the promise in the words. The watcher on this write
   (19:26:02Z) again refused the 14:00:11 read with exit 8. No secrets.
+- Lootpath-20260916-152428.lua - **the second vendor walk, on the M3-17b build
+  (WKE-588), and the flush that healed the loop.** The owner took three
+  `upgrade` captures at a crest vendor with the window open (15:21:48,
+  15:21:58, 15:24:11 local, `main` `72b377f`), reloaded and pulled. Each walk:
+  138 candidates, 181-201 ms, `walkMs` 139, `eventsSeen` 158, 19 answered
+  `CanUpgradeItem` true and all 19 came back with `GetItemUpgradeItemInfo`
+  and per-step costs - against 128 candidates and 20,059 ms on 2026-09-15,
+  which is the 2 s-per-item wait M3-17b removed, measured gone. The
+  `Item can no longer be upgraded` text the owner saw is Blizzard's own
+  `ITEM_UPGRADE_NO_MORE_UPGRADES` on the upgrade frame, shown for each maxed
+  item as the walk passes it through the window; not an error. **The 295
+  Enigmatic Dreamwatcher's Leggings (item 271527, bag copy) answered nothing
+  at all**: `CanUpgradeItem` false, `GetItemUpgradeItemInfo` nil,
+  `GetItemUpgradeCurrentLevel` nil, `GetItemHyperlink` nil after
+  `SetItemUpgradeFromLocation`, watermark 321 - the client will not put it in
+  the window, while every other 295 leg piece in the same bags (Miststalker's
+  Cuisses, Preyhunter's Sleek Trousers, two copies of item 272245) loads and
+  answers `Champion` 2/6, `maxItemLevel` 308, the watermark row free and
+  300000 copper a step. WHY the client refuses that one item is not in the
+  file. The flush of the reload (15:24:28) stored `equipped 15`, the first good
+  inventory read since the empty 14:00:11 one, and the companion built a full
+  profile from it (`profile unchanged since 19:43:56Z`). Crest counts at the
+  time: Adventurer 329, Veteran 35, Champion 2, Hero 8, Myth 40. No secrets.
