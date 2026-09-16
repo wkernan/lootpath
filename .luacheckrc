@@ -70,6 +70,12 @@ read_globals = {
     "CreateDataProvider",
     "CreateScrollBoxListLinearView",
     "ScrollUtil",
+    -- The cursor half of equipping by bag and slot (E-1, WKE-604). UI/EquipPanel.lua
+    -- names all four functions that path may call; these two are the globals,
+    -- read under .luals/ in GameCursorDocumentation.lua (ClearCursor :2-3,
+    -- EquipCursorItem :30-32).
+    "ClearCursor",
+    "EquipCursorItem",
     "GetBuildInfo",
     "GetCurrentRegion",
     "GetCurrentRegionName",

@@ -274,6 +274,12 @@ function EquipPanel.Describe(row)
         second = "no rating"
         item = EquipPanel.ItemFromRecord(row.equipped)
     end
+    -- A refusal from the last Equip click stands as the row's note until the
+    -- row is built again (E-1): it is about this row's item, and no other line
+    -- on screen says the bags moved under the scan.
+    if row.equipRefusal then
+        note = colored("best_not_owned", tostring(row.equipRefusal))
+    end
     if row.matchedBy == ns.Match.MATCHED_BY_ID_LEVEL then
         text = text .. " |cff909296[matched by itemID and item level]|r"
         second = second .. " |cff909296[matched by itemID and item level]|r"
@@ -298,8 +304,62 @@ function EquipPanel.Describe(row)
     }
 end
 
+-- The sentence a row says when the bag slot it was built from no longer holds
+-- the copy the row means. One sentence, and it names the way out.
+EquipPanel.MOVED_NOTE = "this piece moved - /lootpath refresh"
+
+-- Does bag `best.bag`, slot `best.slotIndex` still hold the exact copy this row
+-- was built from? The scan is a snapshot; bags move between the scan and the
+-- click (a loot, a sort, a bank trip), and equipping whatever sits in that slot
+-- now would be the same wrong-item bug from the other end.
+--
+-- C_Container.GetContainerItemInfo(containerIndex, slotIndex) -> ContainerItemInfo
+-- (Blizzard's exported ContainerDocumentation.lua:71-75, read under .luals/ on
+-- 2026-09-16), whose `hyperlink` and `itemID` fields are declared at :245-257.
+-- The link is the strong test - it carries the bonus IDs, so it tells the 321
+-- from the 295 - and the itemID is all a row can be held to when the client has
+-- no link for that slot.
+function EquipPanel.SlotStillHolds(best)
+    if type(best) ~= "table" or best.bag == nil or best.slotIndex == nil then
+        return false
+    end
+    local info = ns.Safe(C_Container.GetContainerItemInfo(best.bag, best.slotIndex))
+    if type(info) ~= "table" then
+        return false
+    end
+    local link = ns.Safe(info.hyperlink)
+    if type(link) == "string" and type(best.link) == "string" then
+        return link == best.link
+    end
+    local itemID = tonumber(ns.Safe(info.itemID))
+    return itemID ~= nil and itemID == tonumber(best.itemID)
+end
+
 -- Equips one row's item. The combat check is here, not only on the button, so
 -- a lockdown that arrives after the panel was drawn still refuses.
+--
+-- **By bag and slot, not by name** (E-1, WKE-604, 2026-09-16). The owner had
+-- two Enigmatic Dreamwatcher's Leggings in his bags, 321 and 295; the row said
+-- swap to the 321 and the first click put on the 295, because
+-- `C_Item.EquipItemByName(itemInfo, dstSlot?)` takes an `ItemInfo` - a name, an
+-- ID or a link (ItemDocumentation.lua:85-87) - and the client resolves it to
+-- the first matching item in the bags. A link's bonus IDs do not narrow it. The
+-- scan already recorded exactly which copy the row means, so this path picks
+-- that one up and equips what is then on the cursor.
+--
+-- The four client functions this path may call, named here the way Captures.lua
+-- names the functions its captures call, and nothing else:
+--   C_Container.GetContainerItemInfo(bag, slotIndex)  ContainerDocumentation.lua:71-75
+--   C_Container.PickupContainerItem(bag, slotIndex)   ContainerDocumentation.lua:159-162
+--   EquipCursorItem(slot)                             GameCursorDocumentation.lua:30-32
+--   ClearCursor()                                     GameCursorDocumentation.lua:2-3
+-- Nothing is bought, sold, destroyed, split, sorted or moved anywhere but onto
+-- the character. `ClearCursor()` comes FIRST on every path that touches the
+-- cursor - Blizzard's own EquipmentManager_EquipContainerItem opens with it
+-- (EquipmentManager.lua:97-99, read under .luals/) - so an item left on the
+-- cursor by anything, including a row whose equip the client refused, goes back
+-- before this one picks anything up, and no click ever begins or ends a refusal
+-- with the cursor holding an item.
 function EquipPanel.Equip(row)
     if InCombatLockdown() then
         return { ok = false, reason = "combat" }
@@ -307,15 +367,38 @@ function EquipPanel.Equip(row)
     if not ns.Match.IsSwap(row) then
         return { ok = false, reason = "there is nothing to equip in this row" }
     end
+    local best = row.best
+    -- `dstSlot` is the equipment slot the scan actually found the replaced item
+    -- in, which is what keeps two rings and two trinkets from fighting over one
+    -- slot; it is nil when nothing is worn there. `EquipCursorItem(slot)`
+    -- declares its slot as required (GameCursorDocumentation.lua:31), unlike
+    -- EquipItemByName's `dstSlot number?`, so a row with nothing to replace has
+    -- no slot number to hand it and stays on the old path.
+    if (best.location == "bag" or best.location == "bank") and row.dstSlot ~= nil then
+        if not EquipPanel.SlotStillHolds(best) then
+            ClearCursor()
+            row.equipRefusal = EquipPanel.MOVED_NOTE
+            return { ok = false, reason = EquipPanel.MOVED_NOTE, moved = true }
+        end
+        ClearCursor()
+        C_Container.PickupContainerItem(best.bag, best.slotIndex)
+        EquipCursorItem(row.dstSlot)
+        row.equipRefusal = nil
+        return { ok = true, link = best.link, dstSlot = row.dstSlot, bag = best.bag, slotIndex = best.slotIndex }
+    end
+    -- The only remaining callers of the by-name path: a record with no bag and
+    -- slot to pick up from, and a row with no destination slot to equip into.
     -- C_Item.EquipItemByName(itemInfo, dstSlot?) - Blizzard's exported docs,
-    -- read 2026-09-06; the global EquipItemByName is deprecated. dstSlot is the
-    -- equipment slot the scan actually found the replaced item in, which is
-    -- what keeps two rings and two trinkets from fighting over one slot; it is
-    -- nil when the slot was empty, and the client then chooses.
-    C_Item.EquipItemByName(row.best.link, row.dstSlot)
-    return { ok = true, link = row.best.link, dstSlot = row.dstSlot }
+    -- read 2026-09-06; the global EquipItemByName is deprecated.
+    C_Item.EquipItemByName(best.link, row.dstSlot)
+    row.equipRefusal = nil
+    return { ok = true, link = best.link, dstSlot = row.dstSlot }
 end
 
+-- Equip all walks the same path, row by row, with the same check per row, and
+-- STOPS at the first refusal (E-1): a row that refuses because the bags moved
+-- is a scan that no longer matches the bags, so every row after it is just as
+-- suspect. The refusal is left on that row, where the panel draws it.
 function EquipPanel.EquipAll(match)
     if InCombatLockdown() then
         return { ok = false, reason = "combat" }
@@ -328,6 +411,7 @@ function EquipPanel.EquipAll(match)
                 equipped = equipped + 1
             else
                 refusals[#refusals + 1] = result.reason
+                return { ok = true, equipped = equipped, refusals = refusals, stoppedAt = row }
             end
         end
     end
@@ -530,6 +614,11 @@ function EquipPanel.OnEquipClicked(panel, row)
         else
             ns.Log("%s", result.reason)
         end
+        -- A refusal the bags caused is drawn on the row it belongs to, so the
+        -- redraw happens for that one and not for the two that are only words.
+        if result.moved then
+            EquipPanel.Refresh(panel, panel.match)
+        end
         return
     end
     EquipPanel.Refresh(panel, panel.match)
@@ -576,6 +665,11 @@ function EquipPanel.Create(parent)
             return
         end
         ns.Log("equipped %d item(s) from your best set.", result.equipped)
+        -- The first refusal stopped the walk; it is said once here and drawn on
+        -- the row it belongs to by the refresh below.
+        if result.refusals[1] then
+            ns.Log("%s", result.refusals[1])
+        end
         EquipPanel.Refresh(panel, panel.match)
     end)
     panel.equipAll:SetScript("OnEnter", function(button)

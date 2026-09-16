@@ -9,6 +9,12 @@ local R = require("spec.helpers.replay")
 local REAL_EXPORT = "spec/fixtures/qe/qe-droptimizer-Hotornot-cxeiassqdyvz.json"
 local SAMPLE_EXPORT = "spec/fixtures/qe/sample-handbuilt-v1.json"
 
+-- Something else entirely, put into a bag slot after the match was built, so a
+-- test can say "the bags moved since the scan" (E-1, WKE-604). Nothing reads it
+-- but the slot check, which compares it against the link the row carries.
+local OTHER_ITEM_ID = 99999
+local OTHER_LINK = "|cffa335ee|Hitem:99999::::::::80:105::::|h[Something Else]|h|r"
+
 local function readFile(path)
     local handle = assert(io.open(path, "rb"), "cannot read " .. path)
     local text = handle:read("*a")
@@ -310,29 +316,95 @@ describe("the Equip Now panel", function()
         assert.is_true(swapButtons > 0 and otherButtons > 0)
     end)
 
-    it("equips one item by its link and into the slot the scan found", function()
+    -- E-1 (WKE-604): the copy, not the name. Two of the same item in the bags
+    -- and `C_Item.EquipItemByName` puts on whichever the client finds first, so
+    -- every one of these asserts the BAG AND SLOT the scan recorded.
+    it("equips the copy the row means, by its bag and slot, and never by name", function()
         local row = firstSwapRow(panel)
         assert.is_table(row)
+        local best = row.matchRow.best
+        assert.equal("bag", best.location)
         assert.is_true(row.equip:Click())
-        assert.equal(1, #world.equipCalls)
-        assert.equal(row.matchRow.best.link, world.equipCalls[1][1])
-        assert.equal(row.matchRow.equipped.slotIndex, world.equipCalls[1][2])
+        assert.equal(0, #world.equipCalls)
+        assert.equal(1, #world.pickupCalls)
+        assert.same({ best.bag, best.slotIndex, best.link }, world.pickupCalls[1])
+        assert.equal(1, #world.equipCursorCalls)
+        assert.equal(row.matchRow.equipped.slotIndex, world.equipCursorCalls[1].slot)
+        assert.equal(best.link, world.equipCursorCalls[1].link)
+        -- Cleared before the pickup, the way Blizzard's own EquipmentManager
+        -- opens, and holding nothing afterwards.
+        assert.is_true(world.clearCursorCalls >= 1)
+        assert.is_nil(world.heldItem)
     end)
 
-    it("equips every swap row at once and no other row", function()
+    it("refuses when the bags moved under the scan, says so on the row, and holds nothing", function()
+        local row = firstSwapRow(panel)
+        local best = row.matchRow.best
+        world.bags[best.bag].items[best.slotIndex] = {
+            link = OTHER_LINK,
+            id = OTHER_ITEM_ID,
+            info = { hyperlink = OTHER_LINK, itemID = OTHER_ITEM_ID },
+        }
+        assert.is_true(row.equip:Click())
+        assert.equal(0, #world.pickupCalls)
+        assert.equal(0, #world.equipCursorCalls)
+        assert.equal(0, #world.equipCalls)
+        assert.is_nil(world.heldItem)
+        assert.is_true(world.clearCursorCalls >= 1)
+        assert.is_truthy(row.note:GetText():find(ns.UI.EquipPanel.MOVED_NOTE, 1, true))
+        assert.is_true(row.note:IsShown())
+    end)
+
+    it("equips every swap row at once, each by its own bag and slot, and no other row", function()
         assert.is_true(panel.equipAll:IsShown())
         panel.equipAll:Click()
-        assert.equal(panel.match.counts.swap, #world.equipCalls)
+        assert.equal(0, #world.equipCalls)
+        assert.equal(panel.match.counts.swap, #world.pickupCalls)
+        assert.equal(panel.match.counts.swap, #world.equipCursorCalls)
         local wanted = {}
         for _, matchRow in ipairs(panel.match.rows) do
             if matchRow.status == "swap" then
-                wanted[matchRow.best.link] = matchRow.dstSlot
+                wanted[matchRow.best.link] = { matchRow.best.bag, matchRow.best.slotIndex, matchRow.dstSlot }
             end
         end
-        for _, call in ipairs(world.equipCalls) do
-            assert.is_truthy(wanted[call[1]] ~= nil)
-            assert.equal(wanted[call[1]], call[2])
+        for index, call in ipairs(world.equipCursorCalls) do
+            local want = wanted[call.link]
+            assert.is_truthy(want ~= nil)
+            assert.same({ want[1], want[2], call.link }, world.pickupCalls[index])
+            assert.equal(want[3], call.slot)
         end
+    end)
+
+    it("stops Equip all at the first row whose slot moved, with the refusal on that row", function()
+        local row = firstSwapRow(panel)
+        local best = row.matchRow.best
+        world.bags[best.bag].items[best.slotIndex] = {
+            link = OTHER_LINK,
+            id = OTHER_ITEM_ID,
+            info = { hyperlink = OTHER_LINK, itemID = OTHER_ITEM_ID },
+        }
+        assert.is_true(panel.match.counts.swap > 1)
+        panel.equipAll:Click()
+        assert.equal(0, #world.pickupCalls)
+        assert.equal(0, #world.equipCursorCalls)
+        assert.equal(0, #world.equipCalls)
+        assert.is_truthy(row.note:GetText():find(ns.UI.EquipPanel.MOVED_NOTE, 1, true))
+    end)
+
+    it("calls EquipItemByName only where there is no bag slot to equip from", function()
+        -- The CALL sites, not the comments that name the function: a line whose
+        -- first non-blank is `C_Item.EquipItemByName(`. Both branches are
+        -- commented, and a comment naming the function is not a call.
+        local source = readFile("Lootpath/UI/EquipPanel.lua")
+        local _, byName = source:gsub("\n[ \t]*C_Item%.EquipItemByName%(", "")
+        assert.equal(1, byName)
+        local byLocation = source:find("\n        EquipCursorItem(row.dstSlot)", 1, true)
+        local fallback = source:find("\n    C_Item.EquipItemByName(", 1, true)
+        assert.is_truthy(byLocation)
+        assert.is_truthy(fallback)
+        assert.is_true(byLocation < fallback)
+        -- The guard that sends everything with a bag slot the other way.
+        assert.is_truthy(source:find('(best.location == "bag" or best.location == "bank")', 1, true))
     end)
 
     it("says what it is showing per row", function()
