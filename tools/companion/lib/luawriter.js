@@ -273,7 +273,7 @@ function passOf(doc) {
 }
 
 function render(payload) {
-    const { writtenAt, companionVersion, profileCapturedAt, documents, qeSettings, excluded, scenarioNote } = payload;
+    const { writtenAt, companionVersion, profileCapturedAt, documents, qeSettings, excluded, scenarioNote, profileVaultCount } = payload;
     if (!Array.isArray(documents) || !documents.length) {
         throw new Error('refusing to write a verdict file with no documents');
     }
@@ -313,6 +313,19 @@ function render(payload) {
             throw new Error(`scenarioNote must be a string, saw ${JSON.stringify(scenarioNote)}`);
         }
         lines.push(`    scenarioNote = ${luaString(scenarioNote)},`);
+    }
+    // How many vault items the profile this run was built from carried (C-13,
+    // WKE-584). A number and not a flag, because it is a count the profile
+    // builder already has, and ZERO is the whole point: the addon cannot
+    // otherwise tell a pool that held no vault card from a pool nobody
+    // recorded, and on reset day before the player opens the Great Vault the
+    // two look identical (M3-16b, WKE-583). Absent when the run did not say,
+    // which is every file written before C-13.
+    if (profileVaultCount !== undefined && profileVaultCount !== null) {
+        if (!Number.isInteger(profileVaultCount) || profileVaultCount < 0) {
+            throw new Error(`profileVaultCount must be a whole count from 0, saw ${JSON.stringify(profileVaultCount)}`);
+        }
+        lines.push(`    profileVaultCount = ${luaNumber(profileVaultCount)},`);
     }
     const fileExcluded = excludedList(excluded, 'the file');
     if (fileExcluded) lines.push(...excludedLines(fileExcluded, 4));

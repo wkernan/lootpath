@@ -136,6 +136,23 @@ local function safePass(value)
     return safe
 end
 
+-- How many vault items the profile the companion built carried (C-13, WKE-584).
+-- Zero is a fact and not an absence: it is the run saying QE Live was shown no
+-- vault card at all, which is what reset day before the player opens the Great
+-- Vault looks like (M3-16b, WKE-583) and what any week looks like where the
+-- client withheld the links. Nothing else in the addon may tell that from a
+-- pool that simply had no vault card in it, so the count travels.
+--
+-- A file written before C-13 carries none, and nil is "the run did not say",
+-- never zero.
+local function safeVaultCount(value)
+    local safe, sawSecret = ns.Safe(value)
+    if sawSecret or type(safe) ~= "number" or safe < 0 or safe % 1 ~= 0 then
+        return nil
+    end
+    return safe
+end
+
 -- Which of QE Live's own import settings produced the exports in the file
 -- (C-5, WKE-539: the companion sets both checkboxes explicitly and records what
 -- it asked for). Optional: a file written before C-5, and the committed
@@ -438,6 +455,10 @@ function Companion.Validate(raw, now)
         -- written; nothing here reasons over it, and its absence means every
         -- configured scenario was asked.
         scenarioNote = safeString(safe.scenarioNote),
+        -- C-13 (WKE-584): how many vault items were in the profile this run was
+        -- made from. File-level, because the profile is the run's and not any
+        -- one document's.
+        profileVaultCount = safeVaultCount(safe.profileVaultCount),
         exports = exports,
     }
 end
@@ -538,6 +559,7 @@ function Companion.ImportAll(raw, now)
         qeSettings = file.qeSettings,
         excluded = file.excluded,
         scenarioNote = file.scenarioNote,
+        profileVaultCount = file.profileVaultCount,
         imported = {},
         skipped = {},
         unchanged = {},
@@ -641,6 +663,13 @@ function Companion.ImportAll(raw, now)
                         -- was never asked. An Upgrade Finder verdict gets none:
                         -- it is about drops and answers no scenario.
                         verdict.scenarioNote = file.scenarioNote
+                        -- Carried the same way and for the same reason (C-13,
+                        -- WKE-584): the vault roads and the Vault tab's plan
+                        -- sentence are drawn off whichever verdict is on
+                        -- screen, and the one thing they need to know is
+                        -- whether the run that made it ever saw a vault item.
+                        -- File-level, like the note: the profile is the run's.
+                        verdict.profileVaultCount = file.profileVaultCount
                     end
                     local stored = importer.Store(verdict)
                     if not stored.ok then

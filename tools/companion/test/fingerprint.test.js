@@ -466,3 +466,17 @@ test('changing the scenario list costs a run even when the gear has not moved', 
     await h.run();
     assert.strictEqual(h.fork.calls.length, 2, 'a shorter scenario list is a different question');
 });
+
+// --- C-13 (WKE-584): the count reaches the file the addon reads
+
+// The committed transcript this harness runs on has no generated Great Vault
+// reward, so the profile it builds carries no vault section and the run says so
+// out loud. Until R-3d that sentence went only to the log, and the addon - which
+// is the thing that has to stop saying "not in your best set" about a reward
+// nothing ever rated - could not read it. Now the count travels.
+test('the verdict file records that the profile carried no vault items', async () => {
+    const h = harness();
+    await h.run();
+    const written = fs.readFileSync(h.verdict, 'utf8');
+    assert.ok(written.includes('profileVaultCount = 0,'), written.slice(0, 900));
+});

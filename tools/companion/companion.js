@@ -283,6 +283,10 @@ async function once(config, log, args, deps) {
             // so the strip's tooltip and the Vault tab's footnote are one set
             // of words read out of two files. Absent when everything was asked.
             scenarioNote: scenarioNote,
+            // How many vault items the profile carried (C-13, WKE-584). The
+            // addon's vault roads need it to tell "rated and passed over" from
+            // "never imported", and only the profile builder knows.
+            profileVaultCount: profile.counts.vault,
             documents: run.documents,
         });
         const written = output.writeVerdict(target, text);

@@ -2376,3 +2376,62 @@ describe("the capture at the flush", function()
         end)
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- C-13 (WKE-584): how many vault items the run's profile carried.
+--
+-- File-level, like the scenario note and for the same reason: the profile is
+-- the RUN's and not any one document's. ZERO is the whole point of the field -
+-- on reset day before the player opens the Great Vault the companion builds a
+-- profile with no vault section at all (M3-16b, WKE-583), and nothing else the
+-- file carries tells that from a pool that simply had no vault card in it.
+describe("the count of vault items the profile carried (C-13)", function()
+    local ns
+
+    local function file(fields)
+        local raw = {
+            writtenAt = "2026-09-15T19:09:00Z",
+            companionVersion = "0.1.0",
+            exports = {
+                {
+                    schema = "qe-live-droptimizer",
+                    contentType = "Dungeon",
+                    scenario = "thisWeek",
+                    json = readFile(DUNGEON_EXPORT),
+                },
+            },
+        }
+        for key, value in pairs(fields or {}) do
+            raw[key] = value
+        end
+        return raw
+    end
+
+    before_each(function()
+        ns = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("carries a zero onto the verdict as a zero and never as an absence", function()
+        local result = ns.Companion.ImportAll(file({ profileVaultCount = 0 }))
+        assert.is_true(result.ok, result.reason)
+        assert.equal(0, result.profileVaultCount)
+        assert.equal(0, ns.QEImport.ForContentTypeAndScenario("Dungeon", "thisWeek").profileVaultCount)
+    end)
+
+    it("carries a count the same way", function()
+        local result = ns.Companion.ImportAll(file({ profileVaultCount = 4 }))
+        assert.is_true(result.ok, result.reason)
+        assert.equal(4, ns.QEImport.ForContentTypeAndScenario("Dungeon", "thisWeek").profileVaultCount)
+    end)
+
+    it("says nothing for a file that said nothing, and for one that said something else", function()
+        assert.is_nil(ns.Companion.ImportAll(file()).profileVaultCount)
+        assert.is_nil(ns.Companion.ImportAll(file({ profileVaultCount = "4" })).profileVaultCount)
+        assert.is_nil(ns.Companion.ImportAll(file({ profileVaultCount = -1 })).profileVaultCount)
+        assert.is_nil(ns.Companion.ImportAll(file({ profileVaultCount = 1.5 })).profileVaultCount)
+    end)
+end)

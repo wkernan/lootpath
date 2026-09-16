@@ -1520,3 +1520,198 @@ describe("Roads vocabulary", function()
         assert.same({}, ns.Roads.ForItem(nil, {}).others)
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- R-3d (WKE-584): the vault reward the rating never imported.
+--
+-- The owner's screen of 2026-09-15, reset day, the Great Vault window open:
+-- hovering the vault's Enigmatic Dreamwatcher's Leggings read "not in your best
+-- set" and "Skip this one, the plan uses your Miststalker legs", off a verdict
+-- rated 80 minutes earlier from a profile carrying `0 vault` (M3-16b, WKE-583).
+-- Both of those are the addon taking a position on an item nothing ever rated,
+-- which principle 3 forbids.
+--
+-- The vault here is the real one: snapshot 12 of
+-- `spec/fixtures/captures/Lootpath-20260915-142722-vault.lua`, the hand capture
+-- he took with the window open, whose 9 links carry three gear rewards - the
+-- Lantern (Offhand, 279), the Leggings (Legs, 315) and Kyrakka's (Trinket,
+-- 315). The document over it is the committed `thisWeek` Dungeon export of the
+-- 09-09 run, a run over a DIFFERENT week's profile that therefore names none of
+-- the three: exactly the shape the owner hit.
+describe("Roads over a vault the rating never imported (R-3d)", function()
+    local ns, world, inputs
+    local RESET_DAY = "spec/fixtures/captures/Lootpath-20260915-142722-vault.lua"
+    local AFTER_THE_WINDOW = 12
+    -- Read off the snapshot above by `ns.Vault.Options()`, 2026-09-15.
+    local LEGGINGS = "271527:6652:12844:13440:13693:13698"
+    local LANTERN = "275547:6652:12825"
+    local KYRAKKA = "193748:6652:12699:12844:13440"
+
+    before_each(function()
+        ns, world = H.load()
+        R.inventory(world, R.snapshot("inventory", PROFILE_SNAPSHOT, CAPTURE))
+        R.vault(world, R.snapshot("vault", AFTER_THE_WINDOW, RESET_DAY))
+
+        local inventory = ns.Inventory.Scan()
+        assert.is_true(inventory.ok, inventory.reason)
+        local vault = ns.Vault.Options()
+        assert.is_true(vault.ok, vault.reason)
+
+        local parsed = ns.QEImport.Parse(readFile(THIS_WEEK_DUNGEON))
+        assert.is_true(parsed.ok, parsed.reason)
+        parsed.verdict.scenario = "thisWeek"
+
+        inputs = {
+            verdicts = { { verdict = parsed.verdict, scenario = "thisWeek" } },
+            highlightedScenario = "thisWeek",
+            inventory = inventory,
+            vault = vault,
+            now = 1789500000,
+        }
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function verdict()
+        return inputs.verdicts[1].verdict
+    end
+
+    -- The vault road of a slot, and the group it landed in. Asked of all three
+    -- gear rewards below, so every assertion is about the whole vault and not
+    -- about one lucky row.
+    local function vaultRoad(slot)
+        for _, group in ipairs(ns.Roads.GROUP_ORDER) do
+            for _, road in ipairs(ns.Roads.ForSlot(slot, inputs).groups[group] or {}) do
+                if road.kind == ns.Roads.KIND_VAULT then
+                    return road, group
+                end
+            end
+        end
+    end
+
+    -- PROVEN RED: without the `profileVaultCount` branch in
+    -- `Roads.VaultConsidered` every one of these three reads "not in your best
+    -- set" in the SET group, which is the screen the owner read.
+    it("says nothing rated a reward when the run's profile carried no vault section", function()
+        verdict().profileVaultCount = 0
+        for _, slot in ipairs({ "Legs", "Offhand", "Trinket" }) do
+            local road, group = vaultRoad(slot)
+            assert.is_table(road, slot)
+            assert.equal(ns.Roads.PHRASE_NOT_RATED_NEW, road.phrase, slot)
+            assert.equal("not rated · new since the last refresh", road.phrase)
+            assert.equal(ns.Roads.GROUP_NONE, group, slot)
+            assert.equal(ns.Roads.PHRASE_NOT_RATED_NEW, road.rating.badge, slot)
+            -- Not knowing is not a verdict, so the row does not glow and the
+            -- surfaces owe it no imperative (principles 12 and 16).
+            assert.is_false(ns.Roads.IsForward(road))
+            assert.is_false(ns.Roads.IsRated(road))
+        end
+    end)
+
+    -- The other half of the same screen: the sentence. It is owed one
+    -- (principle 16 - the vault is offering it) and it may not be "Skip this
+    -- one" (principle 3).
+    it("gives that reward the stale sentence and never a position on it", function()
+        verdict().profileVaultCount = 0
+        local answer = ns.Roads.ForItem(LEGGINGS, inputs)
+        assert.equal("Legs", answer.slot)
+        assert.equal(ns.Roads.KIND_VAULT, answer.own.kind)
+        assert.equal(ns.Roads.PHRASE_NOT_RATED_NEW, answer.phrase)
+        assert.equal("The plan hasn't rated this yet. Refresh, then look again.", ns.Roads.ItemSentence(answer))
+        assert.equal(ns.Roads.NOT_RATED_YET_SENTENCE, ns.Roads.ItemSentence(answer))
+    end)
+
+    -- The pool says it too, with no count at all: a document that recorded what
+    -- it WAS shown and does not name these rewards is the same evidence.
+    it("says the same off a recorded pool that holds none of the rewards", function()
+        verdict().considered = ns.Companion.Excluded({
+            { slot = "Legs", name = "Miststalker's Leggings", level = 298, itemID = 277774, bonusIDs = { 12 } },
+        })
+        for _, slot in ipairs({ "Legs", "Offhand", "Trinket" }) do
+            local road, group = vaultRoad(slot)
+            assert.equal(ns.Roads.PHRASE_NOT_RATED_NEW, road.phrase, slot)
+            assert.equal(ns.Roads.GROUP_NONE, group, slot)
+        end
+    end)
+
+    -- And the first case, unchanged: a pool that DID hold the reward and a best
+    -- set that did not take it is rated and passed over, which is the third
+    -- phrase and has been since 558.
+    it("keeps the third phrase for a reward the pool really held", function()
+        verdict().considered = ns.Companion.Excluded({
+            {
+                slot = "Legs",
+                name = "Enigmatic Dreamwatcher's Leggings",
+                level = 315,
+                itemID = 271527,
+                bonusIDs = { 6652, 12844, 13440, 13693, 13698 },
+            },
+        })
+        local road, group = vaultRoad("Legs")
+        assert.equal(ns.Roads.PHRASE_NOT_IN_BEST_SET, road.phrase)
+        assert.equal(ns.Roads.GROUP_SET, group)
+        assert.is_true(ns.Roads.IsRated(road))
+        -- Its neighbours are not in that pool, so they read the other case: the
+        -- question is asked per reward and never per file.
+        assert.equal(ns.Roads.PHRASE_NOT_RATED_NEW, (vaultRoad("Offhand")).phrase)
+    end)
+
+    -- The bound. A verdict that recorded neither a pool nor a count cannot
+    -- answer the question, so C-8's premise is what stands: every file written
+    -- before C-11 and every paste is this case, and none of them changes.
+    it("leaves a document that recorded nothing where 558 left it", function()
+        assert.is_nil(verdict().considered)
+        assert.is_nil(verdict().profileVaultCount)
+        local road, group = vaultRoad("Legs")
+        assert.equal(ns.Roads.PHRASE_NOT_IN_BEST_SET, road.phrase)
+        assert.equal(ns.Roads.GROUP_SET, group)
+        assert.is_nil(ns.Roads.VaultConsidered(inputs.verdicts[1], inputs, { key = LANTERN }))
+    end)
+
+    -- A later pass's pool answers too: a vault option is a baseline card, so it
+    -- is in every pass's pool or in none of them (C-11).
+    it("reads a later pass's pool as readily as the plan's own", function()
+        verdict().considered = ns.Companion.Excluded({
+            { slot = "Legs", name = "Miststalker's Leggings", level = 298, itemID = 277774, bonusIDs = { 12 } },
+        })
+        assert.equal(ns.Roads.PHRASE_NOT_RATED_NEW, (vaultRoad("Trinket")).phrase)
+        inputs.passes = {
+            {
+                pass = 2,
+                verdict = {
+                    considered = ns.Companion.Excluded({
+                        {
+                            slot = "Trinket",
+                            name = "Kyrakka's Searing Embers",
+                            level = 315,
+                            itemID = 193748,
+                            bonusIDs = { 6652, 12699, 12844, 13440 },
+                        },
+                    }),
+                },
+            },
+        }
+        assert.equal(ns.Roads.PHRASE_NOT_IN_BEST_SET, (vaultRoad("Trinket")).phrase)
+        assert.is_true(ns.Roads.VaultConsidered(inputs.verdicts[1], inputs, {
+            key = KYRAKKA,
+            name = "Kyrakka's Searing Embers",
+            itemLevel = 315,
+        }))
+    end)
+
+    -- The Vault tab's headline. A plan rated before the vault existed is not a
+    -- decision about the vault, so the tab says the one true thing instead of
+    -- reading a pick out of it.
+    it("replaces the week's plan with its own cure when the run had no vault", function()
+        local before = ns.Roads.PlanSentence(inputs)
+        assert.is_string(before.sentence)
+        assert.not_equal(ns.Roads.VAULT_UNRATED_SENTENCE, before.sentence)
+        verdict().profileVaultCount = 0
+        local plan = ns.Roads.PlanSentence(inputs)
+        assert.equal("The plan was rated before your vault was generated. Refresh.", plan.sentence)
+        assert.equal(ns.Roads.VAULT_UNRATED_SENTENCE, plan.sentence)
+        assert.equal("this week's plan", plan.plan)
+    end)
+end)

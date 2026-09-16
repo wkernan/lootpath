@@ -991,6 +991,70 @@ function Roads.NotRatedPhrase(excluded, item, key, passes)
     return Roads.PHRASE_NOT_RATED_NEW
 end
 
+-- Did the run behind this plan ever SEE this vault reward (R-3d, WKE-584)?
+--
+-- The premise C-8 left on the vault road was that it always did: his importer
+-- makes every vault option active the moment it is imported
+-- (`SimCImportEngine.ts:712`), so a reward the plan's document never mentions
+-- was rated and passed over, which is exactly the third phrase. That holds only
+-- when the profile the companion built CARRIED a vault section. On reset day
+-- before the player opens the Great Vault - and any week the client withheld
+-- the links and no login restored them - the profile has none, QE Live was
+-- shown no vault card at all, and "not in your best set" is the addon taking a
+-- position on an item nothing ever rated (principle 3; the owner read it on
+-- 2026-09-15, ARCHITECTURE.md §9).
+--
+-- Three answers, because the file may not be able to say:
+--   false  the run is on record as having built its profile with no vault
+--          items, or the pools its passes recorded do not hold this key;
+--   true   a pass recorded a pool and the reward's key is in it;
+--   nil    no pool and no count on record - every file written before C-11 and
+--          every paste - so the question cannot be asked and C-8 stands.
+--
+-- The join is C-10's identity, through `ns.Companion.IsConsidered`, because
+-- "was this item in the pool" already has one answer and a second one here
+-- would be a second answer to it.
+function Roads.VaultConsidered(entry, inputs, reward)
+    local verdict = type(entry) == "table" and entry.verdict or nil
+    if type(verdict) ~= "table" then
+        return nil
+    end
+    -- The companion's own count of the vault section it built from (C-13).
+    -- Zero outranks every pool below, because a pool that held no vault card
+    -- and a pool nobody recorded look exactly alike from here.
+    if verdict.profileVaultCount == 0 then
+        return false
+    end
+    local key = type(reward) == "table" and reward.key or nil
+    local facts = {
+        name = type(reward) == "table" and reward.name or nil,
+        level = type(reward) == "table" and tonumber(reward.itemLevel) or nil,
+    }
+    -- The plan's own document first, then its later passes: a vault option is a
+    -- baseline card, so it is in every pass's pool or in none of them, and
+    -- asking all of them costs nothing and cannot be wrong either way.
+    local pools = { verdict }
+    for _, pass in ipairs(type(inputs) == "table" and type(inputs.passes) == "table" and inputs.passes or {}) do
+        if type(pass) == "table" and type(pass.verdict) == "table" then
+            pools[#pools + 1] = pass.verdict
+        end
+    end
+    local asked = false
+    for _, pool in ipairs(pools) do
+        local considered = pool.considered
+        if type(considered) == "table" then
+            asked = true
+            if ns.Companion.IsConsidered(considered, key, facts) then
+                return true
+            end
+        end
+    end
+    if not asked then
+        return nil
+    end
+    return false
+end
+
 -- ---------------------------------------------------------------------------
 -- Roads for one slot.
 
@@ -1182,23 +1246,36 @@ function Roads.ForSlot(slot, inputs)
         end
     end
 
-    -- A vault reward in this slot the plan's document never mentions was in the
-    -- run and was not chosen: 558 read in his own importer that every vault
-    -- option is active from the moment it is imported
-    -- (`SimCImportEngine.ts:712`), so it cannot have fallen outside the item
-    -- limit. "Rated, and not in the best set" is exactly the third phrase.
+    -- A vault reward in this slot the plan's document never mentions. 558 read
+    -- in his own importer that every vault option is active from the moment it
+    -- is imported (`SimCImportEngine.ts:712`), so a reward the run IMPORTED
+    -- cannot have fallen outside the item limit, and "rated, and not in the
+    -- best set" is exactly the third phrase.
+    --
+    -- Narrowed by R-3d (WKE-584): that premise is about a reward the run
+    -- imported, and the run imports nothing the profile did not carry. Where
+    -- the file says the pool never held this reward, the honest line is the
+    -- other one - nothing rated it, so the road joins the no-rating group and
+    -- says so. `Roads.VaultConsidered` is the one place that decides which.
     for _, held in ipairs(vaultRewards(inputs.vault)) do
         local reward = held.reward
         if reward.slot == slot and not takenVault[reward.key] then
-            local road =
-                newRoad(Roads.KIND_VAULT, entry and Roads.GROUP_SET or Roads.GROUP_NONE, slot, itemFacts(reward))
+            local unseen = entry ~= nil and Roads.VaultConsidered(entry, inputs, reward) == false
+            local group = (entry and not unseen) and Roads.GROUP_SET or Roads.GROUP_NONE
+            local road = newRoad(Roads.KIND_VAULT, group, slot, itemFacts(reward))
             road.tag = Roads.TAG_VAULT
             road.openNow = Roads.VAULT_OPEN_NOW
             road.resetSeconds = type(inputs.vault) == "table" and inputs.vault.secondsUntilWeeklyReset or nil
             road.arrivesAt = reward.itemLevel
             road.plan = entry and Roads.PlanName(entry.scenario) or nil
             road.age = entry and entry.verdict and entry.verdict.exportedAt or nil
-            road.phrase = entry and Roads.PHRASE_NOT_IN_BEST_SET or Roads.PHRASE_NO_RATING
+            if not entry then
+                road.phrase = Roads.PHRASE_NO_RATING
+            elseif unseen then
+                road.phrase = Roads.PHRASE_NOT_RATED_NEW
+            else
+                road.phrase = Roads.PHRASE_NOT_IN_BEST_SET
+            end
             road.rating = { kind = Roads.RATING_NONE, badge = road.phrase, arrivesAt = reward.itemLevel }
             road.steps[#road.steps + 1] = step("the vault is offering it", Roads.DONE_CLIENT)
             road.steps[#road.steps + 1] = step("take it from the Great Vault")
@@ -1987,6 +2064,17 @@ function Roads.PlanSentence(week)
         return { sentence = nil, footnote = note }
     end
     local verdict = entry.verdict
+    -- R-3d (WKE-584): the run built its profile with no vault section, so every
+    -- pick below was chosen without this week's vault in front of it. A plan
+    -- read out on the Vault tab is read as a decision about the vault, and this
+    -- one is not one. The cure is the whole sentence.
+    if type(verdict) == "table" and verdict.profileVaultCount == 0 then
+        return {
+            sentence = Roads.VAULT_UNRATED_SENTENCE,
+            footnote = fellBack and note or nil,
+            plan = Roads.PlanName(entry.scenario),
+        }
+    end
     local bySlot, allItems = topSetBySlot(verdict)
     local owned = ownedByKey({ inventory = week.inventory })
     local charge = Roads.Charge(week.currencies)
@@ -2156,6 +2244,21 @@ Roads.ARRIVED_PUT_ON = "Put it on; refresh to rate it."
 -- imperative would be the addon deciding what QE Live was never asked.
 Roads.BEATS_WORN_SENTENCE = "This beats what you've got on. The plan was built before anything had rated it."
 
+-- The sentence for something the vault is OFFERING that the rating never
+-- imported (R-3d, WKE-584). Principle 16 owes every held-or-offered item a
+-- sentence and principle 3 forbids this one a position, so it says the one true
+-- thing and names the cure - the same cure the header's "/lootpath refresh"
+-- already names (R-3b). It is not "Skip this one": the plan has no grounds to
+-- skip an item no document ever saw.
+Roads.NOT_RATED_YET_SENTENCE = "The plan hasn't rated this yet. Refresh, then look again."
+
+-- The Vault tab's whole headline when the run that produced the plan built its
+-- profile with no vault section at all (R-3d, WKE-584). Not a pick, because
+-- every pick this plan could name was chosen without the week's vault in front
+-- of it, and a pick drawn from that run reads as a decision about the vault.
+-- One imperative, the only one there is.
+Roads.VAULT_UNRATED_SENTENCE = "The plan was rated before your vault was generated. Refresh."
+
 function Roads.ArrivedSentence(held, pick)
     if type(held) ~= "table" or type(pick) ~= "table" then
         return nil
@@ -2214,6 +2317,15 @@ function Roads.ItemSentence(answer)
         return nil
     end
     local own = answer.own
+    -- R-3d (WKE-584): a vault reward the rating never imported. The vault is
+    -- offering it, so principle 16 owes it a sentence; nothing rated it, so
+    -- principle 3 forbids it the one every other unpicked road gets. Asked
+    -- before the groups below because the road sits in the no-rating group and
+    -- the reward is in the vault rather than in the bags, which is the pair of
+    -- facts that would otherwise leave it sentence-less.
+    if type(own) == "table" and own.kind == Roads.KIND_VAULT and own.phrase == Roads.PHRASE_NOT_RATED_NEW then
+        return Roads.NOT_RATED_YET_SENTENCE
+    end
     if type(own) == "table" and own.group == Roads.GROUP_SET then
         if own.planPick then
             if own.kind == Roads.KIND_VAULT then

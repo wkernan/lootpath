@@ -354,3 +354,57 @@ test('renders the committed golden byte for byte', () => {
         'spec/fixtures/expected/qeverdict-sample.lua is out of date; re-run with UPDATE_GOLDEN=1 and check spec/companionfile_spec.lua still passes'
     );
 });
+
+// C-13 (WKE-584): how many vault items the profile this run was built from
+// carried. The addon cannot otherwise tell "QE Live rated this vault reward and
+// passed over it" from "QE Live was never shown a vault reward at all", and on
+// reset day before the player opens the Great Vault the second is the truth
+// (M3-16b, WKE-583). A number, because ZERO is the case that matters and a
+// field that is only written when it is interesting cannot say zero.
+test('writes the profile vault count, and writes a zero as a zero', () => {
+    const settings = { autoUpgradeVault: false, autoUpgradeAll: false };
+    const zero = render({
+        writtenAt: '2026-09-15T19:09:00Z',
+        companionVersion: '0.1.0',
+        qeSettings: settings,
+        profileVaultCount: 0,
+        documents: [topGear()],
+    });
+    assert.ok(zero.includes('    profileVaultCount = 0,'), zero.slice(0, 600));
+
+    const four = render({
+        writtenAt: '2026-09-15T19:09:00Z',
+        companionVersion: '0.1.0',
+        qeSettings: settings,
+        profileVaultCount: 4,
+        documents: [topGear()],
+    });
+    assert.ok(four.includes('    profileVaultCount = 4,'), four.slice(0, 600));
+
+    // Said nothing, so nothing is written: every file before C-13 is this, and
+    // the addon reads it as "the run did not say" rather than as zero.
+    const silent = render({
+        writtenAt: '2026-09-15T19:09:00Z',
+        companionVersion: '0.1.0',
+        qeSettings: settings,
+        documents: [topGear()],
+    });
+    assert.ok(!silent.includes('profileVaultCount'), silent.slice(0, 600));
+
+    // A count that is not a count is refused rather than written, the way every
+    // other number in this file is.
+    for (const bad of [-1, 1.5, '4', NaN]) {
+        assert.throws(
+            () =>
+                render({
+                    writtenAt: '2026-09-15T19:09:00Z',
+                    companionVersion: '0.1.0',
+                    qeSettings: settings,
+                    profileVaultCount: bad,
+                    documents: [topGear()],
+                }),
+            /profileVaultCount must be a whole count from 0/,
+            String(bad)
+        );
+    }
+});
