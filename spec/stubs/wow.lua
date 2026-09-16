@@ -250,7 +250,15 @@ local function attachTextureSurface(r)
     function r:GetAtlas()
         return self.atlas
     end
+    -- The client refuses tex coords on a masked texture - `Texture:SetTexCoord():
+    -- Cannot set tex coords when texture has mask.`, read off the owner's Lua
+    -- Error window on 2026-09-16 14:39:48 (M5-2a, WKE-593), where it stopped
+    -- the minimap button half built. The stub throws the same sentence, so a
+    -- test can catch the pairing before a screen does.
     function r:SetTexCoord(...)
+        if self.mask ~= nil then
+            error("Texture:SetTexCoord(): Cannot set tex coords when texture has mask.", 2)
+        end
         self.texCoord = { ... }
     end
     -- TextureBase:SetMask(file) (Core/Widget/Base/TextureBase.lua:142): the

@@ -1105,7 +1105,6 @@ UI.MINIMAP_DIAGONAL_INSET = 10
 -- PortraitFrameTemplate puts on its portrait.
 UI.MINIMAP_BORDER_TEXTURE = "Interface/Minimap/MiniMap-TrackingBorder"
 UI.MINIMAP_BACKGROUND_TEXTURE = "Interface/Minimap/UI-Minimap-Background"
-UI.CIRCLE_MASK_FILE = "Interface/CharacterFrame/TempPortraitAlphaMask"
 -- The two events that can answer the spec read after the button is built at
 -- ADDON_LOADED, registered on the BUTTON so the icon is right whether or not
 -- the window has ever been created. Which of the two first answers
@@ -1244,15 +1243,15 @@ function UI.MinimapButton()
     icon:SetSize(18, 18)
     icon:SetPoint("CENTER", button, "CENTER", 0, 0)
     button.icon = icon
-    -- And round, which LibDBIcon does not do: a spec icon is square art like
-    -- any other, and the ring is a circle. The mask file is the one
-    -- PortraitFrameTemplate puts on its own portrait
-    -- (Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.xml:564, read under
-    -- .luals/), so the button and the window's ring crop their icon the same
-    -- way.
-    if type(icon.SetMask) == "function" then
-        icon:SetMask(UI.CIRCLE_MASK_FILE)
-    end
+    -- NOT masked round. M5-2a first put PortraitFrameTemplate's circular mask on
+    -- this texture, and the client refused the trim below on the owner's screen
+    -- - `Texture:SetTexCoord(): Cannot set tex coords when texture has mask.`,
+    -- 2026-09-16 14:39:48 - which stopped this function half way, before the
+    -- border, the badge and the events. The trim is what LibDBIcon does and what
+    -- the neighbouring buttons look like; the trim also carries the class-circle
+    -- fallback's quarter-sheet coords, so it cannot be given up for a mask. A
+    -- round icon, if wanted, is a MaskTexture (`AddMaskTexture`) tried on a real
+    -- client first (ARCHITECTURE.md §11).
     -- The spec the verdict is for, the same fact the portrait ring carries;
     -- the class circle when the client names no spec, and the question mark
     -- only when it names neither.

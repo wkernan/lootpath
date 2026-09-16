@@ -2155,8 +2155,11 @@ describe("the launcher (M5-2)", function()
         assert.equal(18, icon.height)
         assert.equal("ARTWORK", icon.drawLayer)
         assert.same({ "CENTER", button, "CENTER", 0, 0 }, icon.points[1])
-        -- and round, by the mask PortraitFrameTemplate puts on its portrait
-        assert.equal("Interface/CharacterFrame/TempPortraitAlphaMask", icon:GetMask())
+        -- and NOT masked: the client refuses tex coords on a masked texture
+        -- (the owner's Lua Error window, 2026-09-16 14:39:48), and the trim
+        -- below is what the button needs. The stub enforces the same rule.
+        assert.is_nil(icon:GetMask())
+        assert.same({ 0.05, 0.95, 0.05, 0.95 }, icon.texCoord)
     end)
 
     it("trims the icon's own edge off, by five percent of whatever range it carries", function()
@@ -2197,7 +2200,7 @@ describe("the launcher (M5-2)", function()
         _G.CLASS_ICON_TCOORDS = saved
     end)
 
-    it("puts the class circle on the button, trimmed and masked, when there is no spec", function()
+    it("puts the class circle on the button, trimmed, when there is no spec", function()
         world.spec = nil
         assert.equal("class", ns.UI.ApplyMinimapIcon())
         local icon = ns.UI.minimapButton.icon
