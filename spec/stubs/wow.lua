@@ -1148,6 +1148,17 @@ function Stub.install()
         printed = {},
         frames = {},
         equipCalls = {},
+        -- The cursor, as much of it as equipping by bag and slot needs (E-1,
+        -- WKE-604). `world.heldItem` is what the cursor holds and is absent
+        -- while it holds nothing, which is how it starts - `world.cursor` is
+        -- already taken, by the mouse POSITION GetCursorPosition answers with.
+        -- The three counters below
+        -- record the calls in the order they were made, so a test can say what
+        -- was picked up, what it was equipped into, and that the cursor was
+        -- cleared.
+        pickupCalls = {},
+        equipCursorCalls = {},
+        clearCursorCalls = 0,
         secrets = setmetatable({}, { __mode = "k" }),
         -- C_Timer.After runs on a fake clock a test drives with runTimers.
         now = 0,
@@ -2025,7 +2036,38 @@ function Stub.install()
             local it = b and b.items and b.items[slot]
             return it and it.id or nil
         end,
+        -- Blizzard's exported C_Container.PickupContainerItem(containerIndex,
+        -- slotIndex) (ContainerDocumentation.lua:159-162): no return value, it
+        -- puts that slot's item on the cursor. Here it records the call and
+        -- picks up whatever the replayed bags hold in that slot - nothing, when
+        -- the slot is empty - so a test can tell a pickup of the right copy
+        -- from a pickup of nothing.
+        PickupContainerItem = function(bag, slot)
+            local b = world.bags[bag]
+            local it = b and b.items and b.items[slot]
+            world.pickupCalls[#world.pickupCalls + 1] = { bag, slot, it and it.link or nil }
+            world.heldItem = it and { bag = bag, slot = slot, link = it.link } or nil
+        end,
     })
+
+    -- The two cursor globals, from Blizzard's exported GameCursorDocumentation
+    -- (ClearCursor :2-3, EquipCursorItem(slot) :30-32). Neither returns
+    -- anything. EquipCursorItem records what the cursor held and the slot it
+    -- was sent to and empties the cursor; what the real client does when the
+    -- equip is refused is not modelled, because nothing here can know it.
+    define("ClearCursor", function()
+        world.clearCursorCalls = world.clearCursorCalls + 1
+        world.heldItem = nil
+    end)
+    define("EquipCursorItem", function(slot)
+        world.equipCursorCalls[#world.equipCursorCalls + 1] = {
+            slot = slot,
+            bag = world.heldItem and world.heldItem.bag or nil,
+            slotIndex = world.heldItem and world.heldItem.slot or nil,
+            link = world.heldItem and world.heldItem.link or nil,
+        }
+        world.heldItem = nil
+    end)
 
     -- `hooksecurefunc`, in both the shapes Blizzard's own FrameXML declares
     -- (Core/Global/FrameXMLUtil.lua): `hooksecurefunc(functionName, hook)` for
