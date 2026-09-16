@@ -1382,8 +1382,11 @@ end
 
 local function onEvent(frame, event)
     if event == "PLAYER_SPECIALIZATION_CHANGED" then
+        -- The ring only. The minimap button carries this same event itself
+        -- (M5-2a, WKE-593), because it has to answer it before this window has
+        -- ever been created; a second call from here would be a second path to
+        -- one fact, which is what M5-2a took out.
         UI.ApplyPortrait(frame)
-        UI.ApplyMinimapIcon()
     end
     if frame:IsShown() then
         UI.Refresh()
