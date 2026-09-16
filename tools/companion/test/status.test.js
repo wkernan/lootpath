@@ -107,8 +107,11 @@ test('it is data: one assignment of strings and numbers, no call and no loop', (
         finishedAt: '2026-09-13T22:49:00Z',
         stage: 'qe live',
         // Everything that could end a Lua literal early, because a failure
-        // message is whatever went wrong and nobody wrote it on purpose.
-        message: 'quote " backslash \\ close ]] newline \n return \r nul \0 os.execute("calc") --[[',
+        // message is whatever went wrong and nobody wrote it on purpose. It is
+        // all on the FIRST line since C-14 (WKE-603), because the first line is
+        // the only one the chunk carries now - and the escaper is still what
+        // has to survive it.
+        message: 'quote " backslash \\ close ]] nul \0 os.execute("calc") --[[\n return \r rest',
         exitCode: 4,
         at: new Date('2026-09-13T22:49:00Z'),
     });
@@ -126,7 +129,9 @@ test('it is data: one assignment of strings and numbers, no call and no loop', (
         assert.ok(ok, `unexpected line in a data-only chunk: ${line}`);
     }
     assert.ok(!text.includes('\n]]'), 'a "]]" in a message must not reach the chunk unescaped');
-    assert.match(text, /message = "quote \\" backslash \\\\ close \]\] newline \\n/);
+    assert.match(text, /message = "quote \\" backslash \\\\ close \]\] nul/);
+    // C-14 (WKE-603): the second line of a message never reaches the file.
+    assert.ok(!text.includes('rest'), 'only the first line of a message is written');
 });
 
 test('a state the addon does not know is refused rather than written', () => {

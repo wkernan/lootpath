@@ -93,6 +93,13 @@ Drift.LOAD_SKIPPED = "your gear hasn't changed since the last rating, so the pla
 -- message.
 Drift.LOAD_SKIPPED_EMPTY = "your gear didn't reach the companion - the last read of it was empty - so the "
     .. "plan you have is untouched. Try /lootpath refresh."
+-- C-14 (WKE-603): the third `skipped`, and the only one the player can cure in
+-- ten seconds. The gear was read and it was read correctly; one slot had
+-- nothing in it, and a character with a bare slot is not something the rating
+-- will take. Named by its own exit code (`ns.Companion.EXIT_EMPTY_SLOT`), never
+-- by reading the message.
+Drift.LOAD_SKIPPED_SLOT = "a gear slot was empty when your gear was read, so it couldn't be rated. "
+    .. "Put something in that slot and /lootpath refresh."
 -- R-7c (WKE-594): the sixth thing a load can say, and the only one of the six
 -- that is not about a refresh at all. A real logout never reads the gear - four
 -- measured, four empty (`ns.Companion.GearUnreadAtFlush`) - so R-7's "log out
@@ -109,6 +116,8 @@ Drift.LOAD_UNSEEN = "the companion hasn't been seen; is it running?"
 -- which plan that was, so a fresh import rebases instead of reading as drift.
 local state = {
     baseline = nil,
+    -- C-14 (WKE-603): the worn half of the same baseline, `{ [slot] = key }`.
+    baselineSlots = nil,
     stamp = nil,
     behind = nil,
     pending = false,
@@ -142,8 +151,30 @@ function Drift.KeySet(records)
     return set
 end
 
--- The key set as it is now, or nil when the client will not answer (combat).
-function Drift.Now()
+-- C-14 (WKE-603). What is WORN, slot by slot: `{ [inventory slot] = key }`.
+--
+-- The key set above deliberately cannot see a piece moving between the bags and
+-- the character, which is right for "is there anything here the rating has never
+-- seen" and wrong for "is the character still wearing what was rated". The
+-- owner took his legs off at 16:26 on 2026-09-16 and put them in a bag: not one
+-- key appeared or went, and the rating was about a character who had legs on.
+--
+-- Keyed by the client's own inventory slot number rather than by the QE Live
+-- slot name, because two rings and two trinkets share a name and do not share a
+-- slot.
+function Drift.SlotSet(records)
+    local set = {}
+    for _, record in ipairs(records or {}) do
+        if record.key and record.location == "equipped" and record.slotIndex then
+            set[record.slotIndex] = record.key
+        end
+    end
+    return set
+end
+
+-- One scan, read both ways: `{ keys, slots }`, or nil when the client will not
+-- answer (combat, or no scanner at all).
+function Drift.Read()
     if not (ns.Inventory and ns.Inventory.Scan) then
         return nil
     end
@@ -151,7 +182,36 @@ function Drift.Now()
     if not (scan and scan.ok) then
         return nil
     end
-    return Drift.KeySet(scan.records)
+    return { keys = Drift.KeySet(scan.records), slots = Drift.SlotSet(scan.records) }
+end
+
+-- The key set as it is now, or nil when the client will not answer (combat).
+function Drift.Now()
+    local read = Drift.Read()
+    return read and read.keys or nil
+end
+
+-- C-14 (WKE-603). **A read that is wearing nothing is not a baseline.**
+--
+-- The owner's nudge row said `54 items` on 2026-09-16, and 54 is every gear key
+-- he owned that minute - his whole equipped-and-bagged set, counted as if all of
+-- it had just arrived (reproduced over his own SavedVariables in
+-- `spec/drift_spec.lua`). That is what a comparison against an EMPTY baseline
+-- counts, and the baseline is empty when the scan that took it ran before the
+-- client would answer about gear - the same silence R-7b and R-7c measured at
+-- the other end of a session, where a flush reads `equipped 0`.
+--
+-- So a read with nothing worn in it is refused as a baseline, exactly as R-7b
+-- refuses to store one: `state.baseline` stays nil, the next check takes another
+-- one, and no count is ever reported against it.
+-- A read with no slot half at all - a bare key set, which is what every caller
+-- before C-14 handed over - is not refused: it simply cannot answer the
+-- question, and refusing it would be an answer.
+function Drift.IsReadable(read)
+    if type(read) ~= "table" or type(read.slots) ~= "table" then
+        return true
+    end
+    return next(read.slots) ~= nil
 end
 
 -- Which plan the baseline belongs to. The companion's own `writtenAt` when the
@@ -167,8 +227,22 @@ end
 
 -- Take the gear as it is now as the plan's own. Called at load, whenever a new
 -- plan arrives, and after a refresh has been asked for.
-function Drift.Rebase(keys)
-    state.baseline = keys or Drift.Now()
+--
+-- Takes a `Read` since C-14; a bare key set is still accepted, because that is
+-- what every caller before it handed over and a baseline with no slot half is
+-- simply one that cannot answer the slot question.
+function Drift.Rebase(read)
+    if read ~= nil and read.keys == nil and read.slots == nil then
+        read = { keys = read }
+    end
+    read = read or Drift.Read()
+    -- C-14: a read that is wearing nothing is not a baseline (see IsReadable).
+    -- Nothing is stored, so the next check takes another one.
+    if read ~= nil and not Drift.IsReadable(read) then
+        return nil
+    end
+    state.baseline = read and read.keys or nil
+    state.baselineSlots = read and read.slots or nil
     state.stamp = Drift.PlanStamp()
     state.behind = nil
     return state.baseline
@@ -205,6 +279,58 @@ function Drift.Compare(baseline, current)
     return { count = count, name = newest }
 end
 
+-- C-14 (WKE-603). How many WORN slots went bare, or stopped being bare, since
+-- the plan was written.
+--
+-- **A swap is still not drift**, which is R-6's own decision and its own guard:
+-- the rating is made over the pool of everything the player can put on, so a
+-- piece moving between the bags and the character does not change the answer.
+-- What R-6 could not see is a slot going EMPTY, and that one is not a swap - it
+-- is a character QE Live will not rate at all (C-14's own refusal, which is the
+-- other half of this issue). So only the two edges are counted, filled -> bare
+-- and bare -> filled, and nothing here counts an item `Compare` already counted:
+-- a key that stays in the player's possession is never a piece that appeared or
+-- went.
+function Drift.CompareSlots(baseline, current)
+    if type(baseline) ~= "table" or type(current) ~= "table" then
+        return 0
+    end
+    local count = 0
+    for slotIndex in pairs(current) do
+        if baseline[slotIndex] == nil then
+            count = count + 1
+        end
+    end
+    for slotIndex in pairs(baseline) do
+        if current[slotIndex] == nil then
+            count = count + 1
+        end
+    end
+    return count
+end
+
+-- What a player would count, in his own words (C-14, WKE-603). A slot is a slot
+-- and a loose piece is an item, and when both moved both are said: the nudge's
+-- job is to be recognisable as the thing that just happened.
+function Drift.CountText(behind)
+    if type(behind) ~= "table" then
+        return nil
+    end
+    local parts = {}
+    if (behind.slots or 0) > 0 then
+        parts[#parts + 1] = ns.UI.Plural(behind.slots, "slot")
+    end
+    if (behind.pieces or 0) > 0 then
+        parts[#parts + 1] = ns.UI.Plural(behind.pieces, "item")
+    end
+    -- Nothing to say about slots or pieces - a `SetBehind` from a widget test,
+    -- or a record from before C-14 - and the caller falls back to the count.
+    if #parts == 0 then
+        return nil
+    end
+    return table.concat(parts, " and ")
+end
+
 -- Rescan and re-answer. Returns what `Behind` will now say. Silent in combat:
 -- the previous answer stands, which is the last thing that was true, and
 -- `PLAYER_REGEN_ENABLED` runs the check that was refused.
@@ -214,15 +340,29 @@ function Drift.Check()
         return state.behind
     end
     local stamp = Drift.PlanStamp()
-    local current = Drift.Now()
+    local current = Drift.Read()
     if current == nil then
+        return state.behind
+    end
+    -- C-14 (WKE-603): a scan that found nothing worn is the client not
+    -- answering, not the player standing there naked. It is neither compared
+    -- against nor taken as a baseline; the last thing that was true stands.
+    if not Drift.IsReadable(current) then
         return state.behind
     end
     if state.baseline == nil or stamp ~= state.stamp then
         Drift.Rebase(current)
         return nil
     end
-    state.behind = Drift.Compare(state.baseline, current)
+    local behind = Drift.Compare(state.baseline, current.keys)
+    local slots = Drift.CompareSlots(state.baselineSlots or {}, current.slots)
+    if behind or slots > 0 then
+        behind = behind or { count = 0 }
+        behind.pieces = behind.count
+        behind.slots = slots
+        behind.count = behind.pieces + slots
+    end
+    state.behind = behind
     if ns.UI and ns.UI.RefreshStrip then
         ns.UI.RefreshStrip()
     end
@@ -247,6 +387,7 @@ end
 
 function Drift.Reset()
     state.baseline = nil
+    state.baselineSlots = nil
     state.stamp = nil
     state.behind = nil
     state.pending = false
@@ -486,7 +627,10 @@ function Drift.Model(now)
     end
     return {
         kind = "behind",
-        text = string.format(Drift.NUDGE_LINE, ns.UI.Plural(behind.count, "item")),
+        -- C-14 (WKE-603): slots and items, not one number over both. `54 items`
+        -- on the owner's screen was his whole inventory counted against an
+        -- empty baseline; a player counts what he did - one slot, two pieces.
+        text = string.format(Drift.NUDGE_LINE, Drift.CountText(behind) or ns.UI.Plural(behind.count, "item")),
         tooltip = behind.name and string.format(Drift.NUDGE_TOOLTIP, behind.name) or Drift.NUDGE_TOOLTIP_UNNAMED,
     }
 end
@@ -577,6 +721,8 @@ function Drift.LoadLine(now)
     elseif decision == "skipped" then
         if status and status.exitCode == ns.Companion.EXIT_EMPTY_GEAR then
             line = Drift.LOAD_SKIPPED_EMPTY
+        elseif status and status.exitCode == ns.Companion.EXIT_EMPTY_SLOT then
+            line = Drift.LOAD_SKIPPED_SLOT
         else
             line = Drift.LOAD_SKIPPED
         end

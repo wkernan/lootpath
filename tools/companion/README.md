@@ -77,6 +77,17 @@ browser is opened, with exit code 8 and a `skipped` status - the previous
 verdict is untouched, and one `/reload` or `/lootpath refresh` in game is what
 heals it.
 
+C-14 (WKE-603) adds the sibling refusal. A profile that carries gear but wears
+nothing in a slot QE Live insists on is refused the same way, with exit code 9
+and a `skipped` status: QE Live disables its own `Go!` button while any of
+Head, Neck, Shoulder, Back, Chest, Wrist, Hands, Waist, Legs or Feet has nothing
+selected, or fewer than two rings or two trinkets (`checkSlots`,
+`src/General/Modules/TopGear/TopGear.tsx:307`, which the button's `disabled`
+calls at `:852`). Weapons are left to the button itself, because a SimC profile
+cannot say whether a main hand is a two-hander. The driver reads that button's
+state before it clicks it, so a rule this refusal did not know still costs one
+sentence rather than a twenty-second Playwright timeout.
+
 The second line is read off the addon's own label, not guessed at: every
 snapshot records how it was TAKEN (`trigger = "refresh"`, `"flush"` or
 `"command"`; `"logout"` from an addon at exactly R-7, which reads the same) and
@@ -279,6 +290,7 @@ hand.
 | 6 | the write failed; the previous verdict file is untouched |
 | 7 | `--watch` only: another companion is already watching (it names the pid) |
 | 8 | the profile carries no equipped gear, so QE Live was never asked and the previous verdict is untouched (R-7b) |
+| 9 | the profile has an empty slot QE Live insists on, so its Go! button would be disabled and the run could never finish; the message names the slot and the previous verdict is untouched (C-14) |
 
 ## Configuration
 

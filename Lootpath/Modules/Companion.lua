@@ -861,6 +861,14 @@ Companion.STATUS_LOG_HINT = " - see companion.log"
 Companion.EXIT_EMPTY_GEAR = 8
 Companion.STATUS_EMPTY_GEAR = "companion: no gear to rate, no run"
 
+-- C-14 (WKE-603). The THIRD `skipped`, and the only one of the three with a
+-- cure the player can carry out in ten seconds: the gear WAS read, but a slot
+-- QE Live insists on had nothing in it when it was, and QE Live will not rate
+-- that character at all. Told apart by its own exit code for the same reason
+-- the one above it is.
+Companion.EXIT_EMPTY_SLOT = 9
+Companion.STATUS_EMPTY_SLOT = "companion: a gear slot was empty, no run"
+
 -- Status(raw) -> { absent = true } for the committed placeholder, which is not
 -- an error; { ok = false, reason } for a file that is there but says nothing
 -- this can read; or the whole record.
@@ -965,6 +973,9 @@ function Companion.StatusText(raw, now)
         if status.exitCode == Companion.EXIT_EMPTY_GEAR then
             return withClock(Companion.STATUS_EMPTY_GEAR, status.finishedAt, now) .. Companion.STATUS_LOG_HINT
         end
+        if status.exitCode == Companion.EXIT_EMPTY_SLOT then
+            return withClock(Companion.STATUS_EMPTY_SLOT, status.finishedAt, now) .. Companion.STATUS_LOG_HINT
+        end
         return withClock("companion: profile unchanged, no run", status.finishedAt, now)
     end
     if status.state == "failed" then
@@ -980,9 +991,36 @@ function Companion.StatusText(raw, now)
     return withClock("companion: idle", status.finishedAt, now)
 end
 
+-- C-14 (WKE-603). **One line, whatever the file holds.**
+--
+-- The companion caps its own `message` at one clean sentence now
+-- (`tools/companion/lib/status.js`), but a status file written before that -
+-- and the owner has one on disk from 2026-09-16 16:28 - can carry Playwright's
+-- entire error, call log, retry lines and the ANSI colour codes the game's font
+-- draws as little boxes. This is the belt beside those braces: the first line,
+-- with the escape sequences taken out and a length the strip can hold.
+--
+-- `\27` is the escape byte; the sequence is `ESC [ <digits and semicolons> m`,
+-- which is every colour code Playwright emits.
+Companion.TOOLTIP_MAX = 200
+
+function Companion.OneLine(message)
+    if type(message) ~= "string" then
+        return message
+    end
+    local clean = message:gsub("\27%[[%d;]*m", "")
+    local first = clean:match("^[^\r\n]*") or clean
+    first = first:match("^%s*(.-)%s*$")
+    if #first > Companion.TOOLTIP_MAX then
+        return first:sub(1, Companion.TOOLTIP_MAX - 3) .. "..."
+    end
+    return first
+end
+
 -- The longer sentence for the strip's tooltip, or nil when the file says
 -- nothing the clause did not. The message is the companion's own words for what
--- happened, carried like every other string it writes.
+-- happened, carried like every other string it writes - through `OneLine`,
+-- because a tooltip is one line and an older file cannot be trusted to agree.
 function Companion.StatusTooltip(raw, now)
     local status = Companion.Status(raw)
     if status.absent then
@@ -995,7 +1033,7 @@ function Companion.StatusTooltip(raw, now)
         return nil
     end
     local when = status.finishedAt or status.startedAt
-    return withClock(string.format("The companion's last run: %s", status.message), when, now)
+    return withClock(string.format("The companion's last run: %s", Companion.OneLine(status.message)), when, now)
 end
 
 -- ---------------------------------------------------------------------------

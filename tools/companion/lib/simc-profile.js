@@ -355,7 +355,12 @@ function isBankBag(bag) {
   return /bank/i.test(String(bag.name || ""));
 }
 
-function equippedLines(inventorySnapshot, missing) {
+// C-14 (WKE-603): `slots`, when one is handed in, collects the SimC slot name
+// of every equipped row that reached the profile - `finger1`/`finger2` and
+// `trinket1`/`trinket2` included, so two rings count as two. The empty-slot
+// refusal is built on this and on nothing else: what the companion refuses and
+// what it would have sent are then one reading of one snapshot.
+function equippedLines(inventorySnapshot, missing, slots) {
   const rows = [];
   for (const record of luaArray(inventorySnapshot.data.equipped)) {
     if (!record) continue; // a `nil,` gap in the serialised list (see bagRows)
@@ -377,6 +382,9 @@ function equippedLines(inventorySnapshot, missing) {
   }
   // The addon emits equipped gear in slot-number order, not inventory-slot order.
   rows.sort((a, b) => a.simcSlotNum - b.simcSlotNum);
+  if (slots) {
+    for (const row of rows) slots.push(SIMC_SLOT_NAMES[row.simcSlotNum]);
+  }
   const lines = [];
   for (const row of rows) {
     if (row.comment) lines.push(`# ${row.comment}`);
@@ -487,6 +495,7 @@ function buildProfile(transcript, options = {}) {
   if (!inventory) throw new Error("this transcript has no `inventory` capture - run /lootpath capture inventory, then /reload");
   const includeBank = options.includeBank !== false;
   const missing = [];
+  const equippedSlots = [];
 
   const playerName = (env && probe(env.data.player)) || "Unknown";
   const classToken = tokenize((env && probe(env.data.class, 2)) || "");
@@ -527,7 +536,7 @@ function buildProfile(transcript, options = {}) {
   lines.push(`spec=${tokenize(specName)}`);
   lines.push("");
 
-  lines.push(...equippedLines(inventory, missing));
+  lines.push(...equippedLines(inventory, missing, equippedSlots));
 
   const bags = bagRows(inventory, includeBank, missing);
   if (bags.length > 0) {
@@ -576,6 +585,9 @@ function buildProfile(transcript, options = {}) {
   return {
     text,
     missing,
+    // C-14 (WKE-603): the SimC slot names this profile actually wears
+    // something in. `counts.equipped` says how many; this says which.
+    equippedSlots,
     counts: {
       equipped: luaArray(inventory.data.equipped).length,
       bag: bags.filter((row) => !row.fromBank).length,

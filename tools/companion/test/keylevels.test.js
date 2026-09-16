@@ -226,6 +226,10 @@ function fakeUpgradeFinderPage(exportedIndex, options) {
         if (role === 'button' && options2.name === 'Go!') {
             return {
                 first: () => ({ async click() {} }),
+                // C-14 (WKE-603): read before it is clicked.
+                async isEnabled() {
+                    return page.goEnabled !== false;
+                },
                 async click() {
                     const index = page.selected;
                     page.exported = JSON.stringify({

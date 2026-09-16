@@ -9,6 +9,23 @@ with every loop rather than by request.
 
 ## Committed
 
+- Lootpath-20260916-162655.lua - WKE-603 C-14 (this PR). Raw pull, copied out of
+  the owner's game folder unchanged at 17:10 on 2026-09-16; the file's own last
+  write is 16:26:55, his real logout that evening. Restoration (105), client
+  12.1.0. Its `inventory` list is four reads - 15:10:29, 15:24:28 and 15:29:53,
+  all `equipped 15`, and **16:26:34, the reload flush, `equipped 14`: inventory
+  slot 7, legs, absent**, with 41 gear records in the bags instead of 40 (the
+  piece came off and went into a bag). That fourth read is the newest stored one
+  and the one the companion rated at 21:26:35Z and 21:27:30Z, both runs dying at
+  a disabled QE Live `Go!` button; built through `tools/companion/lib/profile.js`
+  it reproduces his own log line exactly - `14 equipped, 41 in bags, 0 in the
+  bank, 0 vault, 167 lines`. Measured here on 2026-09-16: the 15:29:53 and
+  16:26:34 reads carry the SAME 54 distinct gear keys (equipped and bags, never
+  the bank) - 0 appeared, 0 went - and differ by exactly one worn slot, which is
+  why the nudge row's `54 items` was every key on the character rather than what
+  had been done. No `vault` snapshot this reward period carries a reward link.
+  No secrets seen.
+
 - Lootpath-20260905-133449.lua - WKE-515 (PR #3). Client 12.1.0 build 69587, hotornot on Arthas in Guardian spec (104). Snapshots: inventory x2 (bank open, then closed), vault x2 (before, then after opening the window; no progress that week), env x1. No secrets seen.
 - Lootpath-20260906-161213.lua - WKE-523 first visit (this PR). Same client
   build, hotornot on Arthas in **Restoration spec (105)**. Carries the five

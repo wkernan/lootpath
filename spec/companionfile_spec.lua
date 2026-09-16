@@ -297,8 +297,13 @@ describe("the companion's Data/CompanionStatus.lua", function()
 
     it("carries a hostile message back as the bytes the companion wrote", function()
         -- A failure message is whatever went wrong; nobody wrote it to be safe.
+        -- Since C-14 (WKE-603) the companion writes the FIRST LINE of it, with
+        -- ANSI escapes stripped and a length cap - the record the golden is
+        -- rendered from ends in a newline and the file does not - because
+        -- Playwright's whole error, call log and colour codes included, was
+        -- going onto the status strip's tooltip.
         assert.are.equal(
-            'the "Dungeon" run: 8 documents \\ one backslash ]] and a newline\n',
+            'the "Dungeon" run: 8 documents \\ one backslash ]] and a newline',
             load().companionStatus.message
         )
     end)
