@@ -536,6 +536,32 @@ describe("ns.Drift.LoadLine, the five things the load after a refresh can say", 
         assert.is_nil(ns.db.global.drift.refreshStartedAt)
     end)
 
+    -- C-14 (WKE-603). The THIRD `skipped`, and the one with a cure the player
+    -- can carry out in ten seconds: the gear was read and read correctly, and a
+    -- slot in it was bare. Chosen by its own exit code, never by the message.
+    -- Proven red by dropping the `EXIT_EMPTY_SLOT` branch from `LoadLine`: the
+    -- load says "your gear hasn't changed since the last rating" about a run
+    -- that was refused before the browser was opened.
+    it("says a slot was empty when that is why it skipped", function()
+        ns.companionStatus = {
+            state = "skipped",
+            startedAt = "2026-09-14T23:10:05Z",
+            finishedAt = "2026-09-14T23:10:06Z",
+            exitCode = ns.Companion.EXIT_EMPTY_SLOT,
+            message = "refusing to rate a profile with an empty slot (legs); the previous verdict is untouched",
+        }
+        local line = ns.Drift.LoadLine(at(NOW))
+        assert.equal(
+            "a gear slot was empty when your gear was read, so it couldn't be rated. "
+                .. "Put something in that slot and /lootpath refresh.",
+            line
+        )
+        assert.not_equal(ns.Drift.LOAD_SKIPPED, line)
+        assert.not_equal(ns.Drift.LOAD_SKIPPED_EMPTY, line)
+        said(line)
+        assert.is_nil(ns.db.global.drift.refreshStartedAt)
+    end)
+
     it("names the stage when C-9 says the run died", function()
         ns.companionStatus = {
             state = "failed",
