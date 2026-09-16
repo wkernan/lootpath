@@ -274,7 +274,15 @@ describe("ns.Drift, the wait after the first reload", function()
         return ns.EpochFromISO(iso)
     end
 
+    -- A wait stands only where a companion has been SEEN (R-6a, WKE-590): with
+    -- no status file at all the load line answers `the companion hasn't been
+    -- seen` and the strip stops counting, so the default here is the state the
+    -- owner's machine is actually in - a companion that has run before and has
+    -- been idle since. A test that wants another state sets it first; this
+    -- never overwrites one.
     local function waiting(startedAt)
+        ns.companionStatus = ns.companionStatus
+            or { state = "idle", startedAt = "2026-09-14T22:48:00Z", finishedAt = "2026-09-14T22:48:41Z" }
         ns.db.global.drift.refreshStartedAt = startedAt or STARTED
     end
 
@@ -359,13 +367,10 @@ describe("ns.Drift, the wait after the first reload", function()
             assert.is_nil(ns.Drift.RecordRun())
             assert.is_nil(ns.db.global.drift.runSeconds)
         end
-        -- ending on the skipped one, because C-9's FAILED takes the strip back
-        -- from the wait entirely and this is about the measurement
-        ns.companionStatus = {
-            state = "skipped",
-            startedAt = "2026-09-14T22:48:00Z",
-            finishedAt = "2026-09-14T22:48:02Z",
-        }
+        -- ending on a run that is genuinely going, because since R-6a both a
+        -- FAILED run and a SKIPPED one take the strip back from the wait
+        -- entirely and this is about the measurement, not the decision.
+        ns.companionStatus = { state = "running", startedAt = "2026-09-14T23:10:05Z" }
         waiting()
         assert.is_truthy(ns.Drift.Model(at("2026-09-14T23:10:30Z")).text:find("usually about a minute", 1, true))
     end)
@@ -417,16 +422,18 @@ describe("ns.Drift, the wait after the first reload", function()
     -- produced. The owner on 2026-09-15: "after I do a refresh and the screen
     -- loads and I'm back in game, I'm assuming the refresh is done." The chat
     -- frame is where he is looking at that moment, so the wait says itself
-    -- there once. Proven red by returning nil from `Drift.AnnounceWait` before
-    -- it prints: nothing is said at the load that is waiting.
+    -- there once. Proven red by returning nil from `Drift.LoadLine` before it
+    -- prints: nothing is said at the load that is waiting.
     it("says in chat, once, at the load that is still waiting", function()
         waiting()
-        local line = ns.Drift.AnnounceWait(at("2026-09-14T23:10:30Z"))
+        local line = ns.Drift.LoadLine(at("2026-09-14T23:10:30Z"))
         assert.equal(
             "your gear is sent; the rating usually takes about a minute. The window says when it's ready.",
             line
         )
         assert.is_truthy(tostring(world.output()):find(line, 1, true))
+        -- and the stamp SURVIVES this one, because the strip counts from it
+        assert.equal(STARTED, ns.db.global.drift.refreshStartedAt)
     end)
 
     -- And it quotes the same measured run the strip does, in the phrasing that
@@ -436,18 +443,173 @@ describe("ns.Drift, the wait after the first reload", function()
         waiting()
         assert.equal(
             "your gear is sent; the rating usually takes about 3 minutes. The window says when it's ready.",
-            ns.Drift.AnnounceWait(at("2026-09-14T23:10:30Z"))
+            ns.Drift.LoadLine(at("2026-09-14T23:10:30Z"))
         )
         assert.equal("3 minutes", ns.Drift.RunText(175))
         assert.is_nil(ns.Drift.RunText(nil))
     end)
 
     -- A load with no refresh out there says nothing at all: the line exists to
-    -- answer "is it still happening", and there is nothing to answer.
+    -- answer a question the player asked, and he asked nothing.
     it("says nothing at a load that is not waiting", function()
         local before = tostring(world.output())
-        assert.is_nil(ns.Drift.AnnounceWait(at("2026-09-14T23:10:30Z")))
+        assert.is_nil(ns.Drift.LoadLine(at("2026-09-14T23:10:30Z")))
         assert.equal(before, tostring(world.output()))
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- R-6a (WKE-590): the load after a refresh always says something.
+--
+-- The owner's screen, 2026-09-15 17:22 local: he reloaded, ran
+-- `/lootpath refresh`, landed back in game, and saw NO chat line. C-4's
+-- fingerprint had skipped the run in under a second, the status file said
+-- `skipped` before the reload had finished, and M3-16b's line - which fired
+-- only while the wait was on - correctly had nothing to wait for and said
+-- nothing. Correct, and silent at exactly the moment the player asked for
+-- feedback.
+--
+-- Proven red by deleting every branch but the wait's from `Drift.LoadLine`:
+-- four of the five states below then say nothing, and the strip keeps counting
+-- through a run that has already ended.
+describe("ns.Drift.LoadLine, the five things the load after a refresh can say", function()
+    local ns, world
+    local STARTED = "2026-09-14T23:10:00Z"
+    local NOW = "2026-09-14T23:10:30Z"
+
+    before_each(function()
+        ns, world = loadToday()
+        ns.db.global.drift.refreshStartedAt = STARTED
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function at(iso)
+        return ns.EpochFromISO(iso)
+    end
+
+    -- Said in chat, and said with the addon's own prefix - it is the addon
+    -- speaking, not a raw string appearing.
+    local function said(line)
+        assert.is_truthy(tostring(world.output()):find(ns.PREFIX .. line, 1, true))
+    end
+
+    it("says the plan is current when C-4 skipped the run as unchanged", function()
+        ns.companionStatus = {
+            state = "skipped",
+            startedAt = "2026-09-14T23:10:05Z",
+            finishedAt = "2026-09-14T23:10:06Z",
+            message = "profile unchanged since 2026-09-14T23:09:00Z; the rating is current",
+        }
+        local line = ns.Drift.LoadLine(at(NOW))
+        assert.equal("your gear hasn't changed since the last rating, so the plan you have is current.", line)
+        said(line)
+        -- and the strip agrees: it stops counting a run that has already ended
+        assert.is_nil(ns.Drift.Model(at(NOW)))
+        assert.is_nil(ns.db.global.drift.refreshStartedAt)
+    end)
+
+    it("names the stage when C-9 says the run died", function()
+        ns.companionStatus = {
+            state = "failed",
+            stage = "qe live",
+            startedAt = "2026-09-14T23:10:05Z",
+            finishedAt = "2026-09-14T23:10:20Z",
+        }
+        local line = ns.Drift.LoadLine(at(NOW))
+        assert.equal("the rating failed at qe live; see companion.log.", line)
+        said(line)
+        assert.is_nil(ns.Drift.Model(at(NOW)))
+        assert.is_nil(ns.db.global.drift.refreshStartedAt)
+    end)
+
+    -- A failure C-9 could not place still reads as a sentence.
+    it("says it failed even with no stage", function()
+        ns.companionStatus = { state = "failed", finishedAt = "2026-09-14T23:10:20Z" }
+        assert.equal("the rating failed; see companion.log.", ns.Drift.LoadLine(at(NOW)))
+    end)
+
+    it("says the rating is coming while it is genuinely running", function()
+        ns.companionStatus = { state = "running", startedAt = "2026-09-14T23:10:05Z" }
+        local line = ns.Drift.LoadLine(at(NOW))
+        assert.equal(
+            "your gear is sent; the rating usually takes about a minute. The window says when it's ready.",
+            line
+        )
+        said(line)
+        -- the wait keeps its stamp: this is the one state the strip counts on
+        assert.equal("wait", ns.Drift.Model(at(NOW)).kind)
+        assert.equal(STARTED, ns.db.global.drift.refreshStartedAt)
+    end)
+
+    -- The 18:21 run nearly did this: the companion finished while the client
+    -- was still loading, so the plan the load carries is already the new one.
+    it("says it was rated just now when the run beat the reload", function()
+        ns.companionStatus = {
+            state = "idle",
+            startedAt = "2026-09-14T23:10:02Z",
+            finishedAt = "2026-09-14T23:10:12Z",
+            verdictWrittenAt = "2026-09-14T23:10:12Z",
+        }
+        ns.db.char.qeImports = {
+            Dungeon = {
+                spec = "Restoration Druid",
+                exportedAt = "2026-09-14T23:10:10Z",
+                companionWrittenAt = "2026-09-14T23:10:12Z",
+                items = {},
+                scenario = ns.QEImport.DEFAULT_SCENARIO,
+            },
+        }
+        local line = ns.Drift.LoadLine(at(NOW))
+        assert.equal("rated just now; the plan is current.", line)
+        said(line)
+        assert.is_nil(ns.Drift.Model(at(NOW)))
+        assert.is_nil(ns.db.global.drift.refreshStartedAt)
+    end)
+
+    it("asks whether the companion is running when it has never written a status file", function()
+        assert.is_nil(ns.companionStatus)
+        local line = ns.Drift.LoadLine(at(NOW))
+        assert.equal("the companion hasn't been seen; is it running?", line)
+        said(line)
+        assert.is_nil(ns.Drift.Model(at(NOW)))
+        assert.is_nil(ns.db.global.drift.refreshStartedAt)
+    end)
+
+    -- Said once. The stamp goes with the line in the four states that end the
+    -- refresh, so the next plain `/reload` is silent.
+    it("says a terminal line once and then nothing", function()
+        ns.companionStatus = { state = "skipped", finishedAt = "2026-09-14T23:10:06Z" }
+        assert.is_string(ns.Drift.LoadLine(at(NOW)))
+        local before = tostring(world.output())
+        assert.is_nil(ns.Drift.LoadLine(at(NOW)))
+        assert.equal(before, tostring(world.output()))
+    end)
+
+    -- The chat frame and the strip read ONE decision, which is the whole point
+    -- of `Drift.Decide` existing: whichever of them looks first, the other
+    -- cannot contradict it.
+    it("gives the strip and the chat line one answer per state", function()
+        local cases = {
+            { status = { state = "skipped", finishedAt = "2026-09-14T23:10:06Z" }, waits = false },
+            { status = { state = "failed", stage = "profile", finishedAt = "2026-09-14T23:10:06Z" }, waits = false },
+            { status = { state = "running", startedAt = "2026-09-14T23:10:05Z" }, waits = true },
+            { status = { state = "idle", finishedAt = "2026-09-14T22:48:41Z" }, waits = true },
+        }
+        for _, case in ipairs(cases) do
+            ns.db.global.drift.refreshStartedAt = STARTED
+            ns.companionStatus = case.status
+            local decision = ns.Drift.Decide(at(NOW))
+            assert.equal(case.waits, decision == "waiting")
+            -- the strip first, the chat line second: the stamp the strip clears
+            -- must not take the line with it
+            local model = ns.Drift.Model(at(NOW))
+            assert.equal(case.waits, model ~= nil and model.kind == "wait")
+            ns.db.global.drift.refreshStartedAt = STARTED
+            assert.is_string(ns.Drift.LoadLine(at(NOW)))
+        end
     end)
 end)
 
@@ -477,6 +639,9 @@ describe("ns.Drift.Click", function()
 
     it("is a plain reload while the rating is being made, and captures nothing", function()
         ns.db.global.captures = {}
+        -- A wait stands only where a companion has been seen (R-6a): this is
+        -- the previous run the owner's own machine carries.
+        ns.companionStatus = { state = "idle", startedAt = "2026-09-14T22:48:00Z", finishedAt = "2026-09-14T22:48:41Z" }
         ns.db.global.drift.refreshStartedAt = "2026-09-14T23:10:00Z"
         assert.equal("reloaded", ns.Drift.Click(ns.EpochFromISO("2026-09-14T23:10:30Z")))
         assert.equal(1, world.reloads)

@@ -76,6 +76,20 @@ Drift.WAIT_CHAT_LINE = "your gear is sent; the rating %s. The window says when i
 Drift.WAIT_CHAT_DEFAULT = "usually takes about a minute"
 Drift.WAIT_CHAT_MEASURED = "usually takes about %s"
 
+-- R-6a (WKE-590): the other four things that load can be, because M3-16b's line
+-- was the only one and so a refresh that had nothing to do arrived in silence.
+-- The owner on 2026-09-15 reloaded, ran `/lootpath refresh`, landed back in
+-- game and saw no chat line at all: C-4's fingerprint had skipped the run in
+-- under a second, the wait had nothing to wait for, and the addon said nothing
+-- at exactly the moment he had asked it a question. **The first load after a
+-- refresh always says one line**, and which line it is is `Drift.Decide`'s
+-- single answer, which the strip reads through `Drift.Waiting` as well - so the
+-- chat frame and the strip cannot say two different things about one run.
+Drift.LOAD_SKIPPED = "your gear hasn't changed since the last rating, so the plan you have is current."
+Drift.LOAD_DONE = "rated just now; the plan is current."
+Drift.LOAD_FAILED = "the rating failed%s; see companion.log."
+Drift.LOAD_UNSEEN = "the companion hasn't been seen; is it running?"
+
 -- Session state. `baseline` is the key set the plan was written over; `stamp` is
 -- which plan that was, so a fresh import rebases instead of reading as drift.
 local state = {
@@ -327,13 +341,30 @@ local function clearWait(db)
     return nil
 end
 
--- Is a refresh still out there? Returns the ISO stamp the elapsed time counts
--- from, or nil.
+-- The ONE decision about the refresh that is out there, which both the chat
+-- line (`Drift.LoadLine`) and the strip (`Drift.Waiting`, through
+-- `Drift.Model`) read. R-6a (WKE-590): before it there were two readings of the
+-- status file - the strip's C-9 clause and the wait's - and a run C-4 skipped
+-- fell between them, so the strip said `profile unchanged, no run` while the
+-- chat frame said nothing at all.
 --
--- Three things end the wait: a plan written since the refresh started (the
--- point of the whole thing), a run C-9 says FAILED (its own message is the
--- truer one and wins), and `Drift.WAIT_GIVE_UP_SECONDS` of nothing at all.
-function Drift.Waiting(now)
+-- Returns `state, status, since`:
+--
+--   nil        no refresh out there, or one older than `WAIT_GIVE_UP_SECONDS`
+--   "done"     a plan written since the refresh started - the point of it all
+--   "failed"   C-9 says the run died; its own message is the truer one and wins
+--   "skipped"  C-4's fingerprint matched, so there was nothing to rate
+--   "unseen"   no status file at all: nothing has ever run
+--   "waiting"  the rating is being made; `since` is the clock to count from
+--
+-- Every state but "waiting" ENDS the wait, which is what keeps the two surfaces
+-- together: the strip stops saying `rating your gear` in exactly the cases the
+-- chat line answers with something else.
+--
+-- No side effects: the caller clears. `Drift.LoadLine` runs before anything can
+-- have cleared the stamp out from under it (see `ns.onReady` at the foot of
+-- this file), and the strip clears from then on.
+function Drift.Decide(now)
     local db = store()
     local startedAt = db and db.refreshStartedAt
     if type(startedAt) ~= "string" then
@@ -342,24 +373,42 @@ function Drift.Waiting(now)
     now = now or time()
     local startedEpoch = ns.EpochFromISO(startedAt, now)
     if not startedEpoch or (now - startedEpoch) > Drift.WAIT_GIVE_UP_SECONDS then
-        return clearWait(db)
+        return nil
     end
     local stamp = Drift.PlanStamp()
     local writtenEpoch = stamp and ns.EpochFromISO(stamp, now) or nil
     if writtenEpoch and writtenEpoch >= startedEpoch then
-        return clearWait(db)
+        return "done"
     end
     local status = ns.Companion.Status(ns.companionStatus)
+    if status.absent then
+        return "unseen", status
+    end
     if status.ok and status.state == "failed" then
-        return clearWait(db)
+        return "failed", status
+    end
+    if status.ok and status.state == "skipped" then
+        return "skipped", status
     end
     -- While a run is genuinely going, the elapsed time is ITS clock rather than
     -- the click's: a player who reloaded too early wants to know how long the
     -- rating has been running, not how long ago he asked.
     if status.ok and status.state == "running" and status.startedAt then
-        return status.startedAt
+        return "waiting", status, status.startedAt
     end
-    return startedAt
+    -- Everything left - a status file that is there but says nothing this can
+    -- read, and an `idle` run older than the click - is a rating still to come.
+    return "waiting", status, startedAt
+end
+
+-- Is a refresh still out there? Returns the ISO stamp the elapsed time counts
+-- from, or nil, and ends the wait on every decision that is not "waiting".
+function Drift.Waiting(now)
+    local decision, _, since = Drift.Decide(now)
+    if decision == "waiting" then
+        return since
+    end
+    return clearWait(store())
 end
 
 -- ---------------------------------------------------------------------------
@@ -459,17 +508,42 @@ function Drift.Listen()
     return frame
 end
 
--- The chat line, once per load, and only when a refresh is still out there
--- (M3-16b). `Drift.Waiting` is the whole test: it is already true exactly
--- between the refresh's reload and the plan the companion writes, and it
--- clears itself on a failed run and on the give-up bound, so a load that has
--- nothing to wait for says nothing. Returns the line it printed, or nil.
-function Drift.AnnounceWait(now)
-    if not Drift.Waiting(now) then
+-- The chat line at the first load after a refresh (M3-16b, widened by R-6a).
+-- **It always says something**, because the load is the moment the player is
+-- looking at the chat frame and he has just asked a question: `Drift.Decide`
+-- answers it in one sentence whichever of the five the load turns out to be.
+-- A load with no refresh out there - a plain `/reload`, an ordinary login -
+-- says nothing at all, because nothing was asked.
+--
+-- Returns the line it printed, or nil.
+function Drift.LoadLine(now)
+    local decision, status = Drift.Decide(now)
+    if not decision then
+        clearWait(store())
         return nil
     end
-    local db = store()
-    local line = string.format(Drift.WAIT_CHAT_LINE, Drift.ChatReadyText(db and db.runSeconds))
+    local line
+    if decision == "waiting" then
+        local db = store()
+        line = string.format(Drift.WAIT_CHAT_LINE, Drift.ChatReadyText(db and db.runSeconds))
+    elseif decision == "skipped" then
+        line = Drift.LOAD_SKIPPED
+    elseif decision == "done" then
+        line = Drift.LOAD_DONE
+    elseif decision == "unseen" then
+        line = Drift.LOAD_UNSEEN
+    else
+        -- failed. The stage is C-9's own word for where it died, and the clause
+        -- is the strip's own, in chat as well - the two surfaces name one place.
+        local where = (status and status.stage) and (" at " .. status.stage) or ""
+        line = string.format(Drift.LOAD_FAILED, where)
+    end
+    -- Said, so a plain `/reload` later says nothing. The wait is the one state
+    -- that keeps the stamp: the strip counts from it until the plan arrives,
+    -- and a second reload while the rating is still going is still waiting.
+    if decision ~= "waiting" then
+        clearWait(store())
+    end
     ns.Log("%s", line)
     return line
 end
@@ -480,10 +554,13 @@ ns.onReady[#ns.onReady + 1] = function()
     -- was just loaded, and the run's own measurement read out of the status file
     -- while it still carries a finished run.
     Drift.RecordRun()
+    -- After `Drift.RecordRun`, which is what the wait line's figure comes from,
+    -- and BEFORE anything else can read the decision: `Drift.Waiting` clears
+    -- the stamp on every state but the wait, so whichever surface looks first
+    -- is the one that gets to speak. At this point in the load nothing has -
+    -- the only `ns.onReady` ahead of this file's is `Companion.Startup`, and
+    -- the window does not exist yet (`ns.UI.Frame` builds it on first open).
+    Drift.LoadLine()
     Drift.Rebase()
     Drift.Listen()
-    -- After `Drift.RecordRun`, which is what the line's figure comes from, and
-    -- after `Rebase`, so a load that already carries the new plan has cleared
-    -- the wait and says nothing.
-    Drift.AnnounceWait()
 end

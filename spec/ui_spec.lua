@@ -1804,6 +1804,8 @@ describe("the nudge row (R-6)", function()
     end)
 
     it("runs the refresh when it is clicked, and writes the stamp the wait counts from", function()
+        -- A wait stands only where a companion has been seen (R-6a).
+        ns.companionStatus = { state = "idle", startedAt = "2026-09-14T22:48:00Z", finishedAt = "2026-09-14T22:48:41Z" }
         behind(1, "Lightgrasp Worldroot")
         ns.UI.RefreshStrip(frame)
         assert.equal(0, world.reloads)
@@ -1857,6 +1859,7 @@ describe("the nudge row (R-6)", function()
     it("keeps the badge on the launcher while the rating is being made, and draws no second row", function()
         local button = ns.UI.MinimapButton()
         behind(1, "Lightgrasp Worldroot")
+        ns.companionStatus = { state = "idle", startedAt = "2026-09-14T22:48:00Z", finishedAt = "2026-09-14T22:48:41Z" }
         ns.db.global.drift.refreshStartedAt = date("!%Y-%m-%dT%H:%M:%SZ", math.floor(time()))
         local model = ns.UI.RefreshStrip(frame)
         assert.is_true(button.driftDot:IsShown())
@@ -1904,6 +1907,13 @@ describe("the wait on the strip (M3-16b)", function()
     before_each(function()
         ns, world = H.load()
         withInventory(world)
+        -- R-6a (WKE-590): a wait stands only where a companion has been SEEN.
+        -- With no status file at all the load line answers `the companion
+        -- hasn't been seen` and the strip stops counting, so the world these
+        -- draw in carries the previous run a real machine carries. Set here
+        -- rather than in `waiting`, because the line the wait DISPLACES is read
+        -- before the wait starts and it carries C-9's clause too.
+        ns.companionStatus = { state = "idle", startedAt = "2026-09-14T22:48:00Z", finishedAt = "2026-09-14T22:48:41Z" }
         frame = ns.UI.Frame()
         frame:Show()
     end)
