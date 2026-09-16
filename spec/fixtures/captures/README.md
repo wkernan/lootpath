@@ -141,20 +141,3 @@ with every loop rather than by request.
   `Data/CompanionStatus.lua`), the verdict untouched. The addon half - the
   refusal and `leavingWorld` - waits on the NEXT real logout, which will be
   the first taken by the new code. No secrets.
-- Lootpath-20260916-140011.lua - **the third real logout, and the first pulled
-  under R-7b (WKE-591) - but the flush itself ran the OLD addon.** The owner
-  logged out for real at 14:00:11 local, logged in, and ran `sync.ps1 -Pull`.
-  The synced files (`main` `6417440`, pushed 13:50:26) hold R-7b, yet the
-  14:00:11 `inventory` snapshot is STORED with `equipped 0`, 20 bag records, 0
-  items, `durationMs 0.88`, and its `env` carries no `leavingWorld` and no
-  `flushRefusals`: the client loads addon files only at load, the owner was
-  logged in when the sync landed, and so the logout flushed with the code
-  loaded at his earlier login. The three flushes beside it (12:22:28,
-  12:22:47, 12:53:39, all reloads) read `equipped 15`. What this pull DOES
-  prove is the companion half on the new code: the watcher restarted at
-  18:51Z on `6417440` woke on this write at 19:00:14Z, built `0 equipped, 0
-  in bags, 0 in the bank, 0 vault, 14 lines`, and refused before the fork
-  with exit 8 and `state = "skipped"` (`Data/companion.log`,
-  `Data/CompanionStatus.lua`), the verdict untouched. The addon half - the
-  refusal and `leavingWorld` - waits on the NEXT real logout, which will be
-  the first taken by the new code. No secrets.
