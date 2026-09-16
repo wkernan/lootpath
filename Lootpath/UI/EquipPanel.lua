@@ -46,6 +46,11 @@ EquipPanel.ROW_GAP = 2
 -- so 20 covers it; anything past that is counted in a line under the list
 -- instead of being silently dropped.
 EquipPanel.MAX_ROWS = 20
+-- The gap between the last thing the header block says and the top of the list
+-- (M5-1a, WKE-597). The scroll frame hangs off whichever header element
+-- actually has text on it, so an empty note line can neither leave a gap above
+-- the list nor move its top.
+EquipPanel.TOP_GAP = 8
 
 -- The column the slot name gets. Everything to the right of it is anchored, not
 -- sized, so the text a row shows is bounded by the frame and not by a number.
@@ -519,6 +524,73 @@ function EquipPanel.ExcludedLines(match)
     return ns.Companion.ExcludedLines(match.excluded)
 end
 
+-- M5-1a (WKE-597): a key for the row SET, so a refresh can tell a new list
+-- from the same list drawn again. It is the slot and the rated item of every
+-- row, in order - not the status, not the badge, not where the item is - so
+-- equipping a swap, a bag update or a redraw in combat leaves it alone, and a
+-- new import or a different match changes it.
+function EquipPanel.RowSignature(match)
+    if type(match) ~= "table" or not match.ok or type(match.rows) ~= "table" then
+        return "none"
+    end
+    local parts = {}
+    for index = 1, #match.rows do
+        local row = match.rows[index]
+        local key = (row.verdictItem and row.verdictItem.key)
+            or (row.equipped and row.equipped.key)
+            or (row.best and row.best.key)
+            or "-"
+        parts[index] = tostring(row.slot or "?") .. "/" .. tostring(key)
+    end
+    return table.concat(parts, "|")
+end
+
+-- Put the list back at its first row. `UIPanelScrollFrameTemplate` keeps its
+-- offset across a refresh and across the child being re-sized - Blizzard's own
+-- `ScrollFrame_OnScrollRangeChanged` clamps the bar's value to the new range
+-- (`math.min(scrollbar:GetValue(), yrange)`) rather than clearing it - so the
+-- offset has to be cleared in both places: the frame's own scroll, and the
+-- bar's value, which `UIPanelScrollBar_OnValueChanged` pushes straight back
+-- into `SetVerticalScroll` at the next range change
+-- (Blizzard_SharedXML/SecureScrollTemplates.lua).
+function EquipPanel.ScrollToTop(panel)
+    if type(panel) ~= "table" or not panel.scroll then
+        return false
+    end
+    local bar = panel.scroll.ScrollBar
+    if bar and type(bar.SetValue) == "function" then
+        bar:SetValue(0)
+    end
+    if type(panel.scroll.SetVerticalScroll) == "function" then
+        panel.scroll:SetVerticalScroll(0)
+    end
+    return true
+end
+
+-- The scroll frame hangs off the last element of the header block that has
+-- something on it: the note line when it has text, the chips when it does not,
+-- and the header itself when there are no chips either. An empty font string
+-- still occupies a line, and the list's top must not depend on whether this
+-- character's bank happens to be open (M5-1a, WKE-597).
+function EquipPanel.AnchorScroll(panel)
+    if type(panel) ~= "table" or not panel.scroll then
+        return nil
+    end
+    local anchor = panel.header
+    if panel.chips and panel.chips[1] and panel.chips[1]:IsShown() then
+        anchor = panel.chips[1]
+    end
+    local note = panel.summary and panel.summary:GetText()
+    if note and note ~= "" then
+        anchor = panel.summary
+    end
+    panel.scroll:ClearAllPoints()
+    panel.scroll:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -EquipPanel.TOP_GAP)
+    panel.scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -26, 4)
+    panel.scrollAnchor = anchor
+    return anchor
+end
+
 local function tooltipFor(button, text)
     if not (GameTooltip and text) then
         return
@@ -687,8 +759,9 @@ function EquipPanel.Create(parent)
     -- rows live on `panel.list`, which is the scroll frame's child, and how big
     -- the window itself should be is M5-2's question rather than this panel's.
     panel.scroll = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
-    panel.scroll:SetPoint("TOPLEFT", panel.summary, "BOTTOMLEFT", 0, -8)
-    panel.scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -26, 4)
+    -- Where its top goes is `AnchorScroll`'s answer, not a fixed anchor: the
+    -- note line above it is empty as often as it is not (M5-1a).
+    EquipPanel.AnchorScroll(panel)
     panel.list = CreateFrame("Frame", nil, panel.scroll)
     panel.list:SetSize(panel.rowWidth, EquipPanel.ROW_HEIGHT * EquipPanel.MAX_ROWS)
     panel.scroll:SetScrollChild(panel.list)
@@ -719,6 +792,9 @@ function EquipPanel.Refresh(panel, match)
             fontString:Hide()
         end
     end
+
+    -- The chips and the note line are set: the list's top can be placed now.
+    EquipPanel.AnchorScroll(panel)
 
     local rows = (type(match) == "table" and match.ok and match.rows) or {}
     local shown = math.min(#rows, EquipPanel.MAX_ROWS)
@@ -820,6 +896,15 @@ function EquipPanel.Refresh(panel, match)
     -- The scroll child is as tall as what is on it, so the scrollbar knows how
     -- far there is to go and a short list does not scroll at all.
     panel.list:SetHeight(math.max(used, 1))
+
+    -- A different list starts at its first row; the same list drawn again keeps
+    -- where the player had scrolled to, so a bag update does not throw someone
+    -- reading half way down back to the top (M5-1a, WKE-597).
+    local signature = EquipPanel.RowSignature(match)
+    if signature ~= panel.rowSignature then
+        panel.rowSignature = signature
+        EquipPanel.ScrollToTop(panel)
+    end
 
     local swaps = (type(match) == "table" and match.ok and match.counts.swap) or 0
     panel.equipAll:SetEnabled(swaps > 0 and not inCombat)

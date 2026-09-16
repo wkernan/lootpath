@@ -821,6 +821,41 @@ local function attachTemplate(f, world, template)
         f.EditBox = box
         f.scrollChild = box
     end
+    -- UIPanelScrollFrameTemplate carries its scroll bar at parentKey ScrollBar
+    -- (`@field ScrollBar UIPanelScrollFrameTemplate_ScrollBar : Slider`,
+    -- Blizzard_SharedXML/SecureScrollTemplates.xml:44/46 in Ketho's
+    -- annotations), and the bar is what actually moves the frame:
+    -- `UIPanelScrollBar_OnValueChanged` is `self:GetParent():SetVerticalScroll(value)`
+    -- (SecureScrollTemplates.lua:22), and `ScrollFrame_OnScrollRangeChanged`
+    -- re-applies `math.min(scrollbar:GetValue(), yrange)` to it whenever the
+    -- child is re-sized (:64) - it clamps the offset, it does not clear it.
+    -- The bar is modelled to that much and no further: its min/max are recorded
+    -- and nothing here invents a range, because no range is read from a test.
+    if
+        template:find("UIPanelScrollFrameTemplate", 1, true)
+        or template:find("UIPanelInputScrollFrameTemplate", 1, true)
+    then
+        local bar = newFrame("Slider", world, f)
+        bar.value = 0
+        bar.minValue, bar.maxValue = 0, 0
+        function bar:SetValue(value)
+            self.value = value
+            local owner = self:GetParent()
+            if owner and owner.SetVerticalScroll then
+                owner:SetVerticalScroll(value)
+            end
+        end
+        function bar:GetValue()
+            return self.value
+        end
+        function bar:SetMinMaxValues(minValue, maxValue)
+            self.minValue, self.maxValue = minValue, maxValue
+        end
+        function bar:GetMinMaxValues()
+            return self.minValue, self.maxValue
+        end
+        f.ScrollBar = bar
+    end
 end
 
 function newFrame(kind, world, parent, template)
