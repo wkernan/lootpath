@@ -1082,15 +1082,23 @@ function Companion.SpecClause(verdict, envData)
     return string.format(Companion.SPEC_MISMATCH_LINE, current, planned)
 end
 
--- The newest `env` snapshot's data, for the fallback above. The companion reads
--- the newest of each name and so does this; `ns.CAPTURE_HISTORY` keeps four.
-function Companion.NewestEnvData()
-    local list = ns.db and ns.db.global and ns.db.global.captures and ns.db.global.captures.env
+-- The newest stored snapshot of one name, or nil. The companion reads the
+-- newest of each name (`newestSnapshot`, `tools/companion/lib/simc-profile.js`)
+-- and so does this; `storeSnapshot` appends, so the newest is the last, and
+-- `ns.CAPTURE_HISTORY` keeps four.
+function Companion.NewestSnapshot(name)
+    local list = ns.db and ns.db.global and ns.db.global.captures and ns.db.global.captures[name]
     if type(list) ~= "table" or #list == 0 then
         return nil
     end
     local newest = list[#list]
-    return type(newest) == "table" and newest.data or nil
+    return type(newest) == "table" and newest or nil
+end
+
+-- The newest `env` snapshot's data, for the fallback above.
+function Companion.NewestEnvData()
+    local newest = Companion.NewestSnapshot("env")
+    return newest and newest.data or nil
 end
 
 -- The clause for whichever surface is asking, off the plan on screen.
@@ -1419,6 +1427,60 @@ for _, name in ipairs(Companion.REFRESH_CAPTURES) do
     if not Companion.FLUSH_SKIPS[name] then
         Companion.FLUSH_CAPTURES[#Companion.FLUSH_CAPTURES + 1] = name
     end
+end
+
+-- R-7c (WKE-594). **A real logout never reads the gear, so the flush that ran
+-- at it captured none - and the plan the player logs back in to is only as
+-- fresh as the last `/reload` or refresh.**
+--
+-- Four real logouts measured, four empty reads: 2026-09-15 19:19 and 22:11:52,
+-- 2026-09-16 14:00:11 and 14:25:58 (ARCHITECTURE.md 9). On the last of them the
+-- addon also counted equipped links one event earlier, at
+-- `PLAYER_LEAVING_WORLD`, and found none there either - so the item layer is
+-- already gone before either event fires and no ordering of them would help.
+-- R-7b refuses that read rather than storing it, which keeps the newest good
+-- `inventory` snapshot newest; this is the sentence that says so out loud.
+--
+-- It answers the newest stored `inventory` snapshot - what the plan on screen
+-- is actually about - when all of these hold, and nil otherwise:
+--
+--   * the newest `env` snapshot was taken at a flush,
+--   * that flush refused the `inventory` capture (`flushRefusals`, below), and
+--   * no `inventory` read since is newer than that flush.
+--
+-- The third is what makes it self-healing rather than sticky: a `/reload` or a
+-- refresh stores a good read, that read is newer than the refusal, and the
+-- sentence stops being said without anything clearing a flag. Nothing here is
+-- refused and no rating is touched; `ns.Drift` turns this into the words.
+Companion.FLUSH_REFUSAL_INVENTORY = "inventory"
+
+function Companion.GearUnreadAtFlush()
+    local env = Companion.NewestSnapshot("env")
+    if type(env) ~= "table" or env.trigger ~= Companion.FLUSH_TRIGGER then
+        return nil
+    end
+    local refusals = env.flushRefusals
+    if type(refusals) ~= "table" then
+        return nil
+    end
+    local refused = false
+    for _, entry in ipairs(refusals) do
+        if type(entry) == "table" and entry.capture == Companion.FLUSH_REFUSAL_INVENTORY then
+            refused = true
+            break
+        end
+    end
+    if not refused then
+        return nil
+    end
+    local inventory = Companion.NewestSnapshot("inventory")
+    if type(inventory) ~= "table" or type(inventory.capturedAt) ~= "number" then
+        return nil
+    end
+    if type(env.capturedAt) == "number" and inventory.capturedAt > env.capturedAt then
+        return nil
+    end
+    return inventory
 end
 
 function Companion.CaptureAtFlush()

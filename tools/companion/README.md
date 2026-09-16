@@ -31,15 +31,24 @@ rating is being made and roughly how long that takes, and clicking it again is
 the second refresh. The two-reload floor has not moved; what has changed is that
 nobody has to know it is there.
 
-**Log out or reload, and your plan is current next time you are in; refresh only
-when you want a re-rating mid-session (R-7, WKE-579; R-7a, WKE-582).** Unloading
-the interface flushes SavedVariables and this program wakes on that write, and
-since R-7 the addon takes the same four snapshots - gear, bags, vault,
-currencies - at `PLAYER_LOGOUT` itself. So what the write carries is the gear you
-were in, the run happens while you are away, and the plan is waiting when you
-come back. Nothing is asked of the server on the way out: the vault is read
-plainly, without M3-16's interaction, because there is no time to wait for an
-answer.
+**A `/reload` or a `/lootpath refresh` is what captures your gear; a logout keeps
+what the last one captured (R-7c, WKE-594).** Unloading the interface flushes
+SavedVariables and this program wakes on that write, and since R-7 (WKE-579) the
+addon takes its snapshots at `PLAYER_LOGOUT` itself - so on a reload the write
+carries the gear you are in, which is what makes the second reload of the loop
+current. **On a real LOGOUT it carries no gear at all.** Four real logouts were
+measured on the owner's own client and all four answered the equipment scan with
+nothing; on the fourth the addon counted equipped links one event earlier, at
+`PLAYER_LEAVING_WORLD`, and found none there either. The item layer is torn down
+before either event fires, so no ordering of them would help. R-7's "log out and
+your plan is current next login" is therefore retired: what a logout keeps
+current is the character, the vault and your currencies, and the gear is whatever
+the last reload or refresh read. The addon says so in game when it matters -
+`your gear wasn't read at logout - last rated 17 hours ago -
+/lootpath refresh to rate what you wear now` - and stops saying it the moment a
+newer read exists. The empty read is refused rather than stored, so the newest
+good one stays newest (R-7b, WKE-591). Nothing is asked of the server on the way
+out either: there is no time to wait for an answer.
 
 `PLAYER_LOGOUT` fires on a `/reload` as well as on a logout - the interface is
 unloaded either way - and nothing at that moment can tell the two apart; only
@@ -49,18 +58,24 @@ gear, and every snapshot it writes is labelled `flush`, which is true of either.
 R-7 labelled them `logout`, and this log printed `run after logout` for plain
 reloads until R-7a.
 
-Until R-7 the story was true only if you refreshed first - the addon took its
-snapshots nowhere but `/lootpath refresh`, so a logout after an evening of
-looting saved the morning's gear again and the run was skipped as unchanged.
-
 The log says which happened, in one line per run:
 
 ```
 run after /lootpath refresh (gear captured at the click)
 run after a logout or reload (gear captured at the flush)
+run after a logout that could not read the gear; rating the inventory read of 2026-09-16T14:00:11
 run after a capture made by hand
 run after a logout or a plain reload - nothing new was captured
 ```
+
+The third line is R-7c's (WKE-594) and is the one a real logout produces. The
+flush writes onto its `env` snapshot what it read and threw away
+(`flushRefusals`), so when the gear was refused this names the `inventory`
+snapshot the profile was actually built from instead of claiming the flush
+captured one. When that read is itself empty the run is refused before the
+browser is opened, with exit code 8 and a `skipped` status - the previous
+verdict is untouched, and one `/reload` or `/lootpath refresh` in game is what
+heals it.
 
 The second line is read off the addon's own label, not guessed at: every
 snapshot records how it was TAKEN (`trigger = "refresh"`, `"flush"` or

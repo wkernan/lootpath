@@ -27,6 +27,21 @@ function packValue(pack, index) {
     return pack[index || 1];
 }
 
+// R-7c (WKE-594): which captures the flush that wrote this `env` snapshot read
+// and threw away, by name. `flushRefusals` is written onto the snapshot by
+// `ns.Companion.CaptureAtFlush` and is the only trace a refused capture leaves,
+// because a refusal deliberately stores no snapshot of its own. A Lua array
+// parses as an object keyed by index, so the values are taken rather than the
+// keys; anything that is not a list of `{ capture, reason }` reads as no
+// refusals at all rather than as a throw.
+function refusedCaptures(env) {
+    const list = env && env.flushRefusals;
+    if (!list || typeof list !== 'object') return [];
+    return Object.values(list)
+        .map((entry) => (entry && typeof entry === 'object' ? entry.capture : null))
+        .filter((name) => typeof name === 'string');
+}
+
 // `text` is the SavedVariables file, verbatim.
 function build(text, options) {
     const opts = options || {};
@@ -71,6 +86,9 @@ function build(text, options) {
         capture: {
             trigger: (env && typeof env.trigger === 'string' && env.trigger) || null,
             capturedAt: (env && typeof env.capturedAt === 'number' && env.capturedAt) || null,
+            // R-7c (WKE-594): `["inventory"]` for a flush that could not read
+            // the gear, which is every real logout measured so far.
+            flushRefusals: refusedCaptures(env),
         },
         identity: {
             name: env && packValue(env.data.player),
