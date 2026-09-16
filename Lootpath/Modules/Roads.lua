@@ -191,7 +191,12 @@ Roads.ARRIVED_CLAIMED_CRESTED = "claimed · now crested"
 -- (principle 5, which is why "before reset" is not a string in this file).
 Roads.RESET_TEXT = "reset in %s"
 
-function Roads.ResetText(seconds)
+-- Just the duration, in the client's own units: "6d 19h", "19h", "45m", or nil
+-- when the client did not answer with a countdown at all. Split out of
+-- `ResetText` for V-3 (WKE-587), where the Vault tab says how long until the
+-- NEXT vault rather than how long this one lasts: two sentences about the same
+-- number, formatted once, so they cannot round it differently.
+function Roads.CountdownText(seconds)
     seconds = tonumber(seconds)
     if not seconds or seconds < 0 then
         return nil
@@ -199,12 +204,20 @@ function Roads.ResetText(seconds)
     local days = math.floor(seconds / 86400)
     local hours = math.floor((seconds % 86400) / 3600)
     if days > 0 then
-        return string.format(Roads.RESET_TEXT, string.format("%dd %dh", days, hours))
+        return string.format("%dd %dh", days, hours)
     end
     if hours > 0 then
-        return string.format(Roads.RESET_TEXT, string.format("%dh", hours))
+        return string.format("%dh", hours)
     end
-    return string.format(Roads.RESET_TEXT, string.format("%dm", math.floor((seconds % 3600) / 60)))
+    return string.format("%dm", math.floor((seconds % 3600) / 60))
+end
+
+function Roads.ResetText(seconds)
+    local countdown = Roads.CountdownText(seconds)
+    if not countdown then
+        return nil
+    end
+    return string.format(Roads.RESET_TEXT, countdown)
 end
 
 -- A crest step says the cost or says it is not read, and never promises one.
@@ -2090,6 +2103,10 @@ end
 -- every other function here takes: the whole week, which is what the Vault tab's
 -- headline is about.
 --
+-- `week.vaultClaimed` is the one fact the table carries that no capture states
+-- on its own: the week's reward has been taken out of the vault (V-3, WKE-587).
+-- It removes the vault clause and nothing else.
+--
 -- `week.scenarioNote` is the companion's own sentence about the questions its
 -- last run did not ask (C-12, WKE-577). It becomes the FOOTNOTE whenever the
 -- plan the screen is following has no document behind it, because that is the
@@ -2131,7 +2148,12 @@ function Roads.PlanSentence(week)
 
     -- 1. what to take out of the vault, and whether the rating assumed crests
     --    went into it.
-    local vaultItem = planVaultItem(allItems)
+    -- V-3 (WKE-587): once the week's reward is out of the vault there is nothing
+    -- in there to grab, so the clause that sends the player to the vault goes
+    -- and the rest of the plan stays - the Catalyst charge and the crests are
+    -- still this week's. The caller states the claim; nothing here reads the
+    -- vault for it, because a claimed vault answers the same as an empty one.
+    local vaultItem = not week.vaultClaimed and planVaultItem(allItems) or nil
     if vaultItem then
         local reward = vaultItem.key and vaultByKey[vaultItem.key] or nil
         local name = Roads.ShortName({

@@ -1773,6 +1773,32 @@ describe("Roads over the owner's claimed Legs pick of 2026-09-15 (R-3e)", functi
             assert.is_true(conversion.item.itemID ~= LEGS)
         end
     end)
+
+    -- V-3 (WKE-587): the same week, once the addon knows the reward is out of
+    -- the vault. The clause that sends him there goes and the Catalyst step -
+    -- still this week's plan - stays. Nothing else about the sentence moves.
+    --
+    -- Proven red by dropping the `not week.vaultClaimed` guard from
+    -- `PlanSentence`: the sentence goes back to "Grab the legs from the vault.",
+    -- which is the tab telling him to fetch what he is already wearing.
+    it("drops the vault clause once the reward has been claimed", function()
+        claimTheReward()
+        local week = {
+            verdicts = inputs.verdicts,
+            highlightedScenario = "thisWeek",
+            inventory = inputs.inventory,
+            vault = inputs.vault,
+            currencies = inputs.currencies,
+        }
+        assert.equal(
+            "Grab the legs from the vault. Catalyst the Lynx shoulders in your bag.",
+            ns.Roads.PlanSentence(week).sentence
+        )
+        week.vaultClaimed = true
+        local claimed = ns.Roads.PlanSentence(week)
+        assert.equal("Catalyst the Lynx shoulders in your bag.", claimed.sentence)
+        assert.is_nil(claimed.sentence:find("vault", 1, true))
+    end)
 end)
 
 -- ---------------------------------------------------------------------------

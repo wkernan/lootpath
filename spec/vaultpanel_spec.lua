@@ -2912,3 +2912,146 @@ describe("the Vault tab on reset day (M3-16b)", function()
         assert.is_nil(model.rewardsNote)
     end)
 end)
+
+-- V-3 (WKE-587): the Vault tab after the week's reward has been claimed.
+--
+-- The owner read `The vault has not generated this week's rewards yet.` over the
+-- nine empty cells at ~15:50 on 2026-09-15, minutes after he took the Enigmatic
+-- Dreamwatcher's Leggings out of it. The three states below are built out of his
+-- own reset-day transcript rather than invented: snapshot 9 is the emptied
+-- client's activity list (10 activities, 0 reward links) and snapshot 12 is the
+-- 14:27 capture that carries the nine links the vault really did generate. What
+-- turns 9 from "nothing yet" into "all taken" is nothing but that stored
+-- snapshot; the live reads are identical in both.
+describe("the Vault tab after this week's reward is claimed (V-3)", function()
+    local ns, world
+    local RESET_DAY = "spec/fixtures/captures/Lootpath-20260915-142722-vault.lua"
+    local EMPTY_CLIENT = 9
+    local WITH_LINKS = 12
+    -- 2026-09-15 14:53:20 local, a quarter hour after the 14:27 capture and
+    -- inside the same reward period. Fixed, so the assertions below do not
+    -- depend on when the suite runs.
+    local NOW = 1789502000
+
+    before_each(function()
+        ns, world = H.load()
+        R.vault(world, R.snapshot("vault", EMPTY_CLIENT, RESET_DAY))
+        -- The claim's own footprint on the live reads: nothing to claim, nothing
+        -- waiting, and the rewards the client HAD generated are generated still.
+        world.vault.hasAvailable = false
+        world.vault.canClaim = false
+        world.vault.generated = true
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function model(opts)
+        opts = opts or {}
+        return ns.VaultPanel.Model({
+            vault = ns.Vault.Options(),
+            verdict = realVerdict(ns),
+            now = opts.now or NOW,
+            captures = opts.captures,
+            inventory = opts.inventory,
+        })
+    end
+
+    local function withLinks()
+        return { R.snapshot("vault", WITH_LINKS, RESET_DAY) }
+    end
+
+    -- Proven red by making `ClaimedThisPeriod` return false: the claimed vault
+    -- goes back to the owner's own screenshot, "The vault hasn't generated this
+    -- week's rewards yet."
+    it("says the reward is taken and when the next vault opens", function()
+        local claimed = model({ captures = withLinks() })
+        assert.equal(0, claimed.counts.rewards)
+        assert.is_false(claimed.hasAvailableRewards)
+        assert.is_false(claimed.canClaimRewards)
+        assert.is_true(claimed.claimed)
+        -- The countdown is the client's own: snapshot 9 answered 589830 seconds.
+        assert.equal(589830, ns.Vault.Options().secondsUntilWeeklyReset)
+        assert.equal("You've taken this week's reward. The next vault opens in 6d 19h.", claimed.rewardsNote)
+        local found = false
+        for _, line in ipairs(ns.VaultPanel.Lines(claimed)) do
+            found = found or line == claimed.rewardsNote
+        end
+        assert.is_true(found)
+        -- Principle 9: no deadline, and nothing about what the reset does.
+        assert.is_nil(claimed.rewardsNote:find("before reset", 1, true))
+        assert.is_nil(claimed.rewardsNote:find("last day", 1, true))
+    end)
+
+    -- The same live reads, with no snapshot from this period that ever saw a
+    -- reward: the vault really has generated nothing, and the note names the one
+    -- thing that changes that (WKE-583's finding, in this sentence too).
+    it("keeps the ungenerated sentence when no snapshot of this period saw rewards", function()
+        local nothing = model({ captures = false })
+        assert.is_false(nothing.claimed)
+        assert.equal(ns.VaultPanel.NO_REWARDS_NOTE, nothing.rewardsNote)
+        assert.is_truthy(ns.VaultPanel.NO_REWARDS_NOTE:find("Open the Great Vault", 1, true))
+        assert.is_nil(nothing.headline)
+    end)
+
+    -- And the period bound is real, not decoration: the SAME stored snapshot,
+    -- read a week later, is last week's vault and says nothing about this one.
+    -- Proven red by dropping the `at >= periodStart` test, which makes a vault
+    -- that has never generated anything claim a reward was taken from it.
+    it("does not read last period's snapshot as this period's claim", function()
+        local nextWeek = model({ captures = withLinks(), now = NOW + ns.VaultPanel.WEEK_SECONDS })
+        assert.is_false(nextWeek.claimed)
+        assert.equal(ns.VaultPanel.NO_REWARDS_NOTE, nextWeek.rewardsNote)
+    end)
+
+    -- A vault the client says is holding rewards back is not a claimed one, and
+    -- its own remedy still wins: the ask is what that state is for (M3-16).
+    it("is not claimed while the client still says rewards are waiting", function()
+        world.vault.hasAvailable = true
+        local withheld = model({ captures = withLinks() })
+        assert.is_false(withheld.claimed)
+        assert.equal(ns.VaultPanel.WITHHELD_REWARDS_NOTE, withheld.rewardsNote)
+    end)
+
+    -- Principle 16: the plan is still read out, because the Catalyst charge and
+    -- the crests are still this week's, and it is the only thing the block says -
+    -- there is no option in the vault to lead with or to compare. That the
+    -- claim is what removes the vault clause is measured in `roads_spec.lua`
+    -- over the owner's own claimed week; here it is that the tab asks for it.
+    --
+    -- Proven red by taking `model.claimed` out of the headline's condition: the
+    -- claimed tab loses the plan entirely and shows the note alone.
+    it("still reads the week's plan out, and nothing about the empty vault", function()
+        local claimed = model({ captures = withLinks() })
+        assert.is_table(claimed.headline)
+        assert.is_true(claimed.headline.planOnly)
+        assert.is_nil(claimed.headline.text)
+        assert.is_nil(claimed.headline.pick)
+        assert.equal(0, #claimed.headline.lines)
+        assert.is_table(claimed.headline.plan)
+        local sentence = claimed.headline.plan.sentence
+        if sentence then
+            assert.is_nil(sentence:find("from the vault", 1, true))
+        end
+        for _, line in ipairs(ns.VaultPanel.Lines(claimed)) do
+            assert.is_nil(line:find("no option in this vault", 1, true))
+        end
+    end)
+
+    -- The drawn panel, through the database the addon really reads: the stored
+    -- vault snapshots are `db.global.captures.vault`, and the claim is found
+    -- there without a test handing them in.
+    it("draws the claimed note and the plan off its own stored captures", function()
+        ns.QEImport.Store(realVerdict(ns))
+        ns.db.global.captures = ns.db.global.captures or {}
+        ns.db.global.captures.vault = withLinks()
+        local frame = ns.VaultPanel.Create()
+        local drawn = frame:Refresh({ now = NOW })
+        assert.is_true(drawn.claimed)
+        local notes = ns.VaultPanel.NoteLines(drawn)
+        assert.equal(drawn.rewardsNote, frame.rows[#notes]:GetText())
+        -- No pick line where the vault has nothing to pick.
+        assert.equal("", frame.headline.text:GetText())
+    end)
+end)
