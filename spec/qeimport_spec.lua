@@ -936,6 +936,43 @@ describe("QEImport.CatalyzedOwned over the fourth question (WKE-548)", function(
         assert.is_nil(found[2].owned)
     end)
 
+    -- R-3e (WKE-585): an UPGRADE is not a conversion. The owner's own tier
+    -- leggings (271527) are in this top set under the exact key he wears, which
+    -- the key guard passes over. Give the same entry the key it would carry
+    -- after his run upgraded it - the item ID unchanged, the upgrade bonus ID
+    -- replaced, which is exactly what cresting does - and the key guard misses
+    -- it, nothing owned matches its bonus IDs, and it used to come back as a
+    -- clone of nothing. It is his own legs at a level he has not reached.
+    it("passes over a tier piece the run upgraded rather than converted", function()
+        local verdict = thisWeek()
+        local items = verdict.topSet.items
+        local legsKey
+        for key, item in pairs(items) do
+            if item.itemID == 271527 then
+                legsKey = key
+            end
+        end
+        assert.is_string(legsKey)
+        local legs = items[legsKey]
+        assert.same({ 6652, 12830, 13438, 13693, 13698 }, legs.bonusIDs)
+        items[legsKey] = nil
+        legs.bonusIDs = { 6652, 12846, 13438, 13693, 13698 }
+        legs.key = "271527:6652:12846:13438:13693:13698"
+        legs.level = 321
+        items[legs.key] = legs
+        for index, key in ipairs(verdict.topSet.order) do
+            if key == legsKey then
+                verdict.topSet.order[index] = legs.key
+            end
+        end
+        for _, entry in ipairs(ns.QEImport.CatalyzedOwned(verdict, scan())) do
+            assert.are_not.equal(271527, entry.item.itemID)
+        end
+        -- The two real conversions of this set are untouched by the guard: they
+        -- are item IDs the owner does not hold.
+        assert.equal(2, #ns.QEImport.CatalyzedOwned(verdict, scan()))
+    end)
+
     it("refuses anything that is not a verdict", function()
         assert.same({}, ns.QEImport.CatalyzedOwned(nil, scan()))
         assert.same({}, ns.QEImport.CatalyzedOwned("thisWeek", scan()))

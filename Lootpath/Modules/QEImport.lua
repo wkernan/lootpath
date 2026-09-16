@@ -311,16 +311,23 @@ local function ownedIndex(inventory)
     if type(records) ~= "table" or #records == 0 then
         return nil
     end
-    local owned, ownedKeys = {}, {}
+    local owned, ownedKeys, ownedItemIDs = {}, {}, {}
     for _, record in ipairs(records) do
         if type(record) == "table" then
             if record.key then
                 ownedKeys[record.key] = true
             end
+            -- The item IDs on their own, for the same reason `vaultIndex`
+            -- carries the vault's: a clone's item ID is never the item ID that
+            -- went in (R-3e, WKE-585).
+            local itemID = tonumber(record.itemID)
+            if itemID then
+                ownedItemIDs[itemID] = true
+            end
             owned[#owned + 1] = record
         end
     end
-    return { records = owned, keys = ownedKeys }
+    return { records = owned, keys = ownedKeys, itemIDs = ownedItemIDs }
 end
 
 -- The vault snapshot indexed for the same join: every gear reward the vault is
@@ -329,9 +336,10 @@ end
 -- `vaultOptions` is ns.Vault.Options()' whole answer or its `options` list.
 -- Returns nil when there is no snapshot to read, and nil is NOT "no vault
 -- charges": see conversionOf below. A snapshot that was read and holds no gear
--- is not told from a missing one, because it cannot be: an index with no
--- rewards vouches for no item ID and matches no clone, which is exactly what
--- nil already means there. Writing that branch could not be proven red.
+-- is nil too, and since R-3e (WKE-585) that is written rather than left to
+-- coincide: an index with rewards in it VOUCHES - these are the rewards, and a
+-- vault tier item none of them explains is not a conversion - so an index with
+-- none of them must not be allowed to vouch for anything.
 local function vaultIndex(vaultOptions)
     local options = type(vaultOptions) == "table" and (vaultOptions.options or vaultOptions) or nil
     if type(options) ~= "table" then
@@ -348,6 +356,9 @@ local function vaultIndex(vaultOptions)
                 records[#records + 1] = reward
             end
         end
+    end
+    if #records == 0 then
+        return nil
     end
     return { itemIDs = itemIDs, records = records }
 end
@@ -371,9 +382,18 @@ end
 --     ANY item, a Great Vault reward included (M3-15, WKE-556), so the only
 --     mistake worth avoiding here is calling a conversion free.
 --   * `vaultIndex` a table - a vault tier item whose item ID is one the vault is
---     actually offering is the tier piece AS OFFERED, and costs no charge. Any
---     other vault tier item is his clone of one of the rewards, found by the
---     same slot-and-bonus-IDs join CatalyzedCoverage uses.
+--     actually offering is the tier piece AS OFFERED, and costs no charge. His
+--     clone of one of the rewards is found by the same slot-and-bonus-IDs join
+--     CatalyzedCoverage uses. **And a vault tier item the index explains
+--     NEITHER way is not a conversion either (R-3e, WKE-585):** an index with
+--     rewards in it vouches for what the vault holds, so a set item no reward
+--     could have been made from is a reward that has LEFT the vault - which is
+--     what the owner's claimed Legs pick was at 15:45 on 2026-09-15, and it was
+--     counted a charge and drawn as a Catalyst road for the rest of the
+--     afternoon. The conservative reading stays exactly where the evidence
+--     stops: with no snapshot, and with a snapshot that holds no gear (which
+--     `vaultIndex` now reports as none), every vault tier clone is still a
+--     charge.
 local function conversionOf(item, index, vault)
     if type(item) ~= "table" or (tonumber(item.setId) or 0) == 0 then
         return nil
@@ -393,6 +413,11 @@ local function conversionOf(item, index, vault)
                     break
                 end
             end
+            if not match then
+                -- The index vouched and nothing in it explains this item: a
+                -- reward that has left the vault, not a clone (R-3e).
+                return nil
+            end
         end
         return { item = item, slot = item.slot, owned = match, fromVault = true }
     end
@@ -409,6 +434,22 @@ local function conversionOf(item, index, vault)
             match = record
             break
         end
+    end
+    -- Nothing in the scan could have gone in, and the scan already holds a
+    -- piece of this very item ID: this is that piece at the level his run
+    -- projected for it, not a clone of something else (R-3e, WKE-585). An
+    -- UPGRADE keeps the item ID and changes the upgrade bonus ID, which is what
+    -- makes the key new and what made this look like a clone no source
+    -- explained; a CONVERSION is the other way round. Read on the owner's own
+    -- Legs pick of 2026-09-15: his tier leggings 271527, already in his bags,
+    -- came back from the run at 321 with a key he did not own and were called a
+    -- Catalyst conversion of nothing.
+    --
+    -- The guard runs AFTER the join, so a set item that some owned piece really
+    -- could have been converted into is still a conversion and still costs a
+    -- charge: the conservative reading loses nothing it was protecting.
+    if not match and index.itemIDs[tonumber(item.itemID) or -1] then
+        return nil
     end
     return { item = item, slot = item.slot, owned = match, fromVault = false }
 end

@@ -722,12 +722,32 @@ local function ownedByKey(inputs)
 end
 
 -- Which kind of road a set item is: where it would come FROM.
+--
+-- The vault comes first, and the rule is the source's own (R-3e, WKE-585): **a
+-- vault reward is a vault road whether or not his run upgraded it.** An upgrade
+-- keeps the item ID and a conversion does not - `Item.convertToTier` copies
+-- everything but the item ID - so a vault-flagged set item is a Catalyst road
+-- only when the piece it was made FROM is a DIFFERENT item. That is the vault
+-- clone M3-15 counts a charge for (the Scavenger's Spaulders going in, the tier
+-- shoulder coming out), and it is not the owner's Legs pick of 2026-09-15: the
+-- vault offered his tier leggings at 315, the run carried them at 321, and the
+-- road called it a Catalyst conversion "into the tier legs" - of the tier legs.
+--
+-- With no vault snapshot to name the source, the conversion join still hands
+-- one over so that a charge is never called free (QEImport's own comment). That
+-- conservatism is about COUNTING a charge, not about where a reward comes from,
+-- and it does not get to rename the road: unnamed means unknown, and a reward
+-- the plan takes out of the vault is a vault road either way.
 local function setItemKind(item, conversion, owned)
+    if item.isVault then
+        local from = conversion and conversion.owned or nil
+        if from and tonumber(from.itemID) ~= tonumber(item.itemID) then
+            return Roads.KIND_CATALYST
+        end
+        return Roads.KIND_VAULT
+    end
     if conversion then
         return Roads.KIND_CATALYST
-    end
-    if item.isVault then
-        return Roads.KIND_VAULT
     end
     if owned and owned.location == "equipped" then
         return Roads.KIND_KEEP
@@ -1204,9 +1224,14 @@ function Roads.ForSlot(slot, inputs)
             road.owned = conversion and conversion.owned or ownedRecord
             -- What the item becomes on the way in: his tier clone. Set for a
             -- conversion of something you own and for a vault reward he
-            -- catalyzed alike, because both spend the same one charge.
-            road.becomes = (conversion or catalyzed) and item or nil
-            road.catalyzed = catalyzed or (conversion ~= nil) or nil
+            -- catalyzed alike, because both spend the same one charge - and for
+            -- neither of them when the road is the vault's own (R-3e, WKE-585).
+            -- `setItemKind` has already read the source, so a KIND_VAULT road
+            -- here is a reward that goes in and comes out the same item: it
+            -- becomes nothing, it spends no charge, and its row says neither.
+            local converts = kind ~= Roads.KIND_VAULT and (conversion ~= nil) or catalyzed
+            road.becomes = converts and item or nil
+            road.catalyzed = converts or nil
             road.rating = {
                 kind = Roads.RATING_SET,
                 inTopSet = alternative == nil,
@@ -1571,9 +1596,6 @@ end
 --   * an item whose key the pick's road already carries - the vault reward
 --     itself, or the bag piece a Catalyst road converts. Those are the road's
 --     own item, and the road speaks for them.
---   * a copy BELOW the level the pick arrives at. A second, worse copy of the
---     same item ID is a duplicate sitting in the bags, not the pick moved on;
---     claiming and cresting only ever raise a level.
 --   * a WORN copy, when the pick is a vault reward or a Catalyst clone. That
 --     is the 308 Worldroot he has worn all along, which shares the vault
 --     copy's item ID, and NOTHING the client says tells the two apart: the
@@ -1584,7 +1606,21 @@ end
 --     plan took out of your own BAGS or off your character there is no such
 --     doubt: a bag pick was not on the character when the plan was written, and
 --     a worn twin above its level would have been the pick instead, so a worn
---     copy at or above that level is the pick, put on.
+--     copy is the pick, put on.
+--
+-- **R-3e (WKE-585) took the LEVEL out of the identity.** The owner claimed the
+-- Legs pick from his vault, crested it one step of the two the run had
+-- projected - 318 of 321, because he had crests for one - and the tooltip over
+-- it said `Skip this one, the plan uses your Dreamwatcher legs.` A reward
+-- crested part-way has a new key (cresting replaces the upgrade bonus ID), the
+-- pick's own item ID, and a level under the one the plan picked it at, and the
+-- level gate sent it to the generic skip. The plan's pick told him to skip
+-- itself. So: **identity is the item ID plus "not one of the pick's own keys",
+-- and the LEVEL only words the sentence.** What that gives up is the one thing
+-- the gate bought - a genuinely worse second copy of the pick's item ID now
+-- reads as the pick, under-crested - and that is the better of the two wrong
+-- answers: it tells the player to crest a piece the plan does want, where the
+-- gate told him to skip the piece the plan sent him for.
 --
 -- A Catalyst pick is matched on what it BECOMES and on nothing else: the clone
 -- that comes out of the Catalyst carries the tier item ID, and the item that
@@ -1613,15 +1649,20 @@ function Roads.IsArrivedPick(held, pick)
     if not matches then
         return false
     end
-    local level = tonumber(held.itemLevel or held.level)
-    local arrivesAt = tonumber(pick.arrivesAt)
     if held.location == "equipped" and pick.kind ~= Roads.KIND_SET and pick.kind ~= Roads.KIND_KEEP then
         return false
     end
-    if level and arrivesAt and level < arrivesAt then
-        return false
-    end
     return true
+end
+
+-- Whether the pick has arrived short of the level the plan picked it at: the
+-- crest the plan assumed has not all been spent yet (R-3e, WKE-585). The other
+-- half of `ArrivedCrested`, read off the same two figures - the held item's own
+-- link and the road's own `arrivesAt` - and never off a document.
+function Roads.ArrivedShort(held, pick)
+    local level = tonumber(type(held) == "table" and (held.itemLevel or held.level) or nil)
+    local arrivesAt = tonumber(type(pick) == "table" and pick.arrivesAt or nil)
+    return level ~= nil and arrivesAt ~= nil and level < arrivesAt
 end
 
 -- Whether the pick has been crested since the plan: the held level is above the
@@ -2236,6 +2277,16 @@ Roads.ARRIVED_WORN = "You've put this on."
 Roads.ARRIVED_WORN_CRESTED = "You've crested this and put it on."
 Roads.ARRIVED_PUT_ON = "Put it on; refresh to rate it."
 
+-- R-3e (WKE-585): the pick arrived with the crest half spent. The owner's Legs
+-- pick came out of the vault at 315, he crested it to 318 of the 321 his run
+-- had projected, and the two clauses say the same two things they always say -
+-- what the thing IS, at the level the link says, and the one step left. The
+-- second clause names the plan's own level and nothing else: which crest that
+-- step takes and what it costs are not read from the client (principle 4).
+Roads.ARRIVED_AT = "%s, at %d."
+Roads.ARRIVED_WORN_AT = "You've put this on at %d."
+Roads.ARRIVED_CREST_TO = "Crest it to %d; refresh to rate it."
+
 -- The sentence for a piece the plan was built without and a later pass picked
 -- over what the character wears (C-11, WKE-572). Two clauses, like every other
 -- sentence here: what the thing IS, and why the plan says nothing about it. It
@@ -2265,10 +2316,19 @@ function Roads.ArrivedSentence(held, pick)
     end
     local level = tonumber(held.itemLevel or held.level)
     local crested = Roads.ArrivedCrested(held, pick)
+    local short = Roads.ArrivedShort(held, pick)
+    local arrivesAt = tonumber(pick.arrivesAt)
 
     -- On the character. The hover is the item, so the sentence spends both
     -- clauses on what has happened and what is left.
     if held.location == "equipped" then
+        if short and level and arrivesAt then
+            -- Worn, but not crested as far as the plan picked it (R-3e): what
+            -- is left is the rest of the crest, not the refresh alone.
+            return string.format(Roads.ARRIVED_WORN_AT, level)
+                .. " "
+                .. string.format(Roads.ARRIVED_CREST_TO, arrivesAt)
+        end
         local first = crested and Roads.ARRIVED_WORN_CRESTED or Roads.ARRIVED_WORN
         local second = level and string.format(Roads.ARRIVED_REFRESH_AT, level) or Roads.ARRIVED_REFRESH
         return first .. " " .. second
@@ -2286,6 +2346,15 @@ function Roads.ArrivedSentence(held, pick)
         -- A pick the plan took out of your own bags, or off your character: it
         -- came from nowhere new, so the clause names no source.
         first = string.format(Roads.ARRIVED_HELD, name)
+    end
+    if short and level and arrivesAt then
+        -- Still short of the plan's level (R-3e). The first clause names the
+        -- item as it always does and carries the level off the link; the second
+        -- is the crest that is left, and it does not also say to put the piece
+        -- on - the plan's own level is the thing to reach first.
+        return string.format(Roads.ARRIVED_AT, first:gsub("%.$", ""), level)
+            .. " "
+            .. string.format(Roads.ARRIVED_CREST_TO, arrivesAt)
     end
     if crested and level then
         -- The crest is the news, and the step left is not the refresh alone:
