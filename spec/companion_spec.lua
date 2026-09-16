@@ -503,6 +503,9 @@ describe("/lootpath refresh", function()
 
     before_each(function()
         ns, world = H.load()
+        -- R-7b (WKE-591): a dressed character, because an empty equipment read
+        -- is no longer stored at all and these tests are about the chain.
+        H.dress(world)
     end)
 
     after_each(function()
@@ -1872,6 +1875,24 @@ describe("Companion.StatusText", function()
         )
     end)
 
+    -- R-7b (WKE-591). Two skips, opposite news. C-4's says the plan on screen
+    -- is already right; this one says nothing was sent at all, so the plan is
+    -- only as new as the last read that worked. They are told apart by the exit
+    -- code the companion writes, never by its message: the message is prose.
+    -- Proven red by dropping the `exitCode` test from `StatusText`: both say
+    -- "profile unchanged, no run", which is the opposite of what happened.
+    it("tells a skip with nothing to send from a skip with nothing to do", function()
+        assert.equal(
+            "companion: no gear to rate, no run (" .. at("2026-09-13T22:06:00Z") .. ") - see companion.log",
+            text({
+                state = "skipped",
+                finishedAt = "2026-09-13T22:06:00Z",
+                exitCode = ns.Companion.EXIT_EMPTY_GEAR,
+            })
+        )
+        assert.equal(8, ns.Companion.EXIT_EMPTY_GEAR)
+    end)
+
     it("says where a run died, and where to read why", function()
         assert.equal(
             "companion: FAILED at profile (" .. at("2026-09-13T21:06:00Z") .. ") - see companion.log",
@@ -2105,6 +2126,9 @@ describe("the vault question at login", function()
 
     before_each(function()
         ns, world = H.load()
+        -- R-7b (WKE-591): a dressed character, because an empty equipment read
+        -- is no longer stored at all and these tests are about the chain.
+        H.dress(world)
     end)
 
     after_each(function()
@@ -2281,6 +2305,9 @@ describe("the capture at the flush", function()
 
     before_each(function()
         ns, world = H.load()
+        -- R-7b (WKE-591): a dressed character, because an empty equipment read
+        -- is no longer stored at all and these tests are about the chain.
+        H.dress(world)
     end)
 
     after_each(function()
@@ -2397,6 +2424,94 @@ describe("the capture at the flush", function()
         end
         assert.has_no.errors(function()
             world.fireEvent("PLAYER_LOGOUT")
+        end)
+    end)
+
+    -- R-7b (WKE-591). **THE POINT OF THE ISSUE.** The owner's 2026-09-15
+    -- 22:11:52 logout flushed an `inventory` snapshot of `equipped 0` (his live
+    -- file, parsed 2026-09-16); it became the newest, the companion built a
+    -- profile with no gear in it, sent it to QE Live and died at the fork. On a
+    -- `/reload` the same sequence reads all fifteen pieces, so the empty read
+    -- is the logout's and nothing at the moment it happens can say why.
+    describe("when the client answers the equipment scan with nothing", function()
+        before_each(function()
+            -- A level-90 Druid the client will not name gear for: exactly the
+            -- shape of the 22:11:52 flush, where `env` still answered
+            -- `UnitLevel 90` and `UnitClass Druid`.
+            world.equipped = {}
+        end)
+
+        -- Proven red by taking `{ refuse = inventoryIsEmpty }` off the
+        -- `inventory` capture: an empty snapshot is stored and both of the
+        -- first two assertions fail.
+        it("stores no inventory snapshot, and the rest of the flush still runs", function()
+            local result = ns.Companion.CaptureAtFlush()
+            assert.is_nil(ns.db.global.captures.inventory)
+            assert.equal(1, #ns.db.global.captures.env)
+            assert.equal(1, #ns.db.global.captures.currencies)
+            assert.is_false(result.ok)
+            assert.equal(1, #result.failures)
+            assert.equal("inventory", result.failures[1].capture)
+        end)
+
+        -- What the refusal is for: the newest good read is still the newest,
+        -- so the companion's next run reads the gear the player was actually
+        -- wearing rather than nothing.
+        it("leaves yesterday's good read the newest one on disk", function()
+            H.dress(world)
+            assert.is_true(ns.RunCapture("inventory").ok)
+            world.equipped = {}
+            world.fireEvent("PLAYER_LOGOUT")
+            local list = ns.db.global.captures.inventory
+            assert.equal(1, #list)
+            assert.equal(1, #list[1].data.equipped)
+        end)
+
+        -- A refusal stores no snapshot of its own, so the only trace it can
+        -- leave is on the one record of the same flush that IS stored. Without
+        -- it a pull shows an `inventory` history hours older than the `env`
+        -- beside it and nothing saying why. Proven red by deleting the
+        -- `flushRefusals` assignment in `CaptureAtFlush`.
+        it("records on the env snapshot that the inventory read was refused, and why", function()
+            world.fireEvent("PLAYER_LOGOUT")
+            local env = ns.db.global.captures.env[1]
+            assert.equal(1, #env.flushRefusals)
+            assert.equal("inventory", env.flushRefusals[1].capture)
+            assert.truthy(tostring(env.flushRefusals[1].reason):find(ns.INVENTORY_EMPTY_REASON, 1, true))
+        end)
+    end)
+
+    -- R-7b (WKE-591): the measurement, not a fix. Ketho's
+    -- `SystemDocumentation.lua` declares `PLAYER_LEAVING_WORLD` and
+    -- `PLAYER_LOGOUT` both `SynchronousEvent = true` and says nothing about
+    -- which fires first or what still answers at either, so the addon counts
+    -- equipped links one event earlier and carries the count into the flush's
+    -- own `env` snapshot. The owner's next real logout is what reads it.
+    describe("the equipment count one event earlier", function()
+        it("counts links at PLAYER_LEAVING_WORLD without storing a snapshot", function()
+            local before = ns.db.global.captures.inventory
+            world.fireEvent("PLAYER_LEAVING_WORLD")
+            assert.equal(1, ns.leavingWorld.equipped)
+            assert.is_string(ns.leavingWorld.atLocal)
+            assert.equal(before, ns.db.global.captures.inventory)
+        end)
+
+        -- The whole question in one record: what the client answered one event
+        -- before the flush, beside what it answered at it. Proven red by
+        -- deleting the `leavingWorld` assignment in `CaptureAtFlush`.
+        it("carries that count into the flush's env snapshot", function()
+            world.fireEvent("PLAYER_LEAVING_WORLD")
+            world.equipped = {}
+            world.fireEvent("PLAYER_LOGOUT")
+            local env = ns.db.global.captures.env[1]
+            assert.equal(1, env.leavingWorld.equipped)
+            assert.is_nil(ns.db.global.captures.inventory)
+        end)
+
+        it("reads nothing in combat, because nothing does", function()
+            world.inCombat = true
+            world.fireEvent("PLAYER_LEAVING_WORLD")
+            assert.is_nil(ns.leavingWorld)
         end)
     end)
 
@@ -2543,5 +2658,119 @@ describe("the count of vault items the profile carried (C-13)", function()
         assert.is_nil(ns.Companion.ImportAll(file({ profileVaultCount = "4" })).profileVaultCount)
         assert.is_nil(ns.Companion.ImportAll(file({ profileVaultCount = -1 })).profileVaultCount)
         assert.is_nil(ns.Companion.ImportAll(file({ profileVaultCount = 1.5 })).profileVaultCount)
+    end)
+end)
+
+-- R-7b (WKE-591), the owner's question of 2026-09-15 night: he was logged in as
+-- Guardian when the logout captured nothing, and asked whether the spec had
+-- caused it. It had not - the scan never looks at spec, and the `env` read of
+-- that flush records class Druid with `specInfo` absent - but the question
+-- named the hole beside it. A refresh taken in a non-healing spec captures THAT
+-- spec's equipment as "what you wear", and the plan reads that gear as worn.
+--
+-- `tools/companion/lib/profile.js` `specMismatch` catches one half of this,
+-- after the fact: QE Live's own browser profile against the capture. This is
+-- the half the client can say BEFORE the mistake is made. Nothing is refused
+-- and no rating is touched.
+describe("the spec you are in against the spec the plan is for", function()
+    local ns, world
+
+    local GUARDIAN = { index = 3, id = 104, name = "Guardian", icon = 132276, role = "TANK" }
+
+    before_each(function()
+        ns, world = loadWithChunk(verdictChunkSource(twoRealExports()))
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- The committed export is a Restoration Druid's, which is what makes
+    -- Guardian a disagreement rather than a made-up pair.
+    it("reads the plan's own spec off the committed export", function()
+        -- QE Live's own word for it, carried through unchanged: the export says
+        -- "Restoration Druid" and the clause quotes the export.
+        assert.equal("Restoration Druid", ns.UI.ActiveVerdict().spec)
+    end)
+
+    -- The string, once. Proven red by returning nil from `SpecClause` whenever
+    -- the two names differ: every assertion below is nil.
+    it("says which spec you are in and which the plan is for", function()
+        world.spec = GUARDIAN
+        assert.equal(
+            "you're in Guardian; this plan is for Restoration Druid - switch and refresh",
+            ns.Companion.SpecClauseNow()
+        )
+    end)
+
+    it("says nothing when the two agree", function()
+        -- The client says "Restoration" and the export says "Restoration Druid":
+        -- one contains the other, which is agreement (`profile.js` compares its
+        -- own pair the same way).
+        assert.equal("Restoration", ns.Companion.CurrentSpec())
+        assert.is_nil(ns.Companion.SpecClauseNow())
+    end)
+
+    it("says nothing when the client names no spec and no capture does either", function()
+        world.spec = nil
+        assert.is_nil(ns.Companion.SpecClauseNow())
+    end)
+
+    -- The issue's own shape: `specInfo = { 104, "Guardian" }` as an `env`
+    -- capture stores it. The fallback is what a flush needs - the owner's
+    -- 2026-09-16 file shows `GetSpecializationInfo` answering id 0 and no name
+    -- at `PLAYER_LOGOUT`, so at that moment the stored capture is the only
+    -- thing that names a spec at all.
+    it("falls back to the newest env capture when the client will not answer", function()
+        world.spec = nil
+        local env = { specInfo = { 104, "Guardian", n = 2 } }
+        assert.equal("Guardian", ns.Companion.SpecFromEnv(env))
+        assert.equal(
+            "you're in Guardian; this plan is for Restoration Druid - switch and refresh",
+            ns.Companion.SpecClause(ns.UI.ActiveVerdict(), env)
+        )
+        -- and `{ absent = true }`, which is what the capture writes when the
+        -- client names nothing, names nothing here either
+        assert.is_nil(ns.Companion.SpecFromEnv({ specInfo = { absent = true } }))
+    end)
+
+    -- It never stops anything. Proven red by returning early from `Refresh`
+    -- when the clause is non-nil: nothing is captured and nothing reloads.
+    it("is said before the refresh captures, and the refresh happens anyway", function()
+        world.spec = GUARDIAN
+        H.dress(world)
+        ns.Companion.Refresh()
+        assert.is_truthy(world.output():find("this plan is for Restoration", 1, true))
+        assert.equal(1, #ns.db.global.captures.inventory)
+        assert.equal(1, world.reloads)
+    end)
+
+    -- R-6a's load line answers the question the player asked; this answers the
+    -- one he did not know to ask, at the same moment and after it.
+    it("is said at the load after a refresh, under the rating's own news", function()
+        world.spec = GUARDIAN
+        ns.db.global.drift = { refreshStartedAt = date("!%Y-%m-%dT%H:%M:%SZ", time() - 60) }
+        ns.companionStatus = { state = "skipped", finishedAt = "2026-09-13T22:06:00Z" }
+        local line = ns.Drift.LoadLine()
+        assert.equal(ns.Drift.LOAD_SKIPPED, line)
+        assert.is_truthy(world.output():find("this plan is for Restoration", 1, true))
+    end)
+
+    -- The strip: the sentence takes the line and the four facts go one surface
+    -- in, exactly as M3-16b's wait does. Proven red by returning
+    -- `table.concat(parts, ...)` from `lineFrom` regardless: the line is the
+    -- facts again and the clause is nowhere.
+    it("takes the strip's own line, and the facts it displaces go to the tooltip", function()
+        world.spec = GUARDIAN
+        local model = ns.UI.StatusStripModel()
+        assert.equal("you're in Guardian; this plan is for Restoration Druid - switch and refresh", model.text)
+        assert.equal(model.text, model.specClause)
+        assert.is_truthy(table.concat(model.tooltip, "\n"):find("Restoration", 1, true))
+    end)
+
+    it("leaves the strip's line alone when the two agree", function()
+        local model = ns.UI.StatusStripModel()
+        assert.is_nil(model.specClause)
+        assert.is_truthy(model.text:find("Restoration", 1, true))
     end)
 end)

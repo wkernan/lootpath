@@ -261,6 +261,39 @@ end)
 -- list (they only answer questions); C_Bank also carries functions that move
 -- items and money, which is why no capture ever iterates a namespace and calls
 -- what it finds.
+--
+-- **R-7b (WKE-591): an empty read is not a capture.** On a real logout the
+-- client answers this scan with nothing. The owner's live SavedVariables, read
+-- 2026-09-16 with `tools/companion/lib/lua-savedvariables.js`, carry the flush
+-- of his 2026-09-15 22:11:52 logout: `equipped 0`, every one of the twenty bag
+-- records present but `numSlots 0` and no items, the whole capture 0.58 ms -
+-- against 15.4 ms and `equipped 15` for the refresh 14 hours later, and 14.4
+-- and 29.6 ms for the two reload flushes beside it. The `env` read of that same
+-- flush still answers `UnitLevel 90` and `UnitClass Druid`, so it is the item
+-- and container layer that is gone, not the character. The client is not asked
+-- to explain itself; the pair of facts - no equipped links, and a character who
+-- has a level and a class - is the tell, and a read that shows it is refused
+-- rather than stored, so the newest good read stays the newest.
+ns.INVENTORY_EMPTY_REASON = "the client answered the equipment scan with nothing"
+
+local function inventoryIsEmpty(data)
+    if type(data) ~= "table" or type(data.equipped) ~= "table" then
+        return nil
+    end
+    if #data.equipped > 0 then
+        return nil
+    end
+    -- The same two reads `env` makes one capture earlier in the same flush,
+    -- asked here directly: a character who is naked has no level and no class
+    -- either, and this must never refuse a read that is genuinely empty.
+    local level = ns.Probe(UnitLevel, "player")[1]
+    local class = ns.Probe(UnitClass, "player")[1]
+    if type(level) == "number" and level > 0 and type(class) == "string" and class ~= "" then
+        return ns.INVENTORY_EMPTY_REASON
+    end
+    return nil
+end
+
 ns.RegisterCapture(
     "inventory",
     "equipped slots, every bag index, bank state (open the bank first for that half)",
@@ -340,7 +373,8 @@ ns.RegisterCapture(
         end
 
         return { equipped = equipped, bags = bags, bank = bank }
-    end
+    end,
+    { refuse = inventoryIsEmpty }
 )
 
 -- vault: the same C_WeeklyRewards calls the SimulationCraft addon makes, raw.

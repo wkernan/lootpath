@@ -348,6 +348,17 @@ end
 -- cannot be one synchronous call the way env, inventory and vault are. Only
 -- one capture runs at a time, and an async one that never calls back is
 -- abandoned after ns.CAPTURE_TIMEOUT_SECONDS rather than wedging the command.
+--
+-- A capture registered with `{ refuse = function(data) ... end }` gets to look
+-- at what it has just read and say, in one sentence, that it is not worth
+-- storing (R-7b, WKE-591). `refuse` returns a reason string to refuse, or nil
+-- to store. The refusal becomes the capture's result - `{ ok = false, reason =
+-- ... }`, the same shape combat and an unknown name already return - and
+-- NOTHING is written to `db.global.captures`. That is the whole point: the
+-- four-deep history is the only thing the companion reads, so an empty read
+-- that stored would push the newest good one a place towards the edge, and the
+-- flush after it off the end. A capture with no `refuse` stores whatever it
+-- read, exactly as before.
 ns.CAPTURE_TIMEOUT_SECONDS = 180
 
 function ns.RegisterCapture(name, help, run, opts)
@@ -356,7 +367,12 @@ function ns.RegisterCapture(name, help, run, opts)
     if not ns.captures[name] then
         ns.captureOrder[#ns.captureOrder + 1] = name
     end
-    ns.captures[name] = { help = help or "", run = run, async = (opts and opts.async) or false }
+    ns.captures[name] = {
+        help = help or "",
+        run = run,
+        async = (opts and opts.async) or false,
+        refuse = (opts and opts.refuse) or nil,
+    }
 end
 
 -- How the capture that is running was asked for: "refresh" while
@@ -405,6 +421,20 @@ local function storeSnapshot(name, data, startedAt)
     return { ok = true, snapshot = snapshot, count = #list }
 end
 
+-- The capture's own look at what it read, between reading and storing (R-7b,
+-- WKE-591). Guarded the way `entry.run` is: a `refuse` that errors must not
+-- turn a good read into a lost one, so it is pcalled and a throw stores.
+local function refusalFor(entry, name, data)
+    if type(entry.refuse) ~= "function" then
+        return nil
+    end
+    local ok, reason = pcall(entry.refuse, data)
+    if not ok or type(reason) ~= "string" or reason == "" then
+        return nil
+    end
+    return string.format("capture '%s' read nothing worth storing: %s", name, reason)
+end
+
 -- Returns the result for a synchronous capture, or `{ ok = true, pending =
 -- true }` for an async one that has not finished yet. `onComplete` is called
 -- with the final result either way, exactly once. `args` is whatever the
@@ -446,6 +476,10 @@ function ns.RunCapture(name, onComplete, args)
         if not ok then
             return complete({ ok = false, reason = string.format("capture '%s' errored: %s", name, tostring(data)) })
         end
+        local refused = refusalFor(entry, name, data)
+        if refused then
+            return complete({ ok = false, reason = refused, refusedStore = true })
+        end
         return complete(storeSnapshot(name, data, startedAt))
     end
 
@@ -459,7 +493,12 @@ function ns.RunCapture(name, onComplete, args)
         if failure then
             settled = complete({ ok = false, reason = string.format("capture '%s' %s", name, tostring(failure)) })
         else
-            settled = complete(storeSnapshot(name, data, startedAt))
+            local refused = refusalFor(entry, name, data)
+            if refused then
+                settled = complete({ ok = false, reason = refused, refusedStore = true })
+            else
+                settled = complete(storeSnapshot(name, data, startedAt))
+            end
         end
     end
     local ok, err = pcall(entry.run, finish, args)
@@ -536,9 +575,56 @@ local function onAddonLoaded()
     ns.ready = true
 end
 
+-- R-7b (WKE-591). **The measurement, not a fix.** The flush's `inventory` read
+-- is empty on a real logout and full on a `/reload`, and nothing available from
+-- a desk says whether the equipment is already gone at `PLAYER_LOGOUT` or
+-- merely late. Ketho's `SystemDocumentation.lua` declares both
+-- `PLAYER_LEAVING_WORLD` and `PLAYER_LOGOUT` as `SynchronousEvent = true` and
+-- says NOTHING about which fires first or what still answers at either, so the
+-- order is not assumed here: it is measured, on the owner's own next logout.
+--
+-- This counts equipped links and stores nothing. It is the cheapest read that
+-- can answer the question - `GetInventoryItemLink` for at most nineteen slots,
+-- no item data, no containers - and `PLAYER_LEAVING_WORLD` fires on every
+-- loading screen, so cheap is the requirement. The answer is left on `ns` and
+-- carried into the flush's `env` snapshot by `ns.Companion.CaptureAtFlush`,
+-- where a pull can be read against the `inventory` read of the same flush:
+-- equipped links one event earlier and none at the flush is "late", none at
+-- either is "already gone".
+--
+-- The whole flush sequence is deliberately NOT moved here. `PLAYER_LEAVING_WORLD`
+-- is not a logout - it is every zone change and every loading screen - and the
+-- sequence costs 17-49 ms measured (R-7a, and the owner's 2026-09-16 file), which
+-- is not a thing to spend on each of them on a guess about ordering.
+ns.leavingWorld = nil
+
+function ns.ProbeEquippedAtLeavingWorld()
+    -- Nothing runs in combat, including this (CLAUDE.md, client rules).
+    if InCombatLockdown and InCombatLockdown() then
+        return nil
+    end
+    local startedAt = debugprofilestop and debugprofilestop() or nil
+    local seen = 0
+    local first = INVSLOT_FIRST_EQUIPPED or 1
+    local last = INVSLOT_LAST_EQUIPPED or 19
+    for slot = first, last do
+        if ns.Probe(GetInventoryItemLink, "player", slot)[1] then
+            seen = seen + 1
+        end
+    end
+    ns.leavingWorld = {
+        equipped = seen,
+        at = time(),
+        atLocal = date("%Y-%m-%dT%H:%M:%S"),
+        elapsedMs = startedAt and debugprofilestop and (debugprofilestop() - startedAt) or nil,
+    }
+    return ns.leavingWorld
+end
+
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("PLAYER_LOGIN")
+frame:RegisterEvent("PLAYER_LEAVING_WORLD")
 -- R-7 (WKE-579). The last thing the addon does is take the same four snapshots
 -- `/lootpath refresh` takes, so that the SavedVariables the client is about to
 -- flush carry the gear the player is leaving in rather than the gear the last
@@ -596,6 +682,11 @@ frame:SetScript("OnEvent", function(self, event, arg1)
         else
             self:UnregisterEvent("PLAYER_REGEN_ENABLED")
         end
+    elseif event == "PLAYER_LEAVING_WORLD" then
+        -- Guarded for the same reason the logout is, and for one more: this
+        -- fires on every loading screen, so an error here would be an error on
+        -- every one of them.
+        pcall(ns.ProbeEquippedAtLeavingWorld)
     elseif event == "PLAYER_LOGOUT" then
         -- Guarded rather than assumed: the unload is the one moment where an
         -- error in the addon would be the last thing the player sees.

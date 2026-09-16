@@ -511,6 +511,31 @@ describe("ns.Drift.LoadLine, the five things the load after a refresh can say", 
         assert.is_nil(ns.db.global.drift.refreshStartedAt)
     end)
 
+    -- R-7b (WKE-591). The second `skipped`, and the opposite news. The
+    -- companion's own message is prose, so the exit code is what the line is
+    -- chosen by. Proven red by dropping the `exitCode` test from `LoadLine`:
+    -- the load says "your gear hasn't changed since the last rating" about a
+    -- run that was never given any gear at all.
+    it("says the gear never reached the companion when that is why it skipped", function()
+        ns.companionStatus = {
+            state = "skipped",
+            startedAt = "2026-09-14T23:10:05Z",
+            finishedAt = "2026-09-14T23:10:06Z",
+            exitCode = ns.Companion.EXIT_EMPTY_GEAR,
+            message = "refusing to rate a profile with no equipped gear (the newest inventory read is empty); "
+                .. "the previous verdict is untouched",
+        }
+        local line = ns.Drift.LoadLine(at(NOW))
+        assert.equal(
+            "your gear didn't reach the companion - the last read of it was empty - so the plan you have is "
+                .. "untouched. Try /lootpath refresh.",
+            line
+        )
+        assert.not_equal(ns.Drift.LOAD_SKIPPED, line)
+        said(line)
+        assert.is_nil(ns.db.global.drift.refreshStartedAt)
+    end)
+
     it("names the stage when C-9 says the run died", function()
         ns.companionStatus = {
             state = "failed",

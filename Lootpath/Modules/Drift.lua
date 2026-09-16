@@ -86,6 +86,13 @@ Drift.WAIT_CHAT_MEASURED = "usually takes about %s"
 -- single answer, which the strip reads through `Drift.Waiting` as well - so the
 -- chat frame and the strip cannot say two different things about one run.
 Drift.LOAD_SKIPPED = "your gear hasn't changed since the last rating, so the plan you have is current."
+-- R-7b (WKE-591): the other `skipped`, and the opposite news. C-4's skip says
+-- the plan is already right; this one says nothing was sent at all, so the plan
+-- is only as new as the last read that worked. The two are told apart by the
+-- exit code the companion writes (`ns.Companion.EXIT_EMPTY_GEAR`), never by its
+-- message.
+Drift.LOAD_SKIPPED_EMPTY = "your gear didn't reach the companion - the last read of it was empty - so the "
+    .. "plan you have is untouched. Try /lootpath refresh."
 Drift.LOAD_DONE = "rated just now; the plan is current."
 Drift.LOAD_FAILED = "the rating failed%s; see companion.log."
 Drift.LOAD_UNSEEN = "the companion hasn't been seen; is it running?"
@@ -527,7 +534,11 @@ function Drift.LoadLine(now)
         local db = store()
         line = string.format(Drift.WAIT_CHAT_LINE, Drift.ChatReadyText(db and db.runSeconds))
     elseif decision == "skipped" then
-        line = Drift.LOAD_SKIPPED
+        if status and status.exitCode == ns.Companion.EXIT_EMPTY_GEAR then
+            line = Drift.LOAD_SKIPPED_EMPTY
+        else
+            line = Drift.LOAD_SKIPPED
+        end
     elseif decision == "done" then
         line = Drift.LOAD_DONE
     elseif decision == "unseen" then
@@ -545,6 +556,14 @@ function Drift.LoadLine(now)
         clearWait(store())
     end
     ns.Log("%s", line)
+    -- R-7b (WKE-591): a second sentence, and only when there is one to say.
+    -- The load line answers the question the player asked; this answers the one
+    -- he did not know to ask, at the same moment and on the same surface. It is
+    -- printed after, not instead: the rating's own news comes first.
+    local specClause = ns.Companion.SpecClauseNow()
+    if specClause then
+        ns.Log("%s", specClause)
+    end
     return line
 end
 
