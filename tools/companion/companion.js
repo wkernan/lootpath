@@ -66,6 +66,12 @@ const EXIT = {
     emptyGear: 8,
 };
 
+// The exit codes that are a SKIP rather than a failure (R-7c, WKE-594): the run
+// ended early on purpose, nothing broke, and the previous verdict is the best
+// answer there is. The status file already says `skipped` for these; this is
+// what keeps the log from saying `failed` in the same breath.
+const SKIPPED_EXITS = new Set([EXIT.emptyGear]);
+
 // Said before the fork is touched, and the only thing said: a profile with no
 // equipped gear is not a question QE Live can be asked. The previous verdict
 // stays on disk, which is the sentence's own promise (R-7b, WKE-591).
@@ -184,7 +190,10 @@ async function once(config, log, args, deps) {
     // After `--profile-only`, deliberately: that flag opens nothing and writes
     // nothing, and printing the empty profile is how this gets diagnosed.
     if (profile.counts.equipped === 0) {
-        log.error(EMPTY_GEAR_LINE);
+        // `log.skipped`, not `log.error` (R-7c, WKE-594): the status file has
+        // said `skipped` since R-7b and the log said `FAILED:` beside it, which
+        // is the one word this path must not use - nothing broke.
+        log.skipped(EMPTY_GEAR_LINE);
         status.skipped(EMPTY_GEAR_LINE, { exitCode: EXIT.emptyGear });
         return EXIT.emptyGear;
     }
@@ -389,6 +398,15 @@ function whatThisWriteCarried(profile, stored) {
     if (isNew === false) {
         return 'run after a logout or a plain reload - nothing new was captured';
     }
+    // R-7c (WKE-594). **The flush that refused the inventory captured no gear,
+    // so the line must not say it did.** A real logout never reads the
+    // equipment - four measured, four empty - and R-7b refuses that read rather
+    // than storing it, so what this run rated is an OLDER inventory snapshot.
+    // Which one is the fact worth printing: the profile is built from the
+    // newest, and its stamp is the profile's own header line.
+    if ((capture.flushRefusals || []).includes('inventory')) {
+        return `run after a logout that could not read the gear; rating the inventory read of ${profile.capturedAtLocal}`;
+    }
     if (capture.trigger === 'flush' || capture.trigger === 'logout') {
         return 'run after a logout or reload (gear captured at the flush)';
     }
@@ -495,7 +513,13 @@ async function main() {
     watch(found.file, { debounceMs: config.debounceMs }, async () => {
         log.info('SavedVariables changed');
         const result = await once(config, log, args, { status: seen.status });
-        if (result !== EXIT.ok) log.warn(`that run failed with exit code ${result}; the previous verdict file is untouched`);
+        if (SKIPPED_EXITS.has(result)) {
+            // R-7c (WKE-594): the same word the status file uses. `failed` here
+            // said the opposite of `skipped` there about one run.
+            log.skipped(`that run was skipped with exit code ${result}; the previous verdict file is untouched`);
+        } else if (result !== EXIT.ok) {
+            log.warn(`that run failed with exit code ${result}; the previous verdict file is untouched`);
+        }
     });
     // Never resolves: the watcher owns the process from here.
     await new Promise(() => {});

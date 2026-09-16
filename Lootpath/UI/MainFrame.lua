@@ -106,6 +106,18 @@ function UI.AgeText(iso, now)
     if not seconds then
         return type(iso) == "string" and iso or "at an unknown time"
     end
+    return UI.AgeTextFromSeconds(seconds)
+end
+
+-- The same words off an elapsed count rather than a stamp (R-7c, WKE-594). A
+-- capture snapshot records `capturedAt` as the client's own epoch and nothing
+-- else, so a surface asking how old the last good read is has the seconds
+-- already and no ISO string to hand `UI.AgeText`. One formatter, two ways in;
+-- `nil` for a count that is not a number, which is the caller's "say nothing".
+function UI.AgeTextFromSeconds(seconds)
+    if type(seconds) ~= "number" then
+        return nil
+    end
     if seconds < 5 then
         return "just now"
     end
@@ -433,20 +445,42 @@ function UI.StatusStripModel(now)
     -- where the facts were, not a surface in, for the same reason M3-16b moved
     -- the wait there. It is rare by construction: it says nothing at all unless
     -- the two specs genuinely disagree.
+    --
+    -- **R-7c (WKE-594): the gear the plan is about can be older than the plan,
+    -- and that displaces the facts the same way.** A logout never reads the
+    -- gear, so the newest stored read can be a day behind what the player is
+    -- wearing; every fact on the line is then a fact about a plan for gear he
+    -- took off yesterday. It goes AHEAD of the spec clause, because a plan
+    -- rated for the wrong gear is wrong whichever spec it was rated in, and
+    -- behind the wait, because a player who has already clicked is owed the
+    -- news about the run he asked for.
     local specClause = ns.Companion.SpecClauseNow and ns.Companion.SpecClauseNow() or nil
+    local gearClause = ns.Drift and ns.Drift.GearUnreadText and ns.Drift.GearUnreadText(now) or nil
+    local clauses = {}
+    if gearClause then
+        clauses[#clauses + 1] = gearClause
+    end
+    if specClause then
+        clauses[#clauses + 1] = specClause
+    end
     local function lineFrom(parts, tooltip)
-        if not wait and not specClause then
+        if not wait and #clauses == 0 then
             return table.concat(parts, UI.SEPARATOR)
         end
         table.insert(tooltip, 1, table.concat(parts, UI.SEPARATOR))
         if wait then
             table.insert(tooltip, 1, wait.tooltip)
-            if specClause then
-                tooltip[#tooltip + 1] = specClause
+            for _, clause in ipairs(clauses) do
+                tooltip[#tooltip + 1] = clause
             end
             return wait.text
         end
-        return specClause
+        -- The first clause takes the line; a second goes under the facts it
+        -- displaced, where the reader was looking a moment ago.
+        for index = 2, #clauses do
+            tooltip[#tooltip + 1] = clauses[index]
+        end
+        return clauses[1]
     end
     -- The content type is deliberately dropped on the floor here: since V-2 it
     -- is the tooltip's, through UI.VerdictNoteText, and not the line's.
@@ -478,6 +512,7 @@ function UI.StatusStripModel(now)
             companion = companion,
             wait = wait,
             specClause = specClause,
+            gearClause = gearClause,
             tooltip = tooltip,
         }
     end
@@ -522,6 +557,7 @@ function UI.StatusStripModel(now)
         companion = companion,
         wait = wait,
         specClause = specClause,
+        gearClause = gearClause,
         tooltip = tooltip,
     }
 end

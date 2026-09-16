@@ -93,6 +93,14 @@ Drift.LOAD_SKIPPED = "your gear hasn't changed since the last rating, so the pla
 -- message.
 Drift.LOAD_SKIPPED_EMPTY = "your gear didn't reach the companion - the last read of it was empty - so the "
     .. "plan you have is untouched. Try /lootpath refresh."
+-- R-7c (WKE-594): the sixth thing a load can say, and the only one of the six
+-- that is not about a refresh at all. A real logout never reads the gear - four
+-- measured, four empty (`ns.Companion.GearUnreadAtFlush`) - so R-7's "log out
+-- and your plan is current next login" is retired, and this is where it is
+-- retired in the player's own words instead of in a comment. The age is the
+-- newest stored read's, because that read is what the plan on screen is about.
+Drift.LOAD_GEAR_UNREAD = "your logout couldn't read your gear, so this plan is from %s "
+    .. "\194\183 /lootpath refresh rates what you wear now"
 Drift.LOAD_DONE = "rated just now; the plan is current."
 Drift.LOAD_FAILED = "the rating failed%s; see companion.log."
 Drift.LOAD_UNSEEN = "the companion hasn't been seen; is it running?"
@@ -371,13 +379,12 @@ end
 -- No side effects: the caller clears. `Drift.LoadLine` runs before anything can
 -- have cleared the stamp out from under it (see `ns.onReady` at the foot of
 -- this file), and the strip clears from then on.
-function Drift.Decide(now)
+local function refreshDecision(now)
     local db = store()
     local startedAt = db and db.refreshStartedAt
     if type(startedAt) ~= "string" then
         return nil
     end
-    now = now or time()
     local startedEpoch = ns.EpochFromISO(startedAt, now)
     if not startedEpoch or (now - startedEpoch) > Drift.WAIT_GIVE_UP_SECONDS then
         return nil
@@ -406,6 +413,39 @@ function Drift.Decide(now)
     -- Everything left - a status file that is there but says nothing this can
     -- read, and an `idle` run older than the click - is a rating still to come.
     return "waiting", status, startedAt
+end
+
+-- The sentence R-7c retires the promise with, or nil when there is nothing to
+-- retire. Built here rather than in `Decide` so the strip can ask for the words
+-- directly: `Decide` names the state and this says it.
+function Drift.GearUnreadText(now)
+    local inventory = ns.Companion and ns.Companion.GearUnreadAtFlush and ns.Companion.GearUnreadAtFlush()
+    if not inventory then
+        return nil
+    end
+    local age = ns.UI.AgeTextFromSeconds((now or time()) - inventory.capturedAt)
+    if not age then
+        return nil
+    end
+    return string.format(Drift.LOAD_GEAR_UNREAD, age)
+end
+
+function Drift.Decide(now)
+    now = now or time()
+    local decision, status, since = refreshDecision(now)
+    if decision then
+        return decision, status, since
+    end
+    -- R-7c (WKE-594): nothing was asked, and there is still one thing worth
+    -- saying - the last unload could not read the gear, so the plan on screen
+    -- is older than the player has any reason to think. It is LAST, after every
+    -- refresh state, because a player who has just asked a question is owed the
+    -- answer to that one first; and it is inside `Decide` so the strip and the
+    -- chat line cannot disagree about it either.
+    if Drift.GearUnreadText(now) then
+        return "gearunread"
+    end
+    return nil
 end
 
 -- Is a refresh still out there? Returns the ISO stamp the elapsed time counts
@@ -524,6 +564,7 @@ end
 --
 -- Returns the line it printed, or nil.
 function Drift.LoadLine(now)
+    now = now or time()
     local decision, status = Drift.Decide(now)
     if not decision then
         clearWait(store())
@@ -539,6 +580,12 @@ function Drift.LoadLine(now)
         else
             line = Drift.LOAD_SKIPPED
         end
+    elseif decision == "gearunread" then
+        -- R-7c (WKE-594). Not a refresh state: said at the login after a logout
+        -- that captured no gear, and said again at the next one if that is
+        -- still true. A `/reload` or a refresh stores a read newer than the
+        -- refusal and it stops being said.
+        line = Drift.GearUnreadText(now)
     elseif decision == "done" then
         line = Drift.LOAD_DONE
     elseif decision == "unseen" then

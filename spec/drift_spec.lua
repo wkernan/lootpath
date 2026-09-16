@@ -702,3 +702,209 @@ describe("the refresh labels what it captured (R-6)", function()
         assert.equal("command", list[#list].trigger)
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- R-7c (WKE-594): the sixth thing a load can say, and the one that is not about
+-- a refresh.
+--
+-- A real logout never reads the gear. Four were measured - 2026-09-15 19:19 and
+-- 22:11:52, 2026-09-16 14:00:11 and 14:25:58 - and all four answered the
+-- equipment scan with nothing; on the last of them the count taken one event
+-- earlier, at `PLAYER_LEAVING_WORLD`, was 0 as well, so no ordering of the two
+-- events would help. R-7b refuses that read rather than storing it, and records
+-- the refusal on the `env` snapshot of the same flush. This is what the player
+-- is told because of it.
+--
+-- Everything below is hand-built rather than replayed: no committed pull has an
+-- `env` snapshot with `flushRefusals` on it beside an older `inventory` read in
+-- a shape a Lua spec can move the clock over. The shape itself is not invented -
+-- it is read off the owner's 14:25:59 pull,
+-- `spec/fixtures/captures/Lootpath-20260916-142559.lua`, the `env` list's newest
+-- entry, and the refusal string is the addon's own.
+describe("ns.Drift and a logout that could not read the gear (R-7c)", function()
+    local ns, world
+    local NOW = "2026-09-16T14:40:00Z"
+    -- His own two stamps: the flush at the 14:25:58 logout, and the newest read
+    -- that worked, twenty-five minutes before it.
+    local FLUSH = "2026-09-16T14:25:59Z"
+    local LAST_GOOD_READ = "2026-09-16T14:00:11Z"
+
+    before_each(function()
+        ns, world = loadToday()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function at(iso)
+        return ns.EpochFromISO(iso)
+    end
+
+    -- The refusal the addon writes, built out of `ns.INVENTORY_EMPTY_REASON` and
+    -- `ns.RunCapture`'s own wrapper, so the spec cannot drift from the string a
+    -- real refusal produces.
+    local function refusal()
+        return {
+            capture = "inventory",
+            reason = "capture 'inventory' read nothing worth storing: " .. ns.INVENTORY_EMPTY_REASON,
+        }
+    end
+
+    local function stored(options)
+        local opts = options or {}
+        ns.db.global.captures.env = {
+            {
+                name = "env",
+                trigger = opts.trigger or "flush",
+                capturedAt = at(FLUSH),
+                capturedAtLocal = "2026-09-16T14:25:59",
+                flushRefusals = opts.refusals,
+                data = {},
+            },
+        }
+        ns.db.global.captures.inventory = {
+            {
+                name = "inventory",
+                trigger = "refresh",
+                capturedAt = at(opts.inventoryAt or LAST_GOOD_READ),
+                capturedAtLocal = "2026-09-16T14:00:11",
+                data = {},
+            },
+        }
+    end
+
+    local function said(line)
+        assert.is_truthy(tostring(world.output()):find(ns.PREFIX .. line, 1, true))
+    end
+
+    it("says how old the plan's gear is, and what fixes it", function()
+        stored({ refusals = { refusal() } })
+        assert.equal("gearunread", ns.Drift.Decide(at(NOW)))
+        local line = ns.Drift.LoadLine(at(NOW))
+        assert.equal(
+            "your logout couldn't read your gear, so this plan is from 40 minutes ago \194\183 "
+                .. "/lootpath refresh rates what you wear now",
+            line
+        )
+        said(line)
+    end)
+
+    -- The strip and the chat line are one decision, which is what `Drift.Decide`
+    -- is for: the sentence on the line is the same string, character for
+    -- character, as the one the load printed.
+    it("puts the same sentence on the status strip", function()
+        stored({ refusals = { refusal() } })
+        local model = ns.UI.StatusStripModel(at(NOW))
+        assert.equal(ns.Drift.GearUnreadText(at(NOW)), model.gearClause)
+        assert.equal(model.gearClause, model.text)
+        -- and the facts it displaced are at the top of the tooltip, not lost
+        assert.is_truthy(model.tooltip[1])
+    end)
+
+    -- The negative that matters most: a `/reload` flush reads the gear fine -
+    -- `equipped 15` in 14-30 ms on every one measured - so it refuses nothing
+    -- and this must say nothing at all.
+    it("says nothing about a flush that read the gear", function()
+        stored({ refusals = nil })
+        assert.is_nil(ns.Drift.GearUnreadText(at(NOW)))
+        assert.is_nil(ns.Drift.Decide(at(NOW)))
+        assert.is_nil(ns.Drift.LoadLine(at(NOW)))
+        assert.is_nil(ns.UI.StatusStripModel(at(NOW)).gearClause)
+    end)
+
+    -- And the cure is the read itself: a refresh or a reload stores an
+    -- `inventory` snapshot newer than the refusal, and the sentence stops being
+    -- said without anything clearing a flag.
+    it("stops the moment a newer read exists", function()
+        stored({ refusals = { refusal() }, inventoryAt = "2026-09-16T14:30:00Z" })
+        assert.is_nil(ns.Drift.GearUnreadText(at(NOW)))
+        assert.is_nil(ns.Drift.LoadLine(at(NOW)))
+    end)
+
+    -- A refusal of something else is not this. The flush captures `env`,
+    -- `inventory` and `currencies`, and only one of the three is the gear.
+    it("says nothing when the flush refused some other capture", function()
+        stored({ refusals = { { capture = "currencies", reason = "errored: something" } } })
+        assert.is_nil(ns.Drift.GearUnreadText(at(NOW)))
+    end)
+
+    -- The label has to be the flush's. A `command` or `refresh` snapshot cannot
+    -- carry `flushRefusals` at all, and a reader that trusted the field alone
+    -- would believe one that did.
+    it("says nothing when the newest env snapshot is not a flush", function()
+        stored({ refusals = { refusal() }, trigger = "refresh" })
+        assert.is_nil(ns.Drift.GearUnreadText(at(NOW)))
+    end)
+
+    -- The player who has just clicked refresh asked a question, and the answer
+    -- to THAT is what the load owes him; this waits behind every refresh state.
+    it("never displaces the answer to a refresh the player asked for", function()
+        stored({ refusals = { refusal() } })
+        ns.companionStatus = { state = "running", startedAt = "2026-09-16T14:39:05Z" }
+        ns.db.global.drift.refreshStartedAt = "2026-09-16T14:39:00Z"
+        assert.equal("waiting", ns.Drift.Decide(at(NOW)))
+        assert.equal(
+            "your gear is sent; the rating usually takes about a minute. The window says when it's ready.",
+            ns.Drift.LoadLine(at(NOW))
+        )
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- R-7c (WKE-594): the promise itself, retired.
+--
+-- R-7 (WKE-579) said "log out and your plan is current next login" and the
+-- addon's own words were written to it. A logout never captures gear, so no
+-- player-facing string may say or imply that it does. The one string that is
+-- allowed to mention a logout at all is the retirement - it says the logout
+-- could NOT read the gear - so the guard is the promise's shape rather than the
+-- word: a sentence that puts a logout together with capturing, or with the plan
+-- being current, is the thing that is gone.
+describe("no player-facing string promises that a logout captures gear (R-7c)", function()
+    local ns, world
+
+    before_each(function()
+        ns, world = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function promises(text)
+        local lower = tostring(text):lower()
+        if not (lower:find("logout", 1, true) or lower:find("log out", 1, true)) then
+            return false
+        end
+        return lower:find("captur", 1, true) ~= nil or lower:find("current", 1, true) ~= nil
+    end
+
+    local function walk(where, value, offences, seen)
+        if type(value) == "string" then
+            if promises(value) then
+                offences[#offences + 1] = where .. ": " .. value
+            end
+            return
+        end
+        if type(value) ~= "table" or seen[value] then
+            return
+        end
+        seen[value] = true
+        for key, child in pairs(value) do
+            walk(where .. "." .. tostring(key), child, offences, seen)
+        end
+    end
+
+    it("says nothing of the kind in Drift's words, the companion's, or the slash help", function()
+        local offences, seen = {}, {}
+        walk("Drift", ns.Drift, offences, seen)
+        walk("Companion", ns.Companion, offences, seen)
+        ns.HandleSlash("help")
+        ns.HandleSlash("status")
+        for line in tostring(world.output()):gmatch("[^\n]+") do
+            walk("chat", line, offences, seen)
+        end
+        assert.equal("", table.concat(offences, "\n"))
+    end)
+end)

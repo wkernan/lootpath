@@ -122,6 +122,13 @@ function make(sink) {
         error(message) {
             emit('error', `FAILED: ${message}`);
         },
+        // A run that ended early on purpose (R-7c, WKE-594). `FAILED:` is for a
+        // run that broke, and the companion wrote it over its own `skipped`
+        // status file - one run, two words, and the harsher one was the wrong
+        // one. The prefix matches the state a reader will find on the file.
+        skipped(message) {
+            emit('skipped', `skipped: ${message}`);
+        },
         // stage("profile") -> done("15 equipped, 35 in bags") prints the note
         // and the elapsed milliseconds on one line.
         stage(name) {
