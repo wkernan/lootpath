@@ -802,6 +802,13 @@ function UI.ShowTab(frame, id)
     if type(_G.PanelTemplates_SetTab) == "function" then
         PanelTemplates_SetTab(frame, wanted)
     end
+    -- Equip Now opens at its first row: the scroll frame keeps its offset while
+    -- the tab is hidden, so a player who scrolled down, switched tab and came
+    -- back would otherwise find the list already part way through
+    -- (M5-1a, WKE-597).
+    if wanted == 1 and frame.equipPanel and UI.EquipPanel then
+        UI.EquipPanel.ScrollToTop(frame.equipPanel)
+    end
     return wanted
 end
 

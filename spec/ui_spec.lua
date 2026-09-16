@@ -501,6 +501,118 @@ describe("the Equip Now panel", function()
     end)
 end)
 
+-- M5-1a (WKE-597): the owner's Equip Now was cut off at the top - no Head row
+-- and a half-drawn Shoulder row under the bank hint. Two readings were open;
+-- the stub answered them before anything was built. The scroll frame's top
+-- anchor and the first row's anchor are IDENTICAL with the note line empty and
+-- with it full, so the note's own height cannot move a row inside the list -
+-- but nothing ever cleared the scroll offset, and an offset set before a
+-- refresh survived it, which is reading 1. Blizzard's own
+-- `ScrollFrame_OnScrollRangeChanged` clamps the bar to the new range rather
+-- than clearing it (SecureScrollTemplates.lua:64, in Ketho's annotations), and
+-- `UIPanelScrollBar_OnValueChanged` pushes the bar's value back into
+-- `SetVerticalScroll` (:22) - so the bar is cleared as well as the frame.
+describe("the Equip Now list's top (M5-1a)", function()
+    local ns, world, panel
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        world.bankOpen = false
+        ns.UI.Frame()
+        ns.UI.frame.pasteBox:SetText(readFile(REAL_EXPORT))
+        ns.UI.frame.importButton:Click()
+        panel = ns.UI.frame.equipPanel
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function topAnchor(frame)
+        for _, point in ipairs(frame.points) do
+            if point[1] == "TOPLEFT" then
+                return point
+            end
+        end
+        return nil
+    end
+
+    it("hangs the list under the note line when it has text", function()
+        assert.is_true(panel.summary:GetText() ~= "")
+        local point = topAnchor(panel.scroll)
+        assert.equal(panel.summary, point[2])
+        assert.equal("BOTTOMLEFT", point[3])
+        assert.equal(-ns.UI.EquipPanel.TOP_GAP, point[5])
+    end)
+
+    it("hangs it under the chips when the note line is empty", function()
+        -- The bank hint is the only thing this match has to say, so an open
+        -- bank leaves the note line with no text at all.
+        world.bankOpen = true
+        ns.UI.Refresh()
+        assert.equal("", panel.summary:GetText())
+        local point = topAnchor(panel.scroll)
+        assert.equal(panel.chips[1], point[2])
+        assert.equal("BOTTOMLEFT", point[3])
+        assert.equal(-ns.UI.EquipPanel.TOP_GAP, point[5])
+        -- And the first row is still at the very top of the list either way:
+        -- where the rows sit inside the list never depended on the note.
+        local row = topAnchor(panel.rows[1])
+        assert.equal(panel.list, row[2])
+        assert.equal("TOPLEFT", row[3])
+        assert.equal(0, row[5])
+    end)
+
+    it("starts a new row set at its first row, frame and bar both", function()
+        panel.scroll.ScrollBar:SetValue(60)
+        assert.equal(60, panel.scroll.verticalScroll)
+        local rows = panel.match.rows
+        assert.is_true(#rows > 2)
+        ns.UI.EquipPanel.Refresh(panel, { ok = true, rows = { rows[2] }, counts = panel.match.counts })
+        assert.equal(0, panel.scroll.verticalScroll)
+        -- The bar too: the template clamps ITS value to the new range on the
+        -- next resize and pushes it straight back into the frame, so a frame
+        -- scrolled to 0 over a bar still holding 60 does not stay at 0.
+        assert.equal(0, panel.scroll.ScrollBar:GetValue())
+    end)
+
+    it("keeps where the player had scrolled to when the same rows are drawn again", function()
+        panel.scroll.ScrollBar:SetValue(60)
+        ns.UI.EquipPanel.Refresh(panel, panel.match)
+        assert.equal(60, panel.scroll.verticalScroll)
+        assert.equal(60, panel.scroll.ScrollBar:GetValue())
+    end)
+
+    it("reads a row set by its slots and its rated items, not by what is worn", function()
+        local rows = panel.match.rows
+        local before = ns.UI.EquipPanel.RowSignature(panel.match)
+        -- The same rows with every status flipped: a bag update or an equip is
+        -- not a different list.
+        local same = { ok = true, rows = {}, counts = panel.match.counts }
+        for index, row in ipairs(rows) do
+            local copy = {}
+            for key, value in pairs(row) do
+                copy[key] = value
+            end
+            copy.status = "equipped_is_best"
+            same.rows[index] = copy
+        end
+        assert.equal(before, ns.UI.EquipPanel.RowSignature(same))
+        assert.is_true(ns.UI.EquipPanel.RowSignature({ ok = true, rows = { rows[1] } }) ~= before)
+        assert.equal("none", ns.UI.EquipPanel.RowSignature(nil))
+    end)
+
+    it("opens the tab at the top after the player scrolled down and left it", function()
+        panel.scroll.ScrollBar:SetValue(60)
+        ns.UI.SelectTab(ns.UI.frame, 2)
+        assert.equal(60, panel.scroll.verticalScroll)
+        ns.UI.SelectTab(ns.UI.frame, 1)
+        assert.equal(0, panel.scroll.verticalScroll)
+        assert.equal(0, panel.scroll.ScrollBar:GetValue())
+    end)
+end)
+
 -- WKE-541 (M2-4): the row the owner saw on his first day. The 2026-09-08
 -- inventory snapshot `/lootpath refresh` took at 12:45:26 (snapshot 7) joined
 -- to the export the companion wrote from it, which put the Great Vault's
