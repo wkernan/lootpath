@@ -5,6 +5,9 @@
 -- owner's screen is an in-game step (M2-3) and is not claimed here.
 local H = require("spec.helpers.addon")
 local R = require("spec.helpers.replay")
+-- The widget stub itself, for the one figure a fit test needs: what a headless
+-- font string says one character is worth (M5-2b, WKE-601).
+local Stub = require("spec.stubs.wow")
 
 local REAL_EXPORT = "spec/fixtures/qe/qe-droptimizer-Hotornot-cxeiassqdyvz.json"
 local SAMPLE_EXPORT = "spec/fixtures/qe/sample-handbuilt-v1.json"
@@ -1547,6 +1550,23 @@ describe("the window's chrome (M5-2)", function()
         assert.equal(frame.tabs[1], frame.tabs[2].points[1][2])
     end)
 
+    -- M5-2b (WKE-601): the owner's words on 2026-09-16 - "the copy is being
+    -- covered by the Spec symbol in the top left corner - let's move it down".
+    -- The strip is a full-width row BELOW the portrait ring, which Blizzard's
+    -- own template puts 55 points under the frame's top edge.
+    it("puts the status strip on its own full-width row below the portrait ring", function()
+        local left, right = frame.statusStrip.points[1], frame.statusStrip.points[2]
+        assert.equal("TOPLEFT", left[1])
+        assert.equal(frame, left[2])
+        assert.equal("TOPRIGHT", right[1])
+        assert.equal(frame, right[2])
+        -- one row, both ends at the same height, and that height is under the
+        -- ring rather than beside it
+        assert.equal(-ns.UI.STRIP_TOP, left[5])
+        assert.equal(-ns.UI.STRIP_TOP, right[5])
+        assert.is_true(ns.UI.STRIP_TOP > ns.UI.RING_BOTTOM)
+    end)
+
     it("runs each panel from under the strip to the frame's own bottom", function()
         for _, tab in ipairs(ns.UI.TABS) do
             local panel = frame[tab.key]
@@ -1621,6 +1641,61 @@ describe("the status strip (M5-2)", function()
         assert.is_nil(model.text:find("Dungeon", 1, true))
         assert.is_nil(model.text:find("Top Gear", 1, true))
         assert.is_truthy(table.concat(model.tooltip, "\n"):find("Dungeon Top Gear export", 1, true))
+    end)
+
+    -- M5-2b (WKE-601). The owner's screen on 2026-09-16 ended
+    -- `... companion: pr...`: the row was too narrow for four facts and the
+    -- client cut the last one mid-word. A narrow row now shows FEWER WHOLE
+    -- clauses - never a partial one - and the line entire goes to the tooltip,
+    -- so the fact that came off the row is one hover away.
+    it("drops whole clauses from the right when the row is too narrow", function()
+        H.chicagoClock(world, 1788729264 + 3600)
+        importDungeon()
+        local whole = ns.UI.StatusStripModel().parts
+        assert.equal(4, #whole)
+        local function width(count)
+            return #table.concat(whole, ns.UI.SEPARATOR, 1, count) * Stub.CHAR_WIDTH
+        end
+
+        -- Room for every fact: the line is the line, and nothing is repeated
+        -- into the tooltip.
+        frame.stripText:SetWidth(width(4))
+        local model = ns.UI.RefreshStrip(frame)
+        assert.equal(4, model.shownClauses)
+        assert.equal(table.concat(whole, ns.UI.SEPARATOR), frame.stripText:GetText())
+        assert.is_nil(model.tooltip[1]:find(whole[4], 1, true))
+
+        -- One character less than the whole line needs: the LAST fact comes
+        -- off, whole, and the three in front of it are untouched.
+        frame.stripText:SetWidth(width(4) - Stub.CHAR_WIDTH)
+        model = ns.UI.RefreshStrip(frame)
+        assert.equal(3, model.shownClauses)
+        assert.equal(table.concat(whole, ns.UI.SEPARATOR, 1, 3), frame.stripText:GetText())
+        assert.is_nil(frame.stripText:GetText():find(whole[4], 1, true))
+        -- and the whole line is the tooltip's first line, so the clause that
+        -- came off the row is one hover away
+        assert.equal(table.concat(whole, ns.UI.SEPARATOR), model.tooltip[1])
+
+        -- Narrower still: two facts, then one. The first clause always stays,
+        -- even when the row cannot hold it.
+        frame.stripText:SetWidth(width(2))
+        assert.equal(2, ns.UI.RefreshStrip(frame).shownClauses)
+        frame.stripText:SetWidth(width(1))
+        assert.equal(1, ns.UI.RefreshStrip(frame).shownClauses)
+        frame.stripText:SetWidth(1)
+        assert.equal(1, ns.UI.RefreshStrip(frame).shownClauses)
+        assert.equal(whole[1], frame.stripText:GetText())
+    end)
+
+    -- A row that has not been laid out yet - and every headless caller - reads
+    -- exactly as it did before the fit existed.
+    it("shortens nothing when there is no width to fit into", function()
+        H.chicagoClock(world, 1788729264 + 3600)
+        importDungeon()
+        frame.stripText:SetWidth(0)
+        local model = ns.UI.RefreshStrip(frame)
+        assert.equal(#model.parts, model.shownClauses)
+        assert.equal(model.text, frame.stripText:GetText())
     end)
 
     -- The five states of the companion's own file, on the line the owner is

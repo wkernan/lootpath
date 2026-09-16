@@ -6,6 +6,9 @@
 -- measured is the activity list, the progress and the reset clock.
 local H = require("spec.helpers.addon")
 local R = require("spec.helpers.replay")
+-- The widget stub itself, for the one figure a layout test needs: what a
+-- headless font string says one character is worth (M5-2b, WKE-601).
+local Stub = require("spec.stubs.wow")
 
 local QE_EXPORT = "spec/fixtures/qe/qe-droptimizer-Hotornot-cxeiassqdyvz.json"
 -- Read from the committed export itself.
@@ -2763,6 +2766,88 @@ describe("VaultPanel's grid, drawn (WKE-553)", function()
         assert.is_true(frame.currencyNote:IsShown())
     end)
 
+    -- M5-2b (WKE-601). The owner's screen on 2026-09-16 read
+    -- `Venomblight Manaflux 2 of 8 · Adventurer Mistcrest 329 · Veteran
+    -- Mistcrest 35 · Champio`: five chips were laid on one row with nothing
+    -- measuring them and the last two ran off the panel's right edge. A chip
+    -- that would cross the edge starts the next row instead.
+    it("wraps the currency strip instead of running the last chips off the edge", function()
+        local chips = {
+            { text = "Venomblight Manaflux 2 of 8" },
+            { text = "Adventurer Mistcrest 329" },
+            { text = "Veteran Mistcrest 35" },
+            { text = "Champion Mistcrest 12" },
+        }
+        -- No room named at all: one row, exactly as this laid out before the
+        -- issue, so a caller that cannot measure loses nothing.
+        local flat = ns.VaultPanel.ChipLayout(chips, nil)
+        assert.equal(1, flat.rows)
+        assert.equal(4, #flat.placements)
+        for _, place in ipairs(flat.placements) do
+            assert.equal(1, place.row)
+        end
+        -- Wider than every chip together: still one row.
+        assert.equal(1, ns.VaultPanel.ChipLayout(chips, 10000).rows)
+
+        -- Room for the first two only: the third starts a second row, at the
+        -- left edge, and nothing crosses the right edge.
+        local room = flat.placements[3].x - 1
+        local wrapped = ns.VaultPanel.ChipLayout(chips, room)
+        assert.equal(2, wrapped.placements[3].row)
+        assert.equal(0, wrapped.placements[3].x)
+        assert.is_true(wrapped.rows > 1)
+        for _, place in ipairs(wrapped.placements) do
+            assert.is_true(place.x == 0 or (place.x + place.width) <= room)
+        end
+        -- and the strip's own height follows the rows it took
+        assert.is_true(wrapped.height > flat.height)
+
+        -- Narrower than one chip: each takes its own row rather than being cut.
+        local single = ns.VaultPanel.ChipLayout(chips, 1)
+        assert.equal(4, single.rows)
+
+        -- The client's own measurement wins over the character estimate: wider
+        -- words mean more rows over the same room.
+        local measured = ns.VaultPanel.ChipLayout(chips, room, function()
+            return 400
+        end)
+        assert.is_true(measured.rows > wrapped.rows)
+    end)
+
+    it("draws the wrapped rows under the grid, the second row's chips back at the left", function()
+        world.currencies = {
+            { name = "Placeholder Group", currencyID = 0, isHeader = true, isHeaderExpanded = true, quantity = 0 },
+        }
+        world.currencyByID = {
+            [3442] = {
+                name = "Adventurer Mistcrest",
+                currencyID = 3442,
+                isHeader = false,
+                quantity = 356,
+                iconFileID = 900101,
+            },
+            [3465] = {
+                name = "Venomblight Manaflux",
+                currencyID = 3465,
+                isHeader = false,
+                quantity = 1,
+                maxQuantity = 8,
+                iconFileID = 900102,
+            },
+        }
+        -- A panel only as wide as one chip: the second chip cannot share the
+        -- row, so it goes under the first.
+        frame.content:SetWidth(60)
+        refresh("thisWeek")
+        local first, second = frame.chips[1].points[1], frame.chips[2].points[1]
+        assert.equal("TOPLEFT", first[1])
+        assert.equal("TOPLEFT", second[1])
+        assert.equal(0, first[4])
+        assert.equal(0, second[4])
+        -- lower down the panel, by a whole chip row
+        assert.is_true(second[5] < first[5])
+    end)
+
     -- Deliverable 4's other half: the scenario dropdown on the tab itself.
     it("puts the scenario dropdown on the tab and writes through the one setting", function()
         refresh("maxed")
@@ -2797,6 +2882,38 @@ describe("VaultPanel's grid, drawn (WKE-553)", function()
         local model = frame:Refresh({ now = 1788900000 })
         assert.equal("catalyzed", model.highlightScenario)
         assert.is_true(cellFor(model, SPAULDERS_KEY).selectedTexture:IsShown())
+    end)
+
+    -- M5-2b (WKE-601). The owner's screen on 2026-09-16 read
+    -- `Everything upgraded (Catalyst and f...` on the closed control: the
+    -- Settings page's explaining sentence does not fit a dropdown on the tab's
+    -- header row. The CLOSED control says the scenario's plain name now; the
+    -- menu's rows still carry the sentence.
+    it("says the scenario's short name on the closed dropdown and keeps the long one in the menu", function()
+        refresh("maxed")
+        local dropdown = frame.scenarioDropdown
+        assert.equal("everything upgraded", ns.VaultPanel.ScenarioShortLabel("maxed"))
+        assert.equal("everything upgraded", dropdown.stub:Caption())
+        -- the menu is untouched: the explanation is one click away
+        dropdown:GenerateMenu()
+        for index, scenario in ipairs(ns.QEImport.SCENARIOS) do
+            assert.equal(ns.UI.Options.SCENARIO_CHOICE_LABEL[scenario], dropdown.menuEntries[index].text)
+        end
+        -- and the caption follows the setting, whichever way it was changed
+        ns.UI.Options.SetVaultScenario("thisWeek")
+        assert.equal("this week", dropdown.stub:Caption())
+
+        -- The control is as wide as the longest plain name needs, and no wider.
+        local widest = 0
+        for _, scenario in ipairs(ns.QEImport.SCENARIOS) do
+            widest = math.max(widest, #ns.VaultPanel.ScenarioShortLabel(scenario) * Stub.CHAR_WIDTH)
+        end
+        assert.equal(widest + ns.VaultPanel.DROPDOWN_PADDING, dropdown:GetWidth())
+        -- every plain name fits inside it, which is the whole point
+        for _, scenario in ipairs(ns.QEImport.SCENARIOS) do
+            local label = ns.VaultPanel.ScenarioShortLabel(scenario)
+            assert.is_true(#label * Stub.CHAR_WIDTH <= dropdown:GetWidth())
+        end
     end)
 end)
 

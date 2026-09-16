@@ -371,6 +371,24 @@ UI.SEPARATOR = " \194\183 "
 -- strip's BOTTOMLEFT, so the body moves down with it and nothing overlaps.
 UI.STRIP_HEIGHT = 22
 UI.NUDGE_HEIGHT = 18
+
+-- M5-2b (WKE-601): how far below the frame's own top edge the strip's row
+-- starts. The owner's screen on 2026-09-16 read the strip's first characters
+-- UNDER the portrait ring - "the copy is being covered by the Spec symbol in
+-- the top left corner - let's move it down" - so the strip is a full-width row
+-- BELOW the ring rather than a line that starts beside it. It costs the body a
+-- row of height and the owner priced that in.
+--
+-- The ring's bottom edge is Blizzard's geometry, read from the template this
+-- frame inherits: in PortraitFrameBaseTemplate the `PortraitContainer` is
+-- anchored to the frame's TOPLEFT at (0, 0) and its `portrait` texture is
+-- 62 x 62 anchored TOPLEFT at (-5, 7) - Blizzard_SharedXML/Mainline/
+-- SharedUIPanelTemplates.xml:544-566, the same file and the same read as the
+-- 58-point title inset this file already records. So the ring's bottom sits
+-- 7 - 62 = 55 points under the frame's top. The air under it is this addon's.
+UI.RING_BOTTOM = 55
+UI.STRIP_GAP = 4
+UI.STRIP_TOP = UI.RING_BOTTOM + UI.STRIP_GAP
 UI.NO_VERDICT_STRIP = "No export on this character yet \194\183 Import... to paste one"
 UI.STALE_STRIP_TOOLTIP =
     "This export was made before the last weekly reset. If the companion is running it should be newer than that."
@@ -463,9 +481,13 @@ function UI.StatusStripModel(now)
     if specClause then
         clauses[#clauses + 1] = specClause
     end
+    -- Returns the line AND the clauses it is made of, in the order they are
+    -- written. M5-2b (WKE-601): the drawer fits that list to the strip's real
+    -- width by dropping whole clauses from the right, so the model owes it the
+    -- list rather than only the sentence.
     local function lineFrom(parts, tooltip)
         if not wait and #clauses == 0 then
-            return table.concat(parts, UI.SEPARATOR)
+            return table.concat(parts, UI.SEPARATOR), parts
         end
         table.insert(tooltip, 1, table.concat(parts, UI.SEPARATOR))
         if wait then
@@ -473,14 +495,14 @@ function UI.StatusStripModel(now)
             for _, clause in ipairs(clauses) do
                 tooltip[#tooltip + 1] = clause
             end
-            return wait.text
+            return wait.text, { wait.text }
         end
         -- The first clause takes the line; a second goes under the facts it
         -- displaced, where the reader was looking a moment ago.
         for index = 2, #clauses do
             tooltip[#tooltip + 1] = clauses[index]
         end
-        return clauses[1]
+        return clauses[1], { clauses[1] }
     end
     -- The content type is deliberately dropped on the floor here: since V-2 it
     -- is the tooltip's, through UI.VerdictNoteText, and not the line's.
@@ -507,8 +529,10 @@ function UI.StatusStripModel(now)
         if companionNote then
             tooltip[#tooltip + 1] = companionNote
         end
+        local emptyText, emptyParts = lineFrom({ UI.NO_VERDICT_STRIP, companion }, tooltip)
         return {
-            text = lineFrom({ UI.NO_VERDICT_STRIP, companion }, tooltip),
+            text = emptyText,
+            parts = emptyParts,
             companion = companion,
             wait = wait,
             specClause = specClause,
@@ -550,8 +574,10 @@ function UI.StatusStripModel(now)
     if companionNote then
         tooltip[#tooltip + 1] = companionNote
     end
+    local text, shown = lineFrom(parts, tooltip)
     return {
-        text = lineFrom(parts, tooltip),
+        text = text,
+        parts = shown,
         stale = stale,
         fellBack = fellBack,
         companion = companion,
@@ -968,8 +994,10 @@ end
 -- the other stored export, why an amber age is amber - are one hover away.
 local function buildStatusStrip(frame)
     local strip = CreateFrame("Frame", nil, frame)
-    strip:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, -30)
-    strip:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -12, -30)
+    -- Below the ring, full width, on its own row (M5-2b): UI.STRIP_TOP is the
+    -- ring's own bottom edge plus the air under it.
+    strip:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, -UI.STRIP_TOP)
+    strip:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -12, -UI.STRIP_TOP)
     strip:SetHeight(UI.STRIP_HEIGHT)
     strip:EnableMouse(true)
     frame.statusStrip = strip
@@ -1038,6 +1066,68 @@ function UI.StripClick(frame)
     return ns.Drift.Click()
 end
 
+-- M5-2b (WKE-601): the line the strip can actually show. The facts are in the
+-- order M3-16b / V-2 settled - spec, source and age, vault pick, companion -
+-- and the last of them is the one a player acts on, so a line too long for the
+-- row loses WHOLE clauses from the right rather than half a word: the owner's
+-- screen on 2026-09-16 ended `... companion: pr...` and that half-word said
+-- nothing. Every clause dropped here is already in the strip's tooltip, which
+-- the model built from the same facts, so nothing is lost by the drop.
+--
+-- Pure: `measure` answers the width of a candidate line (the client's own
+-- GetStringWidth, in the drawer below), `width` is the room the row has.
+-- With no width to fit into, or nothing that can measure, the whole line is
+-- returned unchanged - a headless caller and a client that has not laid the
+-- row out yet both read the same as before this issue.
+--
+-- Returns the text and how many clauses it carries.
+function UI.FitStripText(parts, width, measure)
+    parts = parts or {}
+    local whole = table.concat(parts, UI.SEPARATOR)
+    if #parts == 0 then
+        return "", 0
+    end
+    if type(measure) ~= "function" or type(width) ~= "number" or width <= 0 then
+        return whole, #parts
+    end
+    for count = #parts, 2, -1 do
+        local candidate = table.concat(parts, UI.SEPARATOR, 1, count)
+        local measured = measure(candidate)
+        if type(measured) ~= "number" or measured <= width then
+            return candidate, count
+        end
+    end
+    -- The first clause always stays, even when it is too wide for the row: a
+    -- strip with nothing on it says less than one that is cut.
+    return parts[1], 1
+end
+
+-- What the strip's own row can hold, and how to measure a line against it: the
+-- font string's width once the client has laid the row out, and the client's
+-- own GetStringWidth (FontString.lua:115). Both guarded - a headless run has
+-- neither and gets nil, which UI.FitStripText reads as "do not shorten".
+local function stripFitter(text)
+    local width
+    if type(text.GetWidth) == "function" then
+        local ok, value = pcall(text.GetWidth, text)
+        if ok and type(value) == "number" then
+            width = value
+        end
+    end
+    if type(text.GetStringWidth) ~= "function" then
+        return width, nil
+    end
+    return width,
+        function(candidate)
+            text:SetText(candidate)
+            local ok, measured = pcall(text.GetStringWidth, text)
+            if ok and type(measured) == "number" then
+                return measured
+            end
+            return nil
+        end
+end
+
 -- Redraws the strip from the facts as they are now. Its own function because
 -- UI.Refresh calls it on every redraw and the launcher's toggle does not.
 function UI.RefreshStrip(frame)
@@ -1047,7 +1137,17 @@ function UI.RefreshStrip(frame)
     end
     local model = UI.StatusStripModel()
     frame.stripModel = model
-    frame.stripText:SetText(model.text)
+    local width, measure = stripFitter(frame.stripText)
+    local parts = model.parts or { model.text }
+    local text, shown = UI.FitStripText(parts, width, measure)
+    model.shownClauses = shown
+    -- What came off the row goes one surface in, the way M3-16b and V-2 moved a
+    -- fact before it: the WHOLE line heads the tooltip, so a clause the row
+    -- could not hold is one hover away and the drop loses nothing.
+    if shown < #parts then
+        table.insert(model.tooltip, 1, model.text)
+    end
+    frame.stripText:SetText(text)
     UI.RefreshNudge(frame)
     return model
 end
