@@ -750,6 +750,10 @@ describe("/lootpath refresh", function()
         -- branch: `Drift.Waiting` is nil and the click runs a second refresh
         -- instead of reloading.
         it("writes R-6's stamp on the popup path, so the strip's wait line carries the same click", function()
+            -- A wait stands only where a companion has been seen (R-6a): this
+            -- is the previous run the owner's own machine carries.
+            ns.companionStatus =
+                { state = "idle", startedAt = "2026-09-14T22:48:00Z", finishedAt = "2026-09-14T22:48:41Z" }
             ns.Companion.Refresh()
             world.runTimers(10)
             assert.is_string(ns.db.global.drift.refreshStartedAt)
