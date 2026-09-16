@@ -358,8 +358,30 @@ Panel.FROM_CAPTURE_TEXT = "%s (from the last capture)"
 Panel.PENDING_NOTE = "%d reward(s) are waiting for the client to load their item data. "
     .. "Lootpath has asked for it; this tab redraws when it arrives."
 
-Panel.NO_REWARDS_NOTE =
-    "The vault has not generated this week's rewards yet. Progress is shown so you can see what is still unearned."
+-- V-3 (WKE-587): the remedy was added to this sentence for the same reason
+-- M3-16b added OPEN_VAULT_NOTE. `HasGeneratedRewards()` false is a vault the
+-- client has not been given this week's rewards for, and what generates them is
+-- the Great Vault window being opened (ARCHITECTURE.md 7, 2026-09-15) - so the
+-- sentence that reports the state now also names the one thing that changes it,
+-- rather than leaving the player to read the empty cells and guess.
+Panel.NO_REWARDS_NOTE = "The vault hasn't generated this week's rewards yet. Open the Great Vault once, then refresh."
+-- V-3 (WKE-587): the FOURTH reading of the same empty list, and the one the
+-- owner read as a lie. Minutes after he claimed the Enigmatic Dreamwatcher's
+-- Leggings on 2026-09-15 the tab told him the vault had not generated this
+-- week's rewards; it had generated nine, and he was wearing one of them. The
+-- live read cannot tell "nothing yet" from "all taken" - both answer
+-- `CanClaimRewards` false, `HasAvailableRewards` false and an empty reward list,
+-- and the client's documented six functions (Ketho's
+-- WeeklyRewardsDocumentation.lua) carry no "claimed this period" read;
+-- `AreRewardsForCurrentRewardPeriod()` is about rewards the client is holding,
+-- which after a claim there are none of, so it is not that read either and is
+-- not guessed at here. What tells them apart is the addon's own memory: a vault
+-- snapshot taken inside THIS reward period that carried reward links
+-- (`Panel.ClaimedThisPeriod`). No deadline is written and no "before reset" -
+-- the countdown is the client's own `secondsUntilWeeklyReset`, said as the next
+-- vault's opening rather than this one's ending (principle 9).
+Panel.CLAIMED_REWARDS_NOTE = "You've taken this week's reward. The next vault opens in %s."
+Panel.CLAIMED_REWARDS_NOTE_NO_CLOCK = "You've taken this week's reward."
 -- M3-16 (WKE-557): the SAME empty list, for the opposite reason. When
 -- `HasAvailableRewards()` is true the vault HAS generated rewards and the
 -- client simply did not answer with them - after the week's first progress
@@ -447,6 +469,59 @@ function Panel.IsVerdictStale(exportedAt, nowEpoch, secondsUntilWeeklyReset)
         return nil
     end
     return exported < (now + seconds - Panel.WEEK_SECONDS)
+end
+
+-- true when this week's vault reward has been claimed (V-3, WKE-587).
+--
+-- The live read alone cannot say so: an emptied vault and a vault that never
+-- filled answer identically. The evidence is one of the addon's own stored vault
+-- snapshots - taken inside the reward period the client is in now, and carrying
+-- reward links. The client refuses a claim, says nothing is waiting, and a
+-- snapshot from this same period saw rewards: the rewards left, and the only way
+-- they leave is the player taking them.
+--
+-- The period boundary is the one `IsVerdictStale` uses, from the same client
+-- fact: nextReset = now + secondsUntilWeeklyReset, and this period began a week
+-- before that. Anything missing - no clock, no snapshots, a caller that passed
+-- `false` to read nothing - answers false, so a missing fact never produces the
+-- claim.
+function Panel.ClaimedThisPeriod(vault, captures, nowEpoch)
+    if type(vault) ~= "table" then
+        return false
+    end
+    if vault.canClaimRewards == true or vault.hasAvailableRewards == true then
+        return false
+    end
+    local seconds = tonumber(vault.secondsUntilWeeklyReset)
+    local now = tonumber(nowEpoch)
+    if not seconds or not now then
+        return false
+    end
+    local periodStart = now + seconds - Panel.WEEK_SECONDS
+    if captures == nil then
+        local db = ns.db
+        captures = db and db.global and db.global.captures and db.global.captures.vault or nil
+    end
+    if type(captures) ~= "table" then
+        return false
+    end
+    for index = #captures, 1, -1 do
+        local snapshot = captures[index]
+        local at = type(snapshot) == "table" and tonumber(snapshot.capturedAt) or nil
+        if at and at >= periodStart and #Panel.SnapshotRewardLinks(snapshot) > 0 then
+            return true
+        end
+    end
+    return false
+end
+
+-- The claimed sentence, with the client's countdown when the client gave one.
+function Panel.ClaimedNote(secondsUntilWeeklyReset)
+    local countdown = ns.Roads and ns.Roads.CountdownText and ns.Roads.CountdownText(secondsUntilWeeklyReset)
+    if not countdown then
+        return Panel.CLAIMED_REWARDS_NOTE_NO_CLOCK
+    end
+    return string.format(Panel.CLAIMED_REWARDS_NOTE, countdown)
 end
 
 local function progressText(option)
@@ -1459,11 +1534,27 @@ function Panel.Model(opts)
         end
     end
 
+    -- Whether this week's reward has already been taken (V-3, WKE-587). Settled
+    -- here, after the options are counted and before anything reads it: an empty
+    -- vault is the only vault this question is ever asked about, and both the
+    -- note above the grid and the plan sentence's vault clause turn on it.
+    model.claimed = model.counts.rewards == 0
+        and model.counts.extras == 0
+        and Panel.ClaimedThisPeriod(vault, captures, opts.now or time())
+
     -- The headline block. Only when there is something to head: a verdict, a
-    -- vault that could be read, and at least one gear option on it. Everything
-    -- else on the tab already says why there is not.
-    if model.hasVerdict and #scenarios > 0 and model.counts.rewards > 0 then
+    -- vault that could be read, and at least one gear option on it - or a vault
+    -- whose option WAS taken, which still has this week's plan to read out
+    -- (V-3). Everything else on the tab already says why there is not.
+    if model.hasVerdict and #scenarios > 0 and (model.counts.rewards > 0 or model.claimed) then
         local pick = model.best
+        -- A claimed vault has no option to lead with and no scenario to compare
+        -- (V-3, WKE-587): the block is the plan and nothing else. The note above
+        -- the grid already says the reward is taken, and "no option in this vault
+        -- is in the answer" about nine empty cells would be a second, worse way
+        -- of saying it. The charge footnote the scenario lines would have carried
+        -- is the plan sentence's own footnote, so nothing is lost with them.
+        local planOnly = model.counts.rewards == 0
         local headlineCoverage = bestByScenario[highlight] and bestByScenario[highlight].coverage or nil
         -- The same test `Panel.HeadlineText` makes, kept beside it rather than
         -- made twice in two places: when the best he said under the highlighted
@@ -1491,13 +1582,21 @@ function Panel.Model(opts)
                 -- the label is missing, rather than reading as this week's plan
                 -- (C-12, WKE-577).
                 scenarioNote = model.scenarioNote,
+                -- V-3 (WKE-587): so the sentence does not send him back to a
+                -- vault he has already emptied.
+                vaultClaimed = model.claimed,
             }),
             closest = closest and true or false,
             text = Panel.HeadlineText(highlight, pick, headlineCoverage),
             lines = {},
         }
+        if planOnly then
+            model.headline.text = nil
+            model.headline.pick = nil
+            model.headline.planOnly = true
+        end
         local thisWeekVerdict
-        for _, entry in ipairs(scenarios) do
+        for _, entry in ipairs(planOnly and {} or scenarios) do
             local catalyzeOwned = ns.QEImport.CatalyzedOwned(entry.verdict, opts.inventory)
             local catalyzeVault = ns.QEImport.CatalyzedVault(entry.verdict, vault)
             model.headline.lines[#model.headline.lines + 1] = Panel.HeadlineLine(
@@ -1541,6 +1640,11 @@ function Panel.Model(opts)
             model.rewardsNote = Panel.OPEN_VAULT_NOTE
         elseif model.hasAvailableRewards then
             model.rewardsNote = Panel.WITHHELD_REWARDS_NOTE
+        elseif model.claimed then
+            -- V-3 (WKE-587). Ahead of NO_REWARDS_NOTE because an emptied vault
+            -- reads as an ungenerated one to the live API, and the addon's own
+            -- snapshots are the only thing that tells them apart.
+            model.rewardsNote = Panel.ClaimedNote(vault.secondsUntilWeeklyReset)
         else
             model.rewardsNote = Panel.NO_REWARDS_NOTE
         end
@@ -1622,7 +1726,9 @@ function Panel.Lines(model)
                 add("  " .. plan.footnote)
             end
         end
-        add(model.headline.text)
+        if model.headline.text then
+            add(model.headline.text)
+        end
         for _, line in ipairs(model.headline.lines) do
             add("  " .. line.text)
         end
@@ -2287,8 +2393,10 @@ function Panel.Refresh(self, opts)
         else
             ns.UI.ItemLine.ClearIcon(headline.icon)
         end
-        headline.text:SetText(block.text)
-        local height = CELL_ICON_SIZE
+        headline.text:SetText(block.text or "")
+        -- A plan-only block (V-3) reserves no icon row: there is no pick line
+        -- under the sentence, so the space one would take is not taken.
+        local height = block.text and CELL_ICON_SIZE or 0
         for index, line in ipairs(block.lines) do
             local fontString = headline.lines[index]
             if not fontString then
