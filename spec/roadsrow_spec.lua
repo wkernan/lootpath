@@ -344,7 +344,8 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
     it("puts upgrading what you wear in the no-rating group, with what you hold", function()
         local groups = section(model(), "Shoulder").roadGroups
         assert.equal(
-            "Upgrade · Seedpods of the Luminous Bloom (289) · no rating · crest type and cost not read"
+            "Upgrade · Seedpods of the Luminous Bloom (289) · no rating · "
+                .. ns.Roads.CREST_NOT_READ
                 .. " · you hold 356 Adventurer Mistcrest, 2 Champion Mistcrest,"
                 .. " 21 Hero Mistcrest, 20 Myth Mistcrest",
             lineOf(groups[3], 1)

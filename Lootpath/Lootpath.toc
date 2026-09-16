@@ -22,6 +22,7 @@ Modules\Inventory.lua
 Modules\Journal.lua
 Modules\Vault.lua
 Modules\Currencies.lua
+Modules\UpgradeCost.lua
 Modules\QEImport.lua
 Modules\UFImport.lua
 Modules\Companion.lua
