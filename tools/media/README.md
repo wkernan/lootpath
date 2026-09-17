@@ -30,7 +30,8 @@ and a BLP would need a tool nobody here has.
 
 | File | Size | Coloured how | Drawn where |
 |---|---|---|---|
-| `mark16.tga` | 16 x 16 | white + alpha, **tinted in Lua** | the bag mark in both bag adapters, and the drift badge on the launcher |
+| `mark16-edge.tga` | 16 x 16 | white + alpha, **tinted in Lua** (near-black) | the keyline under the 16-point mark: the bag corner in both bag adapters, and the drift badge on the launcher |
+| `mark16-fill.tga` | 16 x 16 | white + alpha, **tinted in Lua** (the brand) | the two chevron bodies, drawn over the keyline at the same anchor, in the same three places |
 | `mark64.tga` | 64 x 64 | brand colour baked in, on its own keyline | `## IconTexture` in the `.toc` - the AddOn List and the AddOn Compartment entry |
 | `wordmark.tga` | 256 x 64 | white + alpha, **tinted in Lua** | the window's title |
 | `icon256.tga` | 256 x 256 | brand colour baked in, on a near-black ground | the addon site's listing tile |
@@ -62,7 +63,39 @@ on anyone else's.
 ## The shape
 
 The mark is the **Waymark**: the double chevron a walked route is blazed with.
-Candidate A of the WKE-602 proposal, picked by the owner on 2026-09-16. The
-full form is the two chevrons; the reduced form - one thick chevron, redrawn on
-a 16-unit grid rather than shrunk - is what `mark16.tga` is, because R-2b
-settled that a mark is drawn at the size it will be seen at.
+Candidate A of the WKE-602 proposal, picked by the owner on 2026-09-16.
+
+At 16 it is the full double chevron too (**UX-4c**, WKE-612). UX-4b drew a
+reduced form there - one thick chevron - and the owner opened his full bags on
+2026-09-17 and found it "a bit hard to see when looking at your entire bags".
+On the brand sign-off page he picked **Fix E at 16**: the upper chevron solid,
+the lower at 65%, a one-unit near-black outline around every edge, and no plate
+behind it. The geometry in `mark16-fill.svg` and `mark16-edge.svg` is that
+drawing's, path for path - still drawn on a 16-unit grid rather than shrunk from
+`mark64`, because R-2b settled that a mark is drawn at the size it will be seen
+at.
+
+**Why 16 is two files.** A keyline is a second colour, and one texture carries
+one tint. Baking the brand in would cost the one-line colour edit that
+`ns.UI.BRAND_HEX` exists for, so the outline silhouette and the chevron bodies
+ship separately, both white with alpha:
+
+  * `mark16-edge.svg` is both chevrons filled **and** stroked in white, so what
+    comes out is one solid silhouette dilated by half the stroke on every side;
+  * `mark16-fill.svg` is the two bodies, the lower at 65% alpha.
+
+Drawn at the **same anchor** with the edge underneath, that dilation is the
+keyline, all the way round both chevrons. The mark this replaced had the fill
+inset one point inside the edge instead, which is a shadow on one side and not
+an outline.
+
+The lower chevron is opaque in the edge file and 65% only in the fill. The
+faithful reading of the page puts `opacity` on the path element, so the lower
+stroke would be at 65% too; both were rendered and decoded back to a contact
+sheet over a dark ground and a busy one at 1x, 3x and 6x, and the 65% keyline
+lets the lower chevron dissolve into busy item art - the exact thing the issue
+exists to fix. The 65% belongs on the body, where the hierarchy is read.
+
+The lower chevron's bottom edge sits at y=15.5 on a 16-unit canvas, so half of
+its 1.1 stroke reaches y=16.05 and the last 0.05 of a unit is clipped. That is
+the drawing's own geometry, kept rather than nudged.

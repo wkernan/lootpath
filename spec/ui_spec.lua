@@ -2648,27 +2648,45 @@ describe("the nudge row (R-6)", function()
         local button = ns.UI.MinimapButton()
 
         -- UX-4b: the badge is the mark, not a flat square, in both layers.
-        assert.equal(ns.UI.MEDIA.MARK16, button.driftDot:GetTexture())
-        assert.equal(ns.UI.MEDIA.MARK16, button.driftDotAccent:GetTexture())
+        -- UX-4c: it is the same PAIR the bag corner draws - the keyline file
+        -- under the fill file - so the badge, the bag, the compartment entry and
+        -- the listing tile are one shape.
+        assert.equal(ns.UI.MEDIA.MARK16_EDGE, button.driftDot:GetTexture())
+        assert.equal(ns.UI.MEDIA.MARK16_FILL, button.driftDotAccent:GetTexture())
+        assert.equal(ns.UI.Bags.Baganator.EDGE_TEXTURE, button.driftDot:GetTexture())
+        assert.equal(ns.UI.Bags.Baganator.FILL_TEXTURE, button.driftDotAccent:GetTexture())
         assert.is_nil(button.driftDot:GetAtlas())
         assert.is_nil(button.driftDotAccent:GetAtlas())
-        -- mark16 and never mark64: R-6 draws this at 9 points, and R-2b is the
-        -- rule that a mark is drawn at the size it will be seen at.
+        -- The 16-point drawing and never mark64: R-6 draws this at 9 points, and
+        -- R-2b is the rule that a mark is drawn at the size it will be seen at.
         assert.are_not.equal(ns.UI.MEDIA.MARK64, button.driftDot:GetTexture())
+        assert.are_not.equal(ns.UI.MEDIA.MARK64, button.driftDotAccent:GetTexture())
 
-        -- The accent is the brand, no longer QE Live's gold.
+        -- The accent is the brand, no longer QE Live's gold; the keyline is the
+        -- one near-black every tinted Waymark is outlined in, no longer this
+        -- badge's own flat black.
         local r, g, b = ns.UI.ItemLine.RGB(ns.UI.BRAND_HEX)
         assert.same({ r, g, b, nil }, button.driftDotAccent.vertexColor)
-        assert.same({ 0, 0, 0, 1 }, button.driftDot.vertexColor)
+        assert.same(ns.UI.MARK_EDGE_COLOR, button.driftDot.vertexColor)
+        assert.are_not.same({ 0, 0, 0, 1 }, button.driftDot.vertexColor)
 
-        -- R-6's geometry is untouched.
+        -- R-6's geometry is untouched: the size and the corner are R-6's own.
         assert.equal(ns.UI.MINIMAP_DOT_SIZE, button.driftDot.width)
-        assert.equal(ns.UI.MINIMAP_DOT_SIZE - 2, button.driftDotAccent.width)
         assert.same({ "TOPRIGHT", button, "TOPRIGHT", -4, -4 }, button.driftDot.points[1])
+
+        -- UX-4c: the two layers are the SAME size at the SAME anchor, no offset
+        -- and no shrunken accent. The keyline is dilated into the edge file now,
+        -- so shrinking the fill by two points would only eat the chevrons.
+        assert.equal(ns.UI.MINIMAP_DOT_SIZE, button.driftDotAccent.width)
+        assert.equal(button.driftDot.width, button.driftDotAccent.width)
+        assert.equal(button.driftDot.height, button.driftDotAccent.height)
+        assert.same({ "CENTER", button.driftDot, "CENTER", 0, 0 }, button.driftDotAccent.points[1])
+        assert.is_nil(button.driftDotAccent.points[2])
 
         -- 593 stands: the launcher's own icon is the character's spec icon and
         -- no mark of ours went onto it.
-        assert.are_not.equal(ns.UI.MEDIA.MARK16, button.icon:GetTexture())
+        assert.are_not.equal(ns.UI.MEDIA.MARK16_EDGE, button.icon:GetTexture())
+        assert.are_not.equal(ns.UI.MEDIA.MARK16_FILL, button.icon:GetTexture())
         assert.are_not.equal(ns.UI.MEDIA.MARK64, button.icon:GetTexture())
         assert.same({ 0.05, 0.95, 0.05, 0.95 }, button.icon.texCoord)
     end)

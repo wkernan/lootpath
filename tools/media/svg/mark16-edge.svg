@@ -1,0 +1,35 @@
+<!--
+  The Waymark at 16, EDGE layer (UX-4c, WKE-612).
+
+  The same two chevrons as `mark16-fill.svg`, filled AND stroked in white so
+  what comes out is one solid SILHOUETTE, dilated by half the stroke on every
+  side. Drawn under the fill at the same anchor and tinted near-black, that
+  dilation is the keyline: a one-unit dark outline around every edge of both
+  chevrons, which is what the shipped mark lacked - it had an offset shadow
+  layer instead, and an offset is a shadow on one side, not an outline.
+
+  Stroke width and `stroke-linejoin: round` are the sign-off page's own, so the
+  chevron tips are rounded here exactly as they are in the drawing.
+
+  BOTH chevrons are opaque here, unlike the fill. On the sign-off page the 65%
+  sits on the lower path element, so it covers that path's stroke as well, and
+  the faithful thing would be a 65% keyline under the lower chevron. Both were
+  rendered and decoded back to a contact sheet over a dark ground and a busy
+  one at 1x, 3x and 6x before this line was written, and the 65% keyline is the
+  worse of the two for the thing this issue exists to fix: the lower chevron
+  dissolves into busy item art exactly where it needs an edge. The 65% belongs
+  on the fill's lower BODY, which is where the issue puts it and where the
+  hierarchy is actually read - the lower chevron still comes back quieter than
+  the upper, over a keyline that holds its shape.
+
+  The lower chevron's bottom edge sits at y=15.5, so half of its 1.1 stroke
+  reaches y=16.05 and the last 0.05 of a unit is clipped by the canvas. That is
+  the drawing's own geometry, kept rather than nudged; at 16 texels it is a
+  twentieth of one pixel row.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <g fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.1" stroke-linejoin="round">
+    <path d="M8 8.5 L13 13.5 L13 15.5 L8 10.5 L3 15.5 L3 13.5 Z"/>
+    <path d="M8 1.5 L15 8.5 L15 11.5 L8 4.5 L1 11.5 L1 8.5 Z"/>
+  </g>
+</svg>

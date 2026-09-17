@@ -41,20 +41,31 @@ local Adapter = {
 -- applied to one adapter and not to this one. It is applied here now.
 --
 -- So both bag adapters draw the same thing, the same size, in the same corner:
--- the Waymark out of `Media/mark16.tga` at 16 points in the button's top-right,
--- in two layers - near-black filling the frame for the keyline, the brand colour
--- inset 1 point inside it. Top-right is where the Baganator adapter goes for a
--- reason read off Baganator's own source (R-2a), and going to the same corner
--- here means a reader who turns Baganator off finds the mark where he left it.
+-- the Waymark at 16 points in the button's top-right, in two layers - the
+-- keyline silhouette in near-black under the chevron bodies in the brand
+-- colour. Top-right is where the Baganator adapter goes for a reason read off
+-- Baganator's own source (R-2a), and going to the same corner here means a
+-- reader who turns Baganator off finds the mark where he left it.
 --
--- `Adapter.SIZE`, `EDGE_INSET`, `EDGE_COLOR` and `FILL_HEX` are deliberately the
--- same values the Baganator adapter carries rather than a reference to it:
--- neither adapter may load without the other, and a mark that changed in one
--- window and not the other would be the bug this comment exists to prevent. The
--- tests assert the two are equal.
-Adapter.TEXTURE = ns.UI.MEDIA.MARK16
+-- UX-4c (WKE-612) changed the drawing in both adapters at once, after the owner
+-- opened his full bags and found the single chevron hard to see across them. It
+-- is the FULL double chevron now, the upper solid and the lower at 65%, with a
+-- one-unit near-black outline around every edge and no plate behind it - "Fix E
+-- at 16" on the brand sign-off page, which is his pick of 2026-09-17. Two files
+-- rather than one, `mark16-edge` under `mark16-fill`, because one texture cannot
+-- carry two tints and the brand colour stays a Lua string. Both sit at the SAME
+-- anchor with no offset between them: the dilation inside the edge file is the
+-- keyline, and the `EDGE_INSET` that used to shrink the fill is gone with the
+-- one-sided shadow it made.
+--
+-- `Adapter.SIZE`, the two texture constants, `EDGE_COLOR` and `FILL_HEX` are
+-- deliberately the same values the Baganator adapter carries rather than a
+-- reference to it: neither adapter may load without the other, and a mark that
+-- changed in one window and not the other would be the bug this comment exists
+-- to prevent. The tests assert the two are equal.
+Adapter.EDGE_TEXTURE = ns.UI.MEDIA.MARK16_EDGE
+Adapter.FILL_TEXTURE = ns.UI.MEDIA.MARK16_FILL
 Adapter.SIZE = 16
-Adapter.EDGE_INSET = 1
 Adapter.EDGE_COLOR = { 0.05, 0.05, 0.06, 1 }
 Adapter.FILL_HEX = ns.UI.BRAND_HEX
 Adapter.TEXTURE_KEY = "LootpathGlow"
@@ -83,18 +94,19 @@ function Adapter.Texture(itemButton)
         return nil
     end
 
-    local inset = Adapter.EDGE_INSET
     local edge = itemButton:CreateTexture(nil, "OVERLAY")
     edge:SetSize(Adapter.SIZE, Adapter.SIZE)
     edge:SetPoint("TOPRIGHT", itemButton, "TOPRIGHT", 0, 0)
-    edge:SetTexture(Adapter.TEXTURE)
+    edge:SetTexture(Adapter.EDGE_TEXTURE)
     edge:SetVertexColor(unpack(Adapter.EDGE_COLOR))
     edge:Hide()
 
+    -- The same rectangle as the edge, not an inset one: the two files are the
+    -- same drawing, so the keyline only lands on the chevrons' edges if the two
+    -- are registered texel for texel.
     texture = itemButton:CreateTexture(nil, "OVERLAY", nil, 1)
-    texture:SetPoint("TOPLEFT", edge, "TOPLEFT", inset, -inset)
-    texture:SetPoint("BOTTOMRIGHT", edge, "BOTTOMRIGHT", -inset, inset)
-    texture:SetTexture(Adapter.TEXTURE)
+    texture:SetAllPoints(edge)
+    texture:SetTexture(Adapter.FILL_TEXTURE)
     texture:SetVertexColor(ns.UI.ItemLine.RGB(Adapter.FILL_HEX))
     texture:Hide()
 
