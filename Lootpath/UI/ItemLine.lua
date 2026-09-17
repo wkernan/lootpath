@@ -76,11 +76,31 @@ UI.BRAND_HEX = "FF1A8C"
 -- appends the extension itself, so no path here names one; every file is a TGA
 -- at a power-of-two size and none is a .blp.
 UI.MEDIA = {
-    MARK16 = [[Interface\AddOns\Lootpath\Media\mark16]],
+    -- The 16-point Waymark is TWO files (UX-4c, WKE-612), not one. The owner
+    -- picked "Fix E at 16" off the brand sign-off page on 2026-09-17 - the full
+    -- double chevron with its own near-black keyline and no plate - and a
+    -- keyline is a second colour. One texture cannot carry two tints, and baking
+    -- the brand into the art would cost the one-line colour edit `BRAND_HEX`
+    -- exists for, so the outline silhouette and the chevron bodies ship as
+    -- separate white-with-alpha files and the addon tints each. They are drawn
+    -- at the SAME anchor, edge under fill, with no offset: the dilation inside
+    -- the edge file IS the keyline, where the mark this replaced had an offset
+    -- shadow layer, which is a shadow on one side and not an outline.
+    MARK16_EDGE = [[Interface\AddOns\Lootpath\Media\mark16-edge]],
+    MARK16_FILL = [[Interface\AddOns\Lootpath\Media\mark16-fill]],
     MARK64 = [[Interface\AddOns\Lootpath\Media\mark64]],
     WORDMARK = [[Interface\AddOns\Lootpath\Media\wordmark]],
     ICON256 = [[Interface\AddOns\Lootpath\Media\icon256]],
 }
+
+-- What the keyline layer is tinted, wherever the Waymark is drawn tinted: the
+-- bag corner in both adapters and the drift badge on the launcher. Near-black
+-- rather than black, so the outline reads as the mark's own edge and not as a
+-- hole punched in the item art under it. It lives here beside `BRAND_HEX`
+-- because the two are the mark's pair and neither belongs to one surface; the
+-- bag adapters keep their own copies for the reason their files give, and the
+-- tests assert every copy equals this one.
+UI.MARK_EDGE_COLOR = { 0.05, 0.05, 0.06, 1 }
 
 ItemLine.ICON_SIZE = 34
 ItemLine.NAME_HEIGHT = 16

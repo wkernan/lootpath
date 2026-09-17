@@ -1674,21 +1674,31 @@ function UI.MinimapButton()
     -- UX-4b (WKE-611): the square is the Waymark now, and the accent is the
     -- brand colour rather than QE Live's gold - the same two changes the bag
     -- mark took, for the same reason, so the one shape a reader learns once is
-    -- the same shape in both places. The texture is `mark16`, NOT `mark64`: R-2b
-    -- is the rule that a mark is drawn at the size it will be seen at, this
-    -- badge is 9 points, and the 16-point reduced form is the nearer of the two
+    -- the same shape in both places. The texture is the 16-point drawing, NOT
+    -- `mark64`: R-2b is the rule that a mark is drawn at the size it will be
+    -- seen at, this badge is 9 points, and the 16 is the nearer of the two
     -- drawings to that. The badge's size, corner and offsets are R-6's and are
     -- untouched. The launcher's own icon is the spec icon and is not touched
     -- either (593, and the owner's answer 3 on WKE-602).
+    --
+    -- UX-4c (WKE-612): the badge draws the same PAIR the bag corner does -
+    -- `mark16-edge` under `mark16-fill`, the double chevron with a keyline all
+    -- round and no plate, the owner's "Fix E at 16" of 2026-09-17. Three things
+    -- follow and all three are the point. The two layers are now the same size,
+    -- because the keyline is dilated into the edge file and no longer needs the
+    -- accent shrunk by two points to show a rim. They sit at the same anchor
+    -- with no offset. And the keyline is `UI.MARK_EDGE_COLOR`, the near-black
+    -- every tinted Waymark is outlined in, rather than the flat black this
+    -- badge alone used to carry - one mark, one pair of colours, everywhere.
     local dot = button:CreateTexture(nil, "OVERLAY")
     dot:SetSize(UI.MINIMAP_DOT_SIZE, UI.MINIMAP_DOT_SIZE)
     dot:SetPoint("TOPRIGHT", button, "TOPRIGHT", -4, -4)
-    dot:SetTexture(UI.MEDIA.MARK16)
-    dot:SetVertexColor(0, 0, 0, 1)
+    dot:SetTexture(UI.MEDIA.MARK16_EDGE)
+    dot:SetVertexColor(unpack(UI.MARK_EDGE_COLOR))
     local dotAccent = button:CreateTexture(nil, "OVERLAY")
-    dotAccent:SetSize(UI.MINIMAP_DOT_SIZE - 2, UI.MINIMAP_DOT_SIZE - 2)
+    dotAccent:SetSize(UI.MINIMAP_DOT_SIZE, UI.MINIMAP_DOT_SIZE)
     dotAccent:SetPoint("CENTER", dot, "CENTER", 0, 0)
-    dotAccent:SetTexture(UI.MEDIA.MARK16)
+    dotAccent:SetTexture(UI.MEDIA.MARK16_FILL)
     dotAccent:SetVertexColor(ns.UI.ItemLine.RGB(UI.BRAND_HEX))
     button.driftDot = dot
     button.driftDotAccent = dotAccent

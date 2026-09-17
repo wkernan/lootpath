@@ -812,20 +812,19 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
 
         -- Both layers are a texture, and NEITHER is an atlas: the stub clears
         -- one when the other is set, so an atlas creeping back in fails here.
-        assert.equal(Adapter.TEXTURE, widget.edge:GetTexture())
-        assert.equal(Adapter.TEXTURE, widget.fill:GetTexture())
+        assert.equal(Adapter.EDGE_TEXTURE, widget.edge:GetTexture())
+        assert.equal(Adapter.FILL_TEXTURE, widget.fill:GetTexture())
         assert.is_nil(widget.edge:GetAtlas())
         assert.is_nil(widget.fill:GetAtlas())
 
-        -- The edge fills the frame; the fill is inset inside it by one point on
-        -- every side, which is what gives the mark its own outline over pale
-        -- icon art.
+        -- UX-4c: both layers fill the frame, at the same anchor, with NO offset
+        -- between them. The keyline is dilated into the edge FILE, so the two
+        -- have to be registered texel for texel; the inset the old mark used
+        -- shrank the fill instead, and a shrunken fill is a shadow on one side.
         assert.same({ "ALL" }, widget.edge.points[1])
-        assert.same({ "TOPLEFT", widget, "TOPLEFT", Adapter.EDGE_INSET, -Adapter.EDGE_INSET }, widget.fill.points[1])
-        assert.same(
-            { "BOTTOMRIGHT", widget, "BOTTOMRIGHT", -Adapter.EDGE_INSET, Adapter.EDGE_INSET },
-            widget.fill.points[2]
-        )
+        assert.same({ "ALL" }, widget.fill.points[1])
+        assert.is_nil(widget.fill.points[2])
+        assert.is_nil(Adapter.EDGE_INSET)
 
         -- UX-4b: the accent is the BRAND, not QE Live's gold. The gold goes on
         -- meaning "better" in the numbers; this mark means "this is Lootpath",
@@ -842,15 +841,21 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         local button = world.newContainerFrame(0, 1).Items[1]
         local widget = Adapter.OnInit(button)
 
-        -- The addon's own texture, named through the one MEDIA table, never a
+        -- The addon's own textures, named through the one MEDIA table, never a
         -- path spelled out here and never Blizzard's flat white square.
-        assert.equal(ns.UI.MEDIA.MARK16, Adapter.TEXTURE)
-        assert.equal(ns.UI.MEDIA.MARK16, widget.edge:GetTexture())
-        assert.equal(ns.UI.MEDIA.MARK16, widget.fill:GetTexture())
-        assert.are_not.equal([[Interface\Buttons\WHITE8X8]], Adapter.TEXTURE)
+        assert.equal(ns.UI.MEDIA.MARK16_EDGE, Adapter.EDGE_TEXTURE)
+        assert.equal(ns.UI.MEDIA.MARK16_FILL, Adapter.FILL_TEXTURE)
+        assert.equal(ns.UI.MEDIA.MARK16_EDGE, widget.edge:GetTexture())
+        assert.equal(ns.UI.MEDIA.MARK16_FILL, widget.fill:GetTexture())
+        assert.are_not.equal([[Interface\Buttons\WHITE8X8]], Adapter.EDGE_TEXTURE)
+        assert.are_not.equal([[Interface\Buttons\WHITE8X8]], Adapter.FILL_TEXTURE)
 
-        -- R-2b: a mark is drawn at the size it will be seen at. mark16.tga is 16
-        -- texels square, so the frame is 16 points and nothing is resampled.
+        -- UX-4c: two DIFFERENT files. One texture drawn twice is the old mark,
+        -- and it cannot carry a keyline and a brand colour at once.
+        assert.are_not.equal(Adapter.EDGE_TEXTURE, Adapter.FILL_TEXTURE)
+
+        -- R-2b: a mark is drawn at the size it will be seen at. Both files are
+        -- 16 texels square, so the frame is 16 points and nothing is resampled.
         assert.equal(16, Adapter.SIZE)
         assert.equal(Adapter.SIZE, widget.width)
     end)
@@ -861,11 +866,22 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
 
         -- The two adapters never load without each other, and a mark that
         -- changed in one bag window and not the other is the fault this guards.
-        assert.equal(Baganator.TEXTURE, Blizzard.TEXTURE)
+        assert.equal(Baganator.EDGE_TEXTURE, Blizzard.EDGE_TEXTURE)
+        assert.equal(Baganator.FILL_TEXTURE, Blizzard.FILL_TEXTURE)
         assert.equal(Baganator.SIZE, Blizzard.SIZE)
-        assert.equal(Baganator.EDGE_INSET, Blizzard.EDGE_INSET)
         assert.equal(Baganator.FILL_HEX, Blizzard.FILL_HEX)
         assert.same(Baganator.EDGE_COLOR, Blizzard.EDGE_COLOR)
+
+        -- UX-4c: the keyline colour is one value, in `ns.UI.MARK_EDGE_COLOR`,
+        -- wherever a Waymark is tinted. Each adapter keeps its own copy for the
+        -- reason its file gives; the copies are checked against the one.
+        assert.same(ns.UI.MARK_EDGE_COLOR, Baganator.EDGE_COLOR)
+        assert.same(ns.UI.MARK_EDGE_COLOR, Blizzard.EDGE_COLOR)
+
+        -- And the inset is gone from both, together. Half a migration - one
+        -- adapter still shrinking its fill - would draw two different marks.
+        assert.is_nil(Baganator.EDGE_INSET)
+        assert.is_nil(Blizzard.EDGE_INSET)
 
         local button = world.newContainerFrame(0, 1).Items[1]
         local fill = Blizzard.Texture(button)
@@ -873,16 +889,25 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
 
         -- The vault atlas R-2b took out of the Baganator corner is gone from
         -- here too: it was a 214 x 121 banner stretched over a square button.
-        assert.equal(ns.UI.MEDIA.MARK16, fill:GetTexture())
-        assert.equal(ns.UI.MEDIA.MARK16, edge:GetTexture())
+        assert.equal(ns.UI.MEDIA.MARK16_FILL, fill:GetTexture())
+        assert.equal(ns.UI.MEDIA.MARK16_EDGE, edge:GetTexture())
         assert.is_nil(fill:GetAtlas())
         assert.is_nil(edge:GetAtlas())
         assert.is_nil(Blizzard.ATLAS)
 
         -- A corner mark at its own size, not SetAllPoints over the whole slot.
+        -- R-2b's anchor, untouched by UX-4c: top-right of the button, no offset.
         assert.equal(Blizzard.SIZE, edge.width)
         assert.equal(Blizzard.SIZE, edge.height)
         assert.same({ "TOPRIGHT", button, "TOPRIGHT", 0, 0 }, edge.points[1])
+
+        -- UX-4c: the fill is pinned to the EDGE's own rectangle, so the keyline
+        -- lands on the chevrons' edges and nowhere else. `SetAllPoints(edge)`,
+        -- not a bare `SetAllPoints()` onto the whole item button - which is the
+        -- 214x121 mistake in another costume, and the stub keeps the argument so
+        -- the two can be told apart.
+        assert.same({ "ALL", edge }, fill.points[1])
+        assert.is_nil(fill.points[2])
 
         local r, g, b = ns.UI.ItemLine.RGB(ns.UI.BRAND_HEX)
         assert.same({ r, g, b, nil }, fill.vertexColor)

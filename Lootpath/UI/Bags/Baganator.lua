@@ -70,10 +70,28 @@ local Adapter = {
 -- `SIZE` is 16 rather than 15: at 16 the texture's texels and the frame's points
 -- are one to one, and a mark drawn at 15/16 of itself is a mark nobody drew.
 --
--- The two layers still do exactly what they did. The edge layer is the same
--- mark filling the frame in near-black, so the shape keeps a keyline over pale
--- icon art; the fill is the same mark inset by 1 point inside it, so the dark
--- rim shows all the way round a chevron instead of round a square.
+-- **UX-4c (WKE-612): one chevron became two, and the shadow became a keyline.**
+-- The owner opened his full bags on 2026-09-17: "I like it, but the colour
+-- makes it a bit hard to see when looking at your entire bags." He named the
+-- COLOUR; the sign-off page put the two causes to him and argued hue is the
+-- smaller one, because a thin shape with an offset shadow has no ground to sit
+-- on whatever colour it is. He then picked Fix E at 16 - the FULL double
+-- chevron, the upper solid and the lower at 65%, with a one-unit near-black
+-- outline around every edge and NO plate behind it - which changes the shape
+-- and the keyline and leaves `#FF1A8C` exactly where it was. So the bag corner, the launcher badge, the
+-- compartment entry and the listing tile are now one shape, and the item's own
+-- art stays visible under the mark.
+--
+-- The two layers are still edge under fill, and what changed is what each is
+-- made of and where it sits. They are two FILES now - `mark16-edge` is the
+-- outline silhouette of both chevrons, `mark16-fill` the two bodies - because
+-- one texture cannot carry two tints and the brand colour has to stay a Lua
+-- string. And they are drawn at the SAME anchor with NO offset: the dilation
+-- baked into the edge file is the keyline, all the way round both chevrons.
+-- `EDGE_INSET` is gone with the offset it described. Insetting the fill was the
+-- old mark's way of showing a rim, and it worked by drawing the fill smaller
+-- than the shape it was meant to fill - which is why the rim was a shadow on
+-- one side rather than an outline on every edge.
 --
 -- **The accent is no longer QE Live's gold, and that is the point.** The owner
 -- asked for a colour of Lootpath's own (WKE-602, answer 2), so the fill is
@@ -84,9 +102,9 @@ local Adapter = {
 -- item. The mark in a bag corner says "this is Lootpath" - and a third gold
 -- thing in a corner that already holds Baganator's green arrow was the crowd the
 -- proposal named.
-Adapter.TEXTURE = ns.UI.MEDIA.MARK16
+Adapter.EDGE_TEXTURE = ns.UI.MEDIA.MARK16_EDGE
+Adapter.FILL_TEXTURE = ns.UI.MEDIA.MARK16_FILL
 Adapter.SIZE = 16
-Adapter.EDGE_INSET = 1
 Adapter.EDGE_COLOR = { 0.05, 0.05, 0.06, 1 }
 Adapter.FILL_HEX = ns.UI.BRAND_HEX
 
@@ -120,22 +138,24 @@ function Adapter.Available()
 end
 
 -- The widget, one per item button, made once and kept by Baganator. Two
--- textures, the edge under the fill; both are the flat 1-point texture with a
--- tint over it, so there is nothing here for a missing atlas to take away.
+-- textures, the edge under the fill, both filling the frame - the addon's own
+-- files with a tint over each, so there is nothing here for a missing atlas to
+-- take away.
 function Adapter.OnInit(itemButton)
     local widget = CreateFrame("Frame", nil, itemButton)
     widget:SetSize(Adapter.SIZE, Adapter.SIZE)
 
     local edge = widget:CreateTexture(nil, "OVERLAY")
     edge:SetAllPoints()
-    edge:SetTexture(Adapter.TEXTURE)
+    edge:SetTexture(Adapter.EDGE_TEXTURE)
     edge:SetVertexColor(unpack(Adapter.EDGE_COLOR))
 
-    local inset = Adapter.EDGE_INSET
+    -- The same anchor, not an inset one: the two files are the same drawing, so
+    -- the keyline only lands on the chevrons' edges if the two are registered
+    -- texel for texel.
     local fill = widget:CreateTexture(nil, "OVERLAY", nil, 1)
-    fill:SetPoint("TOPLEFT", widget, "TOPLEFT", inset, -inset)
-    fill:SetPoint("BOTTOMRIGHT", widget, "BOTTOMRIGHT", -inset, inset)
-    fill:SetTexture(Adapter.TEXTURE)
+    fill:SetAllPoints()
+    fill:SetTexture(Adapter.FILL_TEXTURE)
     fill:SetVertexColor(ns.UI.ItemLine.RGB(Adapter.FILL_HEX))
 
     widget.edge = edge

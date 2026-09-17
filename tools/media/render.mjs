@@ -23,7 +23,11 @@ const FONT = join(HERE, "fonts", "AlegreyaSC-Bold.ttf");
 const OUT_DIR = resolve(HERE, "..", "..", "Lootpath", "Media");
 
 const ASSETS = [
-  { name: "mark16", width: 16, height: 16 },
+  // The 16-point Waymark ships as TWO files (UX-4c): the chevron bodies and the
+  // keyline silhouette under them. One texture cannot carry two tints, and the
+  // brand colour has to stay a Lua string rather than a re-render.
+  { name: "mark16-fill", width: 16, height: 16 },
+  { name: "mark16-edge", width: 16, height: 16 },
   { name: "mark64", width: 64, height: 64 },
   { name: "icon256", width: 256, height: 256 },
   { name: "wordmark", width: 256, height: 64 },

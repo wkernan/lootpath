@@ -62,7 +62,11 @@ end
 
 local MEDIA = "Lootpath/Media/"
 local EXPECTED = {
-    { name = "mark16", width = 16, height = 16 },
+    -- The 16-point Waymark is two files since UX-4c (WKE-612): the keyline
+    -- silhouette and the chevron bodies, tinted separately and drawn at one
+    -- anchor. The single `mark16` it replaced is proved gone below.
+    { name = "mark16-edge", width = 16, height = 16 },
+    { name = "mark16-fill", width = 16, height = 16 },
     { name = "mark64", width = 64, height = 64 },
     { name = "wordmark", width = 256, height = 64 },
     { name = "icon256", width = 256, height = 256 },
@@ -94,6 +98,64 @@ describe("the addon's own art", function()
             -- carries something nobody put there.
             assert.equal(18 + header.width * header.height * 4, header.size)
         end
+    end)
+
+    -- UX-4c (WKE-612). The single chevron is not deprecated, it is GONE: a
+    -- stale `mark16.tga` left in the folder is a file the packager would ship,
+    -- the client would happily load, and a half-finished edit would point back
+    -- at - the whole failure this guard exists for.
+    it("has taken the old single-chevron mark out of the shipped art and out of the sources", function()
+        assert.is_false(exists(MEDIA .. "mark16.tga"))
+        assert.is_false(exists(MEDIA .. "mark16.blp"))
+        assert.is_false(exists("tools/media/svg/mark16.svg"))
+
+        -- And nothing in the addon still names it. The path is spelled out in
+        -- exactly one table, so the table is where it is looked for.
+        local ns = H.load()
+        for key, path in pairs(ns.UI.MEDIA) do
+            assert.is_nil(path:match("mark16$"), key .. " still points at the single-chevron mark")
+        end
+        H.unload()
+    end)
+
+    -- The keyline is why there are two files at all, and it only works if the
+    -- edge file's shape is the WIDER of the two: it is the same drawing dilated
+    -- by half a stroke on every side, so at the same anchor it shows all the way
+    -- round as an outline. A fill accidentally rendered from the edge source, or
+    -- the two swapped, would draw a mark with no keyline and pass every path
+    -- test. This reads the alpha of both files and compares the coverage.
+    it("renders the keyline wider than the fill it sits under, and both with real alpha", function()
+        local function alphaCoverage(name)
+            local bytes = readFile(MEDIA .. name .. ".tga")
+            local header = readTGAHeader(MEDIA .. name .. ".tga")
+            local covered, opaque = 0, 0
+            for i = 1, header.width * header.height do
+                -- BGRA: the alpha is the fourth byte of each pixel, after the
+                -- 18-byte header.
+                local a = bytes:byte(18 + (i - 1) * 4 + 4)
+                if a > 0 then
+                    covered = covered + 1
+                end
+                if a == 255 then
+                    opaque = opaque + 1
+                end
+            end
+            return covered, opaque
+        end
+
+        local edgeCovered, edgeOpaque = alphaCoverage("mark16-edge")
+        local fillCovered, fillOpaque = alphaCoverage("mark16-fill")
+
+        -- Both are drawings, not empty files and not solid squares.
+        assert.is_true(edgeCovered > 0 and edgeCovered < 256, "edge covers " .. edgeCovered .. " of 256")
+        assert.is_true(fillCovered > 0 and fillCovered < 256, "fill covers " .. fillCovered .. " of 256")
+        assert.is_true(edgeOpaque > 0 and fillOpaque > 0)
+
+        -- The dilation. Strictly wider, or there is no outline to see.
+        assert.is_true(
+            edgeCovered > fillCovered,
+            "keyline covers " .. edgeCovered .. " texels, fill " .. fillCovered .. "; the keyline must be wider"
+        )
     end)
 
     it("ships no .blp, and keeps the sources and the renderer beside them", function()
@@ -160,7 +222,7 @@ describe("the addon's own art", function()
     it("points every texture constant at a file that exists", function()
         local ns = H.load()
         local media = ns.UI.MEDIA
-        for _, key in ipairs({ "MARK16", "MARK64", "WORDMARK", "ICON256" }) do
+        for _, key in ipairs({ "MARK16_EDGE", "MARK16_FILL", "MARK64", "WORDMARK", "ICON256" }) do
             local path = media[key]
             assert.is_string(path)
             -- The in-game path, turned back into a repo path.

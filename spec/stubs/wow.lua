@@ -137,8 +137,13 @@ local function attachRegion(r)
     function r:ClearAllPoints()
         self.points = {}
     end
-    function r:SetAllPoints()
-        self.points[#self.points + 1] = { "ALL" }
+    -- The relative region is kept (UX-4c, WKE-612). `SetAllPoints(other)` and a
+    -- bare `SetAllPoints()` are different anchorings - one pins to a named
+    -- region, the other to the parent - and a test that cannot tell them apart
+    -- cannot say two layers of one mark sit on the same rectangle. A bare call
+    -- still records `{ "ALL" }`, because the second slot is then nil.
+    function r:SetAllPoints(relativeTo)
+        self.points[#self.points + 1] = { "ALL", relativeTo }
     end
     function r:SetSize(w, h)
         self.width, self.height = w, h
