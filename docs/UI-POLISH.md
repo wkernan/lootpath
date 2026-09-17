@@ -8,7 +8,7 @@ changes how QE Live's numbers are shown, never what they are.
 
 ## 1. What the window is today (read from the code)
 
-- `UI/MainFrame.lua`: one 620 x 640 `BasicFrameTemplateWithInset` window.
+- `UI/MainFrame.lua`: one 620 x 640 `BasicFrameTemplateWithInset` window. (Since M5-2c, WKE-609, 2026-09-17: 760 x 640, `PortraitFrameTemplate` since M5-2.)
   The top third of every tab is the paste editbox (90 points), its three
   buttons, the import status line and the verdict note. Three
   `PanelTabButtonTemplate` tabs sit under that, in the body, not on the
@@ -323,4 +323,6 @@ thing the stub cannot check.
   (Blizzard's Encounter Journal frame is 800 x 496, read from
   `Blizzard_EncounterJournal.xml` under `.luals`) or Equip Now scrolls. The
   proposal assumes it grows toward the journal's width and scrolls anyway;
-  the exact size is the eye test's to settle.
+  the exact size is the eye test's to settle. **ANSWERED and built (M5-2c,
+  WKE-609, 2026-09-17): the owner chose 760 on WKE-598, the height stays 640,
+  and Equip Now scrolls as well. Dark only; no light skin is built.**
