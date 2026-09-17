@@ -338,6 +338,29 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
         }, 10)
         assert.is_nil(bare.link)
         assert.equal("shown at its base level - /lootpath capture journal to read it at +10", bare.levelNote)
+
+        -- M5-3b: what the hover checks the link's own tooltip against. A drop
+        -- road arrives at a level a walk previewed; a road named by a document
+        -- does not, and carries neither number, so the line can never reach it.
+        assert.equal(drop.itemLevel, drop.dropLevel)
+        assert.equal(305, bare.dropLevel)
+        assert.equal(10, bare.keyLevel)
+        local raid = ns.UpgradeMapPanel.RoadRow({
+            kind = ns.Roads.KIND_DROP,
+            item = { itemID = drop.itemID, name = "Scavenger's Spaulders" },
+            source = { difficultyID = 16 },
+            arrivesAt = 311,
+        }, 10)
+        assert.equal(311, raid.dropLevel)
+        assert.is_nil(raid.keyLevel)
+        local upgrade = ns.UpgradeMapPanel.RoadRow({
+            kind = ns.Roads.KIND_UPGRADE,
+            item = { itemID = drop.itemID, name = "Scavenger's Spaulders" },
+            source = { difficultyID = 8 },
+            arrivesAt = 321,
+        }, 10)
+        assert.is_nil(upgrade.dropLevel)
+        assert.is_nil(upgrade.keyLevel)
     end)
 
     -- WKE-530 finding 4 survives the change of rows: the client answers item
