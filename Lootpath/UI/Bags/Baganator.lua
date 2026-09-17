@@ -71,11 +71,14 @@ local Adapter = {
 -- are one to one, and a mark drawn at 15/16 of itself is a mark nobody drew.
 --
 -- **UX-4c (WKE-612): one chevron became two, and the shadow became a keyline.**
--- The owner opened his full bags on 2026-09-17 and said the single chevron
--- "makes it a bit hard to see when looking at your entire bags"; on the brand
--- sign-off page he then picked Fix E at 16 - the FULL double chevron, the upper
--- solid and the lower at 65%, with a one-unit near-black outline around every
--- edge and NO plate behind it. So the bag corner, the launcher badge, the
+-- The owner opened his full bags on 2026-09-17: "I like it, but the colour
+-- makes it a bit hard to see when looking at your entire bags." He named the
+-- COLOUR; the sign-off page put the two causes to him and argued hue is the
+-- smaller one, because a thin shape with an offset shadow has no ground to sit
+-- on whatever colour it is. He then picked Fix E at 16 - the FULL double
+-- chevron, the upper solid and the lower at 65%, with a one-unit near-black
+-- outline around every edge and NO plate behind it - which changes the shape
+-- and the keyline and leaves `#FF1A8C` exactly where it was. So the bag corner, the launcher badge, the
 -- compartment entry and the listing tile are now one shape, and the item's own
 -- art stays visible under the mark.
 --

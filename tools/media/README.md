@@ -67,8 +67,10 @@ Candidate A of the WKE-602 proposal, picked by the owner on 2026-09-16.
 
 At 16 it is the full double chevron too (**UX-4c**, WKE-612). UX-4b drew a
 reduced form there - one thick chevron - and the owner opened his full bags on
-2026-09-17 and found it "a bit hard to see when looking at your entire bags".
-On the brand sign-off page he picked **Fix E at 16**: the upper chevron solid,
+2026-09-17: "I like it, but the colour makes it a bit hard to see when looking
+at your entire bags." He named the colour; the sign-off page argued hue is the
+smaller of the two causes, a thin shape with an offset shadow the larger. He
+then picked **Fix E at 16**, which changes the shape and leaves the colour: the upper chevron solid,
 the lower at 65%, a one-unit near-black outline around every edge, and no plate
 behind it. The geometry in `mark16-fill.svg` and `mark16-edge.svg` is that
 drawing's, path for path - still drawn on a 16-unit grid rather than shrunk from
