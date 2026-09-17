@@ -394,20 +394,127 @@ describe("the Equip Now panel", function()
         assert.is_truthy(row.note:GetText():find(ns.UI.EquipPanel.MOVED_NOTE, 1, true))
     end)
 
-    it("calls EquipItemByName only where there is no bag slot to equip from", function()
-        -- The CALL sites, not the comments that name the function: a line whose
-        -- first non-blank is `C_Item.EquipItemByName(`. Both branches are
-        -- commented, and a comment naming the function is not a call.
+    it("never calls EquipItemByName at all", function()
+        -- E-1a (WKE-605) flips E-1's guard. E-1 let one by-name call survive
+        -- for a row with no destination slot; now every equippable row has one,
+        -- so the CALL SITE must be gone from this file entirely - a line whose
+        -- first non-blank is `C_Item.EquipItemByName(`. A comment naming the
+        -- function would not be a call, and there is not one of either.
         local source = readFile("Lootpath/UI/EquipPanel.lua")
         local _, byName = source:gsub("\n[ \t]*C_Item%.EquipItemByName%(", "")
-        assert.equal(1, byName)
-        local byLocation = source:find("\n        EquipCursorItem(row.dstSlot)", 1, true)
-        local fallback = source:find("\n    C_Item.EquipItemByName(", 1, true)
-        assert.is_truthy(byLocation)
-        assert.is_truthy(fallback)
-        assert.is_true(byLocation < fallback)
-        -- The guard that sends everything with a bag slot the other way.
+        assert.equal(0, byName)
+        assert.is_nil(source:find("EquipItemByName", 1, true))
+        assert.is_truthy(source:find("\n    EquipCursorItem(row.dstSlot)", 1, true))
+        -- The guard that refuses a record with no bag slot to pick up from.
         assert.is_truthy(source:find('(best.location == "bag" or best.location == "bank")', 1, true))
+    end)
+
+    -- E-1a (WKE-605): the owner's legs slot was EMPTY, both leggings were in
+    -- the bags, and Equip all put on the 295 - the one case E-1 left on the
+    -- by-name path. `dstSlot` is the scanned slot of the item being REPLACED
+    -- (Match.lua:259), so an empty slot has none; these ask the client where
+    -- the copy goes instead. `world.slotsForItem` is the client's answer, and
+    -- nothing here asserts that a particular item belongs in a particular slot.
+    local function emptySlotRow(slots)
+        local source = firstSwapRow(panel)
+        assert.is_table(source)
+        local best = source.matchRow.best
+        for _, invSlot in ipairs(slots) do
+            world.equipped[invSlot] = nil
+        end
+        world.slotsForItem[best.link] = slots
+        return { slot = source.matchRow.slot, status = "swap", best = best, dstSlot = nil }
+    end
+
+    it("equips an empty slot into the slot the client names for that copy, never by name", function()
+        -- Legs, the owner's own case: nothing worn, one slot offered.
+        local row = emptySlotRow({ 7 })
+        local best = row.best
+        -- A SECOND copy of the same link elsewhere in the bags, which is what
+        -- made the by-name path put on the wrong one.
+        world.bags[best.bag].items[best.slotIndex + 40] = {
+            link = best.link,
+            id = best.itemID,
+            info = { hyperlink = best.link, itemID = best.itemID },
+        }
+        local result = ns.UI.EquipPanel.Equip(row)
+        assert.is_true(result.ok)
+        assert.equal(7, row.dstSlot)
+        assert.equal(0, #world.equipCalls)
+        assert.equal(1, #world.pickupCalls)
+        assert.same({ best.bag, best.slotIndex, best.link }, world.pickupCalls[1])
+        assert.equal(1, #world.equipCursorCalls)
+        assert.equal(7, world.equipCursorCalls[1].slot)
+        assert.equal(best.slotIndex, world.equipCursorCalls[1].slotIndex)
+        assert.is_nil(world.heldItem)
+    end)
+
+    it("puts a ring in the empty one of the two finger slots the client offers", function()
+        local row = emptySlotRow({ 11, 12 })
+        -- Finger1 worn, Finger2 empty: the client offers both, only one is free.
+        world.equipped[11] = { link = OTHER_LINK, id = OTHER_ITEM_ID }
+        assert.is_true(ns.UI.EquipPanel.Equip(row).ok)
+        assert.equal(12, row.dstSlot)
+        assert.equal(12, world.equipCursorCalls[1].slot)
+        assert.equal(0, #world.equipCalls)
+    end)
+
+    it("takes the other finger slot when that is the empty one", function()
+        local row = emptySlotRow({ 11, 12 })
+        world.equipped[12] = { link = OTHER_LINK, id = OTHER_ITEM_ID }
+        assert.is_true(ns.UI.EquipPanel.Equip(row).ok)
+        assert.equal(11, row.dstSlot)
+        assert.equal(11, world.equipCursorCalls[1].slot)
+    end)
+
+    it("sends a two-hander to the main hand when the client offers both hands", function()
+        -- INVSLOT_MAINHAND 16, INVSLOT_OFFHAND 17 (Constants.lua:168-169). A
+        -- client that offers a two-hander for both is a Titan's Grip warrior;
+        -- with both free the main hand is the one that comes first.
+        local row = emptySlotRow({ 16, 17 })
+        assert.is_true(ns.UI.EquipPanel.Equip(row).ok)
+        assert.equal(16, row.dstSlot)
+        assert.equal(16, world.equipCursorCalls[1].slot)
+        assert.equal(0, #world.equipCalls)
+    end)
+
+    it("refuses in one sentence when the client names no slot for the item", function()
+        local row = emptySlotRow({})
+        local result = ns.UI.EquipPanel.Equip(row)
+        assert.is_false(result.ok)
+        assert.equal(ns.UI.EquipPanel.UNMAPPABLE_NOTE, result.reason)
+        assert.equal(ns.UI.EquipPanel.UNMAPPABLE_NOTE, row.equipRefusal)
+        assert.is_nil(row.dstSlot)
+        assert.equal(0, #world.pickupCalls)
+        assert.equal(0, #world.equipCursorCalls)
+        assert.equal(0, #world.equipCalls)
+        assert.is_nil(world.heldItem)
+    end)
+
+    it("takes an empty-slot row through Equip all by location too, and stops at one it cannot place", function()
+        local placed = emptySlotRow({ 7 })
+        -- A second row of its own, in a bag slot the client offers for nothing,
+        -- so Equip all's per-row path is what is read and the panel's own rows
+        -- are untouched.
+        local unplaceable = {
+            slot = "Finger",
+            status = "swap",
+            best = {
+                location = "bag",
+                link = OTHER_LINK,
+                itemID = OTHER_ITEM_ID,
+                bag = placed.best.bag,
+                slotIndex = 99,
+            },
+            dstSlot = nil,
+        }
+        local result = ns.UI.EquipPanel.EquipAll({ ok = true, rows = { placed, unplaceable } })
+        assert.is_true(result.ok)
+        assert.equal(1, result.equipped)
+        assert.equal(7, world.equipCursorCalls[1].slot)
+        assert.equal(0, #world.equipCalls)
+        assert.same({ ns.UI.EquipPanel.UNMAPPABLE_NOTE }, result.refusals)
+        assert.equal(unplaceable, result.stoppedAt)
     end)
 
     it("says what it is showing per row", function()

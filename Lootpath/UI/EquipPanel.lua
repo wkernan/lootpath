@@ -313,6 +313,90 @@ end
 -- the copy the row means. One sentence, and it names the way out.
 EquipPanel.MOVED_NOTE = "this piece moved - /lootpath refresh"
 
+-- The sentence a row says when the client will not name one equipment slot this
+-- copy can go into. One sentence, and it names the way out. Nothing is picked
+-- up and nothing is equipped: the guess-by-name path it replaces is gone.
+EquipPanel.UNMAPPABLE_NOTE = "can't tell where this goes - equip it by hand"
+
+-- Which equipment slot an EMPTY-slot row equips into (E-1a, WKE-605).
+--
+-- E-1 left one case on the old equip-by-name call: a row with nothing worn in its
+-- slot has no `dstSlot`, because `dstSlot` is the scanned `slotIndex` of the
+-- item being REPLACED. The owner's legs slot was empty with both leggings in
+-- the bags, so that row took the by-name path and the client put on the 295.
+--
+-- **The slot is asked of the client, never read off a table of ours.** Blizzard
+-- ships no INVTYPE_* -> INVSLOT_* table in FrameXML (searched under .luals/ on
+-- 2026-09-17: "INVTYPE_HEAD" and "INVTYPE_FINGER" appear only in a heirloom
+-- branch and an Encounter Journal filter list, never as a mapping), so writing
+-- one here would be a remembered table, which is the thing §7's 2026-09-06
+-- decision forbids. What Blizzard DOES expose is the question answered from the
+-- other end, and it is the same source its own paper-doll flyout uses:
+--
+--   GetInventoryItemsForSlot(slot, returnTable)     Wiki.lua:5064-5067
+--     fills `returnTable` with [packedLocation] = itemID for every item in the
+--     player's bags and bank that CAN be equipped in inventory slot `slot`.
+--     Blizzard_UIPanels_Game/Mainline/PaperDollFrame.lua:2064-2066 is the
+--     flyout's only call; Blizzard_BoostTutorial/Blizzard_TutorialLogic.lua
+--     :1158-1200 walks INVSLOT_FIRST_EQUIPPED..INVSLOT_LAST_EQUIPPED the same
+--     way this does.
+--   EquipmentManager_GetLocationData(packedLocation)
+--     Blizzard_FrameXML/Shared/EquipmentManager.lua:1-29 - unpacks that key
+--     into { isPlayer, isBank, isBags, bag, slot }. Its arithmetic is NOT
+--     copied here: the client's own function is called, so a change to the
+--     packing can never leave a stale copy of it in this file.
+--   GetInventoryItemID("player", slot)             Wiki.lua (read-only)
+--     tells an empty equipment slot from a full one.
+--
+-- So the two-slot locations need no special case at all: the client answers
+-- both finger slots for a ring and both trinket slots for a trinket, and this
+-- takes the EMPTY one, lowest first. Nor do the weapons: whether a two-hander
+-- may go in the off hand is the client's answer (Titan's Grip), not ours. An
+-- item the client names no slot for - or a client without these functions, or
+-- a bank copy with the bank shut - returns nil, and the row refuses.
+--
+-- Read-only, all three of them: nothing is bought, moved, picked up or equipped
+-- here.
+function EquipPanel.DestinationSlot(best)
+    if type(best) ~= "table" or best.bag == nil or best.slotIndex == nil then
+        return nil
+    end
+    if
+        type(GetInventoryItemsForSlot) ~= "function"
+        or type(EquipmentManager_GetLocationData) ~= "function"
+        or type(GetInventoryItemID) ~= "function"
+        or type(INVSLOT_FIRST_EQUIPPED) ~= "number"
+        or type(INVSLOT_LAST_EQUIPPED) ~= "number"
+    then
+        return nil
+    end
+    local firstEmpty
+    for invSlot = INVSLOT_FIRST_EQUIPPED, INVSLOT_LAST_EQUIPPED do
+        local items = {}
+        GetInventoryItemsForSlot(invSlot, items)
+        local holds = false
+        for packed in pairs(items) do
+            local where = (ns.Safe(EquipmentManager_GetLocationData((ns.Safe(packed)))))
+            if type(where) == "table" and (ns.Safe(where.isBags)) == true then
+                local bag = tonumber((ns.Safe(where.bag)))
+                local slotIndex = tonumber((ns.Safe(where.slot)))
+                if bag == tonumber(best.bag) and slotIndex == tonumber(best.slotIndex) then
+                    holds = true
+                    break
+                end
+            end
+        end
+        if holds and firstEmpty == nil and ns.Safe(GetInventoryItemID("player", invSlot)) == nil then
+            firstEmpty = invSlot
+        end
+    end
+    -- Only an EMPTY slot, never an occupied one. This function is reached only
+    -- where the row has no `dstSlot`, which is Match saying nothing is worn in
+    -- that slot; if the client then names no free slot at all, the two disagree
+    -- and the row refuses rather than displacing a piece nobody asked about.
+    return firstEmpty
+end
+
 -- Does bag `best.bag`, slot `best.slotIndex` still hold the exact copy this row
 -- was built from? The scan is a snapshot; bags move between the scan and the
 -- click (a loot, a sort, a bank trip), and equipping whatever sits in that slot
@@ -346,18 +430,27 @@ end
 -- **By bag and slot, not by name** (E-1, WKE-604, 2026-09-16). The owner had
 -- two Enigmatic Dreamwatcher's Leggings in his bags, 321 and 295; the row said
 -- swap to the 321 and the first click put on the 295, because
--- `C_Item.EquipItemByName(itemInfo, dstSlot?)` takes an `ItemInfo` - a name, an
+-- the old equip-by-name call took an `ItemInfo` - a name, an
 -- ID or a link (ItemDocumentation.lua:85-87) - and the client resolves it to
 -- the first matching item in the bags. A link's bonus IDs do not narrow it. The
 -- scan already recorded exactly which copy the row means, so this path picks
 -- that one up and equips what is then on the cursor.
 --
--- The four client functions this path may call, named here the way Captures.lua
--- names the functions its captures call, and nothing else:
+-- **Every equippable row now has a slot** (E-1a, WKE-605): a row with nothing
+-- worn in its slot gets one from EquipPanel.DestinationSlot, which asks the
+-- client which slots take this exact copy, so the equip-by-name call is gone
+-- from this file entirely and a row the client will not place refuses instead.
+--
+-- The seven client functions this path may call, named here the way
+-- Captures.lua names the functions its captures call, and nothing else:
 --   C_Container.GetContainerItemInfo(bag, slotIndex)  ContainerDocumentation.lua:71-75
 --   C_Container.PickupContainerItem(bag, slotIndex)   ContainerDocumentation.lua:159-162
 --   EquipCursorItem(slot)                             GameCursorDocumentation.lua:30-32
 --   ClearCursor()                                     GameCursorDocumentation.lua:2-3
+--   GetInventoryItemsForSlot(slot, returnTable)       Wiki.lua:5064-5067
+--   EquipmentManager_GetLocationData(packedLocation)  Shared/EquipmentManager.lua:1-29
+--   GetInventoryItemID("player", slot)                Wiki.lua:5037-5042
+-- The last three are read-only and pure; only the middle two move anything.
 -- Nothing is bought, sold, destroyed, split, sorted or moved anywhere but onto
 -- the character. `ClearCursor()` comes FIRST on every path that touches the
 -- cursor - Blizzard's own EquipmentManager_EquipContainerItem opens with it
@@ -373,31 +466,35 @@ function EquipPanel.Equip(row)
         return { ok = false, reason = "there is nothing to equip in this row" }
     end
     local best = row.best
+    if not (type(best) == "table" and (best.location == "bag" or best.location == "bank")) then
+        row.equipRefusal = EquipPanel.UNMAPPABLE_NOTE
+        return { ok = false, reason = EquipPanel.UNMAPPABLE_NOTE, unmappable = true }
+    end
     -- `dstSlot` is the equipment slot the scan actually found the replaced item
     -- in, which is what keeps two rings and two trinkets from fighting over one
-    -- slot; it is nil when nothing is worn there. `EquipCursorItem(slot)`
-    -- declares its slot as required (GameCursorDocumentation.lua:31), unlike
-    -- EquipItemByName's `dstSlot number?`, so a row with nothing to replace has
-    -- no slot number to hand it and stays on the old path.
-    if (best.location == "bag" or best.location == "bank") and row.dstSlot ~= nil then
-        if not EquipPanel.SlotStillHolds(best) then
-            ClearCursor()
-            row.equipRefusal = EquipPanel.MOVED_NOTE
-            return { ok = false, reason = EquipPanel.MOVED_NOTE, moved = true }
-        end
-        ClearCursor()
-        C_Container.PickupContainerItem(best.bag, best.slotIndex)
-        EquipCursorItem(row.dstSlot)
-        row.equipRefusal = nil
-        return { ok = true, link = best.link, dstSlot = row.dstSlot, bag = best.bag, slotIndex = best.slotIndex }
+    -- slot; it is nil when nothing is worn there (Match.lua:259). E-1a fills
+    -- that case from the item itself rather than from what is worn, and keeps
+    -- the answer on the row so the panel and Equip all see the same slot.
+    -- `EquipCursorItem(slot)` declares its slot as required
+    -- (GameCursorDocumentation.lua:31), so a row without one cannot be equipped
+    -- at all and says so instead of guessing by name.
+    if row.dstSlot == nil then
+        row.dstSlot = EquipPanel.DestinationSlot(best)
     end
-    -- The only remaining callers of the by-name path: a record with no bag and
-    -- slot to pick up from, and a row with no destination slot to equip into.
-    -- C_Item.EquipItemByName(itemInfo, dstSlot?) - Blizzard's exported docs,
-    -- read 2026-09-06; the global EquipItemByName is deprecated.
-    C_Item.EquipItemByName(best.link, row.dstSlot)
+    if row.dstSlot == nil then
+        row.equipRefusal = EquipPanel.UNMAPPABLE_NOTE
+        return { ok = false, reason = EquipPanel.UNMAPPABLE_NOTE, unmappable = true }
+    end
+    if not EquipPanel.SlotStillHolds(best) then
+        ClearCursor()
+        row.equipRefusal = EquipPanel.MOVED_NOTE
+        return { ok = false, reason = EquipPanel.MOVED_NOTE, moved = true }
+    end
+    ClearCursor()
+    C_Container.PickupContainerItem(best.bag, best.slotIndex)
+    EquipCursorItem(row.dstSlot)
     row.equipRefusal = nil
-    return { ok = true, link = best.link, dstSlot = row.dstSlot }
+    return { ok = true, link = best.link, dstSlot = row.dstSlot, bag = best.bag, slotIndex = best.slotIndex }
 end
 
 -- Equip all walks the same path, row by row, with the same check per row, and

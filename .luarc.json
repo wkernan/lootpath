@@ -12,6 +12,7 @@
         "ITEM_QUALITY_COLORS",
         "RETRIEVING_ITEM_INFO",
         "GameTooltip_ShowCompareItem",
+        "EquipmentManager_GetLocationData",
         "ContainerFrameMixin",
         "ContainerFrameUtil_EnumerateContainerFrames",
         "Baganator"

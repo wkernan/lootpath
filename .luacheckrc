@@ -76,6 +76,18 @@ read_globals = {
     -- EquipCursorItem :30-32).
     "ClearCursor",
     "EquipCursorItem",
+    -- E-1a (WKE-605): where an EMPTY slot's row equips into, asked of the
+    -- client rather than read off a table of ours. GetInventoryItemsForSlot is
+    -- Blizzard's own paper-doll flyout source (Wiki.lua:5064-5067,
+    -- PaperDollFrame.lua:2064-2066) and EquipmentManager_GetLocationData
+    -- unpacks what it answers with (Shared/EquipmentManager.lua:1-29); the two
+    -- INVSLOT bounds are Constants.lua:153 and :172. The FrameXML function is
+    -- called through a type check, so a client without it refuses the row
+    -- rather than erroring.
+    "EquipmentManager_GetLocationData",
+    "GetInventoryItemsForSlot",
+    "INVSLOT_FIRST_EQUIPPED",
+    "INVSLOT_LAST_EQUIPPED",
     "GetBuildInfo",
     "GetCurrentRegion",
     "GetCurrentRegionName",
@@ -185,5 +197,15 @@ files["spec/**/*.lua"] = {
     -- RETRIEVING_ITEM_INFO is the one client global a spec names directly: the
     -- item line draws Blizzard's own string, so the test asserts Blizzard's own
     -- string rather than a copy of it.
-    read_globals = { "RETRIEVING_ITEM_INFO" },
+    -- E-1a (WKE-605): the stub models Blizzard's packed item location, so it
+    -- names the four constants that packing is made of (Constants.lua:146-149)
+    -- and the client's `bit` library those lines use.
+    read_globals = {
+        "RETRIEVING_ITEM_INFO",
+        "bit",
+        "ITEM_INVENTORY_LOCATION_PLAYER",
+        "ITEM_INVENTORY_LOCATION_BAGS",
+        "ITEM_INVENTORY_LOCATION_BANK",
+        "ITEM_INVENTORY_BAG_BIT_OFFSET",
+    },
 }
