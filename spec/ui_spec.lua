@@ -2781,4 +2781,72 @@ describe("the healing gate's screen", function()
         assert.is_false(frame.comingSoon:IsShown())
         assert.is_true(frame.equipPanel:IsShown())
     end)
+
+    -- H-1a (WKE-606): the strip goes with the panels.
+    --
+    -- The owner's check of H-1 in Guardian: the screen was right and the row
+    -- above it still read `Restoration Druid - companion, written 3 minutes
+    -- ago - vault pick: everything upgraded`. Those are the healing set's facts
+    -- and the screen has already said the only one that is owed to a player who
+    -- is not healing.
+    it("hides the strip and the nudge row while the screen is up", function()
+        ns.Drift.SetBehind({ count = 2, name = "Lightgrasp Worldroot" })
+        ns.UI.RefreshStrip(frame)
+        assert.is_true(frame.statusStrip:IsShown())
+        assert.is_true(frame.nudgeButton:IsShown())
+        world.spec = GUARDIAN
+        ns.UI.Refresh()
+        assert.is_false(frame.statusStrip:IsShown())
+        assert.is_false(frame.nudgeButton:IsShown())
+        assert.equal("", frame.stripText:GetText())
+    end)
+
+    -- The two buttons are not the strip's to take away. In the client a child of
+    -- a hidden frame is hidden with it, so they are the FRAME's children since
+    -- this issue and they still hang off the strip's row, which a hidden frame
+    -- still has. (The stub's `shown` is its own flag and knows nothing about a
+    -- parent, so the parentage is what is asserted: it is the thing that is
+    -- true or false on a real screen.)
+    it("leaves Import and Options where they are", function()
+        world.spec = GUARDIAN
+        ns.UI.Refresh()
+        assert.is_false(frame.statusStrip:IsShown())
+        assert.equal(frame, frame.openImportButton:GetParent())
+        assert.equal(frame, frame.optionsButton:GetParent())
+        assert.equal(frame.statusStrip, frame.optionsButton.points[1][2])
+    end)
+
+    -- A hidden frame gets no OnEnter and no mouse-up in the client; the stub
+    -- will run either script on demand, so the model behind them is what is
+    -- asserted - there is none, and both say nothing.
+    it("has no tooltip and no click while it is hidden", function()
+        world.spec = GUARDIAN
+        ns.UI.Refresh()
+        assert.is_nil(frame.stripModel)
+        world.tooltip:ClearLines()
+        frame.statusStrip:GetScript("OnEnter")(frame.statusStrip)
+        assert.equal("", world.tooltip.stub:Text())
+        assert.is_nil(ns.UI.StripClick(frame))
+        assert.equal(0, world.reloads)
+    end)
+
+    it("is on screen in the healing spec, and in a spec the client does not name", function()
+        ns.UI.Refresh()
+        assert.is_true(frame.statusStrip:IsShown())
+        world.spec = nil
+        ns.UI.Refresh()
+        assert.is_true(frame.statusStrip:IsShown())
+    end)
+
+    it("puts the strip back on the spec change, with no reload", function()
+        frame:Show()
+        world.spec = GUARDIAN
+        world.fireEvent("PLAYER_SPECIALIZATION_CHANGED", "player")
+        assert.is_false(frame.statusStrip:IsShown())
+        world.spec = RESTORATION
+        world.fireEvent("PLAYER_SPECIALIZATION_CHANGED", "player")
+        assert.is_true(frame.statusStrip:IsShown())
+        assert.is_truthy(frame.stripModel)
+        assert.equal(0, world.reloads)
+    end)
 end)
