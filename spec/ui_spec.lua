@@ -1117,7 +1117,8 @@ describe("the Vault tab", function()
     end)
 
     it("renders the week's notes into the window and its options into the grid", function()
-        assert.equal(ns.VaultPanel.NOTE, panel.note:GetText())
+        -- No legend under the header since V-5 (WKE-600).
+        assert.is_nil(rawget(panel, "note"))
         assert.equal("Vault", panel.header:GetText())
         assert.equal(10, panel.model.counts.options)
         local notes = ns.VaultPanel.NoteLines(panel.model)
@@ -1188,7 +1189,8 @@ describe("the window after WKE-530", function()
     -- Vault tab, and since M5-3 the Upgrade Map's scroll box elements.
     local function noteCount(panel, note)
         local seen = 0
-        if panel.note:GetText():find(note, 1, true) then
+        -- Since V-5 (WKE-600) not every tab has a pinned note at all.
+        if panel.note and panel.note:GetText():find(note, 1, true) then
             seen = seen + 1
         end
         for _, element in ipairs(panel.elements or {}) do
@@ -1207,8 +1209,14 @@ describe("the window after WKE-530", function()
     it("draws each tab's pinned note exactly once", function()
         frame.tabs[2]:Click()
         assert.equal(1, noteCount(frame.upgradeMapPanel, ns.UpgradeMapPanel.NOTE))
+        -- The Vault tab's own legend is gone since V-5 (WKE-600), so "exactly
+        -- once" became "nowhere" - counted over the same sentence, written out
+        -- because the constant that held it no longer exists.
         frame.tabs[3]:Click()
-        assert.equal(1, noteCount(frame.vaultPanel, ns.VaultPanel.NOTE))
+        assert.equal(
+            0,
+            noteCount(frame.vaultPanel, "Rated options show their value. Other options are listed by item level only.")
+        )
     end)
 
     -- Finding 2 was five difficulty buttons overflowing the window's width and

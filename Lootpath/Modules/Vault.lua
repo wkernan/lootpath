@@ -65,6 +65,17 @@ Vault.FUNCTION_NAMES = {
     "C_WeeklyRewards.HasAvailableRewards",
     "C_WeeklyRewards.CanClaimRewards",
     "C_WeeklyRewards.HasGeneratedRewards",
+    -- V-5 (WKE-600): the two reads the drawn grid needs and the text list
+    -- never did. `AreRewardsForCurrentRewardPeriod` is what Blizzard's own
+    -- frame asks before it shows its PreviousRewardNotification
+    -- (WeeklyRewardsMixin:UpdatePreviousClaim, Blizzard_WeeklyRewards.lua
+    -- under `.luals/`), and `GetDifficultyIDForActivityTier` is what its
+    -- activity mixin asks to tell a Heroic dungeon week from a Mythic one
+    -- (WeeklyRewardsActivityMixin:IsCompletedAtHeroicLevel). Both only read.
+    -- Neither generates anything: `OnUIInteract` is not in this list and is
+    -- not called from this file.
+    "C_WeeklyRewards.AreRewardsForCurrentRewardPeriod",
+    "C_WeeklyRewards.GetDifficultyIDForActivityTier",
     "C_WeeklyRewards.GetActivities",
     "C_WeeklyRewards.GetItemHyperlink",
     "C_DateAndTime.GetSecondsUntilWeeklyReset",
@@ -450,6 +461,12 @@ function Vault.Options(opts)
                 -- it and leave the count wrong.
                 local threshold = tonumber(guarded(counter, activity.threshold)) or 0
                 local progress = tonumber(guarded(counter, activity.progress)) or 0
+                local activityTierID = tonumber(guarded(counter, activity.activityTierID))
+                local difficultyID
+                if activityTierID and C_WeeklyRewards.GetDifficultyIDForActivityTier then
+                    difficultyID =
+                        tonumber(guarded(counter, call(C_WeeklyRewards.GetDifficultyIDForActivityTier, activityTierID)))
+                end
                 local rewards = {}
                 for _, rawReward in ipairs(guarded(counter, activity.rewards) or {}) do
                     local reward = Vault.Reward(rawReward, counter)
@@ -471,7 +488,7 @@ function Vault.Options(opts)
                     threshold = threshold,
                     progress = progress,
                     level = tonumber(guarded(counter, activity.level)),
-                    activityTierID = tonumber(guarded(counter, activity.activityTierID)),
+                    activityTierID = activityTierID,
                     -- The client's own sentence for a Raid row's threshold
                     -- ("Defeat %d Midnight Season 2 |4Boss:Bosses" in the
                     -- 2026-09-08 transcript). Blizzard's own WeeklyRewards
@@ -481,6 +498,20 @@ function Vault.Options(opts)
                     -- draws a locked cell needs it. Recorded as the client
                     -- said it; nothing formats it here.
                     raidString = guarded(counter, activity.raidString),
+                    -- V-5 (WKE-600). Recorded because the client gives it, NOT
+                    -- because it says a reward was taken: on the owner's
+                    -- 2026-09-08 transcript `claimID` equals `id` and is set on
+                    -- every activity that HAS a reward, at a moment when
+                    -- `CanClaimRewards` was true and nothing had been claimed.
+                    -- It marks the reward a claim would name. What tells a
+                    -- claimed week apart is still V-3's own memory.
+                    claimID = tonumber(guarded(counter, activity.claimID)),
+                    -- Blizzard's own Heroic-or-Mythic tell for a Dungeons row
+                    -- (WeeklyRewardsActivityMixin:IsCompletedAtHeroicLevel).
+                    -- Asked only when the activity carries a tier, so a client
+                    -- that answers nothing leaves the cell with the level text
+                    -- it can say rather than a guessed difficulty.
+                    difficultyID = difficultyID,
                     unlocked = threshold > 0 and progress >= threshold,
                     rewards = rewards,
                 }
@@ -500,6 +531,13 @@ function Vault.Options(opts)
         -- transcript, ARCHITECTURE.md 7). The Vault tab says so rather than
         -- sending the player round the refresh loop again.
         hasGeneratedRewards = guarded(counter, call(C_WeeklyRewards.HasGeneratedRewards)) == true,
+        -- V-5 (WKE-600): whether what the client is holding belongs to the week
+        -- it is in now. Blizzard's own frame asks exactly this before it puts
+        -- its "rewards from a previous time" notice up
+        -- (WeeklyRewardsMixin:UpdatePreviousClaim), and it is the one state the
+        -- tab had no way to say. Missing on a client without the read, which is
+        -- not the same as false and is not flattened into one here.
+        currentRewardPeriod = guarded(counter, call(C_WeeklyRewards.AreRewardsForCurrentRewardPeriod)),
         secondsUntilWeeklyReset = guarded(counter, call(C_DateAndTime and C_DateAndTime.GetSecondsUntilWeeklyReset)),
         secretsSeen = counter.secretsSeen,
         pendingRewards = pendingRewards,

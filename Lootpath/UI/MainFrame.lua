@@ -1742,6 +1742,14 @@ function UI.Frame()
     frame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
     frame:RegisterEvent("BAG_UPDATE_DELAYED")
     frame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+    -- V-5 (WKE-600): the Great Vault's own event. The Vault tab reads the live
+    -- activities on every refresh, and this is what makes "every refresh"
+    -- include the moment the vault itself changed - a boss down, a key timed,
+    -- a reward taken - while the window is open in front of the player.
+    -- Reading activities costs nothing and asks the client for nothing:
+    -- `OnUIInteract` is what GENERATES rewards, it stays where M3-16a put it
+    -- (once, at login), and nothing on this path calls it.
+    frame:RegisterEvent("WEEKLY_REWARDS_UPDATE")
     frame:SetScript("OnEvent", onEvent)
 
     -- Escape closes it, the way every Blizzard panel does. UISpecialFrames keys
