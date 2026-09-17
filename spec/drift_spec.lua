@@ -149,7 +149,7 @@ describe("ns.Drift over the owner's 2026-09-14 gear", function()
         ns.Drift.Check()
         local model = ns.Drift.Model()
         assert.equal("behind", model.kind)
-        assert.equal("your gear changed since this plan (1 item) \194\183 click to refresh", model.text)
+        assert.equal("your gear changed since this rating (1 item) \194\183 click to refresh", model.text)
         assert.is_truthy(model.tooltip:find(WORLDROOT_NAME, 1, true))
     end)
 
@@ -160,7 +160,7 @@ describe("ns.Drift over the owner's 2026-09-14 gear", function()
         assert.is_string(outOfBags(world, 251166))
         local behind = ns.Drift.Check()
         assert.equal(2, behind.count)
-        assert.equal("your gear changed since this plan (2 items) \194\183 click to refresh", ns.Drift.Model().text)
+        assert.equal("your gear changed since this rating (2 items) \194\183 click to refresh", ns.Drift.Model().text)
     end)
 
     -- The first of the three guards WKE-578 names.
@@ -508,7 +508,7 @@ describe("ns.Drift.LoadLine, the five things the load after a refresh can say", 
             message = "profile unchanged since 2026-09-14T23:09:00Z; the rating is current",
         }
         local line = ns.Drift.LoadLine(at(NOW))
-        assert.equal("your gear hasn't changed since the last rating, so the plan you have is current.", line)
+        assert.equal("your gear hasn't changed since the last rating, so what you have is current.", line)
         said(line)
         -- and the strip agrees: it stops counting a run that has already ended
         assert.is_nil(ns.Drift.Model(at(NOW)))
@@ -531,7 +531,7 @@ describe("ns.Drift.LoadLine, the five things the load after a refresh can say", 
         }
         local line = ns.Drift.LoadLine(at(NOW))
         assert.equal(
-            "your gear didn't reach the companion - the last read of it was empty - so the plan you have is "
+            "your gear didn't reach the companion - the last read of it was empty - so what you have is "
                 .. "untouched. Try /lootpath refresh.",
             line
         )
@@ -618,7 +618,7 @@ describe("ns.Drift.LoadLine, the five things the load after a refresh can say", 
             },
         }
         local line = ns.Drift.LoadLine(at(NOW))
-        assert.equal("rated just now; the plan is current.", line)
+        assert.equal("rated just now; you're up to date.", line)
         said(line)
         assert.is_nil(ns.Drift.Model(at(NOW)))
         assert.is_nil(ns.db.global.drift.refreshStartedAt)
@@ -1005,7 +1005,7 @@ describe("ns.Drift over the owner's 2026-09-16 legs-off read (C-14)", function()
         assert.equal(0, behind.pieces)
         assert.equal(1, behind.slots)
         assert.equal(1, behind.count)
-        assert.equal("your gear changed since this plan (1 slot) \194\183 click to refresh", ns.Drift.Model().text)
+        assert.equal("your gear changed since this rating (1 slot) \194\183 click to refresh", ns.Drift.Model().text)
     end)
 
     -- A slot and a loose piece are different things and are said as different
@@ -1019,7 +1019,7 @@ describe("ns.Drift over the owner's 2026-09-16 legs-off read (C-14)", function()
         assert.equal(1, behind.slots)
         assert.equal(1, behind.pieces)
         assert.equal(
-            "your gear changed since this plan (1 slot and 1 item) \194\183 click to refresh",
+            "your gear changed since this rating (1 slot and 1 item) \194\183 click to refresh",
             ns.Drift.Model().text
         )
     end)

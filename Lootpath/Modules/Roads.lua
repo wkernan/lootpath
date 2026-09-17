@@ -146,7 +146,7 @@ Roads.VERBS = {
 Roads.PLAN_LABEL = {
     asOffered = "as offered",
     catalyzed = "catalyzed",
-    thisWeek = "this week's plan",
+    thisWeek = "this week's picks",
     maxed = "everything upgraded",
 }
 
@@ -244,6 +244,9 @@ Roads.CREST_NOT_READ = "crest type and cost not read - visit a crest vendor and 
 Roads.CREST_STEPS_ONE = "1 step"
 Roads.CREST_STEPS_MANY = "%d steps"
 Roads.CREST_COST_SEPARATOR = " · "
+-- The same quote on a tooltip, where there is one line for it (UX-3,
+-- WKE-599, reading 5): a comma instead of the middot, and no money.
+Roads.CREST_QUOTE_SEPARATOR = ", "
 
 -- A currency the client named through no list this addon has read. The ID is
 -- said rather than a name being invented for it: the number is checkable and a
@@ -298,6 +301,33 @@ Roads.SLOT_WORD = {
 
 function Roads.SlotWord(slot)
     return Roads.SLOT_WORD[slot] or (type(slot) == "string" and slot:lower() or nil)
+end
+
+-- Whether a player says "these" about what is in this slot (UX-3, WKE-599).
+-- The owner's own draft for the block was "Pass - use your Dreamwatcher legs",
+-- and the sentence above it has to agree with the garment: "Keep these on."
+-- over leggings, "Keep this on." over a chest. The list is the five slots whose
+-- word in `Roads.SLOT_WORD` is already a plural, and nothing else is guessed:
+-- a slot this table does not name is singular.
+Roads.SLOT_PLURAL = {
+    Shoulder = true,
+    Wrist = true,
+    Hands = true,
+    Legs = true,
+    Feet = true,
+}
+
+function Roads.SlotIsPlural(slot)
+    return Roads.SLOT_PLURAL[slot] == true
+end
+
+-- "this" or "these", and "it" or "them", for the slot under the cursor.
+function Roads.ThisWord(slot)
+    return Roads.SlotIsPlural(slot) and "these" or "this"
+end
+
+function Roads.ItWord(slot)
+    return Roads.SlotIsPlural(slot) and "them" or "it"
 end
 
 -- ---------------------------------------------------------------------------
@@ -664,21 +694,40 @@ end
 -- `C_ItemUpgrade.GetItemUpgradeItemInfo` through `ns.UpgradeCost`; the
 -- currency name is the client's own, by ID; the money is the client's own
 -- denominations. Nothing here is a rate, a projection or a per-step average.
-function Roads.CrestCostText(cost, currencies)
+-- `opts.money = false` leaves the money off and `opts.separator` joins with
+-- something other than the row's middot: the tooltip's own form of the same
+-- quote, built here so the two cannot quote different figures (UX-3, WKE-599).
+function Roads.CrestCostText(cost, currencies, opts)
     if type(cost) ~= "table" or not cost.steps or cost.steps < 1 then
         return nil
     end
+    opts = type(opts) == "table" and opts or {}
     local parts = {
         cost.steps == 1 and Roads.CREST_STEPS_ONE or string.format(Roads.CREST_STEPS_MANY, cost.steps),
     }
     for _, entry in ipairs(cost.currencies or {}) do
         parts[#parts + 1] = string.format("%d %s", entry.cost, Roads.CurrencyName(currencies, entry.currencyID))
     end
-    local money = ns.UpgradeCost.MoneyText(cost.money)
-    if money then
-        parts[#parts + 1] = money
+    if opts.money ~= false then
+        local money = ns.UpgradeCost.MoneyText(cost.money)
+        if money then
+            parts[#parts + 1] = money
+        end
     end
-    return table.concat(parts, Roads.CREST_COST_SEPARATOR)
+    return table.concat(parts, opts.separator or Roads.CREST_COST_SEPARATOR)
+end
+
+-- The vendor's quote as a tooltip says it, off the road itself. The cost is not
+-- kept on the road - the step that states it is - so this reads that step rather
+-- than adding a field to the road model, and answers nil for every road whose
+-- cost was never readable, which is every vault reward and every drop.
+function Roads.CrestQuoteText(road)
+    for _, entry in ipairs(type(road) == "table" and road.steps or {}) do
+        if type(entry.quote) == "string" and entry.quote ~= "" then
+            return entry.quote
+        end
+    end
+    return nil
 end
 
 -- What the client says you are carrying in crests, for the step beside it.
@@ -1507,7 +1556,17 @@ function Roads.ForSlot(slot, inputs)
                     cost = ns.UpgradeCost.Cost(upgradeRow, projected)
                 end
                 local costText = Roads.CrestCostText(cost, inputs.currencies)
-                road.steps[#road.steps + 1] = step(costText or Roads.CREST_NOT_READ, nil, true, costText ~= nil)
+                local costStep = step(costText or Roads.CREST_NOT_READ, nil, true, costText ~= nil)
+                -- The same quote in the tooltip's own form, so the one line the
+                -- block has for it is not a second reading of the vendor
+                -- (UX-3, WKE-599, reading 5).
+                costStep.quote = costText
+                        and Roads.CrestCostText(cost, inputs.currencies, {
+                            money = false,
+                            separator = Roads.CREST_QUOTE_SEPARATOR,
+                        })
+                    or nil
+                road.steps[#road.steps + 1] = costStep
                 -- What the client says you hold in crests is the vendor row's
                 -- business, beside the cost it would pay: marked `cost` so the
                 -- panel keeps it and the tooltip drops it (R-2a's rule, applied
@@ -2361,7 +2420,7 @@ function Roads.PlanSentence(week)
             end
             local held = charge and charge.held or 0
             footnote = string.format(
-                "The plan would catalyst %s too, but you've only got %s.",
+                "You could catalyst %s too, but you've only got %s.",
                 joinList(names),
                 held == 1 and "one charge" or string.format("%d charges", held)
             )
@@ -2403,147 +2462,148 @@ function Roads.PlanSentence(week)
     return { sentence = sentence(parts), footnote = footnote, plan = Roads.PlanName(entry.scenario) }
 end
 
--- The sentence for the pick that has already arrived (R-3b, WKE-576). Two
--- clauses: what the thing in the bag IS, and the one thing the reader can do
--- about it right now. It names no rating and invents none - the line under it
--- still says "not rated · new since the last refresh", which is the truth about
--- the document - and the level in it is the item's own, off the link the player
--- is hovering, never the level the document projected.
+-- The sentence for the pick that has already arrived (R-3b, WKE-576), rewritten
+-- short (UX-3, WKE-599). Two to six words, the verb first, the reason after a
+-- dash. The old pair of clauses said what the thing IS and then what to do about
+-- it; the reader is hovering the thing, so the first clause was a line he could
+-- not act on. ("There is a lot of text and this sounds very AI written" - the
+-- owner, 2026-09-16, over his own leggings.)
 --
--- The noun comes from the same place the "skip" sentence's does, so the two
--- sentences call one item one thing: `Roads.ShortName` for a vault reward, and
--- the slot's own word for a tier piece, which is what the Catalyst produces and
--- what the row beside it already calls "the tier shoulders".
-Roads.ARRIVED_VAULT = "This is the vault %s the plan wanted."
-Roads.ARRIVED_TIER = "This is the tier %s the plan wanted."
-Roads.ARRIVED_HELD = "This is %s the plan wanted."
-Roads.ARRIVED_REFRESH_AT = "Refresh to rate it at %d."
-Roads.ARRIVED_REFRESH = "Refresh to rate it."
+-- No rating is named and none is invented. The level in the crest sentence is
+-- the plan's own, and which crest that step takes and what it costs are still
+-- not read from the client (principle 4).
+Roads.ARRIVED_PUT_ON_SENTENCE = "Put %s on - then refresh."
+Roads.ARRIVED_WORN_SENTENCE = "Refresh - you're already wearing %s."
+Roads.ARRIVED_CREST_SENTENCE = "Crest %s to %d - then refresh."
 
--- R-3c (WKE-580): the same two clauses for the two states further along the
--- road. On the character there is no need to name the item at all - the reader
--- is hovering it - so the first clause is what the player DID, which is what
--- tells "you put this on" from "you crested it and put it on". Still in the
--- bags and crested, the first clause names the item as it did before and the
--- second one carries both steps that are left, in the order they happen.
---
--- The level in every one of them is the held item's own, off the link the player
--- is hovering, and the crest is read as "above the level the plan picked it at"
--- and nothing more.
-Roads.ARRIVED_CRESTED_TO = "%s, crested to %d."
-Roads.ARRIVED_WORN = "You've put this on."
-Roads.ARRIVED_WORN_CRESTED = "You've crested this and put it on."
-Roads.ARRIVED_PUT_ON = "Put it on; refresh to rate it."
-
--- R-3e (WKE-585): the pick arrived with the crest half spent. The owner's Legs
--- pick came out of the vault at 315, he crested it to 318 of the 321 his run
--- had projected, and the two clauses say the same two things they always say -
--- what the thing IS, at the level the link says, and the one step left. The
--- second clause names the plan's own level and nothing else: which crest that
--- step takes and what it costs are not read from the client (principle 4).
-Roads.ARRIVED_AT = "%s, at %d."
-Roads.ARRIVED_WORN_AT = "You've put this on at %d."
-Roads.ARRIVED_CREST_TO = "Crest it to %d; refresh to rate it."
-
--- The sentence for a piece the plan was built without and a later pass picked
--- over what the character wears (C-11, WKE-572). Two clauses, like every other
--- sentence here: what the thing IS, and why the plan says nothing about it. It
--- names no number, no pass and no source, and it does not tell the reader to
--- put it on - the plan has not weighed this item against the vault, and an
--- imperative would be the addon deciding what QE Live was never asked.
-Roads.BEATS_WORN_SENTENCE = "This beats what you've got on. The plan was built before anything had rated it."
+-- The sentence for a piece the rating's own pass never saw, which a later pass
+-- put in its best set (C-11, WKE-572). It names no number, no pass and no
+-- source, and it does not tell the reader to put the piece on: nothing has
+-- weighed this item against the vault, and an imperative would be the addon
+-- deciding what was never asked. What it does say is the one thing that would
+-- settle it.
+Roads.BEATS_WORN_SENTENCE = "Beats what you wear - refresh."
 
 -- The sentence for something the vault is OFFERING that the rating never
 -- imported (R-3d, WKE-584). Principle 16 owes every held-or-offered item a
 -- sentence and principle 3 forbids this one a position, so it says the one true
--- thing and names the cure - the same cure the header's "/lootpath refresh"
--- already names (R-3b). It is not "Skip this one": the plan has no grounds to
--- skip an item no document ever saw.
-Roads.NOT_RATED_YET_SENTENCE = "The plan hasn't rated this yet. Refresh, then look again."
+-- thing and names the cure. It is not a pass: there are no grounds to pass on an
+-- item no document ever saw.
+Roads.NOT_RATED_YET_SENTENCE = "Not rated yet - refresh."
 
--- The Vault tab's whole headline when the run that produced the plan built its
+-- The Vault tab's whole headline when the run that produced the answer built its
 -- profile with no vault section at all (R-3d, WKE-584). Not a pick, because
--- every pick this plan could name was chosen without the week's vault in front
--- of it, and a pick drawn from that run reads as a decision about the vault.
+-- every pick it could name was chosen without the week's vault in front of it.
 -- One imperative, the only one there is.
-Roads.VAULT_UNRATED_SENTENCE = "The plan was rated before your vault was generated. Refresh."
+Roads.VAULT_UNRATED_SENTENCE = "Your vault was generated after this rating. Refresh."
+
+-- The pick's own sentences (UX-3, WKE-599), one per kind, each in the register
+-- the owner set with his own draft: the verb first, the reason after a dash, two
+-- to six words, and a number only where it IS the reason.
+Roads.KEEP_SENTENCE = "Keep %s on."
+Roads.WEAR_SENTENCE = "Wear %s."
+-- What comes off is read off the slot's own Keep road - the piece you are
+-- wearing now - and never written here. With no Keep road on the slot there is
+-- nothing to name, and the sentence is the verb alone.
+Roads.WEAR_OVER_SENTENCE = "Wear %s - better than your %s."
+Roads.CATALYST_SENTENCE = "Catalyst %s - tier %s."
+Roads.GRAB_SENTENCE = "Grab %s from the vault."
+Roads.GRAB_CREST_SENTENCE = "Grab %s - crest it after."
+
+-- And the sentence for a piece the pick passes over. The lead word is where the
+-- piece is - on the character it is a swap, in the bags it is a pass - and the
+-- reason names what is taken instead, with the pick's own verb.
+Roads.PASS_WORD = "Pass"
+Roads.SWAP_WORD = "Swap %s"
+Roads.PASS_NO_PICK = "Pass on %s."
+Roads.REASON_CATALYST = "Catalyst your %s."
+Roads.REASON_VAULT = "take the vault %s."
+Roads.REASON_USE = "use your %s."
+
+-- A road to something you do NOT hold (a journal drop, a crafted row, a delve
+-- row). The plan takes no position on those - a pass on a dungeon drop reads as
+-- "skip the dungeon", which is a thing to do that no document said - so the line
+-- states the road's own figure against what you wear and gives no imperative at
+-- all (UX-3, WKE-599, reading 4). The percent is the road's own; the noun is the
+-- slot's own word.
+Roads.WORTH_SENTENCE = "Worth %.2f%% over your %s."
 
 function Roads.ArrivedSentence(held, pick)
     if type(held) ~= "table" or type(pick) ~= "table" then
         return nil
     end
+    local slot = held.slot or pick.slot
     local level = tonumber(held.itemLevel or held.level)
-    local crested = Roads.ArrivedCrested(held, pick)
-    local short = Roads.ArrivedShort(held, pick)
     local arrivesAt = tonumber(pick.arrivesAt)
-
-    -- On the character. The hover is the item, so the sentence spends both
-    -- clauses on what has happened and what is left.
+    -- Short of the level the plan picked it at, wherever it is sitting (R-3e):
+    -- the rest of the crest is what is left, not the refresh alone.
+    if level and arrivesAt and Roads.ArrivedShort(held, pick) then
+        return string.format(Roads.ARRIVED_CREST_SENTENCE, Roads.ThisWord(slot), arrivesAt)
+    end
     if held.location == "equipped" then
-        if short and level and arrivesAt then
-            -- Worn, but not crested as far as the plan picked it (R-3e): what
-            -- is left is the rest of the crest, not the refresh alone.
-            return string.format(Roads.ARRIVED_WORN_AT, level)
-                .. " "
-                .. string.format(Roads.ARRIVED_CREST_TO, arrivesAt)
-        end
-        local first = crested and Roads.ARRIVED_WORN_CRESTED or Roads.ARRIVED_WORN
-        local second = level and string.format(Roads.ARRIVED_REFRESH_AT, level) or Roads.ARRIVED_REFRESH
-        return first .. " " .. second
+        return string.format(Roads.ARRIVED_WORN_SENTENCE, Roads.ItWord(slot))
     end
-
-    local becomes = type(pick.becomes) == "table" and tonumber(pick.becomes.itemID) or nil
-    local name = Roads.ShortName(pick.item) or ("the " .. (Roads.SlotWord(pick.slot) or "reward"))
-    local bare = name:gsub("^the ", "")
-    local first
-    if becomes and becomes == tonumber(held.itemID) then
-        first = string.format(Roads.ARRIVED_TIER, Roads.SlotWord(pick.slot) or "piece")
-    elseif pick.kind == Roads.KIND_VAULT then
-        first = string.format(Roads.ARRIVED_VAULT, bare)
-    else
-        -- A pick the plan took out of your own bags, or off your character: it
-        -- came from nowhere new, so the clause names no source.
-        first = string.format(Roads.ARRIVED_HELD, name)
-    end
-    if short and level and arrivesAt then
-        -- Still short of the plan's level (R-3e). The first clause names the
-        -- item as it always does and carries the level off the link; the second
-        -- is the crest that is left, and it does not also say to put the piece
-        -- on - the plan's own level is the thing to reach first.
-        return string.format(Roads.ARRIVED_AT, first:gsub("%.$", ""), level)
-            .. " "
-            .. string.format(Roads.ARRIVED_CREST_TO, arrivesAt)
-    end
-    if crested and level then
-        -- The crest is the news, and the step left is not the refresh alone:
-        -- the plan still wants this piece on the character.
-        return string.format(Roads.ARRIVED_CRESTED_TO, first:gsub("%.$", ""), level) .. " " .. Roads.ARRIVED_PUT_ON
-    end
-    local second = level and string.format(Roads.ARRIVED_REFRESH_AT, level) or Roads.ARRIVED_REFRESH
-    return first .. " " .. second
+    return string.format(Roads.ARRIVED_PUT_ON_SENTENCE, Roads.ThisWord(slot))
 end
 
--- The hovered item's own part of the plan, in the same chat voice as the week's
--- sentence and the slot's (principle 16). One or two clauses, never a label, a
--- percentage or an item level: those are on the road line under it.
+-- What the plan takes in this slot instead of the hovered piece, as the second
+-- half of a Pass or a Swap. The pick's own kind chooses the verb, and whose the
+-- pick is chooses the possessive: a Catalyst road converts a piece you hold and
+-- a Keep road is what you have on, so both are "your"; a vault option is not
+-- yours until you take it.
+local function passReason(pick)
+    local name = Roads.ShortName(pick.item)
+    if not name then
+        return nil
+    end
+    local bare = name:gsub("^the ", "")
+    if pick.kind == Roads.KIND_CATALYST then
+        return string.format(Roads.REASON_CATALYST, bare)
+    end
+    if pick.kind == Roads.KIND_VAULT then
+        return string.format(Roads.REASON_VAULT, bare)
+    end
+    return string.format(Roads.REASON_USE, bare)
+end
+
+-- The bag pick's sentence. What comes off is the slot's own Keep road, read off
+-- the roads the answer already carries rather than written here, so the tooltip
+-- and the slot's row cannot name two different pieces. The owner's draft for
+-- this case carried a percent ("1.2% over your Lynx buckle"); no document
+-- carries one for a bag pick - a set verdict is "in your best set", not a figure
+-- - and the Keep road's own percent belongs to a whole-set swap that can involve
+-- another slot, so the reason is the comparison without an invented number.
+function Roads.WearSentence(answer, slot)
+    local this = Roads.ThisWord(slot)
+    local groups = (type(answer) == "table" and type(answer.slotRoads) == "table" and answer.slotRoads.groups) or {}
+    local keep
+    for _, road in ipairs(groups[Roads.GROUP_SET] or {}) do
+        keep = keep or (road.kind == Roads.KIND_KEEP and road or nil)
+    end
+    local name = keep and Roads.ShortName(keep.item) or nil
+    if not name then
+        return string.format(Roads.WEAR_SENTENCE, this)
+    end
+    return string.format(Roads.WEAR_OVER_SENTENCE, this, (name:gsub("^the ", "")))
+end
+
+-- The hovered item's own part of the plan, in the words a guildmate would type
+-- in chat (principle 16), at the length the owner asked for (UX-3, WKE-599).
 --
--- **Every piece you HOLD gets one, rated or not** (R-2a, WKE-571; the owner
--- read a bag helmet that opened on "not rated - beyond the rating's item limit"
--- and no sentence at all, 2026-09-14, against principle 16). The plan takes a
--- position on everything you own: use it, catalyst it, or skip it. So there are
--- two ways in - the set group (a Catalyst clone, a vault option, what you wear)
--- and your bags.
+-- **Every piece you HOLD gets one, rated or not** (R-2a, WKE-571; the owner read
+-- a bag helmet that opened on "not rated - beyond the rating's item limit" and
+-- no sentence at all, 2026-09-14). The plan takes a position on everything you
+-- own: use it, catalyst it, or pass on it. So there are two ways in - the set
+-- group (a Catalyst clone, a vault option, what you wear) and your bags.
 --
--- What stays sentence-less is a road to something you do NOT have: a journal
--- drop, a crafted row, a delve row. The plan takes no position on those at all,
--- and "Skip this one" on a dungeon drop would read as "skip the dungeon", which
--- is a thing to do that no document said. Those hovers open on their road line
--- instead (R-2, 2026-09-14; ARCHITECTURE.md §7).
+-- A road to something you do not have gets `Roads.WORTH_SENTENCE` instead, which
+-- is a figure and not an imperative.
 function Roads.ItemSentence(answer)
     if type(answer) ~= "table" then
         return nil
     end
     local own = answer.own
+    local slot = answer.slot or (type(own) == "table" and own.slot or nil)
     -- R-3d (WKE-584): a vault reward the rating never imported. The vault is
     -- offering it, so principle 16 owes it a sentence; nothing rated it, so
     -- principle 3 forbids it the one every other unpicked road gets. Asked
@@ -2557,17 +2617,25 @@ function Roads.ItemSentence(answer)
         if own.planPick then
             if own.kind == Roads.KIND_VAULT then
                 if own.rating and own.rating.level and own.arrivesAt and own.rating.level > own.arrivesAt then
-                    return "Grab this from the vault and crest it."
+                    return string.format(Roads.GRAB_CREST_SENTENCE, Roads.ThisWord(slot))
                 end
-                return "Grab this from the vault."
+                return string.format(Roads.GRAB_SENTENCE, Roads.ThisWord(slot))
             elseif own.kind == Roads.KIND_CATALYST then
-                return "Catalyst this one."
+                return string.format(Roads.CATALYST_SENTENCE, Roads.ThisWord(slot), Roads.SlotWord(slot) or "piece")
             elseif own.kind == Roads.KIND_KEEP then
-                return "Keep this on."
+                return string.format(Roads.KEEP_SENTENCE, Roads.ThisWord(slot))
             end
-            return "Put this on."
+            return Roads.WearSentence(answer, slot)
         end
     elseif answer.held ~= true then
+        -- Not yours, so there is nothing to do about it here; what the rating
+        -- says about it is all there is to say, and only when it points forward.
+        local rating = type(own) == "table" and own.rating or nil
+        local percent = (type(rating) == "table" and rating.kind == Roads.RATING_ITEM) and tonumber(rating.percent)
+            or nil
+        if percent and percent > 0 then
+            return string.format(Roads.WORTH_SENTENCE, percent, Roads.SlotWord(slot) or "gear")
+        end
         return nil
     end
 
@@ -2582,10 +2650,8 @@ function Roads.ItemSentence(answer)
 
     -- Unless it IS the pick, arrived since the last refresh. The document has
     -- no key for the claimed copy, so no road here carries it and everything
-    -- below would tell the reader to skip the very thing the plan sent him for
-    -- (R-3b, WKE-576). No rating is invented: the line says what the item is
-    -- and what would rate it, and the honesty phrase under it still says the
-    -- item is not rated.
+    -- below would tell the reader to pass on the very thing the plan sent him
+    -- for (R-3b, WKE-576). No rating is invented.
     --
     -- Asked even when the item HAS a road of its own, because since R-3c the
     -- arrived copy can be the one on the character, and every worn piece has an
@@ -2599,30 +2665,20 @@ function Roads.ItemSentence(answer)
         return Roads.ArrivedSentence(answer.heldItem, pick)
     end
     -- A piece the plan's own pass never saw, which a later pass put in its best
-    -- set (C-11, WKE-572). "Skip this one" would be the plan taking a position
-    -- it has no grounds for: the pool that built the plan did not hold this
-    -- item, and the pool that did hold it preferred it to what the character is
-    -- wearing. So the sentence says both halves and invents neither, and the
-    -- line under it carries `Roads.PHRASE_RATED_LATER`.
+    -- set (C-11, WKE-572). A pass would be the plan taking a position it has no
+    -- grounds for: the pool that built it did not hold this item, and the pool
+    -- that did hold it preferred it to what the character is wearing.
     if not own and answer.phrase == Roads.PHRASE_RATED_LATER then
         return Roads.BEATS_WORN_SENTENCE
     end
-    local name = pick and Roads.ShortName(pick.item) or nil
-    if not name then
-        return "Skip this one."
+    -- On the character it is a swap; in the bags it is a pass.
+    local worn = type(answer.heldItem) == "table" and answer.heldItem.location == "equipped"
+    local lead = worn and string.format(Roads.SWAP_WORD, Roads.ThisWord(slot)) or Roads.PASS_WORD
+    local reason = pick and passReason(pick) or nil
+    if not reason then
+        return string.format(Roads.PASS_NO_PICK, Roads.ThisWord(slot))
     end
-    -- Whose the pick is decides the possessive, and nothing else does: a
-    -- Catalyst road converts a piece you hold and a Keep road is what you have
-    -- on, so both are "your"; a vault option is not yours until you take it, so
-    -- it is "the vault ...".
-    local bare = name:gsub("^the ", "")
-    if pick.kind == Roads.KIND_VAULT then
-        return string.format("Skip this one, the plan uses the vault %s.", bare)
-    end
-    if pick.kind == Roads.KIND_KEEP then
-        return string.format("Skip this one, the plan keeps your %s on.", bare)
-    end
-    return string.format("Skip this one, the plan uses your %s.", bare)
+    return lead .. " - " .. reason
 end
 
 -- A clause that opens a sentence, built from the same string the row's last

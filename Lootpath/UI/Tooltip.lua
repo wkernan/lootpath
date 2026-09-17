@@ -1,31 +1,60 @@
--- Lootpath/UI/Tooltip.lua (R-2, WKE-563, surface 1 of docs/ROADS-UX.md)
+-- Lootpath/UI/Tooltip.lua (R-2, WKE-563; rewritten UX-3, WKE-599)
 -- The item's part of the plan, on Blizzard's own tooltip.
 --
 -- Hover an item in your bags, in Lootpath's vault cell or in the Adventure
 -- Guide and this block appends to the tooltip the client was already drawing:
 --
---   Lootpath · Shoulder · rated 1d 2h ago
---   Catalyst this one.
---   Catalyst · Venom-Cursed Lynx's Spaulders (295) · into the tier shoulders
---       · in your best set
---   Other roads for this slot
---   Vault · open now · Scavenger's Spaulders (308) · ... · 1.73% behind ...
---   Why this? · /lootpath map
+--   Lootpath · Legs
+--   Keep these on.
+--   Better: Coiled Hex Legguards (344), +1.41% · The Venomous Abyss, Mythic raid
+--   Rated 1h ago · /lootpath map
 --
--- and nothing else. Three roads at most, one sub-header, "Why this?" last,
--- always (principle 10). Explain adds nothing here (principle 11). No source
--- is named anywhere (owner's decision, 2026-09-11, ARCHITECTURE.md §7).
+-- and nothing else. **Four lines at most, one road, no sub-header.**
 --
--- **Every word on it is the Upgrade Map row's own.** `ns.UpgradeMapPanel.RoadRow`
--- is what builds the parts, so the tooltip and the slot's row that "Why this?"
--- points at cannot say two different things about one road.
+-- That shape is the owner's, 2026-09-16, hovering his own leggings: "there is a
+-- lot of text and this sounds very AI written. It needs to be short, concise,
+-- warming to the player and easy for them to understand what this is trying to
+-- tell them." The block he read was six lines of middot-joined fragments, and it
+-- was `docs/ROADS-UX.md` surface 1 built to the letter. The copy set he approved
+-- on 2026-09-17 (WKE-599, 18 cases) is what this file produces; the principles
+-- behind it are unchanged and ARCHITECTURE.md §7 dates the change.
 --
--- **What the tooltip drops** is the "do:" line and the verb button, which are
--- the row's own - and, since R-2a (WKE-571), every clause whose referent is on
--- another screen: the crest COST clause (the vendor window's gate), the rival
--- clause ("the same charge as the vault Spaulders road", which points at a row
--- this reader cannot see), an item ID standing in for a name, and any road
--- nothing rated. The Upgrade Map keeps all four, because there they are true.
+-- What each line is:
+--
+--   1. `Lootpath · <slot>`, and nothing else. The age and the command moved to
+--      the last line, so a hover does not open on a command.
+--   2. the item's part of the plan as one warm plain sentence a friend would
+--      say - `ns.Roads.ItemSentence`, which is where every case is decided.
+--      Verb first, the reason after a dash, the number only when it IS the
+--      reason. Absent for nothing: a road to something you do not hold states
+--      its own figure instead (`ns.Roads.WORTH_SENTENCE`).
+--   3. the ONE best other road, when one gains - `Better: <item> (<level>),
+--      <badge> · <instance>, <difficulty>`. The map has the rest. A road that is
+--      BEHIND gets no line at all: "Better:" would be a lie and a reader cannot
+--      act on a worse road. A road to something you do not hold uses this line
+--      for its own where instead.
+--   4. `Rated 1h ago · /lootpath map`, the age in the shortest unit and the one
+--      place a command lives. `/lootpath refresh` takes the command's place when
+--      this slot's bags hold something the rating never saw (R-3b's `stale`),
+--      because then the refresh is the thing to do.
+--
+-- **What the rewrite CUT, rather than shortened.** The four honesty phrases no
+-- longer take a line of their own: three of the four are not actionable from a
+-- tooltip, and where a refresh is the cure line 4 already names it. The
+-- sub-header "Other roads for this slot" is gone with the roads it headed. "Why
+-- this?" is gone and its destination stayed: line 4 carries `/lootpath map`,
+-- which is what principle 9 wanted of it. The item's own road line is gone for a
+-- piece you hold - it restated the sentence above it and named the item under
+-- the cursor. **The crest quote came ON** (M3-17b): on the one road whose cost
+-- the vendor has quoted it is the only thing a reader can act on, and the money
+-- is dropped because it is never the reason you would or would not crest.
+--
+-- The panel keeps every clause this drops, because there their referents are
+-- visible: `ns.UpgradeMapPanel.RoadRow` is still what builds the words, so the
+-- tooltip and the slot's row cannot say two different things about one road. No
+-- source is named anywhere (owner's decision, 2026-09-11) and no line says "the
+-- plan", "your plan" or "this plan" (owner's decision, 2026-09-16); both are
+-- guarded in `spec/voice_spec.lua`.
 --
 -- **The hover path is O(1).** `ns.RoadsCache` holds the answer for every key a
 -- road carries, built once per verdict; this file looks it up and formats it.
@@ -68,19 +97,31 @@ local Tooltip = ns.UI.Tooltip
 -- The block's own colour: the note grey every Lootpath panel uses for an aside,
 -- so the lines read as one addon's and not as Blizzard's own tooltip text.
 Tooltip.NOTE_HEX = ns.UI.ItemLine and ns.UI.ItemLine.GREY or "909296"
--- The header is the one line that is not an aside; it names the addon, the slot
--- and the age, which is what principle 2 requires of every surface.
+-- The header is the one line that is not an aside; it names the addon and the
+-- slot. The age it used to carry is on the last line (UX-3, WKE-599), which is
+-- where principle 2's "every verdict has a time" is met now.
 Tooltip.HEADER_HEX = "FFD100"
 Tooltip.SEPARATOR = " · "
 Tooltip.HEADER = "Lootpath"
-Tooltip.OTHER_ROADS = "Other roads for this slot"
--- Principles 10 and 11 both say the block's last line is "Why this?", always.
--- On the Upgrade Map row it opens the row; on a tooltip it cannot be clicked,
--- so on its own it is a question with no destination - which principle 9
--- forbids ("only where they go somewhere"). It keeps its place and says where
--- to go instead: `/lootpath map` opens the window on the Upgrade Map, which is
--- the tab the row is on (R-2a, WKE-571).
-Tooltip.WHY = "Why this? · /lootpath map"
+
+-- Line 3, and the one word on the block that ranks anything: it is written only
+-- over a road that GAINS, so it is the badge's own direction said in a word.
+Tooltip.BETTER = "Better: %s (%s)"
+-- A crest road's own line 3 (M3-17b, WKE-588): what the vendor quoted, which is
+-- the one fact on that road a reader can act on from a tooltip.
+Tooltip.BETTER_CREST = "Better: crest it to %d"
+
+-- Line 4. The age in the shortest unit, and the one command on the block.
+Tooltip.RATED_AGO = "Rated %s ago"
+Tooltip.RATED_NOW = "Rated just now"
+-- A verdict with no time on it is the one thing principle 2 forbids a surface
+-- to hide, so the line says the age is missing rather than leaving it off.
+Tooltip.RATED_UNKNOWN = "Rated: not known"
+Tooltip.MAP = "/lootpath map"
+-- What a plan that is behind the bags says about itself (R-3b, WKE-576,
+-- defect 4). This slot's bags hold a piece the rating never saw, so the one
+-- command the block carries is the one that cures that.
+Tooltip.REFRESH = "/lootpath refresh"
 
 -- What a road whose item the client has not named yet is called ON A TOOLTIP.
 -- The panel may print "item 244572 (331)" - a row the reader can watch fill in
@@ -103,70 +144,123 @@ Tooltip.NAMELESS_DEFAULT = "an item"
 function Tooltip.NamelessText(kind)
     return Tooltip.NAMELESS[kind] or Tooltip.NAMELESS_DEFAULT
 end
-Tooltip.RATED = "rated %s"
--- A verdict with no time on it is the one thing principle 2 forbids a surface
--- to hide, so the header says the age is missing rather than leaving it off.
-Tooltip.RATED_UNKNOWN = "rated at an unknown time"
--- What a plan that is behind the bags says about itself (R-3b, WKE-576,
--- defect 4). `rated 8 hours ago` beside `not rated · new since the last
--- refresh` is the addon knowing the document is behind the world; the header
--- is where it already says how old the document is, so it is where it says
--- what to do about it. The command, not a verb: a tooltip has no buttons.
-Tooltip.REFRESH = "/lootpath refresh"
 
--- "1d 2h ago" is `ns.UI.AgeText`'s, which is what the status strip and the
--- Vault tab already print, so one number never reads two ways.
+-- The age in the shortest unit that says it, rounded DOWN, so the owner's own
+-- "rated 69 minutes ago" reads `1h` (UX-3, WKE-599, reading 7). `ns.UI.AgeText`
+-- stays the long form every panel prints; this is the tooltip's, and the two
+-- are read off the same elapsed count so they can never disagree about which
+-- hour it is.
+function Tooltip.ShortAge(seconds)
+    if type(seconds) ~= "number" or seconds < 0 then
+        return nil
+    end
+    if seconds < 60 then
+        return nil -- "just now" has no unit; the caller says it in words
+    end
+    if seconds < 3600 then
+        return string.format("%dm", math.floor(seconds / 60))
+    end
+    if seconds < 86400 then
+        return string.format("%dh", math.floor(seconds / 3600))
+    end
+    return string.format("%dd", math.floor(seconds / 86400))
+end
+
 function Tooltip.AgeText(exportedAt, now)
     if type(exportedAt) ~= "string" or exportedAt == "" then
         return nil
     end
-    local text = ns.UI.AgeText(exportedAt, now)
-    return type(text) == "string" and text or nil
+    local seconds = ns.UI.AgeSeconds(exportedAt, now)
+    if type(seconds) ~= "number" then
+        return nil
+    end
+    local short = Tooltip.ShortAge(seconds)
+    return short and string.format(Tooltip.RATED_AGO, short) or Tooltip.RATED_NOW
 end
 
-function Tooltip.HeaderText(answer, now)
+-- Line 1.
+function Tooltip.HeaderText(answer)
     local parts = { Tooltip.HEADER }
     local slot = type(answer) == "table" and answer.slot or nil
     if type(slot) == "string" and slot ~= "" then
         parts[#parts + 1] = slot
     end
-    local age = Tooltip.AgeText(type(answer) == "table" and answer.exportedAt or nil, now)
-    parts[#parts + 1] = age and string.format(Tooltip.RATED, age) or Tooltip.RATED_UNKNOWN
-    if type(answer) == "table" and answer.stale == true then
-        parts[#parts + 1] = Tooltip.REFRESH
-    end
     return table.concat(parts, Tooltip.SEPARATOR)
 end
 
--- One road as the tooltip says it: the source tag, the item as it would
--- arrive, the badge with its referent and level, and the resource line when one
--- is involved. The row is `ns.UpgradeMapPanel.RoadRow`'s, so the words are the
--- slot row's words; what is left off here is the "do:" line and the verb, which
--- are the row's own (surface 1 lists what the tooltip carries, and those two
--- are not on the list).
-function Tooltip.RoadText(road, previewLevel)
-    if type(road) ~= "table" then
+-- Line 4. The command is `/lootpath refresh` exactly when the rating is behind
+-- the world in THIS slot - `ns.Roads.StaleBags`, which is the same fact the
+-- Upgrade Map's slot header ends on - and `/lootpath map` otherwise.
+function Tooltip.FooterText(answer, now)
+    local age = Tooltip.AgeText(type(answer) == "table" and answer.exportedAt or nil, now)
+    local stale = type(answer) == "table" and answer.stale == true
+    return table.concat({ age or Tooltip.RATED_UNKNOWN, stale and Tooltip.REFRESH or Tooltip.MAP }, Tooltip.SEPARATOR)
+end
+
+-- Where a road's item drops, for a reader who is holding one glance: the
+-- instance name alone and the client's own difficulty label. The boss goes -
+-- the Upgrade Map's row keeps it - and no name is shortened, because the
+-- difficulty label is the client's own string ("Mythic raid", not "Mythic").
+function Tooltip.WhereText(road)
+    local source = type(road) == "table" and road.source or nil
+    if type(source) ~= "table" then
+        return nil
+    end
+    local instance = source.instanceName
+    if type(instance) ~= "string" or instance == "" then
+        return nil
+    end
+    if type(source.difficultyLabel) == "string" and source.difficultyLabel ~= "" then
+        return string.format("%s, %s", instance, source.difficultyLabel)
+    end
+    return instance
+end
+
+-- Which of the slot's other roads line 3 is about: the first one that GAINS and
+-- is not the pick the sentence above has already named. The pick is skipped
+-- because a line that restates the line over it is exactly what the owner read
+-- on 2026-09-16 - his line 3 named the item under the cursor and his line 2 had
+-- said what to do with it - and on a worn piece the pick is always the first
+-- other road, being the set group's own.
+function Tooltip.BestOther(answer)
+    for _, road in ipairs((type(answer) == "table" and answer.others) or {}) do
+        if road.planPick ~= true and ns.Roads.IsForward(road) then
+            return road
+        end
+    end
+    return nil
+end
+
+-- Line 3: the one other road, and only when it gains. Every word of it is
+-- `ns.UpgradeMapPanel.RoadRow`'s, so the tooltip and the slot's row cannot say
+-- two different things about one road.
+function Tooltip.BetterText(road, previewLevel)
+    if type(road) ~= "table" or not ns.Roads.IsForward(road) then
         return nil
     end
     local Panel = ns.UpgradeMapPanel
     local row = Panel.RoadRow(road, previewLevel)
-    local parts = {}
-    if row.tag then
-        parts[#parts + 1] = row.tag
+    local text
+    if road.kind == ns.Roads.KIND_CREST and tonumber(row.itemLevel) then
+        -- The Upgrade road says what it costs rather than what it is: the item
+        -- is the one under the cursor and naming it back is the line the owner
+        -- struck.
+        text = string.format(Tooltip.BETTER_CREST, tonumber(row.itemLevel))
+        local quote = ns.Roads.CrestQuoteText(road)
+        if quote then
+            text = text .. " - " .. quote
+        end
+        return text
     end
-    parts[#parts + 1] = string.format("%s (%s)", row.name or Tooltip.NamelessText(row.kind), tostring(row.itemLevel))
-    if row.second then
-        parts[#parts + 1] = row.second
+    text = string.format(Tooltip.BETTER, row.name or Tooltip.NamelessText(row.kind), tostring(row.itemLevel))
+    if row.badge and row.badge.text then
+        text = text .. ", " .. row.badge.text
     end
-    if row.badge then
-        parts[#parts + 1] = row.badge.text
+    local where = Tooltip.WhereText(road)
+    if where then
+        text = text .. Tooltip.SEPARATOR .. where
     end
-    -- The row's facts MINUS the cost and rival clauses, which are true only
-    -- where their referents are (Panel.RoadFactEntries says why).
-    if row.tooltipFactsText then
-        parts[#parts + 1] = row.tooltipFactsText
-    end
-    return table.concat(parts, Panel.ROAD_SEPARATOR), row
+    return text
 end
 
 -- The whole block as lines, in order, each with the tone it is drawn in. Pure:
@@ -175,8 +269,8 @@ end
 --
 -- `answer` is `ns.Roads.ForItem`'s shape, which is what `ns.RoadsCache` stores.
 -- With nothing rated it is a table carrying only a phrase, and the block is the
--- header, the phrase and "Why this?" - never a road, never a sentence, and
--- never a glow (principle 12).
+-- header, the sentence the phrase earns and the footer - never a road, never a
+-- glow (principle 12).
 function Tooltip.Lines(answer, opts)
     opts = opts or {}
     local lines = {}
@@ -189,42 +283,20 @@ function Tooltip.Lines(answer, opts)
         end
     end
 
-    add(Tooltip.HeaderText(answer, opts.now), Tooltip.HEADER_HEX, true)
-
-    -- 2. The item's part of the plan, in chat voice. Absent for a road the plan
-    --    takes no position on; `ns.Roads.ItemSentence` is where that is decided.
+    add(Tooltip.HeaderText(answer), Tooltip.HEADER_HEX, true)
     add(answer.sentence)
 
-    -- 3. The item's own road - or the honesty phrase with its tail, which
-    --    REPLACES it when nothing rated this item (surface 1, principle 3).
-    if answer.own then
-        add((Tooltip.RoadText(answer.own, opts.previewMythicPlusLevel)))
-    elseif answer.phrase then
-        add(answer.phrase)
+    -- Line 3. A road to something you do NOT hold spends it on its own where,
+    -- because that is what a reader who cannot act on it needs; everything you
+    -- hold spends it on the one other road that gains.
+    local own = type(answer.own) == "table" and answer.own or nil
+    if own and answer.held ~= true and own.group ~= ns.Roads.GROUP_SET then
+        add(Tooltip.WhereText(own))
+    else
+        add(Tooltip.BetterText(Tooltip.BestOther(answer), opts.previewMythicPlusLevel))
     end
 
-    -- 4. The rest of the three, under one sub-header. `ns.Roads.TOOLTIP_ROADS`
-    --    is the whole block's cap and the model already respects it; it is
-    --    counted again HERE because "three roads, never more" is a rule of this
-    --    surface (principle 10) and must not become true only by accident of
-    --    the model having exactly three groups to draw from.
-    local others = type(answer.others) == "table" and answer.others or {}
-    local shown = answer.own and 1 or 0
-    local headed = false
-    for _, road in ipairs(others) do
-        local text = shown < ns.Roads.TOOLTIP_ROADS and (Tooltip.RoadText(road, opts.previewMythicPlusLevel)) or nil
-        if text then
-            if not headed then
-                add(Tooltip.OTHER_ROADS, Tooltip.NOTE_HEX, true)
-                headed = true
-            end
-            add(text)
-            shown = shown + 1
-        end
-    end
-
-    -- 5. Always last, always there.
-    add(Tooltip.WHY)
+    add(Tooltip.FooterText(answer, opts.now))
     return lines
 end
 

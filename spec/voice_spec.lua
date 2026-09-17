@@ -36,6 +36,15 @@ local UF_EXPORT = "spec/fixtures/qe/qe-upgradefinder-Hotornot-abxrrnezfilt.json"
 -- What no player-facing string may say. `verdict` is the brain's word, not a
 -- player's; `his` and `he` are the engine's author; "the addon has determined"
 -- is the claim Lootpath must never make, since it computes nothing.
+--
+-- **And since 2026-09-16, "the plan", "your plan" and "this plan"** (UX-3,
+-- WKE-599). The owner's rule, in his own words: never say it - anywhere, the
+-- tooltip, the strip, the load lines, Options, the help text. Say what the thing
+-- is instead (`rated 1h ago`, `your best set`, `use your Dreamwatcher legs`) or
+-- say nothing. What is banned is the phrase a screen reads out, not the word in
+-- the code: `Roads.PlanPick`, `road.planPick` and the `plan` field are internal
+-- names and no player ever reads one, which is the same line `walkStrings` has
+-- always drawn between a key and a sentence.
 local FORBIDDEN = {
     {
         name = "QE Live",
@@ -65,6 +74,24 @@ local FORBIDDEN = {
         name = "the addon has determined",
         find = function(text)
             return text:lower():find("the addon has determined", 1, true)
+        end,
+    },
+    {
+        name = "the plan",
+        find = function(text)
+            return text:lower():find("%f[%a]the plan%f[%A]")
+        end,
+    },
+    {
+        name = "your plan",
+        find = function(text)
+            return text:lower():find("%f[%a]your plan%f[%A]")
+        end,
+    },
+    {
+        name = "this plan",
+        find = function(text)
+            return text:lower():find("%f[%a]this plan%f[%A]")
         end,
     },
 }
@@ -204,6 +231,27 @@ local function withFixtures(ns, world)
 end
 
 describe("the source-free voice (V-1, WKE-569)", function()
+    -- The guard catches each banned phrase as a phrase, and lets the word
+    -- through on its own: "plan" is still a field name and "the planned route"
+    -- is not the phrase the owner struck.
+    it("catches the three banned phrasings of the plan, and only those", function()
+        local function says(text)
+            for _, word in ipairs(FORBIDDEN) do
+                if word.find(text) then
+                    return word.name
+                end
+            end
+            return nil
+        end
+        assert.equal("the plan", says("Skip this one, the plan uses your Lynx shoulders."))
+        assert.equal("the plan", says("rated just now; the plan is current."))
+        assert.equal("your plan", says("log out and your plan is current next login"))
+        assert.equal("this plan", says("your gear changed since this plan (2 items)"))
+        assert.is_nil(says("this week's picks"))
+        assert.is_nil(says("Pass - use your Dreamwatcher legs."))
+        assert.is_nil(says("the planned route"))
+    end)
+
     local ns, world
 
     before_each(function()

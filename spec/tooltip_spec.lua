@@ -90,7 +90,8 @@ local FIVE_HOURS_LATER = 1789000000
 
 -- No player-facing string on this surface may name a source (owner's decision,
 -- 2026-09-11), and none of them may use a phrasing the brief struck.
-local FORBIDDEN = { "QE Live", "his", "verdict", "should", "before reset", "last day" }
+local FORBIDDEN =
+    { "QE Live", "his", "verdict", "should", "before reset", "last day", "the plan", "your plan", "this plan" }
 
 local function readFile(path)
     local handle = assert(io.open(path, "rb"), "cannot read " .. path)
@@ -197,7 +198,7 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         local map = ns.RoadsCache.Map()
         assert.is_nil(map.reason)
         assert.equal("thisWeek", map.scenario)
-        assert.equal("this week's plan", map.planName)
+        assert.equal("this week's picks", map.planName)
         assert.equal(EXPORTED_AT, map.exportedAt)
         assert.equal(10, map.previewMythicPlusLevel)
         -- Every slot the tab shows, and the slots it does not reach.
@@ -236,12 +237,10 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         -- Miststalker's Spaulders, which the rating never saw, so the header
         -- says what cures that.
         assert.same({
-            "Lootpath · Shoulder · rated 5 hours ago · /lootpath refresh",
-            "Catalyst this one.",
-            "Catalyst · Venom-Cursed Lynx's Spaulders (295) · into the tier shoulders · in your best set",
-            "Other roads for this slot",
-            "Crafted · a crafted piece (331) · +1.11% · the rating assumes Crit / Haste · spark and materials not read",
-            "Why this? · /lootpath map",
+            "Lootpath · Shoulder",
+            "Catalyst these - tier shoulders.",
+            "Better: a crafted piece (331), +1.11%",
+            "Rated 5h ago · /lootpath refresh",
         }, lines(LYNX))
     end)
 
@@ -281,13 +280,10 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
     it("keeps the crest counts off the Upgrade road's tooltip line and on its row", function()
         local HOLDING = "you hold 356 Adventurer Mistcrest, 2 Champion Mistcrest, 21 Hero Mistcrest, 20 Myth Mistcrest"
         assert.same({
-            "Lootpath · Shoulder · rated 5 hours ago · /lootpath refresh",
-            "Skip this one, the plan uses your Lynx shoulders.",
-            "Upgrade · Seedpods of the Luminous Bloom (289) · no rating · " .. ns.Roads.CREST_NOT_READ,
-            "Other roads for this slot",
-            "Catalyst · Venom-Cursed Lynx's Spaulders (295) · into the tier shoulders · in your best set",
-            "Crafted · a crafted piece (331) · +1.11% · the rating assumes Crit / Haste · spark and materials not read",
-            "Why this? · /lootpath map",
+            "Lootpath · Shoulder",
+            "Swap these - Catalyst your Lynx shoulders.",
+            "Better: a crafted piece (331), +1.11%",
+            "Rated 5h ago · /lootpath refresh",
         }, lines(SEEDPODS))
         -- And the row the panel draws still says it, beside the crest counts
         -- the reader can see: dropped from the tooltip, not from the model.
@@ -303,66 +299,72 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         assert.equal(ns.Roads.CREST_NOT_READ, row.tooltipFactsText)
     end)
 
-    it("draws at most three roads however many the slot has", function()
-        -- Handcrafted, because the model has exactly three groups and so hands
-        -- over at most two others on the owner's own week: the cap has to be
-        -- asserted against an answer that tries to exceed it, or it is true by
-        -- accident rather than by rule (principle 10).
-        local function road(name)
+    it("draws ONE other road however many the slot has, and never the pick", function()
+        -- Handcrafted, because the model hands over at most two others on the
+        -- owner's own week: the rule has to be asserted against an answer that
+        -- tries to exceed it, or it is true by accident rather than by rule
+        -- (UX-3, WKE-599; principle 10's three became one).
+        local function road(name, pick)
             return {
                 kind = ns.Roads.KIND_DROP,
                 group = ns.Roads.GROUP_ITEM,
                 slot = "Shoulder",
                 keys = {},
-                item = {
-                    itemID = 1,
-                    name = name,
-                },
+                planPick = pick or nil,
+                item = { itemID = 1, name = name },
                 arrivesAt = 300,
+                rating = { kind = ns.Roads.RATING_ITEM, percent = 1.5, badge = ns.Roads.ItemBadge(1.5) },
             }
         end
         local answer = {
             slot = "Shoulder",
+            held = true,
             own = road("own"),
-            others = { road("first"), road("second"), road("third"), road("fourth") },
+            -- The pick first, which is where a worn piece's own set group puts
+            -- it, and which line 2 has already named.
+            others = { road("the pick", true), road("second"), road("third"), road("fourth") },
         }
-        local drawn = 0
+        local drawn, better = 0, nil
         for _, line in ipairs(ns.UI.Tooltip.Lines(answer)) do
             if line.text:find("(300)", 1, true) then
                 drawn = drawn + 1
+                better = line.text
             end
         end
-        assert.equal(ns.Roads.TOOLTIP_ROADS, drawn)
-        assert.equal(3, drawn)
+        assert.equal(1, drawn)
+        assert.equal("Better: second (300), +1.50%", better)
     end)
 
-    it("never draws more than three roads, one sub-header and Why this?", function()
+    it("never draws more than four lines, and the last is the age and one command", function()
         local map = ns.RoadsCache.Map()
-        for key, answer in pairs(map.byKey) do
-            local roads = (answer.own and 1 or 0) + #answer.others
-            assert.is_true(roads <= 3, key .. " opens onto " .. roads .. " roads")
+        for key in pairs(map.byKey) do
             local block = lines(key)
-            assert.equal(ns.UI.Tooltip.WHY, block[#block], key .. " does not end on Why this?")
-            assert.equal("Why this? · /lootpath map", block[#block])
-            local headers = 0
+            assert.is_true(#block <= 4, key .. " draws " .. #block .. " lines")
+            local last = block[#block]
+            assert.is_true(
+                last == "Rated 5h ago · /lootpath map" or last == "Rated 5h ago · /lootpath refresh",
+                key .. " ends on " .. tostring(last)
+            )
+            -- One command on the block, and it is on that line.
+            local commands = 0
             for _, text in ipairs(block) do
-                if text == "Other roads for this slot" then
-                    headers = headers + 1
+                if text:find("/lootpath", 1, true) then
+                    commands = commands + 1
                 end
             end
-            assert.is_true(headers <= 1, key .. " carries " .. headers .. " sub-headers")
+            assert.equal(1, commands, key .. " carries " .. commands .. " commands")
         end
     end)
 
-    it("leaves the sub-header off entirely when the slot has no other road", function()
+    it("is two lines when there is no sentence and no road that gains", function()
         -- Built rather than found: the owner's week has no such slot, and the
-        -- rule is the block's, not the week's.
+        -- rule is the block's, not the week's. The honesty phrase that used to
+        -- take line 2 is cut (UX-3, WKE-599, reading 3).
         local answer = { slot = "Shoulder", others = {}, phrase = ns.Roads.PHRASE_NO_RATING }
         assert.same(
             {
-                "Lootpath · Shoulder · rated at an unknown time",
-                "no rating",
-                "Why this? · /lootpath map",
+                "Lootpath · Shoulder",
+                "Rated: not known · /lootpath map",
             },
             (function()
                 local out = {}
@@ -376,18 +378,21 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
 
     it("says the vault option's part of the plan, and names what the plan takes instead", function()
         local block = lines(VAULT_SPAULDERS)
-        assert.equal("Skip this one, the plan uses your Lynx shoulders.", block[2])
-        assert.equal(
-            "Vault · open now · Scavenger's Spaulders (308) · into the tier shoulders · upgraded to 321"
-                .. " · 1.73% behind · taking the vault weapon instead · reset in 6d 21h",
-            block[3]
-        )
+        assert.equal("Pass - Catalyst your Lynx shoulders.", block[2])
+        -- Reading 2 of the approved set: this reward is 1.73% BEHIND, so it is
+        -- never the "Better:" line about itself, and neither is the Catalyst
+        -- pick line 2 has already named. What is left is the one road on the
+        -- slot that gains. What the Upgrade Map's row still says about the
+        -- reward, word for word, is asserted in `spec/roadsrow_spec.lua`.
+        assert.equal("Better: a crafted piece (331), +1.11%", block[3])
+        assert.equal("Rated 5h ago · /lootpath refresh", block[4])
     end)
 
     it("says the pick's part of the plan on the vault weapon, crest clause and all", function()
         local block = lines(VAULT_WORLDROOT)
-        assert.equal("Lootpath · 2H Weapon · rated 5 hours ago · /lootpath refresh", block[1])
-        assert.equal("Grab this from the vault and crest it.", block[2])
+        assert.equal("Lootpath · 2H Weapon", block[1])
+        assert.equal("Grab this - crest it after.", block[2])
+        assert.equal("Rated 5h ago · /lootpath refresh", block[#block])
     end)
 
     it("takes a position on a bag piece the rating never saw, and keeps the phrase under it", function()
@@ -399,15 +404,15 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         -- already existed. What it never had was a way in for an item no road
         -- carries.
         local block = lines(MISTSTALKER)
-        assert.equal("Lootpath · Shoulder · rated 5 hours ago · /lootpath refresh", block[1])
-        assert.equal("Skip this one, the plan uses your Lynx shoulders.", block[2])
-        -- The honesty phrase keeps its place under the sentence: it is the
-        -- item's own road line, and it is still the whole truth about the
-        -- rating (principle 3).
-        assert.equal(ns.Roads.PHRASE_NOT_RATED_NEW, block[3])
-        assert.equal("not rated · new since the last refresh", block[3])
-        assert.equal("Other roads for this slot", block[4])
-        assert.equal("Why this? · /lootpath map", block[#block])
+        assert.equal("Lootpath · Shoulder", block[1])
+        assert.equal("Pass - Catalyst your Lynx shoulders.", block[2])
+        -- UX-3 (WKE-599), reading 3: the honesty phrase no longer takes a line
+        -- of its own. A reader cannot act on "not rated · new since the last
+        -- refresh" from a tooltip, and the cure is on the last line instead.
+        for _, text in ipairs(block) do
+            assert.is_nil(text:find(ns.Roads.PHRASE_NOT_RATED_NEW, 1, true), text)
+        end
+        assert.equal("Rated 5h ago · /lootpath refresh", block[#block])
     end)
 
     it("takes a position on every piece in the bags, rated or not", function()
@@ -425,19 +430,31 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         assert.is_true(read > 20, "read only " .. read .. " held pieces")
     end)
 
-    it("writes no plan sentence for a road to something you do not have", function()
-        -- A journal drop is in the `item` group and is not in the bags;
-        -- "Skip this one" there would read as "skip the dungeon", which no
-        -- document said.
+    it("gives a road to something you do not have a figure and never an imperative", function()
+        -- A journal drop is in the `item` group and is not in the bags; an
+        -- imperative there would read as "run the dungeon", which no document
+        -- said. Reading 4 of the approved copy set: line 2 states the road's own
+        -- percent against what you wear and decides nothing.
         local map = ns.RoadsCache.Map()
-        local read = 0
+        local worth, silent = 0, 0
         for key, answer in pairs(map.byKey) do
             if answer.own and answer.own.group ~= ns.Roads.GROUP_SET and not answer.held then
-                read = read + 1
-                assert.is_nil(answer.sentence, key .. " put a plan sentence on a " .. answer.own.group .. " road")
+                local sentence = answer.sentence
+                if sentence == nil then
+                    silent = silent + 1
+                else
+                    worth = worth + 1
+                    assert.is_truthy(
+                        sentence:match("^Worth %d+%.%d%d%% over your [%a ]+%.$"),
+                        key .. " says " .. sentence
+                    )
+                    -- No verb, so nothing here sends a player anywhere.
+                    assert.is_true(ns.Roads.IsForward(answer.own), key .. " is worth something it does not gain")
+                end
             end
         end
-        assert.is_true(read > 100, "read only " .. read .. " roads to things the player does not hold")
+        assert.is_true(worth > 10, "read only " .. worth .. " rated roads to things the player does not hold")
+        assert.is_true(silent > 100, "read only " .. silent .. " unrated roads to things the player does not hold")
     end)
 
     it("names no source and uses no struck phrasing anywhere in the block", function()
@@ -542,8 +559,8 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
 
     it("appends the block to GameTooltip on a bag hover", function()
         local text = hover(LYNX)
-        assert.is_truthy(text:find("Catalyst this one.", 1, true))
-        assert.is_truthy(text:find("Why this?", 1, true))
+        assert.is_truthy(text:find("Catalyst these - tier shoulders.", 1, true))
+        assert.is_truthy(text:find("/lootpath map", 1, true) or text:find("/lootpath refresh", 1, true))
     end)
 
     it("answers GameTooltip and nothing else, which is 90% of the calls R-0 counted", function()
@@ -676,7 +693,7 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
 
     it("says why it has nothing when no plan is stored", function()
         local map = ns.RoadsCache.SetMap(ns.RoadsCache.Build({}))
-        assert.equal("no plan stored", map.reason)
+        assert.equal("no rating stored", map.reason)
         assert.same({}, map.byKey)
         assert.is_false(ns.Glow.Wants(LYNX))
     end)
@@ -1035,7 +1052,7 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         assert.is_truthy(text:find(LYNX, 1, true), text)
         assert.is_truthy(text:find("item: in the map", 1, true), text)
         assert.is_truthy(text:find("item: glow yes", 1, true), text)
-        assert.is_truthy(text:find("the plan points at it", 1, true), text)
+        assert.is_truthy(text:find("the map points at it", 1, true), text)
     end)
 
     it("says glow no, and why, for a piece the plan leaves behind", function()
@@ -1054,7 +1071,7 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         ns.UI.Bags.Install()
         local held = linkFor(LYNX)
         ns.RoadsCache.SetMap(ns.RoadsCache.Build({}))
-        assert.is_truthy(table.concat(ns.UI.Bags.DiagnosisLines(held), "\n"):find("no plan stored", 1, true))
+        assert.is_truthy(table.concat(ns.UI.Bags.DiagnosisLines(held), "\n"):find("no rating stored", 1, true))
         ns.RoadsCache.SetMap(ns.RoadsCache.Build(model))
         local text = table.concat(ns.UI.Bags.DiagnosisLines("|Hitem:99999::::::::80:105::::::|h[Nothing]|h"), "\n")
         assert.is_truthy(text:find("item: NOT in the map", 1, true), text)
@@ -1124,7 +1141,7 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         assert.is_true(byKey[MISTSTALKER].inMap)
         assert.is_false(byKey[MISTSTALKER].glow)
         assert.equal(ns.Roads.PHRASE_NOT_RATED_NEW, byKey[MISTSTALKER].phrase)
-        assert.equal("Skip this one, the plan uses your Lynx shoulders.", byKey[MISTSTALKER].sentence)
+        assert.equal("Pass - Catalyst your Lynx shoulders.", byKey[MISTSTALKER].sentence)
         -- And what the map was built from, so a transcript can be diffed
         -- against the keys the bags made without asking the client twice.
         assert.equal(ns.RoadsCache.Map().counts.keys, data.mapKeys)
@@ -1140,7 +1157,7 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         assert.is_false(ok)
         assert.equal("bag glow: this bag window is not one Lootpath can mark; the tooltip still works", note)
         -- The tooltip is bag-independent and is unaffected.
-        assert.is_truthy(hover(LYNX):find("Catalyst this one.", 1, true))
+        assert.is_truthy(hover(LYNX):find("Catalyst these - tier shoulders.", 1, true))
         ns.UI.Bags.adapters = adapters
     end)
 
@@ -1191,15 +1208,14 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         -- rated, and the vault road above no longer offers a walk to the vault.
         local claimed = claimWorldroot()
         local block = lines(claimed.key)
-        assert.equal("Lootpath · 2H Weapon · rated 5 hours ago · /lootpath refresh", block[1])
-        assert.equal(
-            "This is the vault Worldroot the plan wanted, crested to 315. Put it on; refresh to rate it.",
-            block[2]
-        )
-        assert.equal(ns.Roads.PHRASE_NOT_RATED_NEW, block[3])
-        assert.equal("Other roads for this slot", block[4])
-        assert.is_true(block[5]:find("Vault · claimed · now crested", 1, true) == 1)
-        assert.equal("Why this? · /lootpath map", block[#block])
+        assert.equal("Lootpath · 2H Weapon", block[1])
+        assert.equal("Put this on - then refresh.", block[2])
+        assert.equal("Rated 5h ago · /lootpath refresh", block[#block])
+        -- And the road the block no longer draws still says where the piece has
+        -- got to, on the Upgrade Map's row: dropped from the tooltip, not from
+        -- the model.
+        local pick = ns.Roads.PlanPick(ns.RoadsCache.Map().bySlot["2H Weapon"])
+        assert.equal(ns.Roads.ARRIVED_CLAIMED_CRESTED, pick.claimed)
     end)
 
     -- R-3c (WKE-580): the same pick one step further on. The owner crested the
@@ -1241,11 +1257,16 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
     it("tells the player the pick is on the character, not to skip it", function()
         local worn = wearCrestedCloak()
         local block = lines(worn.key)
-        assert.equal("You've crested this and put it on. Refresh to rate it at 308.", block[2])
-        -- The line under it is the road the worn copy really has - the Upgrade
-        -- road every worn piece gets - and it still says no document rates this
-        -- key. No rating is invented and none is borrowed.
-        assert.is_true(block[3]:find("Upgrade · Preyhunter's Refined Shawl (308) · no rating", 1, true) == 1)
+        assert.equal("Refresh - you're already wearing it.", block[2])
+        -- The road the worn copy really has - the Upgrade road every worn piece
+        -- gets - rates nothing, so line 3 is the slot's one road that does gain
+        -- instead, named as the item and where it drops. The row on the panel
+        -- still carries the Upgrade road.
+        assert.equal("Better: Silken Voodoo Drape (344), +1.24% · The Venomous Abyss, Mythic raid", block[3])
+        -- The Back slot's bags hold nothing the rating never saw once the pick
+        -- is on the character, so the command is the map's and not the
+        -- refresh's: `answer.stale` is this slot's bags, not the block's mood.
+        assert.equal("Rated 5h ago · /lootpath map", block[4])
         -- And the row the plan's pick is on says where the piece has got to.
         local pick = ns.Roads.PlanPick(ns.RoadsCache.Map().bySlot.Back)
         assert.equal(ns.Roads.ARRIVED_NOW_WORN, pick.claimed)
@@ -1291,7 +1312,7 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         end
         assert.is_string(wornLink)
         local m = namelessVault()
-        assert.equal("Skip this one, the plan uses the vault weapon.", ns.RoadsCache.Lookup(DECAPITATOR).sentence)
+        assert.equal("Pass - take the vault weapon.", ns.RoadsCache.Lookup(DECAPITATOR).sentence)
 
         -- The client can name item 251935: the owner is wearing one. Asked by
         -- item ID, which is how `ns.ItemData` asks.
@@ -1303,7 +1324,7 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         -- over the roads the fill has named - which is what `Cache.Rebuild`
         -- does with the count this returns.
         ns.RoadsCache.SetMap(ns.RoadsCache.Build(m))
-        assert.equal("Skip this one, the plan uses the vault Worldroot.", ns.RoadsCache.Lookup(DECAPITATOR).sentence)
+        assert.equal("Pass - take the vault Worldroot.", ns.RoadsCache.Lookup(DECAPITATOR).sentence)
     end)
 
     it("asks the client only for what no link and no record named", function()
@@ -1326,8 +1347,8 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         local cell = { data = { key = VAULT_WORLDROOT, name = "Lightgrasp Worldroot", tooltipLines = {} } }
         assert.is_true(ns.VaultPanel.ShowCellTooltip(cell))
         local text = GameTooltip.stub.Text()
-        assert.is_truthy(text:find("Grab this from the vault and crest it.", 1, true))
-        assert.is_truthy(text:find("Why this?", 1, true))
+        assert.is_truthy(text:find("Grab this - crest it after.", 1, true))
+        assert.is_truthy(text:find("Rated ", 1, true))
     end)
 
     it("puts nothing on the vault cell in combat", function()
@@ -1477,23 +1498,21 @@ describe("The tooltip over a vault the rating never imported (R-3d)", function()
         build({ profileVaultCount = 0 })
         local block = lines(LEGGINGS)
         assert.same({
-            "Lootpath · Legs · rated 5 hours ago · /lootpath refresh",
-            "The plan hasn't rated this yet. Refresh, then look again.",
-            "Vault · open now · Enigmatic Dreamwatcher's Leggings (315)"
-                .. " · not rated · new since the last refresh · reset in 6d 19h",
-            "Other roads for this slot",
-            "Keep (what you wear) · Enigmatic Dreamwatcher's Leggings (295)"
-                .. " · what you wear now · in your best set",
-            "Why this? · /lootpath map",
+            "Lootpath · Legs",
+            "Not rated yet - refresh.",
+            "Rated 5h ago · /lootpath refresh",
         }, block)
         -- The two words that were the defect, gone from the whole block.
         for _, text in ipairs(block) do
             assert.is_nil(text:match("^Skip this one"), text)
+            assert.is_nil(text:match("^Pass"), text)
             assert.is_nil(text:match("not in your best set"), text)
         end
-        -- And the slot's real plan is where it belongs: on the road that has a
-        -- rating, under a header that names the cure (R-3b).
-        assert.is_truthy(block[5]:match("in your best set"))
+        -- And the slot's real answer is where it belongs: on the road that has a
+        -- rating, which the Upgrade Map's row still draws.
+        local keep = ns.Roads.PlanPick(ns.RoadsCache.Map().bySlot.Legs)
+        assert.equal(ns.Roads.KIND_KEEP, keep.kind)
+        assert.equal("in your best set", keep.rating.badge)
     end)
 
     -- The same file without the count: nothing on record, so C-8's premise
@@ -1503,11 +1522,9 @@ describe("The tooltip over a vault the rating never imported (R-3d)", function()
         build({})
         local block = lines(LEGGINGS)
         assert.same({
-            "Lootpath · Legs · rated 5 hours ago · /lootpath refresh",
-            "Skip this one, the plan keeps your Dreamwatcher legs on.",
-            "Vault · open now · Enigmatic Dreamwatcher's Leggings (315)"
-                .. " · not in your best set · reset in 6d 19h",
-            "Why this? · /lootpath map",
+            "Lootpath · Legs",
+            "Pass - use your Dreamwatcher legs.",
+            "Rated 5h ago · /lootpath refresh",
         }, block)
     end)
 

@@ -116,7 +116,7 @@ end
 -- either way and the tab is never contradicted.
 function Cache.Build(model)
     if type(model) ~= "table" or type(model.roadInputs) ~= "table" then
-        return emptyMap("no plan stored")
+        return emptyMap("no rating stored")
     end
     local inputs = model.roadInputs
     local map = emptyMap(nil)
@@ -288,7 +288,7 @@ function Cache.Gather()
     end
     local gathered = ns.UpgradeMapPanel.Gather({ db = ns.db })
     if type(gathered.scenarios) ~= "table" or #gathered.scenarios == 0 then
-        return nil, "no plan stored"
+        return nil, "no rating stored"
     end
     return ns.UpgradeMapPanel.Model(gathered)
 end
