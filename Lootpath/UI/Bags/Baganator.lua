@@ -78,9 +78,18 @@ local Adapter = {
 -- on whatever colour it is. He then picked Fix E at 16 - the FULL double
 -- chevron, the upper solid and the lower at 65%, with a one-unit near-black
 -- outline around every edge and NO plate behind it - which changes the shape
--- and the keyline and leaves `#FF1A8C` exactly where it was. So the bag corner, the launcher badge, the
+-- and the keyline and left the colour alone. So the bag corner, the launcher badge, the
 -- compartment entry and the listing tile are now one shape, and the item's own
 -- art stays visible under the mark.
+--
+-- **UX-4d (WKE-613): thicker, one colour, brighter.** He saw that in his full
+-- bags the same day - "let's increase the thickness of both chevrons by a bit
+-- more and let's also keep them the same color. It still seems difficult to see
+-- them, I would say we need to go brighter on the pink" - and picked rung 5 of
+-- the brand page's five, `#FFB3DB`. Nothing in this file changes for it: each
+-- band is a unit thicker and the lower body is at full alpha inside the two
+-- textures, and the colour is `ns.UI.BRAND_HEX` as it always was. `SIZE` is
+-- still 16, the anchor is still R-2b's, and there is still no plate.
 --
 -- The two layers are still edge under fill, and what changed is what each is
 -- made of and where it sits. They are two FILES now - `mark16-edge` is the
