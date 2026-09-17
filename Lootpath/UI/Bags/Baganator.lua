@@ -61,15 +61,34 @@ local Adapter = {
 --     mark still has a shape over pale icon art;
 --   * the accent square inset by 1 point inside it, fully opaque.
 --
--- The accent is `ItemLine.TONE.better`'s hex, which is the one definition of
--- this addon's gold and is the tone the Vault tab's own pick is edged with, so
--- the two surfaces still mean the same thing in the same colour - only at a
--- size each of them can actually be seen at.
-Adapter.TEXTURE = [[Interface\Buttons\WHITE8X8]]
-Adapter.SIZE = 15
+-- UX-4b (WKE-611) keeps every word of that and changes only what the two layers
+-- are made of. The flat square is now the **Waymark** - the double chevron a
+-- walked route is blazed with, candidate A of the WKE-602 proposal, picked by
+-- the owner on 2026-09-16 - drawn from `Media/mark16.tga`, which is the mark's
+-- REDUCED form redrawn on a 16-unit grid rather than a 64-point drawing shrunk.
+-- That is R-2b's own rule applied to art instead of to an atlas, and it is why
+-- `SIZE` is 16 rather than 15: at 16 the texture's texels and the frame's points
+-- are one to one, and a mark drawn at 15/16 of itself is a mark nobody drew.
+--
+-- The two layers still do exactly what they did. The edge layer is the same
+-- mark filling the frame in near-black, so the shape keeps a keyline over pale
+-- icon art; the fill is the same mark inset by 1 point inside it, so the dark
+-- rim shows all the way round a chevron instead of round a square.
+--
+-- **The accent is no longer QE Live's gold, and that is the point.** The owner
+-- asked for a colour of Lootpath's own (WKE-602, answer 2), so the fill is
+-- `ns.UI.BRAND_HEX`. R-2b paired this mark's colour with the Vault tab's pick
+-- edge so the two surfaces meant one thing in one colour; what UX-4b separates
+-- is the two MEANINGS, which were never the same. The Vault tab's gold edge and
+-- every number on screen go on saying "better", which is QE Live's word about an
+-- item. The mark in a bag corner says "this is Lootpath" - and a third gold
+-- thing in a corner that already holds Baganator's green arrow was the crowd the
+-- proposal named.
+Adapter.TEXTURE = ns.UI.MEDIA.MARK16
+Adapter.SIZE = 16
 Adapter.EDGE_INSET = 1
 Adapter.EDGE_COLOR = { 0.05, 0.05, 0.06, 1 }
-Adapter.FILL_HEX = ns.UI.ItemLine.TONE.better.hex
+Adapter.FILL_HEX = ns.UI.BRAND_HEX
 
 -- WHICH corner, and why it is not the one R-2 chose (R-2a, WKE-571). Read off
 -- the installed copy, which is the only place these two facts are written:
