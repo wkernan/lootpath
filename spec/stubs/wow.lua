@@ -1198,6 +1198,15 @@ function Stub.install()
             [6] = { r = 0.7, g = 0.7, b = 0.7 },
             [7] = { r = 0.8, g = 0.8, b = 0.8 },
         },
+        -- E-1a (WKE-605): which equipment slots the client says an item can go
+        -- into, keyed by item link - [link] = { 11, 12 } for a ring. It is the
+        -- ONLY source GetInventoryItemsForSlot below draws on, because which
+        -- slots a real client offers an item for is a data table this harness
+        -- has no transcript of; a test states what the client answers and
+        -- asserts what Lootpath does with it, never that a particular item
+        -- belongs in a particular slot. An item with no entry here is one the
+        -- client offers for no slot at all, which is the unmappable case.
+        slotsForItem = {},
         bankOpen = false,
         vaultOpen = false,
         -- The upgrade vendor's window (M3-17, WKE-574). `frameOpen` is what
@@ -2041,6 +2050,82 @@ function Stub.install()
         local e = unit == "player" and world.equipped[slot]
         return e and e.id or nil
     end)
+    -- E-1a (WKE-605). Blizzard's own two halves of "which slot does this go
+    -- in", both read under .luals/ on 2026-09-17 and modelled here, not
+    -- invented: the packing constants are Blizzard_FrameXMLBase/Constants.lua
+    -- :146-149, the unpacking is Blizzard_FrameXML/Shared/EquipmentManager.lua
+    -- :1-29 line for line, and GetInventoryItemsForSlot's contract is
+    -- Wiki.lua:5064-5067 (it FILLS `returnTable` with [packedLocation] = itemID
+    -- for every bag or bank item that can be equipped in `slot`), the way
+    -- PaperDollFrame.lua:2064-2066 calls it.
+    -- The client's `bit` library (LuaJIT's, which is what Blizzard's own
+    -- EquipmentManager.lua:7-21 calls). Lua 5.1 here has none, so the three
+    -- operations those lines use are modelled arithmetically over the
+    -- non-negative integers this packing is made of.
+    define("bit", {
+        band = function(a, b)
+            local result, place = 0, 1
+            while a > 0 and b > 0 do
+                if a % 2 == 1 and b % 2 == 1 then
+                    result = result + place
+                end
+                a, b, place = math.floor(a / 2), math.floor(b / 2), place * 2
+            end
+            return result
+        end,
+        lshift = function(a, n)
+            return a * (2 ^ n)
+        end,
+        rshift = function(a, n)
+            return math.floor(a / (2 ^ n))
+        end,
+    })
+    define("ITEM_INVENTORY_LOCATION_PLAYER", 0x00100000)
+    define("ITEM_INVENTORY_LOCATION_BAGS", 0x00200000)
+    define("ITEM_INVENTORY_LOCATION_BANK", 0x00400000)
+    define("ITEM_INVENTORY_BAG_BIT_OFFSET", 8)
+    define("EquipmentManager_GetLocationData", function(location)
+        local data = {}
+        if location < 0 then
+            return data
+        end
+        data.isPlayer = bit.band(location, ITEM_INVENTORY_LOCATION_PLAYER) ~= 0
+        data.isBank = bit.band(location, ITEM_INVENTORY_LOCATION_BANK) ~= 0
+        data.isBags = bit.band(location, ITEM_INVENTORY_LOCATION_BAGS) ~= 0
+        data.slot = location
+        if data.isPlayer then
+            data.slot = data.slot - ITEM_INVENTORY_LOCATION_PLAYER
+        elseif data.isBank then
+            data.slot = data.slot - ITEM_INVENTORY_LOCATION_BANK
+        end
+        if data.isBags then
+            data.slot = data.slot - ITEM_INVENTORY_LOCATION_BAGS
+            data.bag = bit.rshift(data.slot, ITEM_INVENTORY_BAG_BIT_OFFSET)
+            data.slot = data.slot - bit.lshift(data.bag, ITEM_INVENTORY_BAG_BIT_OFFSET)
+        end
+        return data
+    end)
+    define("GetInventoryItemsForSlot", function(slot, returnTable)
+        returnTable = returnTable or {}
+        for bag, contents in pairs(world.bags) do
+            for slotIndex, item in pairs(contents.items or {}) do
+                local fits = false
+                for _, candidate in ipairs(world.slotsForItem[item.link] or {}) do
+                    if candidate == slot then
+                        fits = true
+                    end
+                end
+                if fits and bag >= 0 then
+                    local packed = ITEM_INVENTORY_LOCATION_BAGS
+                        + bit.lshift(bag, ITEM_INVENTORY_BAG_BIT_OFFSET)
+                        + slotIndex
+                    returnTable[packed] = item.id
+                end
+            end
+        end
+        return returnTable
+    end)
+
     define("ItemLocation", {
         CreateFromEquipmentSlot = function(_, slot)
             return { equipmentSlotIndex = slot }
