@@ -1,0 +1,9 @@
+<!--
+  The Waymark, reduced form: one thick chevron, drawn on a 16-unit grid because
+  16 points is the size it is seen at (R-2b). White with alpha, so the addon
+  tints it - near-black for the keyline layer, the brand colour for the fill -
+  and the owner can change the brand colour in Lua without re-rendering.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <path d="M8 2 L16 10 L16 14 L8 6 L0 14 L0 10 Z" fill="#FFFFFF"/>
+</svg>

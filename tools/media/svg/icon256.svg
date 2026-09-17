@@ -1,0 +1,24 @@
+<!--
+  The listing tile: the Waymark over the name-mark on a near-black ground, which
+  is the pairing the field uses to separate a mark from whatever it lands on
+  (the proposal's step 1a, points 3 and 8). This one is displayed untinted, so
+  the brand colour is drawn in rather than tinted on.
+
+  256 x 256, alpha, and nothing in the addon reads it: the client's own surfaces
+  take mark16 and mark64. This is the tile the addon site shows.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <rect x="0" y="0" width="256" height="256" fill="#16171C"/>
+  <rect x="2" y="2" width="252" height="252" fill="none" stroke="#2A2C34" stroke-width="4"/>
+
+  <g transform="translate(64,34) scale(2)" stroke="#0D0D0F" stroke-width="3" stroke-linejoin="round">
+    <path d="M32 33 L52 52 L52 61 L32 43 L12 61 L12 52 Z" fill="#FF1A8C" opacity="0.6"/>
+    <path d="M32 5 L61 33 L61 45 L32 18 L3 45 L3 33 Z" fill="#FF1A8C"/>
+  </g>
+
+  <text x="128" y="224"
+        text-anchor="middle"
+        font-family="Alegreya SC" font-weight="700" font-size="46"
+        letter-spacing="3"
+        fill="#E9E7E1">Lootpath</text>
+</svg>
