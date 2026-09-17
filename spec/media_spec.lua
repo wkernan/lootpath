@@ -241,20 +241,23 @@ describe("the addon's own art", function()
     -- the hex baked into the two SVGs whose textures are displayed untinted.
     -- `tools/media/README.md` says they must move together; this is that
     -- sentence as a test. The Lua value is pinned as a literal too, because the
-    -- owner picked this exact rung off the brand page (rung 5) and a silent
-    -- drift back to #FF1A8C would look like a merge, not a decision.
+    -- owner picked #FFB3DB off the brand page (rung 5, UX-4d), saw it read as
+    -- pink-white in a full bag, and on round three chose the original #FF1A8C
+    -- with the thicker, same-colour double chevron - "let's try this one and
+    -- then just call it for now" (UX-4e, 2026-09-17). A silent drift either
+    -- way would look like a merge, not a decision.
     it("carries the owner's brand colour in the one constant and in both baked sources", function()
         local ns = H.load()
-        assert.equal("FFB3DB", ns.UI.BRAND_HEX)
+        assert.equal("FF1A8C", ns.UI.BRAND_HEX)
         H.unload()
 
         for _, source in ipairs({ "mark64", "icon256" }) do
             local svg = readFile("tools/media/svg/" .. source .. ".svg")
             assert.is_truthy(
-                svg:find("#FFB3DB", 1, true),
-                source .. ".svg does not bake #FFB3DB, so its texture is a different brand than the Lua constant"
+                svg:find("#FF1A8C", 1, true),
+                source .. ".svg does not bake #FF1A8C, so its texture is a different brand than the Lua constant"
             )
-            assert.is_nil(svg:find("#FF1A8C", 1, true), source .. ".svg still bakes the old brand colour")
+            assert.is_nil(svg:find("#FFB3DB", 1, true), source .. ".svg still bakes the pale round-two colour")
         end
     end)
 

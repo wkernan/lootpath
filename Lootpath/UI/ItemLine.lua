@@ -85,7 +85,11 @@ local ItemLine = UI.ItemLine
 -- .toc's icon line, `icon256` on the listing tile - carry the same hex in
 -- `tools/media/svg/`, and moving the brand means moving it there too and
 -- re-rendering (`tools/media/README.md`).
-UI.BRAND_HEX = "FFB3DB"
+-- Back to #FF1A8C (UX-4e, 2026-09-17 afternoon): the owner saw #FFB3DB in a full
+-- bag and it read as pink-white against the item-level text; on the brand page's
+-- round three he chose the original hue with the thicker, same-colour double
+-- chevron - "let's try this one and then just call it for now."
+UI.BRAND_HEX = "FF1A8C"
 
 -- The addon's own art, rendered from `tools/media/svg/` (UX-4b). The client
 -- appends the extension itself, so no path here names one; every file is a TGA
