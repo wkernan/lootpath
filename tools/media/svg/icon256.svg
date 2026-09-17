@@ -15,8 +15,8 @@
   <rect x="2" y="2" width="252" height="252" fill="none" stroke="#2A2C34" stroke-width="4"/>
 
   <g transform="translate(64,34) scale(2)" stroke="#0D0D0F" stroke-width="3" stroke-linejoin="round">
-    <path d="M32 29 L52 48 L52 61 L32 43 L12 61 L12 48 Z" fill="#FFB3DB"/>
-    <path d="M32 5 L61 33 L61 49 L32 22 L3 49 L3 33 Z" fill="#FFB3DB"/>
+    <path d="M32 29 L52 48 L52 61 L32 43 L12 61 L12 48 Z" fill="#FF1A8C"/>
+    <path d="M32 5 L61 33 L61 49 L32 22 L3 49 L3 33 Z" fill="#FF1A8C"/>
   </g>
 
   <text x="128" y="224"
