@@ -263,9 +263,21 @@ local function attachTextureSurface(r)
     function r:GetTexture()
         return self.texture
     end
-    function r:SetAtlas(value)
+    -- `TextureBase:SetAtlas(atlas, useAtlasSize, ...)`: the second argument
+    -- makes the client size the texture to the art's own size (Ketho,
+    -- Core/Widget/Base/TextureBase.lua). The stub does the same, so a test can
+    -- read the size a texture ended up with and see whether the art was drawn at
+    -- its own proportions or squashed into someone else's box (V-5a, WKE-607).
+    function r:SetAtlas(value, useAtlasSize)
         self.atlas = value
         self.texture = nil
+        self.atlasUsedSize = useAtlasSize and true or false
+        if useAtlasSize and C_Texture and C_Texture.GetAtlasInfo then
+            local info = C_Texture.GetAtlasInfo(value)
+            if info and info.width and info.height then
+                self.width, self.height = info.width, info.height
+            end
+        end
     end
     function r:GetAtlas()
         return self.atlas
@@ -1165,7 +1177,18 @@ function Stub.install()
             -- The Great Vault's own selected art, from the SelectedTexture of
             -- WeeklyRewardsActivityTemplate in Blizzard's shipped
             -- Blizzard_WeeklyRewards.xml under .luals/ (read 2026-09-09).
-            ["evergreen-weeklyrewards-reward-selected"] = true,
+            --
+            -- V-5a (WKE-607): an entry is either `true`, which answers the
+            -- default square below, or a `{ width, height }` pair that
+            -- GetAtlasInfo answers with.
+            --
+            -- THIS one is measured: the owner read
+            -- `evergreen-weeklyrewards-reward-selected` at 214 x 121 with
+            -- `C_Texture.GetAtlasInfo` on his own client the night of R-2b
+            -- (WKE-575), where the same atlas had been squeezed by
+            -- `SetAllPoints` into a 15-point square - the same fault this issue
+            -- is about, in another surface. See `spec/tooltip_spec.lua`.
+            ["evergreen-weeklyrewards-reward-selected"] = { width = 214, height = 121 },
             -- V-5 (WKE-600): the rest of the Great Vault's own art the tab
             -- draws. The two cell backgrounds are the two strings
             -- `WeeklyRewardsActivityMixin:Refresh` passes to SetAtlas; the
@@ -1175,11 +1198,24 @@ function Stub.install()
             -- Blizzard_WeeklyRewards.xml. All read from Blizzard's own shipped
             -- files under `.luals/` on 2026-09-16. A test that wants the
             -- fallback empties the table.
-            ["evergreen-weeklyrewards-reward-locked"] = true,
-            ["evergreen-weeklyrewards-reward-unlocked"] = true,
-            ["evergreen-weeklyrewards-category-raids"] = true,
-            ["evergreen-weeklyrewards-category-dungeons"] = true,
-            ["evergreen-weeklyrewards-category-world"] = true,
+            --
+            -- Their sizes are PLACEHOLDER, in the same sense as `qualityColors`
+            -- further down: nobody has measured these five on a client, and no
+            -- test asserts a figure - each asserts that what was DRAWN carries
+            -- the ratio the client reported, whatever it reported. The pairs are
+            -- shaped from the only thing that could be read here: the size of
+            -- Blizzard's own frame that carries each atlas at
+            -- `useAtlasSize="true"` in Blizzard_WeeklyRewards.xml - 219x126 for
+            -- WeeklyRewardActivityTemplate and 326x131 for
+            -- WeeklyRewardActivityTypeTemplate. The one atlas that HAS been
+            -- measured came out 5 points inside its frame either way (214x121 in
+            -- a 219x126 template), so a frame is a close stand-in for the art it
+            -- holds - close, and not the thing itself.
+            ["evergreen-weeklyrewards-reward-locked"] = { width = 219, height = 126 },
+            ["evergreen-weeklyrewards-reward-unlocked"] = { width = 219, height = 126 },
+            ["evergreen-weeklyrewards-category-raids"] = { width = 326, height = 131 },
+            ["evergreen-weeklyrewards-category-dungeons"] = { width = 326, height = 131 },
+            ["evergreen-weeklyrewards-category-world"] = { width = 326, height = 131 },
             ["activities-icon-checkmark"] = true,
         },
         -- ITEM_QUALITY_COLORS, in Blizzard's documented shape
@@ -2208,13 +2244,21 @@ function Stub.install()
     })
 
     -- C_Texture.GetAtlasInfo(atlas) -> AtlasInfo, or nil for an atlas this
-    -- client does not have. Only the "does it exist" half matters here.
+    -- client does not have. Two halves matter since V-5a (WKE-607): whether the
+    -- client has it, and how big the art is - `width` and `height` are fields of
+    -- Blizzard's own AtlasInfo (Ketho, TextureUtilsDocumentation.lua). An entry
+    -- written as `true` answers a 16-square, which is what every atlas answered
+    -- before sizes were asked for.
     define("C_Texture", {
         GetAtlasInfo = function(atlas)
-            if not world.atlases[atlas] then
+            local entry = world.atlases[atlas]
+            if not entry then
                 return nil
             end
-            return { file = atlas, width = 16, height = 16 }
+            if type(entry) ~= "table" then
+                return { file = atlas, width = 16, height = 16 }
+            end
+            return { file = atlas, width = entry.width, height = entry.height }
         end,
     })
 

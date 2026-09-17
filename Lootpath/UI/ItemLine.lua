@@ -172,19 +172,40 @@ function ItemLine.QualityColor(quality)
     }
 end
 
--- An atlas name the client actually has, or nil. Blizzard adds and removes
--- atlases between builds, so every one this addon draws is asked for first
--- (C_Texture.GetAtlasInfo, exported) and the caller shows a word instead when
--- the answer is no.
-function ItemLine.Atlas(name)
+-- An atlas the client actually has, with the art's OWN size: `{ name, width,
+-- height }`, or nil. Blizzard adds and removes atlases between builds, so every
+-- one this addon draws is asked for first (C_Texture.GetAtlasInfo, exported)
+-- and the caller shows a word instead when the answer is no.
+--
+-- `width` and `height` are the client's own figures - the `width` and `height`
+-- fields of the AtlasInfo it answers with (Ketho, `---@class AtlasInfo` in
+-- Blizzard_APIDocumentationGenerated/TextureUtilsDocumentation.lua) - and this
+-- addon knows the size of no atlas: a caller that needs one asks here, at draw
+-- time, on the client that has it. A client that answers an atlas but no usable
+-- size gets the name and no size, which is "draw it the way you would have
+-- anyway" rather than a guessed pair of numbers (V-5a, WKE-607).
+function ItemLine.AtlasInfo(name)
     if type(name) ~= "string" or name == "" then
         return nil
     end
     local info = probe(C_Texture and C_Texture.GetAtlasInfo, name)
-    if info == nil then
+    if type(info) ~= "table" then
         return nil
     end
-    return name
+    local width = tonumber((ns.Safe(info.width)))
+    local height = tonumber((ns.Safe(info.height)))
+    if not width or not height or width <= 0 or height <= 0 then
+        return { name = name }
+    end
+    return { name = name, width = width, height = height }
+end
+
+-- An atlas name the client actually has, or nil. The name-only half of
+-- `ItemLine.AtlasInfo`, kept because most callers only need to know whether
+-- there is art to draw or a word to say instead.
+function ItemLine.Atlas(name)
+    local info = ItemLine.AtlasInfo(name)
+    return info and info.name or nil
 end
 
 -- What the line will actually draw for an item, in one table: what the caller
