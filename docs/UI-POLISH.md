@@ -264,20 +264,36 @@ A `UI/ItemLine.lua` frame that every tab draws instead of a font string:
   instance, difficulty`, with `[owned 305]` becoming an "Owned" tag and the
   two value lines becoming the badge plus a small `(at +6)` after it, exactly
   the words `Panel.UpgradeText` already produces.
-- By run: each run is a card with the instance's `buttonImage1` from
-  `EJ_GetInstanceInfo` (a file ID the client hands over,
-  https://warcraft.wiki.gg/wiki/API_EJ_GetInstanceInfo) as a left strip, the
-  run name and difficulty, "best +1.83%" as a badge, and "6 of 8 drops
-  rated" in grey. The walk records no instance image today (§1), so this is
-  a capture change first - the walk keeps `buttonImage1` beside
-  `instanceName` - and then one human-required `capture journal` to prove
-  the value arrives. The two rankings stay two sort orders, never a combined
-  score (decision 2026-09-08, M3-8).
-- The wrapping difficulty buttons become one `WowStyle1FilterDropdownTemplate`
-  dropdown (the 11.0 menu API; `UIDropDownMenu` is deprecated,
-  https://warcraft.wiki.gg/wiki/Patch_11.0.0/API_changes), and View / Sort
-  become a two-button toggle on the same row. `Panel.FilterLayout` and its
-  tests retire with the buttons.
+- By run, as BUILT (UX-5, WKE-614, 2026-09-17): not a column of cards but a
+  grid of **Run Tiles**, four across. A tile is
+  `(scroll box width - 3 gaps) / 4` wide - 172 at this panel's width - and the
+  Adventure Guide's own 174:96 of that in height, 95, because the tile draws
+  the instance file the walk records (M5-3) under Blizzard's own crop for it
+  (`<TexCoords left="0" right="0.68359375" top="0" bottom="0.7421875"/>`,
+  `Blizzard_EncounterJournal.xml:328`) and a tile of another proportion would
+  stretch it. On the tile: a flat bottom-up shade, the run's name in white with
+  its difficulty under it, the card's own badge top right on a dark plate, and
+  top left one 6-point pip per drop lit per rated drop, capped at twelve.
+  Delves and Crafting carry no pips - their denominator is rated items, not a
+  run's drops - and their second line is what is not read about them. A run
+  with nothing rated is at half weight and says `no drop is an upgrade`.
+  Clicking a tile opens ONE drawer, directly under that tile's row, listing
+  that run's rated drops as item lines and nothing else; opening another shuts
+  it. The two rankings stay two sort orders, never a combined score (decision
+  2026-09-08, M3-8).
+- The header is ONE row (UX-5): title and a hint icon at the left edge, then
+  the `By slot | By run` segment, the sort dropdown and the difficulty dropdown
+  right-packed from the panel's right edge, 10 apart - the Adventure Guide's
+  own gap between its two loot filters
+  (`Blizzard_EncounterJournal.lua:453`) - and with no `View:` / `Sort:` /
+  `Difficulty:` label words, because those two filters carry none either
+  (`Blizzard_EncounterJournal.xml:1956-1957`). Each control's caption is its
+  label. `Panel.FilterLayout` and its tests retired with the difficulty buttons
+  at M5-3; the sort BUTTONS retired here.
+- The six paragraphs that stood between the header and the first run are on the
+  hint icon's tooltip, verbatim (UX-5), and the answer is one sentence above
+  the list in a guildmate's words, with a form per source kind. The note that
+  named a source's documents is off this view entirely.
 - The two scrolling panels move from a column of font strings to
   `WowScrollBoxList` with a data provider
   (https://warcraft.wiki.gg/wiki/Making_scrollable_frames), so 478 rows do
