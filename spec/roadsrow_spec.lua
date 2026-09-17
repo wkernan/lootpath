@@ -996,8 +996,15 @@ describe("Roads on the window, over the owner's week of 2026-09-08", function()
         assert.is_true(ns.db.char.upgradeMap.expandedRuns[row.runKey])
         local scrolled = panel.scrollBox.scrolledTo
         assert.is_table(scrolled)
-        assert.equal(ns.UpgradeMapPanel.ELEMENT_RUN, scrolled.kind)
-        assert.equal(row.runKey, scrolled.run.key)
+        -- Since UX-5 (WKE-614) a run is a TILE in a row of four rather than an
+        -- element of its own, so what the box is asked for is the row that
+        -- carries it.
+        assert.equal(ns.UpgradeMapPanel.ELEMENT_RUN_ROW, scrolled.kind)
+        local found = false
+        for _, run in ipairs(scrolled.runs) do
+            found = found or run.key == row.runKey
+        end
+        assert.is_true(found)
     end)
 
     -- Red for the line above: a run key the by-run view does not have scrolls

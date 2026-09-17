@@ -592,9 +592,14 @@ Panel.EXPORT_RUN_COUNT_TEXT = "%d of %d ranked items are upgrades"
 
 -- The second line of the two cards: what the source is and what is not read
 -- about it, the same facts their rows carry.
+--
+-- Since UX-5 (WKE-614) it does NOT lead with "No difficulty - ". The control
+-- row says which difficulty the map is filtered to, and a tile that answered a
+-- question the header already answers is a word spent on a state (deliverable
+-- 4). What is left is the two facts nobody else says.
 Panel.EXPORT_RUN_SECOND = {
-    [ns.UFImport.SOURCE_KIND_CRAFT] = "No difficulty - " .. ns.Roads.CRAFT_NOT_READ,
-    [ns.UFImport.SOURCE_KIND_DELVE] = "No difficulty - key and Bountiful state not read",
+    [ns.UFImport.SOURCE_KIND_CRAFT] = ns.Roads.CRAFT_NOT_READ,
+    [ns.UFImport.SOURCE_KIND_DELVE] = "key and Bountiful state not read",
 }
 
 -- The second line of one Crafted or Delves row: the source, what the export
@@ -1043,9 +1048,96 @@ Panel.RUN_NO_IMPORT_NOTE =
 Panel.RUN_COUNT_TEXT = "%d of %d drops rated upgrades"
 Panel.RUN_NO_UPGRADE_TEXT = "no drop rated yet"
 
-Panel.RUN_HEADLINE_BEST = "Best run right now (by best upgrade): %s - %+.2f%% for %s."
-Panel.RUN_HEADLINE_COUNT = "Best run right now (by most upgrades): %s - %s."
-Panel.RUN_HEADLINE_NONE = "No run in this map has a drop rated as an upgrade."
+-- The answer, first, in a guildmate's words (UX-5, WKE-614; the voice rule,
+-- 2026-09-16). It replaces the three "Best run right now (by best upgrade): ..."
+-- forms, which named the sort order before they named the run and read like a
+-- report rather than like chat.
+--
+-- ONE FORM PER SOURCE KIND, and none is left to improvise: a player does not
+-- "run" a delve card or a crafting order, so a single shape with the run's name
+-- poured into it would have written "Run Crafting - ...". They live in one table
+-- keyed by kind so a test can enumerate every form rather than reach whichever
+-- ones a fixture happens to produce.
+--
+-- Every number in them is the run's own `bestPercent`, printed exactly as the
+-- tile's badge prints it - his sign, his magnitude - and the item is named
+-- through `ns.Roads.ShortName`, which is the one place that turns an item into
+-- the words a player uses for it. Nothing here is computed.
+Panel.RUN_ANSWER_DUNGEON = "dungeon"
+Panel.RUN_ANSWER_RAID = "raid"
+Panel.RUN_ANSWER_DELVE = "delve"
+Panel.RUN_ANSWER_CRAFT = "craft"
+Panel.RUN_ANSWER_COUNT = "count"
+Panel.RUN_ANSWER_COUNT_EXPORT = "countExport"
+Panel.RUN_ANSWER_NONE = "none"
+Panel.RUN_ANSWER = {
+    dungeon = "Run %s - %s there is %+.2f%%, your best drop right now.",
+    raid = "Raid %s - %s there is %+.2f%%, your best drop right now.",
+    delve = "Do a delve - %s is %+.2f%%, your best drop right now.",
+    craft = "Get %s crafted - it's %+.2f%%, your best right now.",
+    -- Under the other sort the subject is the count, so the sentence is about
+    -- the count. The export's two runs count RATED ITEMS rather than a run's
+    -- drops (Panel.EXPORT_RUN_COUNT_TEXT says the same on the tile), and the
+    -- denominator's wording follows the thing it counts.
+    count = "%s has the most upgrades for you - %d of %d drops.",
+    countExport = "%s has the most upgrades for you - %d of %d rated items.",
+    none = "Nothing on this map is an upgrade right now.",
+}
+
+-- Which form a run takes. The raid/dungeon split is the model's own `isRaid`,
+-- and the two export runs are known by the `sourceKind` they already carry
+-- (R-4); there is no fifth kind, because there is no fifth thing a run can be.
+function Panel.RunAnswerKind(run)
+    if type(run) ~= "table" then
+        return nil
+    end
+    if run.sourceKind == ns.UFImport.SOURCE_KIND_DELVE then
+        return Panel.RUN_ANSWER_DELVE
+    end
+    if run.sourceKind == ns.UFImport.SOURCE_KIND_CRAFT then
+        return Panel.RUN_ANSWER_CRAFT
+    end
+    if run.isRaid then
+        return Panel.RUN_ANSWER_RAID
+    end
+    return Panel.RUN_ANSWER_DUNGEON
+end
+
+-- What a player calls the run's best drop. `ns.Roads.ShortName` already carries
+-- its own "the", so the sentence shapes above never write one; the full name is
+-- never wrong, only long, so it is the fallback, and an item the client cannot
+-- name yet is its ID rather than a blank.
+function Panel.RunBestName(run)
+    local best = type(run) == "table" and run.best or nil
+    if type(best) ~= "table" then
+        return nil
+    end
+    return ns.Roads.ShortName({ name = best.name, slot = best.slot }) or best.name or ("item " .. tostring(best.itemID))
+end
+
+-- The whole sentence, over the model that is on screen. The top run under the
+-- chosen sort is the subject, because it is the run the list puts first.
+function Panel.RunAnswer(model)
+    if type(model) ~= "table" then
+        return nil
+    end
+    local top = model.runs and model.runs[1] or nil
+    if not (top and top.best) then
+        return model.hasMap and Panel.RUN_ANSWER[Panel.RUN_ANSWER_NONE] or nil
+    end
+    local name = top.instanceName or top.name or top.label
+    if model.sort == Panel.SORT_COUNT then
+        local shape = top.sourceKind and Panel.RUN_ANSWER[Panel.RUN_ANSWER_COUNT_EXPORT]
+            or Panel.RUN_ANSWER[Panel.RUN_ANSWER_COUNT]
+        return string.format(shape, name, top.rated, top.drops)
+    end
+    local kind = Panel.RunAnswerKind(top)
+    local what = Panel.RunBestName(top)
+    if kind == Panel.RUN_ANSWER_DELVE or kind == Panel.RUN_ANSWER_CRAFT then
+        return string.format(Panel.RUN_ANSWER[kind], what, top.bestPercent)
+    end
+    return string.format(Panel.RUN_ANSWER[kind], name, what, top.bestPercent)
+end
 
 -- One key level exists today: the one the walk previewed. The companion now
 -- asks QE Live at several of them (C-7) and each drop is valued by whichever
@@ -1387,17 +1479,10 @@ function Panel.RunModel(opts)
     end
     table.sort(model.runs, runComparator(sort))
 
-    local top = model.runs[1]
-    if top and top.best then
-        if sort == Panel.SORT_COUNT then
-            model.headline = string.format(Panel.RUN_HEADLINE_COUNT, top.name, top.countText)
-        else
-            model.headline =
-                string.format(Panel.RUN_HEADLINE_BEST, top.name, top.bestPercent, top.best.slot or top.best.name)
-        end
-    elseif model.hasMap then
-        model.headline = Panel.RUN_HEADLINE_NONE
-    end
+    -- The answer, in one sentence, before anything else (UX-5). It is the same
+    -- string the panel draws above the list and the same one `RunLines` prints
+    -- first, so the screen and `/lootpath status` cannot say two things.
+    model.headline = Panel.RunAnswer(model)
 
     if model.counts.keyLevels > 0 then
         table.sort(model.keyLevels)
@@ -1962,7 +2047,11 @@ end
 Panel.ELEMENT_SECTION = "section"
 Panel.ELEMENT_ITEM = "item"
 Panel.ELEMENT_NOTE = "note"
-Panel.ELEMENT_RUN = "run"
+-- Run Tiles (UX-5, WKE-614). The by-run list is no longer one card per run: one
+-- element is a ROW of up to four tiles, and the drawer an open tile opens is one
+-- element of its own, sitting directly under the row that tile is in.
+Panel.ELEMENT_RUN_ROW = "runRow"
+Panel.ELEMENT_DRAWER = "drawer"
 
 Panel.SECTION_HEIGHT = 30
 -- A road row is built out of its parts, because a row with a wrapping fact
@@ -1977,7 +2066,6 @@ Panel.ROAD_PADDING = 6
 -- The item line's own icon (M5-1) plus the gap under it.
 Panel.ITEM_HEIGHT = 42
 Panel.NOTE_LINE_HEIGHT = 14
-Panel.RUN_HEIGHT = 46
 -- Roughly how many characters of the panel's note font fit one line at the
 -- window's width. Headless there is no font to ask, and a note that wraps to
 -- three lines in a one-line slot is the one way this list can overlap itself,
@@ -1991,6 +2079,185 @@ Panel.PENDING_SECTION = "Unidentified drops"
 function Panel.NoteHeight(text)
     local lines = math.max(1, math.ceil(#tostring(text or "") / Panel.NOTE_CHARS_PER_LINE))
     return lines * Panel.NOTE_LINE_HEIGHT + 4
+end
+
+-- ---------------------------------------------------------------------------
+-- The tile grid (UX-5, WKE-614).
+--
+-- Four across, which is the owner's answer and also the Adventure Guide's own
+-- count: `CreateScrollBoxListGridView(4, ...)` in Blizzard_EncounterJournal.lua
+-- (the Dungeons/Raids list, read under .luals/). Its instance button is 174 x 96
+-- (Blizzard_EncounterJournal.xml:320) and draws the SAME file this walk
+-- recorded - `button.bgImage:SetTexture(elementData.buttonImage)` at :379 - with
+-- one fixed crop, `<TexCoords left="0" right="0.68359375" top="0"
+-- bottom="0.7421875"/>` at :328. So the crop below is not a guess about what
+-- shape the art is: it is the crop the client itself uses on that exact file,
+-- and the tile takes the button's own 174:96 proportion so the cropped art is
+-- never stretched into it (V-5a's rule).
+--
+-- No width is written down. The tile is (list width - three gaps) / four, so a
+-- window that changes width moves the tiles rather than leaving them behind
+-- (M5-2c). At the panel's own 734 less the scrollbar's room, that arithmetic
+-- lands on 172 wide - the size the direction page was drawn at - and 95 tall,
+-- which is what 174:96 makes of 172 rather than the page's rounder 97.
+Panel.TILES_PER_ROW = 4
+Panel.TILE_GAP = 8
+Panel.TILE_ART_RATIO = 174 / 96
+Panel.TILE_ART_TEX_COORD = { 0, 0.68359375, 0, 0.7421875 }
+-- The room the scroll bar takes on the right, the same number the scroll box is
+-- anchored with.
+Panel.SCROLLBAR_ROOM = 22
+-- The air under a row of tiles, so two rows do not touch.
+Panel.TILE_ROW_PADDING = 6
+-- One pip per drop, lit per rated drop. Six points, because it is a mark and
+-- not a bar: no pip's SIZE is ever arithmetic on a rating - there are as many of
+-- them as the journal lists drops, and as many lit as the export rated.
+Panel.TILE_PIP_SIZE = 6
+Panel.TILE_PIP_GAP = 2
+Panel.TILE_PIP_MAX = 12
+-- How far a run with nothing rated is drawn down. The same half weight a
+-- settled row is dimmed to on Equip Now (ns.UI.ItemLine.DIM_ALPHA).
+Panel.TILE_DIM_ALPHA = 0.5
+-- The shade the words sit on: a flat band up the bottom of the tile, so a name
+-- in white is legible over whatever the art happens to be there. Lootpath's one
+-- drawn element, and it says nothing about any item.
+Panel.TILE_SHADE_ALPHA = 0.75
+Panel.TILE_SHADE_FRACTION = 0.5
+Panel.TILE_SHADE_FADE_ALPHA = 0.35
+Panel.TILE_SHADE_FADE_FRACTION = 0.2
+Panel.TILE_INSET = 4
+Panel.TILE_NAME_HEIGHT = 14
+Panel.TILE_SECOND_HEIGHT = 12
+-- Blizzard's own square button highlight, drawn additively, which is what its
+-- own buttons use for exactly this: `self:SetHighlightTexture([[Interface\
+-- Buttons\ButtonHilight-Square]], "ADD")` in Blizzard_ActionBar's
+-- VehicleLeaveButton, read under .luals/.
+Panel.TILE_HIGHLIGHT_TEXTURE = [[Interface\Buttons\ButtonHilight-Square]]
+Panel.TILE_HIGHLIGHT_BLEND = "ADD"
+-- The frame an OPEN tile wears: the gold the Vault tab marks its pick with
+-- (Panel.ROAD_PICK_COLOR), never the brand pink - the brand is the addon's own
+-- mark and says nothing about a run.
+Panel.TILE_OPEN_EDGE = 2
+-- The art of a Delves tile, asked of the client at draw time and never assumed
+-- (ns.UI.ItemLine.AtlasInfo, V-5a). A client that does not name it draws the
+-- mosaic instead, and a client with neither draws nothing behind the shade: the
+-- tile still reads by its name.
+Panel.DELVE_ATLAS = "ui-journeys-delve-card"
+-- The mosaic: the four best rated rows' own item icons, two by two, under the
+-- shade. Their icons, at reduced alpha, because they are a backdrop and not a
+-- list - the rows themselves are in the drawer.
+Panel.MOSAIC_COUNT = 4
+Panel.MOSAIC_ALPHA = 0.55
+
+Panel.TILE_SEPARATOR = " · "
+Panel.TILE_COUNT_TEXT = "%d of %d"
+-- What a run with nothing rated says on its second line, in place of the
+-- difficulty. It is still clickable and its drawer still says the same thing:
+-- a dim tile is a run that was looked at, not one that was left out.
+Panel.TILE_NO_UPGRADE = "no drop is an upgrade"
+
+Panel.DRAWER_CLOSE_TEXT = "click the tile to close"
+Panel.DRAWER_NONE_TEXT = "no drop here is rated as an upgrade"
+Panel.DRAWER_HEADER_HEIGHT = 20
+Panel.DRAWER_PADDING = 6
+Panel.DRAWER_POINTER_SIZE = 8
+
+-- How wide the list itself is. In the client the scroll box is sized by its two
+-- anchors and only answers once the client has laid it out; until it does - and
+-- headless, where nothing lays anything out - the panel's own width less the
+-- scroll bar's room is the same arithmetic done ahead of it (M5-2c).
+function Panel.ListWidth(width)
+    width = tonumber(width)
+    if width and width > 0 then
+        return width
+    end
+    return (ns.UI and ns.UI.PANEL_WIDTH or 0) - Panel.SCROLLBAR_ROOM
+end
+
+-- One tile, in points. Derived from the list, never written down.
+function Panel.TileSize(listWidth)
+    local room = Panel.ListWidth(listWidth) - Panel.TILE_GAP * (Panel.TILES_PER_ROW - 1)
+    local width = math.max(1, math.floor(room / Panel.TILES_PER_ROW))
+    local height = math.max(1, math.floor(width / Panel.TILE_ART_RATIO + 0.5))
+    return width, height
+end
+
+-- One pip per drop the journal lists for this run, true where the export rated
+-- one. Capped, because forty pips is a texture rather than a count, and the
+-- whole figure is on the tile's hover either way.
+--
+-- The two export runs have NO pips: their denominator is rated items and not a
+-- run's drops (Panel.EXPORT_RUN_COUNT_TEXT), and a row of pips that meant two
+-- different things on two tiles would be worse than none.
+function Panel.TilePips(run)
+    if type(run) ~= "table" or run.sourceKind then
+        return nil
+    end
+    local drops = math.min(tonumber(run.drops) or 0, Panel.TILE_PIP_MAX)
+    if drops <= 0 then
+        return nil
+    end
+    local lit = math.min(tonumber(run.rated) or 0, drops)
+    local pips = {}
+    for index = 1, drops do
+        pips[index] = index <= lit
+    end
+    return pips
+end
+
+-- The tile's second line: the difficulty it is run at, or - when nothing in it
+-- is rated - the one thing the reader needs to know about it.
+function Panel.TileSecondText(run)
+    if type(run) ~= "table" then
+        return ""
+    end
+    if (tonumber(run.rated) or 0) == 0 then
+        return Panel.TILE_NO_UPGRADE
+    end
+    return run.difficultyLabel or ""
+end
+
+-- Name · difficulty · n of m. The tile's hover and the drawer's header line are
+-- the same three facts, so there is one place they are written.
+function Panel.TileDetailText(run)
+    if type(run) ~= "table" then
+        return ""
+    end
+    local parts = { run.instanceName or run.name or run.label or "" }
+    if run.difficultyLabel and run.difficultyLabel ~= "" then
+        parts[#parts + 1] = run.difficultyLabel
+    end
+    parts[#parts + 1] = string.format(Panel.TILE_COUNT_TEXT, run.rated or 0, run.drops or 0)
+    return table.concat(parts, Panel.TILE_SEPARATOR)
+end
+
+-- The four best rated rows' own icons, for the mosaic behind a Crafting tile
+-- (and behind a Delves tile on a client that does not have the atlas). The rows
+-- are already best first, so this is the top of the list and no re-sorting.
+function Panel.TileMosaic(run)
+    local icons = {}
+    for _, row in ipairs((type(run) == "table" and run.upgrades) or {}) do
+        local icon = row.icon
+        if icon == nil and row.itemID then
+            local instant = ns.ItemData.Instant(row.itemID)
+            icon = instant and instant.icon or nil
+        end
+        if icon then
+            icons[#icons + 1] = icon
+            if #icons == Panel.MOSAIC_COUNT then
+                break
+            end
+        end
+    end
+    return icons
+end
+
+-- How tall the drawer under an open tile is: its header, then one item line per
+-- rated drop, or one note line when there are none.
+function Panel.DrawerHeight(run)
+    local rows = #((type(run) == "table" and run.upgrades) or {})
+    local body = rows > 0 and rows * Panel.ITEM_HEIGHT or Panel.NOTE_LINE_HEIGHT
+    return Panel.DRAWER_HEADER_HEIGHT + body + Panel.DRAWER_PADDING * 2
 end
 
 -- A slot header is the worn item plus, since R-3, the slot's own plan sentence
@@ -2149,9 +2416,46 @@ function Panel.Elements(model, state)
     return elements
 end
 
--- The by-run list. A card per run, and its rated drops under it only when the
--- reader has opened it: 48 runs of one to a dozen drops each is a list nobody
--- can scan, and the card already says the two facts the sort is about.
+-- Every note that is a CONDITION on the answer rather than part of it, in the
+-- order it was written, for the hint icon's tooltip (UX-5, WKE-614; the pattern
+-- is M5-1b's, built for Equip Now). Six paragraphs stood between the header and
+-- the first run before this; none of them is an answer to "what should I run",
+-- and none of them is lost - they are one hover away, verbatim.
+--
+-- `upgradeDocumentsNote` is NOT here and is on no surface of this view any more:
+-- it names a source's documents, which the voice rule forbids (2026-09-11). It
+-- stays on the model and in the printed lines, which is what `/lootpath status`
+-- reads.
+function Panel.HintLines(model, mode)
+    local lines = { Panel.NOTE }
+    if mode ~= Panel.MODE_RUN then
+        return lines
+    end
+    lines[#lines + 1] = Panel.RUN_NOTE
+    if type(model) == "table" then
+        if model.keyLevelNote then
+            lines[#lines + 1] = model.keyLevelNote
+        end
+        if model.exportNote then
+            lines[#lines + 1] = model.exportNote
+        end
+    end
+    return lines
+end
+
+function Panel.HintText(model, mode)
+    return table.concat(Panel.HintLines(model, mode), "\n\n")
+end
+
+-- The by-run list, as Run Tiles (UX-5, WKE-614). One element is a ROW of up to
+-- four tiles, best first under the chosen sort; the drawer an open tile opens is
+-- one element, sitting directly under the row that tile is in.
+--
+-- The notes are gone from here: the answer is one sentence the panel draws above
+-- the list, and everything that was a condition on it is on the hint. The two
+-- that stay are the two that ARE the answer in their own state - there is no
+-- map, or there is nothing to rank it by - and each is then the list's only
+-- element.
 function Panel.RunElements(model, state)
     state = state or {}
     local expanded = state.runs or {}
@@ -2170,22 +2474,47 @@ function Panel.RunElements(model, state)
         note(Panel.EMPTY_NOTE)
         return elements
     end
-    note(model.headline)
-    note(Panel.RUN_NOTE)
     if not model.hasUpgrades then
         note(Panel.RUN_NO_IMPORT_NOTE)
     end
-    note(model.keyLevelNote)
-    note(model.exportNote)
-    note(model.upgradeDocumentsNote)
 
+    local tileWidth, tileHeight = Panel.TileSize(state.listWidth)
+    local rows = {}
+    local openRun, openRow, openIndex
     for _, run in ipairs(model.runs) do
-        local open = expanded[run.key] == true
-        add({ kind = Panel.ELEMENT_RUN, height = Panel.RUN_HEIGHT, run = run, expanded = open })
-        if open then
-            for _, row in ipairs(run.upgrades) do
-                add({ kind = Panel.ELEMENT_ITEM, height = Panel.ITEM_HEIGHT, row = row })
-            end
+        local row = rows[#rows]
+        if not row or #row.runs >= Panel.TILES_PER_ROW then
+            row = {
+                kind = Panel.ELEMENT_RUN_ROW,
+                height = tileHeight + Panel.TILE_ROW_PADDING,
+                tileWidth = tileWidth,
+                tileHeight = tileHeight,
+                gap = Panel.TILE_GAP,
+                runs = {},
+            }
+            rows[#rows + 1] = row
+        end
+        row.runs[#row.runs + 1] = run
+        if expanded[run.key] == true and not openRun then
+            -- One at a time, whatever the database happens to hold: a second
+            -- open key from an older build draws no second drawer.
+            openRun, openRow, openIndex = run, row, #row.runs
+        end
+    end
+
+    for _, row in ipairs(rows) do
+        add(row)
+        if row == openRow then
+            add({
+                kind = Panel.ELEMENT_DRAWER,
+                height = Panel.DrawerHeight(openRun),
+                run = openRun,
+                -- Which tile of the row the pointer sits under, and how wide a
+                -- tile is, so the drawer can point at the tile that opened it.
+                tileIndex = openIndex,
+                tileWidth = tileWidth,
+                gap = Panel.TILE_GAP,
+            })
         end
     end
     return elements
@@ -2329,13 +2658,29 @@ Panel.CONTROL_PADDING = 20
 -- client the button's own font string measures itself, which is the real one.
 Panel.CONTROL_CHAR_WIDTH = 6
 Panel.DROPDOWN_WIDTH = 200
+-- The sort control is narrower than the difficulty control because its two
+-- captions are shorter than a difficulty's, and the row has to hold both.
+Panel.SORT_DROPDOWN_WIDTH = 150
+-- The gap between the controls on the header row: the Adventure Guide's own,
+-- read rather than chosen - `lootContainer.slotFilter:SetPoint("LEFT",
+-- lootContainer.filter, "RIGHT", 10, 0)` in Blizzard_EncounterJournal.lua:453,
+-- where the two loot filters sit beside each other. Those two dropdowns carry no
+-- label words either (Blizzard_EncounterJournal.xml:1956-1957 declares them as
+-- two bare WowStyle1DropdownTemplates), which is why this row has none: each
+-- control's caption is its label.
+Panel.HEADER_GAP = 10
+-- The hint icon beside the title, and the art it wears. The same glyph and the
+-- same grey Equip Now's hint wears (M5-1b), because they are the same thing on
+-- two tabs: the conditions on the answer, one hover away.
+Panel.HINT_SIZE = 12
+Panel.HINT_ATLAS = "transmog-icon-warning-small"
+Panel.HINT_HEX = UI.ItemLine.GREY
 
 -- The badge column an item row keeps for QE Live's sentence. Wider than the
 -- item line's own default because the sentence is his whole verdict - "QE
 -- Live: better by 1.83%" - and truncating a number is not an option.
 Panel.BADGE_WIDTH = 190
 Panel.SECTION_ICON_SIZE = 24
-Panel.RUN_ART_WIDTH = 56
 Panel.ELEMENT_SPACING = 2
 
 -- What a collapsed and an open section are marked with. Text rather than an
@@ -2376,6 +2721,7 @@ function Panel.DifficultyOptions(model)
     local options = {
         {
             label = Panel.DIFFICULTY_ALL_LABEL,
+            caption = Panel.DIFFICULTY_ALL_LABEL,
             difficultyID = nil,
             selected = true,
         },
@@ -2386,6 +2732,11 @@ function Panel.DifficultyOptions(model)
         end
         options[#options + 1] = {
             label = string.format("%s (%d)", difficulty.label, difficulty.count),
+            -- What the SHUT control says (UX-5, WKE-614): the difficulty, key
+            -- level and all, without the row count. The count answers "how many
+            -- rows would this leave me", which is a question you ask while
+            -- choosing - so it belongs on the menu row and nowhere else.
+            caption = difficulty.label,
             difficultyID = difficulty.difficultyID,
             count = difficulty.count,
             -- `selected` on a model difficulty means "this one is in the
@@ -2412,10 +2763,35 @@ end
 function Panel.DifficultyText(options)
     for _, option in ipairs(options or {}) do
         if option.selected and option.difficultyID then
-            return option.label
+            return option.caption or option.label
         end
     end
     return Panel.DIFFICULTY_ALL_LABEL
+end
+
+-- The sort control's rows (UX-5, WKE-614). Two of them, and the shut control
+-- says which order is on, the way the difficulty control says which difficulty
+-- is on; the two buttons that used to say it - and the word "Sort:" in front of
+-- them - are gone with the label words.
+Panel.SORT_MENU_LABEL = {
+    [Panel.SORT_BEST] = "Best upgrade first",
+    [Panel.SORT_COUNT] = "Most upgrades first",
+}
+
+function Panel.SortOptions(sort)
+    local options = {}
+    for _, name in ipairs(Panel.SORTS) do
+        options[#options + 1] = {
+            sort = name,
+            label = Panel.SORT_MENU_LABEL[name],
+            selected = name == sort,
+        }
+    end
+    return options
+end
+
+function Panel.SortText(sort)
+    return Panel.SORT_MENU_LABEL[sort] or Panel.SORT_MENU_LABEL[Panel.SORT_BEST]
 end
 
 function Panel.Create(parent)
@@ -2423,29 +2799,54 @@ function Panel.Create(parent)
     frame:SetSize(ns.UI.PANEL_WIDTH, PANEL_HEIGHT)
     frame:Hide()
 
+    -- ONE header row (UX-5, WKE-614): the title and its hint at the left edge,
+    -- every control right-packed on the same row. What was here before was a
+    -- title, a paragraph under it, and then two rows of controls chained off a
+    -- "View:" label - which is what the owner saw as "smooshed" to the left with
+    -- a lot of text above the first run.
     frame.header = fontString(frame, "GameFontNormal")
     frame.header:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
     frame.header:SetText("Upgrade Map")
 
-    frame.note = fontString(frame, "GameFontNormalSmall")
-    frame.note:SetPoint("TOPLEFT", frame.header, "BOTTOMLEFT", 0, -4)
-    frame.note:SetPoint("RIGHT", frame, "RIGHT", -8, 0)
-    frame.note:SetText(Panel.NOTE)
+    -- The conditions on the answer, as an icon with the words on hover - the
+    -- pattern M5-1b built for Equip Now. Nothing is lost: Panel.HintText is
+    -- those notes, verbatim.
+    frame.hint = CreateFrame("Button", nil, frame)
+    frame.hint:SetSize(Panel.HINT_SIZE, Panel.HINT_SIZE)
+    frame.hint:SetPoint("LEFT", frame.header, "RIGHT", 6, 0)
+    frame.hint.icon = frame.hint:CreateTexture(nil, "ARTWORK")
+    frame.hint.icon:SetAllPoints()
+    frame.hint:SetScript("OnEnter", function(button)
+        if GameTooltip then
+            GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+            for index, line in ipairs(Panel.HintLines(frame.model, frame.mode)) do
+                if index == 1 then
+                    GameTooltip:SetText(line, 1, 1, 1, 1, true)
+                else
+                    GameTooltip:AddLine(line, 1, 1, 1, true)
+                end
+            end
+            GameTooltip:Show()
+        end
+    end)
+    frame.hint:SetScript("OnLeave", function()
+        if GameTooltip then
+            GameTooltip:Hide()
+        end
+    end)
 
-    -- Row one: which view, and - in the run view - which of the two orders.
-    frame.viewLabel = fontString(frame)
-    frame.viewLabel:SetPoint("TOPLEFT", frame.note, "BOTTOMLEFT", 0, -8)
-    frame.viewLabel:SetText("View:")
+    -- The answer, in one sentence, under the header row and above the list. It
+    -- belongs to the by-run view and is hidden in the other one, where the
+    -- answer is a slot's own line on each section (R-3).
+    frame.answer = fontString(frame, "GameFontNormal")
+    -- Under the whole header ROW, not under the title: the controls are taller
+    -- than the words beside them, and the row is one row.
+    frame.answer:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -Panel.CONTROL_ROW_HEIGHT - 8)
+    frame.answer:SetPoint("RIGHT", frame, "RIGHT", 0, 0)
+    frame.answer:SetWordWrap(true)
+    frame.answer:SetText("")
 
     frame.modeButtons = {}
-    frame.sortButtons = {}
-    frame.sortLabel = fontString(frame)
-    frame.sortLabel:SetText("Sort:")
-
-    -- Row two: one dropdown, whatever the map's difficulties turn out to be.
-    frame.filterLabel = fontString(frame)
-    frame.filterLabel:SetPoint("TOPLEFT", frame.viewLabel, "BOTTOMLEFT", 0, -8)
-    frame.filterLabel:SetText("Difficulty:")
 
     -- The SELECTION template, not the filter one. Both are DropdownButtons
     -- over the 11.0 menu API, but only WowStyle1DropdownTemplate mixes in
@@ -2462,7 +2863,9 @@ function Panel.Create(parent)
     -- `spec/stubs_spec.lua` fails if a filter dropdown ever answers it.
     frame.difficultyDropdown = CreateFrame("DropdownButton", nil, frame, Panel.DROPDOWN_TEMPLATE)
     frame.difficultyDropdown:SetSize(Panel.DROPDOWN_WIDTH, Panel.CONTROL_ROW_HEIGHT)
-    frame.difficultyDropdown:SetPoint("LEFT", frame.filterLabel, "RIGHT", Panel.CONTROL_GAP, 0)
+    -- Flush with the panel's right edge, on the header's own row: the control
+    -- row is right-packed from here leftwards (UX-5).
+    frame.difficultyDropdown:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
     -- The 11.0 menu API: the generator runs every time the menu opens and
     -- reads the model that is on screen at that moment, which is why the rows
     -- follow a refresh without anything having to rebuild them.
@@ -2480,17 +2883,38 @@ function Panel.Create(parent)
         end
     end)
 
+    -- The sort control, beside it, and shown in the by-run view alone: there is
+    -- nothing to order in the other one.
+    frame.sortDropdown = CreateFrame("DropdownButton", nil, frame, Panel.DROPDOWN_TEMPLATE)
+    frame.sortDropdown:SetSize(Panel.SORT_DROPDOWN_WIDTH, Panel.CONTROL_ROW_HEIGHT)
+    frame.sortDropdown:SetPoint("TOPRIGHT", frame.difficultyDropdown, "TOPLEFT", -Panel.HEADER_GAP, 0)
+    frame.sortDropdown:SetupMenu(function(_, rootDescription)
+        rootDescription:SetTag("LOOTPATH_UPGRADE_MAP_SORT")
+        for _, option in ipairs(Panel.SortOptions(frame.runSort)) do
+            local name = option.sort
+            rootDescription:CreateRadio(option.label, function()
+                return option.selected
+            end, function()
+                frame.runSort = name
+                Panel.Refresh(frame)
+            end, name)
+        end
+    end)
+    frame.sortDropdown:Hide()
+
     frame.difficultyIDs = nil
     frame.mode = Panel.MODE_SLOT
     frame.runSort = Panel.SORT_BEST
 
     -- The list. A WowScrollBoxList over a data provider, so a map of 478 drops
     -- costs the frames that fit on screen and not one per drop; the element
-    -- kinds are Panel.Elements' own (section, item, note, run).
+    -- kinds are the element lists' own (section, item, note, run row, drawer).
     frame.scrollBox = CreateFrame("Frame", nil, frame, "WowScrollBoxList")
     frame.scrollBar = CreateFrame("EventFrame", nil, frame, "MinimalScrollBar")
-    frame.scrollBox:SetPoint("TOPLEFT", frame.filterLabel, "BOTTOMLEFT", 0, -Panel.CONTROL_ROW_HEIGHT - 6)
-    frame.scrollBox:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -22, 4)
+    -- Its top is re-anchored on every refresh (Panel.AnchorList): it clears the
+    -- answer sentence in the by-run view and the header row in the other one,
+    -- and the sentence is one line as often as two.
+    Panel.AnchorList(frame)
     frame.scrollBar:SetPoint("TOPLEFT", frame.scrollBox, "TOPRIGHT", 4, 0)
     frame.scrollBar:SetPoint("BOTTOMLEFT", frame.scrollBox, "BOTTOMRIGHT", 4, 0)
 
@@ -2519,9 +2943,11 @@ function Panel.Create(parent)
     return frame
 end
 
--- The view row: two buttons naming the two views, and - in the run view only -
--- two more naming the two sort orders. The button for what is on screen now is
--- disabled, so the row says where you are as well as where you can go.
+-- The header row (UX-5, WKE-614). Two buttons naming the two views, packed
+-- against each other as one segment, then the sort control and the difficulty
+-- control, each Panel.HEADER_GAP apart and the last one flush with the panel's
+-- right edge. The button for what is on screen now is disabled, so the segment
+-- says where you are as well as where you can go.
 local function viewButton(list, frame, index)
     local button = list[index]
     if not button then
@@ -2531,45 +2957,50 @@ local function viewButton(list, frame, index)
     return button
 end
 
-local function sizeViewButton(button, label, anchor, gap)
+local function sizeViewButton(button, label)
     button:SetText(label)
-    button:SetSize(
-        math.max(Panel.CONTROL_MIN_WIDTH, math.ceil(labelWidth(button, label))),
-        Panel.CONTROL_ROW_HEIGHT - 2
-    )
-    button:ClearAllPoints()
-    button:SetPoint("LEFT", anchor, "RIGHT", gap, 0)
+    button:SetSize(math.max(Panel.CONTROL_MIN_WIDTH, math.ceil(labelWidth(button, label))), Panel.CONTROL_ROW_HEIGHT)
 end
 
-local function placeViewRow(frame, mode, runSort)
-    local previous = frame.viewLabel
-    for index, name in ipairs(Panel.MODES) do
+local function placeHeaderRow(frame, mode, runSort)
+    -- The sort control belongs to the by-run view alone, so what the segment
+    -- anchors to is whichever control is actually on the row.
+    frame.sortDropdown:SetShown(mode == Panel.MODE_RUN)
+    frame.sortDropdown:SetDefaultText(Panel.SortText(Panel.SORT_BEST))
+    frame.sortDropdown:SetText(Panel.SortText(runSort))
+    frame.sortDropdown:GenerateMenu()
+    local anchor = mode == Panel.MODE_RUN and frame.sortDropdown or frame.difficultyDropdown
+
+    -- Placed from the right, so the two buttons read left to right as one
+    -- segment: By slot | By run.
+    for index = #Panel.MODES, 1, -1 do
+        local name = Panel.MODES[index]
         local button = viewButton(frame.modeButtons, frame, index)
-        sizeViewButton(button, Panel.MODE_LABEL[name], previous, Panel.CONTROL_GAP)
+        sizeViewButton(button, Panel.MODE_LABEL[name])
+        button:ClearAllPoints()
+        button:SetPoint("TOPRIGHT", anchor, "TOPLEFT", index == #Panel.MODES and -Panel.HEADER_GAP or 0, 0)
         button:SetShown(true)
         button:SetEnabled(mode ~= name)
         button:SetScript("OnClick", function()
             frame.mode = name
             Panel.Refresh(frame)
         end)
-        previous = button
+        anchor = button
     end
+end
 
-    frame.sortLabel:ClearAllPoints()
-    frame.sortLabel:SetPoint("LEFT", previous, "RIGHT", 12, 0)
-    frame.sortLabel:SetShown(mode == Panel.MODE_RUN)
-    previous = frame.sortLabel
-    for index, name in ipairs(Panel.SORTS) do
-        local button = viewButton(frame.sortButtons, frame, index)
-        sizeViewButton(button, Panel.SORT_LABEL[name], previous, Panel.CONTROL_GAP)
-        button:SetShown(mode == Panel.MODE_RUN)
-        button:SetEnabled(mode == Panel.MODE_RUN and runSort ~= name)
-        button:SetScript("OnClick", function()
-            frame.runSort = name
-            Panel.Refresh(frame)
-        end)
-        previous = button
+-- Where the list starts: under the answer sentence when there is one, under the
+-- header row when there is not. Both points every time, because the top one
+-- moves and a stale anchor would leave the box hanging off the old one.
+function Panel.AnchorList(frame)
+    frame.scrollBox:ClearAllPoints()
+    local answer = frame.answer
+    if answer and answer:IsShown() and (answer:GetText() or "") ~= "" then
+        frame.scrollBox:SetPoint("TOPLEFT", answer, "BOTTOMLEFT", 0, -8)
+    else
+        frame.scrollBox:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -Panel.CONTROL_ROW_HEIGHT - 8)
     end
+    frame.scrollBox:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -Panel.SCROLLBAR_ROOM, 4)
 end
 
 -- ---------------------------------------------------------------------------
@@ -2634,47 +3065,231 @@ local function ensureItem(element)
     return element.line
 end
 
-local function ensureRun(element)
-    if not element.runButton then
-        local button = CreateFrame("Button", nil, element)
-        button:SetPoint("TOPLEFT", element, "TOPLEFT", 0, 0)
-        button:SetPoint("BOTTOMRIGHT", element, "BOTTOMRIGHT", 0, 0)
-        element.runButton = button
+-- One tile (UX-5, WKE-614): the instance's own art filling it under a shade,
+-- the run's name and its difficulty on the shade, the badge top right and the
+-- pips top left. Built once per tile position on the row's element frame and
+-- re-bound on every pass, the way every list in this addon works.
+local function createTile(parent)
+    local tile = CreateFrame("Button", nil, parent)
 
-        -- The instance's own art as a left strip, when the walk recorded one.
-        -- The strip is drawn either way: dark where there is no art, so the
-        -- card is the same shape whether or not the capture has been redone.
-        element.runArt = button:CreateTexture(nil, "ARTWORK")
-        element.runArt:SetPoint("TOPLEFT", button, "TOPLEFT", 0, -2)
-        element.runArt:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", 0, 2)
-        element.runArt:SetWidth(Panel.RUN_ART_WIDTH)
+    -- The art, in its own layer under everything. It is cropped by Blizzard's
+    -- own tex coords for this file rather than stretched to the tile; a run
+    -- whose walk recorded none draws the flat back below and no picture of
+    -- somewhere else.
+    tile.back = tile:CreateTexture(nil, "BACKGROUND")
+    tile.back:SetAllPoints()
+    tile.back:SetTexture(WHITE_TEXTURE)
+    tile.back:SetVertexColor(0.1, 0.1, 0.12, 1)
 
-        element.runMark = button:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-        element.runMark:SetPoint("LEFT", element.runArt, "RIGHT", 4, 0)
-        element.runMark:SetWidth(12)
-        element.runMark:SetJustifyH("CENTER")
+    tile.art = tile:CreateTexture(nil, "BACKGROUND", nil, 1)
+    tile.art:SetAllPoints()
+    tile.art:Hide()
 
-        element.runName = button:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-        element.runName:SetPoint("TOPLEFT", element.runMark, "TOPRIGHT", 4, -4)
-        element.runName:SetJustifyH("LEFT")
-        element.runName:SetWordWrap(false)
-
-        element.runSecond = button:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-        element.runSecond:SetPoint("TOPLEFT", element.runName, "BOTTOMLEFT", 0, -1)
-        element.runSecond:SetJustifyH("LEFT")
-        element.runSecond:SetWordWrap(false)
-
-        element.runBadge = button:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-        element.runBadge:SetPoint("TOPRIGHT", button, "TOPRIGHT", -4, -6)
-        element.runBadge:SetWidth(Panel.BADGE_WIDTH)
-        element.runBadge:SetJustifyH("RIGHT")
-
-        element.runCount = button:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-        element.runCount:SetPoint("TOPRIGHT", element.runBadge, "BOTTOMRIGHT", 0, -2)
-        element.runCount:SetWidth(Panel.BADGE_WIDTH)
-        element.runCount:SetJustifyH("RIGHT")
+    -- The Crafting mosaic (and the Delves fallback): four item icons, two by
+    -- two, at reduced alpha under the shade.
+    tile.mosaic = {}
+    for index = 1, Panel.MOSAIC_COUNT do
+        local cell = tile:CreateTexture(nil, "BACKGROUND", nil, 2)
+        cell:SetAlpha(Panel.MOSAIC_ALPHA)
+        cell:Hide()
+        tile.mosaic[index] = cell
     end
-    return element.runButton
+
+    -- The shade: two flat bands up the bottom of the tile, the lower one
+    -- heavier. Lootpath's one drawn element - it is what makes a white name
+    -- legible over art nobody chose, and it says nothing about any run.
+    tile.shadeFade = tile:CreateTexture(nil, "ARTWORK")
+    tile.shadeFade:SetTexture(WHITE_TEXTURE)
+    tile.shadeFade:SetVertexColor(0, 0, 0, Panel.TILE_SHADE_FADE_ALPHA)
+    tile.shade = tile:CreateTexture(nil, "ARTWORK", nil, 1)
+    tile.shade:SetTexture(WHITE_TEXTURE)
+    tile.shade:SetVertexColor(0, 0, 0, Panel.TILE_SHADE_ALPHA)
+
+    tile.name = tile:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    tile.name:SetJustifyH("LEFT")
+    tile.name:SetWordWrap(false)
+
+    tile.second = tile:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    tile.second:SetJustifyH("LEFT")
+    tile.second:SetWordWrap(false)
+
+    -- The badge, on a dark plate so his gold is readable over the art. The
+    -- string is the card's own - `UI.ItemLine.BadgeText(run.badge)` - and
+    -- nothing here formats a number.
+    tile.badgePlate = tile:CreateTexture(nil, "ARTWORK", nil, 2)
+    tile.badgePlate:SetTexture(WHITE_TEXTURE)
+    tile.badgePlate:SetVertexColor(0, 0, 0, 0.7)
+    tile.badge = tile:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    tile.badge:SetJustifyH("RIGHT")
+    tile.badge:SetWordWrap(false)
+
+    tile.pips = {}
+    for index = 1, Panel.TILE_PIP_MAX do
+        local pip = tile:CreateTexture(nil, "OVERLAY")
+        pip:SetTexture(WHITE_TEXTURE)
+        pip:SetSize(Panel.TILE_PIP_SIZE, Panel.TILE_PIP_SIZE)
+        pip:SetPoint(
+            "TOPLEFT",
+            tile,
+            "TOPLEFT",
+            Panel.TILE_INSET + (index - 1) * (Panel.TILE_PIP_SIZE + Panel.TILE_PIP_GAP),
+            -Panel.TILE_INSET
+        )
+        pip:Hide()
+        tile.pips[index] = pip
+    end
+
+    -- The open tile's gold frame, four edges of it.
+    tile.edges = {}
+    for index = 1, 4 do
+        local edge = tile:CreateTexture(nil, "OVERLAY", nil, 1)
+        edge:SetTexture(WHITE_TEXTURE)
+        edge:SetVertexColor(unpack(Panel.ROAD_PICK_COLOR))
+        edge:Hide()
+        tile.edges[index] = edge
+    end
+
+    -- Blizzard's own square highlight, additively, which is what its own
+    -- buttons wear on hover.
+    tile:SetHighlightTexture(Panel.TILE_HIGHLIGHT_TEXTURE, Panel.TILE_HIGHLIGHT_BLEND)
+    return tile
+end
+
+local function sizeTile(tile, width, height)
+    tile:SetSize(width, height)
+    local shade = math.max(1, math.floor(height * Panel.TILE_SHADE_FRACTION))
+    local fade = math.max(1, math.floor(height * Panel.TILE_SHADE_FADE_FRACTION))
+    tile.shade:ClearAllPoints()
+    tile.shade:SetPoint("BOTTOMLEFT", tile, "BOTTOMLEFT", 0, 0)
+    tile.shade:SetPoint("BOTTOMRIGHT", tile, "BOTTOMRIGHT", 0, 0)
+    tile.shade:SetHeight(shade)
+    tile.shadeFade:ClearAllPoints()
+    tile.shadeFade:SetPoint("BOTTOMLEFT", tile.shade, "TOPLEFT", 0, 0)
+    tile.shadeFade:SetPoint("BOTTOMRIGHT", tile.shade, "TOPRIGHT", 0, 0)
+    tile.shadeFade:SetHeight(fade)
+
+    tile.second:ClearAllPoints()
+    tile.second:SetPoint("BOTTOMLEFT", tile, "BOTTOMLEFT", Panel.TILE_INSET, Panel.TILE_INSET)
+    tile.second:SetPoint("RIGHT", tile, "RIGHT", -Panel.TILE_INSET, 0)
+    tile.second:SetHeight(Panel.TILE_SECOND_HEIGHT)
+    tile.name:ClearAllPoints()
+    tile.name:SetPoint("BOTTOMLEFT", tile.second, "TOPLEFT", 0, 1)
+    tile.name:SetPoint("RIGHT", tile, "RIGHT", -Panel.TILE_INSET, 0)
+    tile.name:SetHeight(Panel.TILE_NAME_HEIGHT)
+
+    tile.badge:ClearAllPoints()
+    tile.badge:SetPoint("TOPRIGHT", tile, "TOPRIGHT", -Panel.TILE_INSET, -Panel.TILE_INSET)
+    tile.badgePlate:ClearAllPoints()
+    tile.badgePlate:SetPoint("TOPLEFT", tile.badge, "TOPLEFT", -3, 2)
+    tile.badgePlate:SetPoint("BOTTOMRIGHT", tile.badge, "BOTTOMRIGHT", 3, -2)
+
+    local mosaicWidth = math.max(1, math.floor(width / 2))
+    local mosaicHeight = math.max(1, math.floor(height / 2))
+    for index, cell in ipairs(tile.mosaic) do
+        cell:SetSize(mosaicWidth, mosaicHeight)
+        cell:ClearAllPoints()
+        local left = (index == 1 or index == 3)
+        local top = index <= 2
+        cell:SetPoint(
+            top and "TOPLEFT" or "BOTTOMLEFT",
+            tile,
+            top and "TOPLEFT" or "BOTTOMLEFT",
+            left and 0 or mosaicWidth,
+            0
+        )
+    end
+
+    local thickness = Panel.TILE_OPEN_EDGE
+    local top, bottom, left, right = tile.edges[1], tile.edges[2], tile.edges[3], tile.edges[4]
+    top:ClearAllPoints()
+    top:SetPoint("TOPLEFT", tile, "TOPLEFT", 0, 0)
+    top:SetPoint("TOPRIGHT", tile, "TOPRIGHT", 0, 0)
+    top:SetHeight(thickness)
+    bottom:ClearAllPoints()
+    bottom:SetPoint("BOTTOMLEFT", tile, "BOTTOMLEFT", 0, 0)
+    bottom:SetPoint("BOTTOMRIGHT", tile, "BOTTOMRIGHT", 0, 0)
+    bottom:SetHeight(thickness)
+    left:ClearAllPoints()
+    left:SetPoint("TOPLEFT", tile, "TOPLEFT", 0, 0)
+    left:SetPoint("BOTTOMLEFT", tile, "BOTTOMLEFT", 0, 0)
+    left:SetWidth(thickness)
+    right:ClearAllPoints()
+    right:SetPoint("TOPRIGHT", tile, "TOPRIGHT", 0, 0)
+    right:SetPoint("BOTTOMRIGHT", tile, "BOTTOMRIGHT", 0, 0)
+    right:SetWidth(thickness)
+end
+
+local function ensureRunRow(element)
+    if not element.runRow then
+        local row = CreateFrame("Frame", nil, element)
+        row:SetPoint("TOPLEFT", element, "TOPLEFT", 0, 0)
+        row:SetPoint("BOTTOMRIGHT", element, "BOTTOMRIGHT", 0, 0)
+        element.runRow = row
+        element.tiles = {}
+        for index = 1, Panel.TILES_PER_ROW do
+            element.tiles[index] = createTile(row)
+        end
+    end
+    return element.runRow
+end
+
+-- The drawer: one header line and one item line per rated drop. It is one
+-- element, so its lines are built on it and the ones this run does not need are
+-- hidden - a drawer for a six-drop run after a twelve-drop one shows six.
+local function ensureDrawer(element)
+    if not element.drawerFrame then
+        local frame = CreateFrame("Frame", nil, element)
+        frame:SetPoint("TOPLEFT", element, "TOPLEFT", 0, 0)
+        frame:SetPoint("BOTTOMRIGHT", element, "BOTTOMRIGHT", 0, 0)
+        element.drawerFrame = frame
+
+        frame.back = frame:CreateTexture(nil, "BACKGROUND")
+        frame.back:SetAllPoints()
+        frame.back:SetTexture(WHITE_TEXTURE)
+        frame.back:SetVertexColor(0.07, 0.07, 0.08, 0.85)
+
+        -- The pointer: a small square of the same fill at the tile's centre, so
+        -- the drawer reads as belonging to the tile that opened it.
+        frame.pointer = frame:CreateTexture(nil, "ARTWORK")
+        frame.pointer:SetTexture(WHITE_TEXTURE)
+        frame.pointer:SetVertexColor(0.07, 0.07, 0.08, 0.85)
+        frame.pointer:SetSize(Panel.DRAWER_POINTER_SIZE, Panel.DRAWER_POINTER_SIZE)
+
+        frame.head = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        frame.head:SetPoint("TOPLEFT", frame, "TOPLEFT", Panel.TILE_INSET, -Panel.DRAWER_PADDING)
+        frame.head:SetJustifyH("LEFT")
+        frame.head:SetWordWrap(false)
+
+        frame.close = frame:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+        frame.close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -Panel.TILE_INSET, -Panel.DRAWER_PADDING)
+        frame.close:SetJustifyH("RIGHT")
+        frame.close:SetWordWrap(false)
+
+        frame.empty = frame:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+        frame.empty:SetPoint("TOPLEFT", frame.head, "BOTTOMLEFT", 0, -4)
+        frame.empty:SetJustifyH("LEFT")
+        frame.empty:Hide()
+
+        element.drawerLines = {}
+    end
+    return element.drawerFrame
+end
+
+local function drawerLine(element, index)
+    local line = element.drawerLines[index]
+    if not line then
+        line = UI.ItemLine.Create(element.drawerFrame, { badgeWidth = Panel.BADGE_WIDTH })
+        element.drawerLines[index] = line
+    end
+    line:ClearAllPoints()
+    local previous = index > 1 and element.drawerLines[index - 1] or nil
+    if previous then
+        line:SetPoint("TOPLEFT", previous, "BOTTOMLEFT", 0, -(Panel.ITEM_HEIGHT - UI.ItemLine.ICON_SIZE - 2))
+    else
+        line:SetPoint("TOPLEFT", element.drawerFrame.head, "BOTTOMLEFT", 0, -4)
+    end
+    line:SetPoint("RIGHT", element.drawerFrame, "RIGHT", -Panel.TILE_INSET, 0)
+    return line
 end
 
 -- A group header: one line of words over the roads it heads, in the panel's
@@ -2745,8 +3360,14 @@ local function hideKinds(element, keep)
     if element.line and keep ~= Panel.ELEMENT_ITEM then
         UI.ItemLine.Clear(element.line)
     end
-    if element.runButton and keep ~= Panel.ELEMENT_RUN then
-        element.runButton:Hide()
+    if element.runRow and keep ~= Panel.ELEMENT_RUN_ROW then
+        element.runRow:Hide()
+    end
+    if element.drawerFrame and keep ~= Panel.ELEMENT_DRAWER then
+        for _, line in ipairs(element.drawerLines or {}) do
+            UI.ItemLine.Clear(line)
+        end
+        element.drawerFrame:Hide()
     end
     if element.groupText and keep ~= Panel.ELEMENT_GROUP then
         element.groupText:SetText("")
@@ -2822,30 +3443,179 @@ function Panel.InitElement(panel, element, data)
         text:Show()
     elseif data.kind == Panel.ELEMENT_ROAD then
         Panel.InitRoad(panel, element, data.row or {})
-    elseif data.kind == Panel.ELEMENT_RUN then
-        local run = data.run or {}
-        local button = ensureRun(element)
-        if run.instanceImage then
-            element.runArt:SetTexture(run.instanceImage)
-            element.runArt:SetVertexColor(1, 1, 1, 1)
-        else
-            -- No art recorded for this instance. A plain dark strip, not a
-            -- stand-in picture of some other place.
-            element.runArt:SetTexture(nil)
-            element.runArt:SetVertexColor(0.1, 0.1, 0.12, 1)
-        end
-        element.runMark:SetText(data.expanded and Panel.SECTION_OPEN_MARK or Panel.SECTION_SHUT_MARK)
-        element.runName:SetText(run.isRaid and run.name or (run.instanceName or run.label))
-        element.runSecond:SetText(run.difficultyLabel or "")
-        element.runBadge:SetText(UI.ItemLine.BadgeText(run.badge))
-        element.runCount:SetText(run.countText or "")
-        button:SetScript("OnClick", function()
-            local state = Panel.CollapseState(panel.db)
-            state.runs[run.key] = (state.runs[run.key] ~= true) or nil
-            Panel.Refresh(panel)
-        end)
-        button:Show()
+    elseif data.kind == Panel.ELEMENT_RUN_ROW then
+        Panel.InitRunRow(panel, element, data)
+    elseif data.kind == Panel.ELEMENT_DRAWER then
+        Panel.InitDrawer(element, data)
     end
+    return element
+end
+
+-- One row of up to four tiles (UX-5, WKE-614). Every tile is re-bound here and
+-- the positions this row does not fill are hidden, because the scroll box pools
+-- frames: a row of two after a row of four must not still show four.
+function Panel.InitRunRow(panel, element, data)
+    local row = ensureRunRow(element)
+    local width = data.tileWidth or select(1, Panel.TileSize())
+    local height = data.tileHeight or select(2, Panel.TileSize())
+    local gap = data.gap or Panel.TILE_GAP
+    local state = Panel.CollapseState(panel and panel.db)
+    for index, tile in ipairs(element.tiles) do
+        local run = data.runs and data.runs[index] or nil
+        if run then
+            sizeTile(tile, width, height)
+            tile:ClearAllPoints()
+            tile:SetPoint("TOPLEFT", row, "TOPLEFT", (index - 1) * (width + gap), 0)
+            Panel.InitTile(panel, tile, run, state.runs[run.key] == true)
+            tile:Show()
+        else
+            tile:Hide()
+        end
+    end
+    row:Show()
+    return element
+end
+
+-- One tile. Every string on it is the run's own and every number is the one the
+-- card printed; the pips are a count of the journal's drops and of the export's
+-- ratings, and nothing here is arithmetic on a rating.
+function Panel.InitTile(panel, tile, run, open)
+    tile.run = run
+    local rated = (tonumber(run.rated) or 0) > 0
+
+    -- The art. A walked run draws the instance's own file, cropped exactly as
+    -- the Adventure Guide crops it; Delves draws its card atlas when the client
+    -- has one and the mosaic when it does not; Crafting always draws the mosaic.
+    -- Nothing draws a texture the client did not name.
+    local mosaic = nil
+    if run.instanceImage then
+        tile.art:SetTexture(run.instanceImage)
+        tile.art:SetTexCoord(unpack(Panel.TILE_ART_TEX_COORD))
+        tile.art:Show()
+    else
+        tile.art:Hide()
+        if run.sourceKind == ns.UFImport.SOURCE_KIND_DELVE then
+            local atlas = UI.ItemLine.AtlasInfo(Panel.DELVE_ATLAS)
+            if atlas then
+                tile.art:SetTexture(nil)
+                tile.art:SetAtlas(atlas.name)
+                tile.art:SetTexCoord(0, 1, 0, 1)
+                tile.art:Show()
+            else
+                mosaic = Panel.TileMosaic(run)
+            end
+        elseif run.sourceKind then
+            mosaic = Panel.TileMosaic(run)
+        end
+    end
+    for index, cell in ipairs(tile.mosaic) do
+        local icon = mosaic and mosaic[index] or nil
+        if icon then
+            cell:SetTexture(icon)
+            cell:Show()
+        else
+            cell:Hide()
+        end
+    end
+
+    tile.name:SetText(run.instanceName or run.name or run.label or "")
+    tile.second:SetText(Panel.TileSecondText(run))
+
+    -- The badge is the card's own sentence, and only where there IS one: a run
+    -- with nothing rated says so on its second line instead, because a state is
+    -- never a word on a tile.
+    local badgeText = rated and UI.ItemLine.BadgeText(run.badge) or ""
+    tile.badge:SetText(badgeText)
+    tile.badgePlate:SetShown(badgeText ~= "")
+
+    local pips = Panel.TilePips(run)
+    for index, pip in ipairs(tile.pips) do
+        local lit = pips and pips[index]
+        if lit == nil then
+            pip:Hide()
+        else
+            local r, g, b = UI.ItemLine.RGB(lit and UI.ItemLine.TONE.better.hex or UI.ItemLine.GREY)
+            pip:SetVertexColor(r, g, b, lit and 1 or 0.4)
+            pip:Show()
+        end
+    end
+
+    for _, edge in ipairs(tile.edges) do
+        edge:SetShown(open == true)
+    end
+    tile:SetAlpha(rated and 1 or Panel.TILE_DIM_ALPHA)
+
+    local detail = Panel.TileDetailText(run)
+    tile:SetScript("OnEnter", function(self)
+        if GameTooltip then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(detail, 1, 1, 1, 1, true)
+            GameTooltip:Show()
+        end
+    end)
+    tile:SetScript("OnLeave", function()
+        if GameTooltip then
+            GameTooltip:Hide()
+        end
+    end)
+    tile:SetScript("OnClick", function()
+        local state = Panel.CollapseState(panel and panel.db)
+        local wasOpen = state.runs[run.key] == true
+        -- One run open at a time (the owner's answer): opening one shuts every
+        -- other, and clicking the open one shuts it.
+        for key in pairs(state.runs) do
+            state.runs[key] = nil
+        end
+        if not wasOpen then
+            state.runs[run.key] = true
+        end
+        Panel.Refresh(panel)
+    end)
+    return tile
+end
+
+-- The drawer under an open tile: the run's three facts, the way out, and one
+-- item line per rated drop in the model's own order. Nothing else.
+function Panel.InitDrawer(element, data)
+    local frame = ensureDrawer(element)
+    local run = data.run or {}
+    frame.head:SetText(Panel.TileDetailText(run))
+    frame.close:SetText(Panel.DRAWER_CLOSE_TEXT)
+
+    local width = data.tileWidth or select(1, Panel.TileSize())
+    local gap = data.gap or Panel.TILE_GAP
+    local index = math.max(1, tonumber(data.tileIndex) or 1)
+    frame.pointer:ClearAllPoints()
+    frame.pointer:SetPoint(
+        "BOTTOM",
+        frame,
+        "TOPLEFT",
+        (index - 1) * (width + gap) + width / 2,
+        -Panel.DRAWER_POINTER_SIZE / 2
+    )
+
+    local rows = run.upgrades or {}
+    frame.empty:SetShown(#rows == 0)
+    frame.empty:SetText(#rows == 0 and Panel.DRAWER_NONE_TEXT or "")
+    for position, row in ipairs(rows) do
+        UI.ItemLine.Set(drawerLine(element, position), {
+            itemID = row.itemID,
+            link = row.link,
+            levelNote = row.levelNote,
+            dropLevel = row.itemLevel,
+            keyLevel = row.keyLevel,
+            name = row.name,
+            itemLevel = row.itemLevel,
+            icon = row.icon,
+            second = row.second,
+            badge = row.badge,
+            tags = row.tags,
+        })
+    end
+    for position = #rows + 1, #element.drawerLines do
+        UI.ItemLine.Clear(element.drawerLines[position])
+    end
+    frame:Show()
     return element
 end
 
@@ -2948,13 +3718,26 @@ function Panel.ShowRun(panel, runKey)
         return false
     end
     local state = Panel.CollapseState(panel.db)
+    -- One open at a time (UX-5), here as well: arriving from a verb opens the
+    -- run it names and shuts whatever was open before it.
+    for key in pairs(state.runs) do
+        state.runs[key] = nil
+    end
     state.runs[runKey] = true
     Panel.Refresh(panel, { mode = Panel.MODE_RUN })
+    -- The row the run's TILE is in, since UX-5: a run is no longer an element
+    -- of its own, so what the box is asked to put on screen is the row that
+    -- carries it.
     panel.scrollBox:ScrollToElementDataByPredicate(function(elementData)
-        return type(elementData) == "table"
-            and elementData.kind == Panel.ELEMENT_RUN
-            and elementData.run
-            and elementData.run.key == runKey
+        if type(elementData) ~= "table" or elementData.kind ~= Panel.ELEMENT_RUN_ROW then
+            return false
+        end
+        for _, run in ipairs(elementData.runs or {}) do
+            if run.key == runKey then
+                return true
+            end
+        end
+        return false
     end)
     return true
 end
@@ -2970,6 +3753,9 @@ function Panel.ResetElement(element)
     end
     if element.sectionIcon then
         UI.ItemLine.ClearIcon(element.sectionIcon)
+    end
+    for _, line in ipairs(element.drawerLines or {}) do
+        UI.ItemLine.Clear(line)
     end
     element.kind = nil
 end
@@ -3002,7 +3788,24 @@ function Panel.Refresh(self, opts)
     self.runSort = runSort
     self.difficultyIDs = opts.difficultyIDs
     self.db = opts.db or self.db
-    placeViewRow(self, mode, runSort)
+    placeHeaderRow(self, mode, runSort)
+
+    -- The answer, above the list and in the by-run view alone (UX-5): a
+    -- sentence, not a paragraph, and everything that was a condition on it is
+    -- on the hint icon beside the title.
+    local answer = mode == Panel.MODE_RUN and model.headline or nil
+    self.answer:SetText(answer or "")
+    self.answer:SetShown(answer ~= nil)
+    self.hintText = Panel.HintText(model, mode)
+    local hintAtlas = UI.ItemLine.Atlas(Panel.HINT_ATLAS)
+    if hintAtlas then
+        self.hint.icon:SetAtlas(hintAtlas)
+    else
+        self.hint.icon:SetColorTexture(UI.ItemLine.RGB(Panel.HINT_HEX))
+    end
+    self.hint.icon:SetVertexColor(UI.ItemLine.RGB(Panel.HINT_HEX))
+    self.hint:Show()
+    Panel.AnchorList(self)
 
     local options = Panel.DifficultyOptions(model)
     self.difficultyOptions = options
@@ -3023,6 +3826,10 @@ function Panel.Refresh(self, opts)
     -- Explain is a profile setting, not per-character state, so it rides on the
     -- table the element list already takes rather than becoming a third argument.
     state.explain = ns.UI.Options and ns.UI.Options.GetExplain and ns.UI.Options.GetExplain() or false
+    -- How wide the tiles may be (UX-5). Asked of the box at layout time, the way
+    -- every width in this addon is since M5-2c; until the client has laid it out
+    -- - and headless - Panel.ListWidth does the same arithmetic ahead of it.
+    state.listWidth = self.scrollBox:GetWidth()
     local elements = (mode == Panel.MODE_RUN) and Panel.RunElements(model, state) or Panel.Elements(model, state)
     if gathered.inCombat then
         lines = { "Lootpath does not read the client in combat. Leave combat and reopen this panel." }
