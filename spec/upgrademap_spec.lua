@@ -582,7 +582,10 @@ describe("UpgradeMapPanel frames", function()
         assert.is_true(#frame.lines > 100)
         assert.same(ns.UpgradeMapPanel.Elements(model, ns.UpgradeMapPanel.CollapseState()), frame.elements)
         assert.equal(#frame.elements, frame.scrollBox:GetDataProviderSize())
-        assert.equal(ns.UpgradeMapPanel.NOTE, frame.note:GetText())
+        -- Since UX-5 the pinned note is not a paragraph under the header: it is
+        -- the first line of the hint icon's tooltip, verbatim.
+        assert.equal(ns.UpgradeMapPanel.NOTE, ns.UpgradeMapPanel.HintLines(model, frame.mode)[1])
+        assert.equal(ns.UpgradeMapPanel.HintText(model, frame.mode), frame.hintText)
     end)
 
     it("offers every difficulty in the dropdown plus an all row, and picking one narrows the panel", function()
@@ -609,8 +612,11 @@ describe("UpgradeMapPanel frames", function()
         for _, row in ipairs(everyCandidate(frame.model)) do
             assert.equal(8, row.difficultyID)
         end
-        -- ...and the shut dropdown says which one it is narrowed to.
-        assert.equal(mythicPlus.text, frame.difficultyDropdown:GetText())
+        -- ...and the shut dropdown says which one it is narrowed to - the
+        -- difficulty and its key level, without the row count, which since UX-5
+        -- belongs to the menu row and nowhere else.
+        assert.equal("Mythic+ 10", frame.difficultyDropdown:GetText())
+        assert.equal("Mythic+ 10 (54)", mythicPlus.text)
 
         frame.difficultyDropdown.stub:SelectByText(ns.UpgradeMapPanel.DIFFICULTY_ALL_LABEL)
         assert.is_nil(frame.difficultyIDs)
@@ -625,8 +631,8 @@ describe("UpgradeMapPanel frames", function()
         assert.same({
             "Lootpath does not read the client in combat. Leave combat and reopen this panel.",
         }, frame.lines)
-        -- and the header still says the one thing it always says
-        assert.equal(ns.UpgradeMapPanel.NOTE, frame.note:GetText())
+        -- and the hint still carries the one thing it always says
+        assert.equal(ns.UpgradeMapPanel.NOTE, ns.UpgradeMapPanel.HintLines(frame.model, frame.mode)[1])
     end)
 
     it("points at the capture when no walk has been stored", function()
@@ -790,13 +796,18 @@ describe("UpgradeMapPanel difficulty control (WKE-530 finding 2, after M5-3)", f
     it("starts the list below the control row, not over it", function()
         local frame = ns.UpgradeMapPanel.Create()
         frame:Refresh()
+        -- By slot there is no answer sentence, so the list hangs off the panel
+        -- itself, clear of the one header row (UX-5).
         local point = frame.scrollBox.points[1]
         assert.equal("TOPLEFT", point[1])
-        assert.equal(frame.filterLabel, point[2])
+        assert.equal(frame, point[2])
         assert.is_true(point[5] <= -ns.UpgradeMapPanel.CONTROL_ROW_HEIGHT)
     end)
 end)
 
+-- Since UX-5 (WKE-614) the pinned note is not under the header: it is the first
+-- line of the hint icon's tooltip. Finding 3's rule is unchanged and is what is
+-- still asserted here - it is said once, and never in the list.
 describe("UpgradeMapPanel draws the pinned note once (WKE-530 finding 3)", function()
     local ns, world, snapshot
 
@@ -813,7 +824,7 @@ describe("UpgradeMapPanel draws the pinned note once (WKE-530 finding 3)", funct
 
     local function noteCount(frame)
         local seen = 0
-        if frame.note:GetText():find(ns.UpgradeMapPanel.NOTE, 1, true) then
+        if (frame.hintText or ""):find(ns.UpgradeMapPanel.NOTE, 1, true) then
             seen = seen + 1
         end
         for _, element in ipairs(frame.elements) do
@@ -824,11 +835,12 @@ describe("UpgradeMapPanel draws the pinned note once (WKE-530 finding 3)", funct
         return seen
     end
 
-    it("puts it in the header and never in the list", function()
+    it("puts it on the hint and never in the list", function()
         local frame = ns.UpgradeMapPanel.Create()
         frame:Refresh()
         assert.equal(1, noteCount(frame))
-        assert.equal(ns.UpgradeMapPanel.NOTE, frame.note:GetText())
+        assert.is_nil(frame.note)
+        assert.equal(ns.UpgradeMapPanel.NOTE, ns.UpgradeMapPanel.HintLines(frame.model, frame.mode)[1])
         -- The model still carries it, which is what pins the wording headlessly.
         assert.equal(ns.UpgradeMapPanel.NOTE, frame.model.note)
     end)
@@ -1314,14 +1326,16 @@ describe("UpgradeMapPanel by-run view, joined to the genuine Raid export", funct
         -- card the walk never produced: his biggest single number in this
         -- document is a crafted weapon and his longest list of upgrades is the
         -- delve one. Both figures are his; neither is weighted by anything.
+        --
+        -- Since UX-5 (WKE-614) the sentence is a guildmate's, not a report's:
+        -- the form is the SOURCE KIND's own, so a crafting order is something
+        -- you get crafted rather than a "run", and the item is named the way a
+        -- player names it (`ns.Roads.ShortName`) rather than by its slot word.
         local best = runModel(ns.UpgradeMapPanel.SORT_BEST)
-        assert.equal("Best run right now (by best upgrade): Crafting - +3.72% for 2H Weapon.", best.headline)
+        assert.equal("Get the weapon crafted - it's +3.72%, your best right now.", best.headline)
         assert.equal("Crafting", best.runs[1].name)
         local count = runModel(ns.UpgradeMapPanel.SORT_COUNT)
-        assert.equal(
-            "Best run right now (by most upgrades): Delves - 21 of 33 ranked items are upgrades.",
-            count.headline
-        )
+        assert.equal("Delves has the most upgrades for you - 21 of 33 rated items.", count.headline)
         assert.equal("Delves", count.runs[1].name)
         -- The walk's own best is unchanged underneath, and still reads the way
         -- it did before the two cards existed.
@@ -1526,7 +1540,7 @@ describe("UpgradeMapPanel by-run view, joined to the genuine Dungeon export", fu
         -- This document's own crafted row is bigger than any of its drops -
         -- 3.634 against 3.08 - so the sentence names the card. Measured:
         -- tools/measure-delves-crafted.lua over abxrrnezfilt.
-        assert.equal("Best run right now (by best upgrade): Crafting - +3.63% for 2H Weapon.", model.headline)
+        assert.equal("Get the weapon crafted - it's +3.63%, your best right now.", model.headline)
         assert.equal(3.634, model.runs[1].bestPercent)
     end)
 end)
@@ -1549,7 +1563,7 @@ describe("UpgradeMapPanel by-run view without an Upgrade Finder export", functio
         assert.equal(0, model.counts.rated)
         assert.equal(0, model.counts.ratedRuns)
         assert.equal(48, model.counts.runs)
-        assert.equal("No run in this map has a drop rated as an upgrade.", model.headline)
+        assert.equal("Nothing on this map is an upgrade right now.", model.headline)
         for _, run in ipairs(model.runs) do
             assert.is_nil(run.best)
             assert.is_true(run.drops > 0)
@@ -1661,7 +1675,7 @@ describe("UpgradeMapPanel view toggle on the frames", function()
         H.unload()
     end)
 
-    it("opens on the slot view, with the sort buttons out of the way", function()
+    it("opens on the slot view, with the sort control out of the way", function()
         local frame = ns.UpgradeMapPanel.Create()
         frame:Refresh()
         assert.equal(ns.UpgradeMapPanel.MODE_SLOT, frame.mode)
@@ -1669,10 +1683,13 @@ describe("UpgradeMapPanel view toggle on the frames", function()
         assert.equal("By run", frame.modeButtons[2]:GetText())
         assert.is_false(frame.modeButtons[1]:IsEnabled())
         assert.is_true(frame.modeButtons[2]:IsEnabled())
-        for _, button in ipairs(frame.sortButtons) do
-            assert.is_false(button:IsShown())
-        end
-        assert.is_false(frame.sortLabel:IsShown())
+        -- Since UX-5 the order is one dropdown, and it belongs to the by-run
+        -- view alone: there is nothing to order in this one.
+        assert.is_false(frame.sortDropdown:IsShown())
+        assert.is_nil(frame.sortButtons)
+        assert.is_nil(frame.sortLabel)
+        -- ...and the answer sentence is the by-run view's own too.
+        assert.is_false(frame.answer:IsShown())
     end)
 
     it("switches to the by-run view on a click and back again byte for byte", function()
@@ -1705,24 +1722,24 @@ describe("UpgradeMapPanel view toggle on the frames", function()
         assert.equal(#frame.elements, frame.scrollBox:GetDataProviderSize())
     end)
 
-    it("offers the two sort orders in the run view and re-sorts on a click", function()
+    it("offers the two sort orders in the run view and re-sorts on a pick", function()
         local frame = ns.UpgradeMapPanel.Create()
         frame:Refresh()
         frame.modeButtons[2]:Click()
-        assert.equal("best upgrade", frame.sortButtons[1]:GetText())
-        assert.equal("most upgrades", frame.sortButtons[2]:GetText())
-        assert.is_true(frame.sortLabel:IsShown())
-        assert.is_false(frame.sortButtons[1]:IsEnabled())
-        assert.is_true(frame.sortButtons[2]:IsEnabled())
+        assert.is_true(frame.sortDropdown:IsShown())
+        -- Each control's caption is its label (UX-5): the shut control says
+        -- which order is on, so no word "Sort:" stands in front of it.
+        assert.equal("Best upgrade first", frame.sortDropdown:GetText())
+        assert.equal("Best upgrade first", frame.sortDropdown.menuElements[1].text)
+        assert.equal("Most upgrades first", frame.sortDropdown.menuElements[2].text)
         local byBest = frame.model.runs[1].key
 
-        frame.sortButtons[2]:Click()
+        frame.sortDropdown.menuElements[2]:Select()
         assert.equal(ns.UpgradeMapPanel.SORT_COUNT, frame.runSort)
         assert.equal(ns.UpgradeMapPanel.SORT_COUNT, frame.model.sort)
         assert.is_not.equal(byBest, frame.model.runs[1].key)
-        assert.is_not_nil(frame.model.headline:find("by most upgrades", 1, true))
-        assert.is_false(frame.sortButtons[2]:IsEnabled())
-        assert.is_true(frame.sortButtons[1]:IsEnabled())
+        assert.is_not_nil(frame.model.headline:find("has the most upgrades for you", 1, true))
+        assert.equal("Most upgrades first", frame.sortDropdown:GetText())
 
         -- The sort survives a trip through the slot view.
         frame.modeButtons[1]:Click()
@@ -1767,7 +1784,7 @@ describe("UpgradeMapPanel view toggle on the frames", function()
         assert.same({
             "Lootpath does not read the client in combat. Leave combat and reopen this panel.",
         }, frame.lines)
-        assert.equal(ns.UpgradeMapPanel.NOTE, frame.note:GetText())
+        assert.equal(ns.UpgradeMapPanel.NOTE, ns.UpgradeMapPanel.HintLines(frame.model, frame.mode)[1])
     end)
 end)
 
@@ -2056,10 +2073,7 @@ describe("UpgradeMapPanel by-run view across key levels", function()
         -- The sentence names whatever is first, and over these five documents
         -- that is the Delves card: 21 of its 33 ranked items are upgrades,
         -- against the best dungeon's 6 of 8 (measured).
-        assert.equal(
-            "Best run right now (by most upgrades): Delves - 21 of 33 ranked items are upgrades.",
-            model.headline
-        )
+        assert.equal("Delves has the most upgrades for you - 21 of 33 rated items.", model.headline)
         assert.equal("Temple of Sethraliss - Mythic+ 10", walkedRuns(model)[1].label)
     end)
 
@@ -2406,43 +2420,147 @@ describe("UpgradeMapPanel run cards", function()
         })
     end
 
-    it("draws one card per run, in the sort's own order, and nothing under a shut one", function()
+    it("draws one tile per run, four to a row, in the sort's own order", function()
         local model = runModel()
         local elements = ns.UpgradeMapPanel.RunElements(model, {})
-        local cards = {}
+        local tiles = {}
         for _, element in ipairs(elements) do
-            if element.kind == ns.UpgradeMapPanel.ELEMENT_RUN then
-                cards[#cards + 1] = element
+            if element.kind == ns.UpgradeMapPanel.ELEMENT_RUN_ROW then
+                assert.is_true(#element.runs <= ns.UpgradeMapPanel.TILES_PER_ROW)
+                for _, run in ipairs(element.runs) do
+                    tiles[#tiles + 1] = run
+                end
             end
-            -- Nothing is listed under a card nobody has opened.
+            -- Nothing is listed under a tile nobody has opened.
             assert.is_not.equal(ns.UpgradeMapPanel.ELEMENT_ITEM, element.kind)
+            assert.is_not.equal(ns.UpgradeMapPanel.ELEMENT_DRAWER, element.kind)
         end
-        assert.equal(#model.runs, #cards)
+        assert.equal(#model.runs, #tiles)
         for index, run in ipairs(model.runs) do
-            assert.equal(run, cards[index].run)
-            assert.is_false(cards[index].expanded)
+            assert.equal(run, tiles[index])
         end
     end)
 
-    it("opens one card onto its rated drops, best first", function()
+    it("opens one drawer, under the row of the tile that opened it, on its rated drops", function()
         local model = runModel()
         local top = model.runs[1]
         assert.is_true(#top.upgrades > 1)
         local elements = ns.UpgradeMapPanel.RunElements(model, { runs = { [top.key] = true } })
-        local opened, listed = nil, {}
+        local rowIndex, drawerIndex, drawer
         for index, element in ipairs(elements) do
-            if element.kind == ns.UpgradeMapPanel.ELEMENT_RUN and element.run == top then
-                opened = index
-            elseif element.kind == ns.UpgradeMapPanel.ELEMENT_ITEM then
-                listed[#listed + 1] = element.row
+            if element.kind == ns.UpgradeMapPanel.ELEMENT_RUN_ROW then
+                for position, run in ipairs(element.runs) do
+                    if run == top then
+                        rowIndex = index
+                        assert.equal(position, elements[index + 1] and elements[index + 1].tileIndex)
+                    end
+                end
+            elseif element.kind == ns.UpgradeMapPanel.ELEMENT_DRAWER then
+                drawerIndex, drawer = index, element
             end
         end
-        assert.is_number(opened)
-        assert.is_true(elements[opened].expanded)
-        assert.equal(#top.upgrades, #listed)
+        assert.is_number(rowIndex)
+        -- Directly under the row the tile is in, and there is exactly one.
+        assert.equal(rowIndex + 1, drawerIndex)
+        assert.equal(top, drawer.run)
+        -- The drawer's rows are the run's upgrades, in the model's own order.
+        assert.equal(#top.upgrades, #drawer.run.upgrades)
         for index, row in ipairs(top.upgrades) do
-            assert.equal(row, listed[index])
+            assert.equal(row, drawer.run.upgrades[index])
         end
+        assert.equal(ns.UpgradeMapPanel.DrawerHeight(top), drawer.height)
+    end)
+
+    -- The owner's answer 5: one run open at a time. A database carrying two open
+    -- keys - an older build's, or a click that raced - still draws one drawer.
+    it("draws one drawer even when two runs are marked open", function()
+        local model = runModel()
+        local first, second = model.runs[1], model.runs[2]
+        local elements = ns.UpgradeMapPanel.RunElements(model, {
+            runs = { [first.key] = true, [second.key] = true },
+        })
+        local drawers = {}
+        for _, element in ipairs(elements) do
+            if element.kind == ns.UpgradeMapPanel.ELEMENT_DRAWER then
+                drawers[#drawers + 1] = element
+            end
+        end
+        assert.equal(1, #drawers)
+        assert.equal(first, drawers[1].run)
+    end)
+
+    -- The tile is (list width - three gaps) / four, and its height is the
+    -- Adventure Guide's own 174:96 of that: no width and no height is written
+    -- down, so a window that changes width moves the tiles with it (M5-2c).
+    it("derives a tile from the panel's own width and never from a literal", function()
+        local width, height = ns.UpgradeMapPanel.TileSize()
+        local listWidth = ns.UI.PANEL_WIDTH - ns.UpgradeMapPanel.SCROLLBAR_ROOM
+        local gaps = ns.UpgradeMapPanel.TILE_GAP * (ns.UpgradeMapPanel.TILES_PER_ROW - 1)
+        assert.equal(math.floor((listWidth - gaps) / ns.UpgradeMapPanel.TILES_PER_ROW), width)
+        assert.equal(math.floor(width / ns.UpgradeMapPanel.TILE_ART_RATIO + 0.5), height)
+        -- Four of them and their three gaps fit the list they are laid in.
+        assert.is_true(width * ns.UpgradeMapPanel.TILES_PER_ROW + gaps <= listWidth)
+        -- A narrower list makes narrower tiles, which is what "derived" means.
+        local narrow = ns.UpgradeMapPanel.TileSize(listWidth - 100)
+        assert.is_true(narrow < width)
+        -- And the element carries what it derived, because the scroll box asks
+        -- for an element's extent before it has a frame to measure.
+        local elements = ns.UpgradeMapPanel.RunElements(runModel(), {})
+        for _, element in ipairs(elements) do
+            if element.kind == ns.UpgradeMapPanel.ELEMENT_RUN_ROW then
+                assert.equal(width, element.tileWidth)
+                assert.equal(height, element.tileHeight)
+                assert.equal(height + ns.UpgradeMapPanel.TILE_ROW_PADDING, element.height)
+            end
+        end
+    end)
+
+    -- One pip per drop the journal lists, lit per rated drop, capped at twelve.
+    -- Nothing here is arithmetic on a rating: it is two counts, drawn.
+    it("draws one pip per drop and lights one per rated drop, capped", function()
+        local model = runModel()
+        local seenCapped, seenPlain = false, false
+        for _, run in ipairs(model.runs) do
+            local pips = ns.UpgradeMapPanel.TilePips(run)
+            if run.sourceKind then
+                assert.is_nil(pips)
+            else
+                assert.equal(math.min(run.drops, ns.UpgradeMapPanel.TILE_PIP_MAX), #pips)
+                local lit = 0
+                for _, on in ipairs(pips) do
+                    if on then
+                        lit = lit + 1
+                    end
+                end
+                assert.equal(math.min(run.rated, #pips), lit)
+                if run.drops > ns.UpgradeMapPanel.TILE_PIP_MAX then
+                    seenCapped = true
+                else
+                    seenPlain = true
+                end
+            end
+        end
+        assert.is_true(seenPlain)
+        -- A run of more than twelve drops really is in the committed walk, so
+        -- the cap is exercised rather than assumed.
+        assert.is_true(seenCapped)
+    end)
+
+    -- A run with nothing rated is dim and says so, and is still clickable: it
+    -- was looked at, not left out.
+    it("gives a run with nothing rated words instead of a badge", function()
+        local model = runModel()
+        local empty
+        for _, run in ipairs(model.runs) do
+            if run.rated == 0 then
+                empty = empty or run
+            end
+        end
+        assert.is_not_nil(empty)
+        assert.equal(ns.UpgradeMapPanel.TILE_NO_UPGRADE, ns.UpgradeMapPanel.TileSecondText(empty))
+        assert.equal(0, #empty.upgrades)
+        -- ...and a rated run says its difficulty there instead.
+        assert.equal(model.runs[1].difficultyLabel, ns.UpgradeMapPanel.TileSecondText(model.runs[1]))
     end)
 
     it("puts QE Live's best number on the card as his badge, and the count in grey beside it", function()
@@ -2512,6 +2630,478 @@ describe("UpgradeMapPanel run cards", function()
             assert.is_not_nil(card)
             assert.is_nil(card.instanceID)
             assert.is_nil(card.instanceImage)
+        end
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- UX-5 (WKE-614): the header is one row, the six paragraphs are on the hint,
+-- and the answer is one sentence in a guildmate's voice.
+--
+-- The owner's finding of 2026-09-17: "There is a lot of text and I'm trying to
+-- do more with being minimal... The top portion with buttons and dropdown also
+-- looks very smooshed, let's space it out and make things look more
+-- symmetrical." Everything below is what that became.
+describe("UpgradeMapPanel header row", function()
+    local ns, world, snapshot
+
+    before_each(function()
+        ns, world = H.load()
+        snapshot = select(3, loadMap(ns))
+        loadInventory(ns, world)
+        ns.db.global.captures.journal = { snapshot }
+        ns.UFImport.Store(upgrades(ns, UF_RAID))
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("is one row: title at the left edge, the controls packed to the right", function()
+        local frame = ns.UpgradeMapPanel.Create()
+        frame:Refresh()
+
+        -- The title is at the panel's own top left corner.
+        local title = frame.header.points[1]
+        assert.equal("TOPLEFT", title[1])
+        assert.equal(frame, title[2])
+        assert.equal(0, title[4])
+        assert.equal(0, title[5])
+        -- ...with the hint icon beside it, and nothing else on the left.
+        assert.equal("LEFT", frame.hint.points[1][1])
+        assert.equal(frame.header, frame.hint.points[1][2])
+
+        -- The difficulty control is flush with the panel's right edge, on the
+        -- same row: no offset in either direction.
+        local filter = frame.difficultyDropdown.points[1]
+        assert.equal("TOPRIGHT", filter[1])
+        assert.equal(frame, filter[2])
+        assert.equal("TOPRIGHT", filter[3])
+        assert.equal(0, filter[4])
+        assert.equal(0, filter[5])
+
+        -- Everything else hangs off it leftwards, the Adventure Guide's own 10
+        -- apart, and every control is the same height on the one row.
+        frame.modeButtons[2]:Click()
+        assert.equal("TOPLEFT", frame.sortDropdown.points[1][3])
+        assert.equal(frame.difficultyDropdown, frame.sortDropdown.points[1][2])
+        assert.equal(-ns.UpgradeMapPanel.HEADER_GAP, frame.sortDropdown.points[1][4])
+        assert.equal(frame.sortDropdown, frame.modeButtons[2].points[1][2])
+        assert.equal(-ns.UpgradeMapPanel.HEADER_GAP, frame.modeButtons[2].points[1][4])
+        -- The two view buttons are one segment: no gap between them.
+        assert.equal(frame.modeButtons[2], frame.modeButtons[1].points[1][2])
+        assert.equal(0, frame.modeButtons[1].points[1][4])
+        assert.equal(ns.UpgradeMapPanel.CONTROL_ROW_HEIGHT, frame.difficultyDropdown:GetHeight())
+        assert.equal(ns.UpgradeMapPanel.CONTROL_ROW_HEIGHT, frame.sortDropdown:GetHeight())
+        assert.equal(ns.UpgradeMapPanel.CONTROL_ROW_HEIGHT, frame.modeButtons[1]:GetHeight())
+
+        -- And no label words: each control's caption is its label, the way the
+        -- Adventure Guide's own two loot filters carry none.
+        assert.is_nil(frame.viewLabel)
+        assert.is_nil(frame.sortLabel)
+        assert.is_nil(frame.filterLabel)
+    end)
+
+    it("carries the notes that were paragraphs on the hint, verbatim", function()
+        local frame = ns.UpgradeMapPanel.Create()
+        frame:Refresh()
+        frame.modeButtons[2]:Click()
+        local model = frame.model
+        local lines = ns.UpgradeMapPanel.HintLines(model, ns.UpgradeMapPanel.MODE_RUN)
+        assert.equal(ns.UpgradeMapPanel.NOTE, lines[1])
+        assert.equal(ns.UpgradeMapPanel.RUN_NOTE, lines[2])
+        assert.equal(model.keyLevelNote, lines[3])
+        assert.is_not_nil(model.keyLevelNote)
+        assert.equal(model.exportNote, lines[4])
+        assert.is_not_nil(model.exportNote)
+        assert.equal(frame.hintText, table.concat(lines, "\n\n"))
+
+        -- Not one of them is in the list any more.
+        for _, element in ipairs(frame.elements) do
+            for _, line in ipairs(lines) do
+                assert.is_nil(type(element.text) == "string" and element.text:find(line, 1, true) or nil)
+            end
+        end
+
+        -- The documents note names a source's documents, so it is on NO surface
+        -- of this view: not the list, not the hint, not the sentence. It stays
+        -- on the model and in the printed lines, which is what /lootpath status
+        -- reads.
+        assert.is_not_nil(model.upgradeDocumentsNote)
+        for _, line in ipairs(lines) do
+            assert.is_nil(line:find(model.upgradeDocumentsNote, 1, true))
+        end
+        for _, element in ipairs(frame.elements) do
+            assert.is_nil(
+                type(element.text) == "string" and element.text:find(model.upgradeDocumentsNote, 1, true) or nil
+            )
+        end
+        assert.is_nil((frame.answer:GetText() or ""):find(model.upgradeDocumentsNote, 1, true))
+    end)
+
+    it("draws the answer above the list in the run view, and nothing there in the other", function()
+        local frame = ns.UpgradeMapPanel.Create()
+        frame:Refresh()
+        assert.equal("", frame.answer:GetText())
+        assert.is_false(frame.answer:IsShown())
+
+        frame.modeButtons[2]:Click()
+        assert.is_true(frame.answer:IsShown())
+        assert.equal(frame.model.headline, frame.answer:GetText())
+        -- ...and the list starts under it.
+        local point = frame.scrollBox.points[1]
+        assert.equal("TOPLEFT", point[1])
+        assert.equal(frame.answer, point[2])
+    end)
+end)
+
+-- The six forms of the answer sentence, one per source kind, enumerated off the
+-- table rather than reached through whichever run a fixture happens to rank
+-- first. Every run below is a REAL run out of the committed walk and the
+-- committed export; only which of them is first is arranged.
+describe("UpgradeMapPanel answer sentence", function()
+    local ns, sources, summary
+
+    before_each(function()
+        ns = H.load()
+        sources, summary = coldWalk(ns)
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function model(sort)
+        return ns.UpgradeMapPanel.RunModel({
+            sources = sources,
+            summary = summary,
+            upgrades = upgrades(ns, UF_RAID),
+            runSort = sort,
+        })
+    end
+
+    -- The five Dungeon documents of the committed companion run, stored the way
+    -- the client really gets them.
+    local function dungeonDocuments()
+        local exports = {}
+        for _, level in ipairs({ 2, 4, 6, 8, 10 }) do
+            exports[#exports + 1] = {
+                schema = "qe-live-upgradefinder",
+                contentType = "Dungeon",
+                keyLevel = level,
+                json = readFile(UF_KEY_LEVEL_PATHS[level]),
+            }
+        end
+        local result = ns.Companion.ImportAll({ writtenAt = "2026-09-08T22:47:59Z", exports = exports })
+        assert(result.ok, result.reason)
+        return ns.UFImport.Documents("Dungeon")
+    end
+
+    -- One run on its own, as the model the sentence reads.
+    local function answerFor(run, sort)
+        return ns.UpgradeMapPanel.RunAnswer({
+            hasMap = true,
+            sort = sort or ns.UpgradeMapPanel.SORT_BEST,
+            runs = { run },
+        })
+    end
+
+    local function firstOf(built, pick)
+        for _, run in ipairs(built.runs) do
+            if pick(run) then
+                return run
+            end
+        end
+        return nil
+    end
+
+    it("has one form per source kind, and reaches every one of them", function()
+        local built = model()
+        local seen = {}
+
+        local raid = firstOf(built, function(run)
+            return run.isRaid and run.best ~= nil
+        end)
+        assert.is_not_nil(raid)
+        seen[ns.UpgradeMapPanel.RUN_ANSWER_RAID] = true
+        assert.equal(ns.UpgradeMapPanel.RUN_ANSWER_RAID, ns.UpgradeMapPanel.RunAnswerKind(raid))
+        assert.equal(
+            string.format(
+                "Raid %s - %s there is %+.2f%%, your best drop right now.",
+                raid.instanceName,
+                ns.UpgradeMapPanel.RunBestName(raid),
+                raid.bestPercent
+            ),
+            answerFor(raid)
+        )
+
+        -- The Raid export ranks no dungeon drop at the level the walk lists
+        -- (M3-10), so the dungeon form is read off the five Dungeon documents of
+        -- the committed companion run, where one really is ranked.
+        local dungeonModel = ns.UpgradeMapPanel.RunModel({
+            sources = sources,
+            summary = summary,
+            upgradeDocuments = dungeonDocuments(),
+        })
+        local dungeon = firstOf(dungeonModel, function(run)
+            return not run.isRaid and not run.sourceKind and run.best ~= nil
+        end)
+        assert.is_not_nil(dungeon)
+        seen[ns.UpgradeMapPanel.RUN_ANSWER_DUNGEON] = true
+        assert.equal(ns.UpgradeMapPanel.RUN_ANSWER_DUNGEON, ns.UpgradeMapPanel.RunAnswerKind(dungeon))
+        assert.equal(
+            string.format(
+                "Run %s - %s there is %+.2f%%, your best drop right now.",
+                dungeon.instanceName,
+                ns.UpgradeMapPanel.RunBestName(dungeon),
+                dungeon.bestPercent
+            ),
+            answerFor(dungeon)
+        )
+
+        local delves = cardNamed(built, "Delves")
+        assert.is_not_nil(delves)
+        seen[ns.UpgradeMapPanel.RUN_ANSWER_DELVE] = true
+        assert.equal(ns.UpgradeMapPanel.RUN_ANSWER_DELVE, ns.UpgradeMapPanel.RunAnswerKind(delves))
+        assert.equal(
+            string.format(
+                "Do a delve - %s is %+.2f%%, your best drop right now.",
+                ns.UpgradeMapPanel.RunBestName(delves),
+                delves.bestPercent
+            ),
+            answerFor(delves)
+        )
+
+        local crafting = cardNamed(built, "Crafting")
+        assert.is_not_nil(crafting)
+        seen[ns.UpgradeMapPanel.RUN_ANSWER_CRAFT] = true
+        assert.equal(ns.UpgradeMapPanel.RUN_ANSWER_CRAFT, ns.UpgradeMapPanel.RunAnswerKind(crafting))
+        assert.equal(
+            string.format(
+                "Get %s crafted - it's %+.2f%%, your best right now.",
+                ns.UpgradeMapPanel.RunBestName(crafting),
+                crafting.bestPercent
+            ),
+            answerFor(crafting)
+        )
+
+        -- The count form, on a walked run and on an export run: the denominator
+        -- says what it is counting, and the two are not the same claim.
+        seen[ns.UpgradeMapPanel.RUN_ANSWER_COUNT] = true
+        assert.equal(
+            string.format(
+                "%s has the most upgrades for you - %d of %d drops.",
+                raid.instanceName,
+                raid.rated,
+                raid.drops
+            ),
+            answerFor(raid, ns.UpgradeMapPanel.SORT_COUNT)
+        )
+        seen[ns.UpgradeMapPanel.RUN_ANSWER_COUNT_EXPORT] = true
+        assert.equal(
+            string.format(
+                "%s has the most upgrades for you - %d of %d rated items.",
+                delves.name,
+                delves.rated,
+                delves.drops
+            ),
+            answerFor(delves, ns.UpgradeMapPanel.SORT_COUNT)
+        )
+
+        -- And the state where there is no answer to give.
+        seen[ns.UpgradeMapPanel.RUN_ANSWER_NONE] = true
+        assert.equal(
+            ns.UpgradeMapPanel.RUN_ANSWER[ns.UpgradeMapPanel.RUN_ANSWER_NONE],
+            ns.UpgradeMapPanel.RunAnswer({ hasMap = true, runs = {} })
+        )
+        assert.is_nil(ns.UpgradeMapPanel.RunAnswer({ hasMap = false, runs = {} }))
+
+        -- Every form in the table was reached, so none of them is a branch
+        -- nobody has read.
+        for kind in pairs(ns.UpgradeMapPanel.RUN_ANSWER) do
+            assert.is_true(seen[kind] == true, kind .. " was never reached")
+        end
+        -- The item is named the way a player names it, never by its slot word
+        -- alone: the mockup's "a ring" was a stand-in.
+        assert.equal(
+            ns.Roads.ShortName({ name = raid.best.name, slot = raid.best.slot }),
+            ns.UpgradeMapPanel.RunBestName(raid)
+        )
+    end)
+end)
+
+-- The tiles and the drawer as they are DRAWN (UX-5, WKE-614).
+describe("UpgradeMapPanel tiles on the frames", function()
+    local ns, world, sources, summary
+
+    before_each(function()
+        ns, world = H.load()
+        sources, summary = coldWalk(ns)
+        loadInventory(ns, world)
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function runModel()
+        return ns.UpgradeMapPanel.RunModel({
+            sources = sources,
+            summary = summary,
+            upgrades = upgrades(ns, UF_RAID),
+        })
+    end
+
+    -- The row a given run's tile is in, drawn onto a frame, and the tile itself.
+    local function drawTile(frame, model, run, state)
+        local elements = ns.UpgradeMapPanel.RunElements(model, state or {})
+        for _, element in ipairs(elements) do
+            if element.kind == ns.UpgradeMapPanel.ELEMENT_RUN_ROW then
+                for index, candidate in ipairs(element.runs) do
+                    if candidate == run then
+                        local drawn = CreateFrame("Frame", nil, frame)
+                        ns.UpgradeMapPanel.InitElement(frame, drawn, element)
+                        return drawn.tiles[index], drawn, elements
+                    end
+                end
+            end
+        end
+        return nil
+    end
+
+    it("draws the delve card atlas when the client names it, and the mosaic when it does not", function()
+        local frame = ns.UpgradeMapPanel.Create()
+        local model = runModel()
+        local delves = cardNamed(model, "Delves")
+        assert.is_not_nil(delves)
+
+        -- The stub's atlas table is what a client has. This name is nowhere in
+        -- Blizzard's shipped files under .luals/ - atlases are client data - so
+        -- it is asked for at draw time and never assumed, and the fallback is
+        -- what a client without it draws.
+        -- An export row is an itemID and an item level and nothing else, so its
+        -- icon is the client's own answer to that ID. Four of them are put on
+        -- the stub the way the client would answer them - a stub-shaped
+        -- transcript, in C_Item.GetItemInfoInstant's own shape.
+        for index = 1, ns.UpgradeMapPanel.MOSAIC_COUNT do
+            local itemID = delves.upgrades[index].itemID
+            world.items[itemID] = {
+                instant = { itemID, "Armor", "Cloth", "INVTYPE_LEGS", 5000 + itemID, 4, 8, n = 7 },
+            }
+        end
+
+        local tile = drawTile(frame, model, delves)
+        assert.is_nil(ns.UI.ItemLine.AtlasInfo(ns.UpgradeMapPanel.DELVE_ATLAS))
+        assert.is_false(tile.art:IsShown())
+        local icons = ns.UpgradeMapPanel.TileMosaic(delves)
+        assert.equal(ns.UpgradeMapPanel.MOSAIC_COUNT, #icons)
+        for index, icon in ipairs(icons) do
+            assert.equal(icon, tile.mosaic[index]:GetTexture())
+            assert.is_true(tile.mosaic[index]:IsShown())
+        end
+        -- The four icons are the four BEST rated rows' own, in the model's
+        -- order, and nothing is re-sorted to get them.
+        for index = 1, ns.UpgradeMapPanel.MOSAIC_COUNT do
+            assert.equal(5000 + delves.upgrades[index].itemID, icons[index])
+        end
+
+        -- ...and on a client that does have the atlas, the card art is drawn
+        -- instead and the mosaic is put away.
+        world.atlases[ns.UpgradeMapPanel.DELVE_ATLAS] = { width = 200, height = 112 }
+        local withAtlas = drawTile(frame, model, delves)
+        assert.is_true(withAtlas.art:IsShown())
+        assert.equal(ns.UpgradeMapPanel.DELVE_ATLAS, withAtlas.art:GetAtlas())
+        for _, cell in ipairs(withAtlas.mosaic) do
+            assert.is_false(cell:IsShown())
+        end
+    end)
+
+    it("dims a tile with nothing rated, and gives it no badge at all", function()
+        local frame = ns.UpgradeMapPanel.Create()
+        local model = runModel()
+        local rated, empty
+        for _, run in ipairs(model.runs) do
+            if run.rated == 0 then
+                empty = empty or run
+            elseif not run.sourceKind then
+                rated = rated or run
+            end
+        end
+        assert.is_not_nil(empty)
+        assert.is_not_nil(rated)
+
+        local dim = drawTile(frame, model, empty)
+        assert.equal(ns.UpgradeMapPanel.TILE_DIM_ALPHA, dim:GetAlpha())
+        assert.equal("", dim.badge:GetText())
+        assert.is_false(dim.badgePlate:IsShown())
+        assert.equal(ns.UpgradeMapPanel.TILE_NO_UPGRADE, dim.second:GetText())
+        -- Still clickable: it was looked at, not left out.
+        assert.is_not_nil(dim:GetScript("OnClick"))
+
+        local full = drawTile(frame, model, rated)
+        assert.equal(1, full:GetAlpha())
+        assert.equal(ns.UI.ItemLine.BadgeText(rated.badge), full.badge:GetText())
+        assert.is_true(full.badgePlate:IsShown())
+        assert.equal(rated.difficultyLabel, full.second:GetText())
+        -- Blizzard's own square highlight, so a hover reads as a hover.
+        assert.equal(ns.UpgradeMapPanel.TILE_HIGHLIGHT_TEXTURE, full:GetHighlightTexture():GetTexture())
+        assert.equal(ns.UpgradeMapPanel.TILE_HIGHLIGHT_BLEND, full.highlightBlendMode)
+    end)
+
+    it("draws the drawer as the run's own rows, in order, and nothing else", function()
+        local frame = ns.UpgradeMapPanel.Create()
+        local model = runModel()
+        -- A WALKED run, so its rows carry the names the journal read: an export
+        -- row is an itemID and a level and the client names it later (M3-12).
+        local top
+        for _, run in ipairs(model.runs) do
+            if not run.sourceKind and #run.upgrades > 1 then
+                top = top or run
+            end
+        end
+        assert.is_not_nil(top)
+        local elements = ns.UpgradeMapPanel.RunElements(model, { runs = { [top.key] = true } })
+        local data
+        for _, element in ipairs(elements) do
+            if element.kind == ns.UpgradeMapPanel.ELEMENT_DRAWER then
+                data = element
+            end
+        end
+        assert.is_not_nil(data)
+        local drawn = CreateFrame("Frame", nil, frame)
+        ns.UpgradeMapPanel.InitElement(frame, drawn, data)
+        assert.equal(ns.UpgradeMapPanel.TileDetailText(top), drawn.drawerFrame.head:GetText())
+        assert.equal(ns.UpgradeMapPanel.DRAWER_CLOSE_TEXT, drawn.drawerFrame.close:GetText())
+        assert.is_false(drawn.drawerFrame.empty:IsShown())
+        assert.equal(#top.upgrades, #drawn.drawerLines)
+        for index, row in ipairs(top.upgrades) do
+            local line = drawn.drawerLines[index]
+            assert.equal(row.name, line.resolved.name)
+            assert.equal(row.second, line.second:GetText())
+            assert.equal(ns.UI.ItemLine.BadgeText(row.badge), line.badge:GetText())
+        end
+
+        -- A dim run's drawer says the one thing there is to say and lists
+        -- nothing.
+        local empty
+        for _, run in ipairs(model.runs) do
+            if run.rated == 0 then
+                empty = empty or run
+            end
+        end
+        assert.is_not_nil(empty)
+        local emptyElements = ns.UpgradeMapPanel.RunElements(model, { runs = { [empty.key] = true } })
+        for _, element in ipairs(emptyElements) do
+            if element.kind == ns.UpgradeMapPanel.ELEMENT_DRAWER then
+                data = element
+            end
+        end
+        assert.equal(empty, data.run)
+        ns.UpgradeMapPanel.InitElement(frame, drawn, data)
+        assert.is_true(drawn.drawerFrame.empty:IsShown())
+        assert.equal(ns.UpgradeMapPanel.DRAWER_NONE_TEXT, drawn.drawerFrame.empty:GetText())
+        for _, line in ipairs(drawn.drawerLines) do
+            assert.is_false(line:IsShown())
         end
     end)
 end)
@@ -2600,38 +3190,115 @@ describe("UpgradeMapPanel through the scroll box", function()
         assert.equal(before, #frame.elements)
     end)
 
-    it("opens a run card when it is clicked, and lists that run's drops under it", function()
+    it("opens a drawer when a tile is clicked, and shuts whatever was open", function()
         local frame = ns.UpgradeMapPanel.Create()
         frame:Refresh()
         frame.modeButtons[2]:Click()
         local before = #frame.elements
-        local card = frame.scrollBox:GetFrames()[1]
+        local row
         for _, element in ipairs(frame.scrollBox:GetFrames()) do
-            if element:GetElementData().kind == ns.UpgradeMapPanel.ELEMENT_RUN then
-                card = element
+            if element:GetElementData().kind == ns.UpgradeMapPanel.ELEMENT_RUN_ROW then
+                row = element
                 break
             end
         end
-        local run = card:GetElementData().run
-        assert.equal(ns.UpgradeMapPanel.ELEMENT_RUN, card:GetElementData().kind)
-        card.runButton:Click()
-        assert.is_true(ns.db.char.upgradeMap.expandedRuns[run.key])
-        assert.equal(before + #run.upgrades, #frame.elements)
+        assert.is_not_nil(row)
+        local first = row:GetElementData().runs[1]
+        local second = row:GetElementData().runs[2]
+        -- The tile is found again before every click: a click refreshes the
+        -- panel, and the pooled frames are re-bound underneath.
+        local function clickTile(run)
+            for _, element in ipairs(frame.scrollBox:GetFrames()) do
+                local data = element:GetElementData()
+                if data.kind == ns.UpgradeMapPanel.ELEMENT_RUN_ROW then
+                    for index, candidate in ipairs(data.runs) do
+                        if candidate.key == run.key then
+                            element.tiles[index]:Click()
+                            return true
+                        end
+                    end
+                end
+            end
+            return false
+        end
+
+        assert.is_true(clickTile(first))
+        assert.is_true(ns.db.char.upgradeMap.expandedRuns[first.key])
+        assert.equal(before + 1, #frame.elements)
+
+        -- One at a time: opening the next tile shuts the one that was open.
+        assert.is_true(clickTile(second))
+        assert.is_nil(ns.db.char.upgradeMap.expandedRuns[first.key])
+        assert.is_true(ns.db.char.upgradeMap.expandedRuns[second.key])
+        assert.equal(before + 1, #frame.elements)
+
+        -- ...and clicking the open one shuts it, leaving the list as it was.
+        assert.is_true(clickTile(second))
+        assert.is_nil(ns.db.char.upgradeMap.expandedRuns[second.key])
+        assert.equal(before, #frame.elements)
     end)
 
-    it("draws a plain strip for a run the walk has no art for", function()
+    it("draws a flat tile for a run the walk has no art for", function()
         local frame = ns.UpgradeMapPanel.Create()
         frame:Refresh()
         frame.modeButtons[2]:Click()
         local drawn = 0
         for _, element in ipairs(frame.scrollBox:GetFrames()) do
-            if element:GetElementData().kind == ns.UpgradeMapPanel.ELEMENT_RUN then
-                drawn = drawn + 1
-                assert.is_nil(element.runArt:GetTexture())
-                assert.is_not_nil(element.runArt.vertexColor)
+            local data = element:GetElementData()
+            if data.kind == ns.UpgradeMapPanel.ELEMENT_RUN_ROW then
+                for index in ipairs(data.runs) do
+                    drawn = drawn + 1
+                    local tile = element.tiles[index]
+                    -- No art recorded, and no atlas guessed: the flat back is
+                    -- all there is behind the shade, and the tile reads by its
+                    -- name.
+                    assert.is_false(tile.art:IsShown())
+                    assert.is_not_nil(tile.back:GetTexture())
+                    assert.is_not_nil(tile.name:GetText())
+                end
             end
         end
         assert.is_true(drawn > 0)
+    end)
+
+    -- The art, when the walk did record it: the client's own file, cropped by
+    -- the Adventure Guide's own tex coords for that file, never stretched.
+    it("draws the instance art with Blizzard's own crop when the walk recorded one", function()
+        local frame = ns.UpgradeMapPanel.Create()
+        frame:Refresh()
+        -- The walk's own rows with the file ID a post-M5-3 walk records, put on
+        -- through the model rather than invented in the capture.
+        local sources = ns.Journal:Build({ snapshot = snapshot })
+        local withArt = {}
+        for itemID, list in pairs(sources) do
+            local copies = {}
+            for index, entry in ipairs(list) do
+                local copy = {}
+                for k, v in pairs(entry) do
+                    copy[k] = v
+                end
+                copy.instanceImage = 4000 + (entry.instanceID or 0)
+                copies[index] = copy
+            end
+            withArt[itemID] = copies
+        end
+        local model = ns.UpgradeMapPanel.RunModel({ sources = withArt })
+        local elements = ns.UpgradeMapPanel.RunElements(model, {})
+        local element = CreateFrame("Frame", nil, frame)
+        local row
+        for _, candidate in ipairs(elements) do
+            if candidate.kind == ns.UpgradeMapPanel.ELEMENT_RUN_ROW then
+                row = row or candidate
+            end
+        end
+        ns.UpgradeMapPanel.InitElement(frame, element, row)
+        local tile = element.tiles[1]
+        assert.equal(row.runs[1].instanceImage, tile.art:GetTexture())
+        assert.is_true(tile.art:IsShown())
+        assert.same(ns.UpgradeMapPanel.TILE_ART_TEX_COORD, tile.art.texCoord)
+        -- The tile is the crop's own proportion, so nothing is squashed into it.
+        assert.equal(row.tileWidth, tile:GetWidth())
+        assert.equal(row.tileHeight, tile:GetHeight())
     end)
 
     it("says why it is empty in the list as well as in its text, in combat", function()
@@ -2707,7 +3374,10 @@ describe("UpgradeMapPanel Crafting and Delves cards", function()
         assert.equal(3.627, crafting.bestPercent)
         assert.equal("best +3.63%", crafting.badge.text)
         assert.equal("13 of 18 ranked items are upgrades", crafting.countText)
-        assert.equal("No difficulty - spark and materials not read", crafting.difficultyLabel)
+        -- Since UX-5 (WKE-614) the second line does not lead with "No
+        -- difficulty - ": the control row says which difficulty the map is on,
+        -- and a tile never spends a word on a state.
+        assert.equal("spark and materials not read", crafting.difficultyLabel)
         assert.equal(13, #crafting.upgrades)
         assert.equal(CRAFTED_WEAPON, crafting.upgrades[1].itemID)
 
@@ -2731,7 +3401,7 @@ describe("UpgradeMapPanel Crafting and Delves cards", function()
         assert.equal("Delves - key and Bountiful state not read", delves.upgrades[1].second)
         assert.is_nil(delves.upgrades[1].badge.note)
         assert.equal("21 of 33 ranked items are upgrades", delves.countText)
-        assert.equal("No difficulty - key and Bountiful state not read", delves.difficultyLabel)
+        assert.equal("key and Bountiful state not read", delves.difficultyLabel)
         assert.equal(21, #delves.upgrades)
 
         -- Measured: his biggest single number over these documents is the
@@ -2782,7 +3452,7 @@ describe("UpgradeMapPanel Crafting and Delves cards", function()
         end
     end)
 
-    it("draws a card with no art and no instance, and opens onto its ranked rows", function()
+    it("draws a tile with no instance art, and opens onto its ranked rows", function()
         local documents = companionRun()
         local model = ns.UpgradeMapPanel.RunModel({
             sources = sources,
@@ -2791,30 +3461,48 @@ describe("UpgradeMapPanel Crafting and Delves cards", function()
         })
         local card = cardNamed(model, "Crafting")
         local elements = ns.UpgradeMapPanel.RunElements(model, { runs = { [card.key] = true } })
-        local opened, listed = nil, 0
-        for index, element in ipairs(elements) do
-            if element.kind == ns.UpgradeMapPanel.ELEMENT_RUN and element.run == card then
-                opened = index
-            elseif opened and element.kind == ns.UpgradeMapPanel.ELEMENT_ITEM then
-                listed = listed + 1
-            elseif opened and element.kind == ns.UpgradeMapPanel.ELEMENT_RUN then
-                break
+        local drawer, tileRow
+        for _, element in ipairs(elements) do
+            if element.kind == ns.UpgradeMapPanel.ELEMENT_RUN_ROW then
+                for _, run in ipairs(element.runs) do
+                    if run == card then
+                        tileRow = element
+                    end
+                end
+            elseif element.kind == ns.UpgradeMapPanel.ELEMENT_DRAWER then
+                drawer = element
             end
         end
-        assert.is_number(opened)
-        assert.equal(#card.upgrades, listed)
+        assert.is_not_nil(tileRow)
+        assert.is_not_nil(drawer)
+        assert.equal(card, drawer.run)
+        assert.equal(#card.upgrades, #drawer.run.upgrades)
 
-        -- The card is drawn by the same element the instance cards are, and
-        -- the strip where art would be stays the plain dark one because there
-        -- is no instance to draw.
+        -- The tile is drawn by the row element every tile is drawn by, and it
+        -- carries no instance art at all: there is no instance. What stands in
+        -- is the mosaic of its own four best rows' icons - the client's own
+        -- file IDs, not a picture of somewhere else.
         local frame = ns.UpgradeMapPanel.Create()
         local element = CreateFrame("Frame", nil, frame)
-        ns.UpgradeMapPanel.InitElement(frame, element, elements[opened])
-        assert.equal("Crafting", element.runName:GetText())
-        assert.equal("No difficulty - spark and materials not read", element.runSecond:GetText())
-        assert.equal("13 of 18 ranked items are upgrades", element.runCount:GetText())
-        assert.is_nil(element.runArt:GetTexture())
-        assert.is_not_nil(element.runArt.vertexColor)
+        ns.UpgradeMapPanel.InitElement(frame, element, tileRow)
+        local tile
+        for index, run in ipairs(tileRow.runs) do
+            if run == card then
+                tile = element.tiles[index]
+            end
+        end
+        assert.is_not_nil(tile)
+        assert.equal("Crafting", tile.name:GetText())
+        assert.equal("spark and materials not read", tile.second:GetText())
+        assert.is_false(tile.art:IsShown())
+        assert.equal(ns.UpgradeMapPanel.TileMosaic(card)[1], tile.mosaic[1]:GetTexture())
+        -- Its count is of RATED ITEMS and not of a run's drops, so it carries
+        -- no pips at all; the figure is on its hover instead.
+        assert.is_nil(ns.UpgradeMapPanel.TilePips(card))
+        for _, pip in ipairs(tile.pips) do
+            assert.is_false(pip:IsShown())
+        end
+        assert.is_not_nil(ns.UpgradeMapPanel.TileDetailText(card):find("13 of 18", 1, true))
     end)
 
     it("says nothing about either source when the export ranks neither", function()

@@ -1393,7 +1393,9 @@ describe("the Upgrade Map tab", function()
     end)
 
     it("renders the map into the window and pins the values-free note", function()
-        assert.equal(ns.UpgradeMapPanel.NOTE, panel.note:GetText())
+        -- Since UX-5 (WKE-614) the note is not a paragraph under the header: it
+        -- is the first line of the hint icon's tooltip, verbatim.
+        assert.equal(ns.UpgradeMapPanel.NOTE, ns.UpgradeMapPanel.HintLines(panel.model, panel.mode)[1])
         assert.equal("Upgrade Map", panel.header:GetText())
         assert.is_true(panel.model.hasMap)
         -- The printed text is still the model's own, unchanged by M5-3...
@@ -1593,6 +1595,11 @@ describe("the window after WKE-530", function()
         local seen = 0
         -- Since V-5 (WKE-600) not every tab has a pinned note at all.
         if panel.note and panel.note:GetText():find(note, 1, true) then
+            seen = seen + 1
+        end
+        -- Since UX-5 (WKE-614) the Upgrade Map says its pinned note on its hint
+        -- icon rather than under its header; it is still said exactly once.
+        if panel.hintText and panel.hintText:find(note, 1, true) then
             seen = seen + 1
         end
         for _, element in ipairs(panel.elements or {}) do

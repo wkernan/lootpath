@@ -1019,6 +1019,26 @@ function newFrame(kind, world, parent, template)
         function f:GetFontString()
             return self.fontString
         end
+        -- `Button:SetHighlightTexture(asset, blendMode)` (Button.lua:166) and
+        -- its getter (:73). The client makes a Texture of its own out of the
+        -- asset and draws it while the pointer is over the button; the stub
+        -- makes the same region, so a test can read back WHICH art a button
+        -- highlights with - a decision the code makes - without any of it being
+        -- drawn. Blizzard's own buttons pass a file and a blend mode this way
+        -- (`self:SetHighlightTexture([[Interface\Buttons\ButtonHilight-Square]],
+        -- "ADD")`, Blizzard_ActionBar's VehicleLeaveButton).
+        function f:SetHighlightTexture(asset, blendMode)
+            local texture = self.highlightTexture or newRegion("Texture", self)
+            self.highlightTexture = texture
+            self.highlightBlendMode = blendMode
+            if type(asset) == "string" then
+                texture:SetTexture(asset)
+            end
+            return texture
+        end
+        function f:GetHighlightTexture()
+            return self.highlightTexture
+        end
         f.SetNormalFontObject = function() end
         f.SetDisabledFontObject = function() end
         f.SetHighlightFontObject = function() end
