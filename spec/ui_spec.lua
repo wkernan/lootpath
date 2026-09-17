@@ -284,25 +284,63 @@ describe("the Equip Now panel", function()
         H.unload()
     end)
 
-    it("draws one row per match row, in the match's order", function()
+    -- M5-1b (WKE-610): the rows that need something are drawn first and at full
+    -- weight; the already-best rows are one folded line until the caret is
+    -- clicked, and then they follow it. The slot word is on the row's second
+    -- line - there is no slot column to read it out of any more.
+    it("draws the rows that need something, folds the rest, and opens them on the caret", function()
         assert.equal(15, #panel.match.rows)
-        for i, matchRow in ipairs(panel.match.rows) do
+        local needs, best = {}, {}
+        for _, matchRow in ipairs(panel.match.rows) do
+            if matchRow.status == "equipped_is_best" then
+                best[#best + 1] = matchRow
+            else
+                needs[#needs + 1] = matchRow
+            end
+        end
+        assert.is_true(#needs > 0 and #best > 0)
+
+        for i, matchRow in ipairs(needs) do
             local frameRow = panel.rows[i]
             assert.is_true(frameRow.shown)
-            assert.equal(matchRow.slot, frameRow.slotText:GetText())
             assert.equal(matchRow, frameRow.matchRow)
+            assert.is_truthy(frameRow.line.second:GetText():find(matchRow.slot, 1, true))
+        end
+        assert.is_false(panel.rows[#needs + 1] and panel.rows[#needs + 1].shown or false)
+        assert.is_true(panel.fold:IsShown())
+        assert.is_truthy(panel.fold.text:GetText():find(ns.UI.EquipPanel.FoldText(#best, 15), 1, true))
+        assert.is_truthy(panel.fold.text:GetText():find(ns.UI.EquipPanel.FOLD_SHUT_MARK, 1, true))
+
+        assert.is_true(panel.fold:Click())
+        assert.is_truthy(panel.fold.text:GetText():find(ns.UI.EquipPanel.FOLD_OPEN_MARK, 1, true))
+        for i, matchRow in ipairs(best) do
+            local frameRow = panel.rows[#needs + i]
+            assert.is_true(frameRow.shown)
+            assert.equal(matchRow, frameRow.matchRow)
+            -- Nothing but the slot word: the tick has said the rest.
+            assert.equal(matchRow.slot, frameRow.line.second:GetText())
         end
         assert.is_false(panel.overflow:IsShown())
+
+        -- and it is remembered per character, the way the Upgrade Map's
+        -- sections are
+        assert.is_true(ns.UI.EquipPanel.FoldOpen(ns.db))
+        assert.is_true(ns.db.char.equipNow.bestOpen)
+        assert.is_true(panel.fold:Click())
+        assert.is_false(ns.UI.EquipPanel.FoldOpen(ns.db))
+        assert.is_nil(ns.db.char.equipNow.bestOpen)
     end)
 
     it("summarises the counts and puts the Equip button only on swap rows", function()
-        -- The counts are the five chips above the list (M5-1); the summary
-        -- line keeps only what the chips do not say.
+        -- The counts are the bar's key above the list (M5-1b); the text model
+        -- `/lootpath status` reads still says all five, unchanged.
         local chips = ns.UI.EquipPanel.Chips(panel.match)
         assert.equal(5, #chips)
         assert.equal("equipped_is_best", chips[1].key)
-        assert.is_truthy(panel.chips[1]:GetText():find("already best", 1, true))
+        assert.is_truthy(panel.barKey:GetText():find("already best", 1, true))
         assert.is_truthy(ns.UI.EquipPanel.SummaryText(panel.match):find("already best", 1, true))
+        ns.UI.EquipPanel.ToggleFold(ns.db)
+        ns.UI.EquipPanel.Refresh(panel, panel.match)
         local swapButtons, otherButtons = 0, 0
         for i = 1, #panel.match.rows do
             local frameRow = panel.rows[i]
@@ -572,6 +610,11 @@ describe("the Equip Now panel", function()
 
     it("takes a row back to one line when its note goes away", function()
         local feet, head
+        -- The already-best rows are behind the fold by default (M5-1b), and
+        -- this is about a frame that is RECYCLED from one row to another, so
+        -- both kinds have to be drawn.
+        ns.UI.EquipPanel.ToggleFold(ns.db)
+        ns.UI.EquipPanel.Refresh(panel, panel.match)
         for _, frameRow in ipairs(panel.rows) do
             if frameRow.matchRow and frameRow.matchRow.status == "best_not_owned" then
                 feet = feet or frameRow
@@ -603,7 +646,11 @@ describe("the Equip Now panel", function()
         ns.UI.Frame()
         ns.UI.Refresh()
         local fresh = ns.UI.frame.equipPanel
-        assert.is_truthy(fresh.summary:GetText():find("Paste a Top Gear", 1, true))
+        -- The answer line carries it: before an import there is no answer for a
+        -- quiet note to be a condition on, so the prompt IS the answer and the
+        -- hint icon stays down (M5-1b).
+        assert.is_truthy(fresh.answer:GetText():find("Paste a Top Gear", 1, true))
+        assert.is_false(fresh.hint:IsShown())
         assert.is_false(fresh.equipAll:IsShown())
     end)
 end)
@@ -645,24 +692,30 @@ describe("the Equip Now list's top (M5-1a)", function()
         return nil
     end
 
-    it("hangs the list under the note line when it has text", function()
-        assert.is_true(panel.summary:GetText() ~= "")
+    it("hangs the list under the bar's key, which is the last thing the header says", function()
+        assert.is_true(panel.barKey:GetText() ~= "")
         local point = topAnchor(panel.scroll)
-        assert.equal(panel.summary, point[2])
+        assert.equal(panel.barKey, point[2])
         assert.equal("BOTTOMLEFT", point[3])
         assert.equal(-ns.UI.EquipPanel.TOP_GAP, point[5])
     end)
 
-    it("hangs it under the chips when the note line is empty", function()
-        -- The bank hint is the only thing this match has to say, so an open
-        -- bank leaves the note line with no text at all.
+    -- M5-1b (WKE-610) settles M5-1a's fault at the other end: the bank hint is
+    -- an icon under the list now, not a line above it, so whether this
+    -- character's bank happens to be open cannot move the list's top at all.
+    it("puts the list's top in the same place whether there is a hint or not", function()
+        local shut = topAnchor(panel.scroll)
+        assert.is_truthy(ns.UI.EquipPanel.NoteText(panel.match):find("bank closed", 1, true))
+        assert.is_true(panel.hint:IsShown())
+
         world.bankOpen = true
         ns.UI.Refresh()
-        assert.equal("", panel.summary:GetText())
-        local point = topAnchor(panel.scroll)
-        assert.equal(panel.chips[1], point[2])
-        assert.equal("BOTTOMLEFT", point[3])
-        assert.equal(-ns.UI.EquipPanel.TOP_GAP, point[5])
+        assert.equal("", ns.UI.EquipPanel.NoteText(panel.match))
+        assert.is_false(panel.hint:IsShown())
+        local open = topAnchor(panel.scroll)
+        assert.equal(shut[2], open[2])
+        assert.equal(shut[3], open[3])
+        assert.equal(shut[5], open[5])
         -- And the first row is still at the very top of the list either way:
         -- where the rows sit inside the list never depended on the note.
         local row = topAnchor(panel.rows[1])
@@ -766,36 +819,66 @@ describe("the Equip Now panel on a Great Vault option in the top set (WKE-541)",
     it("shows the staff he is wearing instead of a swap that failed", function()
         local frameRow = vaultRow()
         assert.is_table(frameRow)
-        assert.equal("2H Weapon", frameRow.slotText:GetText())
-        -- One item line, no pair: nothing is being swapped for anything.
+        -- One item line, no pair: nothing is being swapped for anything. The
+        -- slot word is on the second line now that the column is gone, and
+        -- beside it the level the rating used, which is the number the reader
+        -- is about to compare with what he wears (M5-1b).
         assert.is_truthy(frameRow.line.name:GetText():find("Lightgrasp Worldroot", 1, true))
-        assert.equal("already equipped", frameRow.line.second:GetText())
+        assert.is_truthy(frameRow.line.second:GetText():find("2H Weapon", 1, true))
+        assert.is_truthy(frameRow.line.second:GetText():find("rated at 321", 1, true))
+        assert.is_falsy(frameRow.line.second:GetText():find("already equipped", 1, true))
         assert.is_false(frameRow.worn:IsShown())
         assert.is_false(frameRow.arrow:IsShown())
         assert.is_false(frameRow.arrowText:IsShown())
-        assert.is_falsy(frameRow.line.badge:GetText():find("not owned", 1, true))
+        assert.equal("", frameRow.line.badge:GetText())
+        -- The vault mark, in the fixed column, and the verb that goes to the
+        -- tab where the reward can be acted on.
+        assert.is_true(frameRow.line.mark:IsShown())
+        assert.equal(ns.UI.EquipPanel.VAULT_ATLAS, frameRow.line.mark.atlas)
+        assert.is_true(frameRow.vault:IsShown())
+        assert.equal(ns.UI.EquipPanel.VAULT_VERB, frameRow.vault:GetText())
+        frameRow.vault:Click()
+        assert.equal(ns.UI.VAULT_TAB, ns.UI.frame.selectedTab)
+        ns.UI.ShowTab(ns.UI.frame, 1)
         -- And QE Live's own word for what is waiting there, in his colour.
         assert.is_truthy(frameRow.line.tags:GetText():find("Vault", 1, true))
         assert.is_truthy(frameRow.line.tags:GetText():find(ns.UI.ItemLine.TAG.vault.hex, 1, true))
         assert.is_truthy(ns.UI.EquipPanel.Describe(frameRow.matchRow).text:find("already equipped", 1, true))
     end)
 
-    it("names the vault option and the tab that shows it, on a line of its own", function()
+    -- The text model still says the whole sentence, word for word - that is
+    -- what `/lootpath status` and the text tests read, and M5-1b left it alone.
+    -- What changed is the DRAWN row: the mark says where the item is, the
+    -- second line carries the level the rating used, and the verb goes to the
+    -- tab that shows it, so a sentence repeating all three came off the screen
+    -- (WKE-598's canvas, the owner's answer 1).
+    it("keeps the vault sentence in the text model and says it in three marks on screen", function()
         local frameRow = vaultRow()
-        assert.is_true(frameRow.note:IsShown())
-        local note = frameRow.note:GetText()
-        assert.is_truthy(note:find(EXPECTED_NOTE, 1, true))
-        assert.is_truthy(note:find(ns.UI.EquipPanel.NOTE_COLOR, 1, true))
+        local described = ns.UI.EquipPanel.Describe(frameRow.matchRow)
+        assert.is_truthy(described.note:find(EXPECTED_NOTE, 1, true))
+        assert.is_truthy(described.note:find(ns.UI.EquipPanel.NOTE_COLOR, 1, true))
+        assert.equal(EXPECTED_NOTE, ns.UI.EquipPanel.VaultNoteText(frameRow.matchRow.verdictItem))
+
+        assert.is_false(frameRow.note:IsShown())
+        assert.equal("", frameRow.note:GetText())
+        assert.equal(ns.UI.EquipPanel.ROW_HEIGHT, frameRow:GetHeight())
         assert.is_falsy(frameRow.line.name:GetText():find("Great Vault", 1, true))
         assert.is_falsy(frameRow.line.second:GetText():find("Great Vault", 1, true))
-        assert.equal(EXPECTED_NOTE, ns.UI.EquipPanel.VaultNoteText(frameRow.matchRow.verdictItem))
     end)
 
-    it("wraps that line inside the frame rather than cutting it off", function()
-        local frameRow = vaultRow()
-        assert.is_true(frameRow.note.wordWrap)
-        assert.equal(0, frameRow.note:GetWidth())
-        assert.equal(ns.UI.EquipPanel.ROW_HEIGHT + ns.UI.EquipPanel.NOTE_HEIGHT, frameRow:GetHeight())
+    -- And the answer sentence over this exact week: fourteen slots settled and
+    -- one reward waiting, so the tab's whole first line is the one thing there
+    -- is to do and then the tail that says the rest is fine (M5-1b).
+    it("puts the one thing there is to do in the answer sentence, and nothing else", function()
+        local answer = ns.UI.EquipPanel.AnswerText(panel.match)
+        assert.equal(answer, panel.answer:GetText())
+        assert.is_truthy(answer:find("from the vault", 1, true))
+        assert.is_truthy(answer:find(ns.UI.EquipPanel.ANSWER_TAIL, 1, true))
+        -- Nothing to put on, so the sentence never says so.
+        assert.equal(0, panel.match.counts.swap)
+        assert.is_falsy(answer:find("Put on", 1, true))
+        -- and not a percent anywhere on it, because the export carries none
+        assert.is_falsy(answer:find("%%"))
     end)
 
     it("offers nothing to equip on that row and nothing to equip at all", function()
@@ -811,14 +894,16 @@ describe("the Equip Now panel on a Great Vault option in the top set (WKE-541)",
     it("counts it as waiting in the vault, not as a hole in his gear", function()
         local summary = ns.UI.EquipPanel.SummaryText(panel.match)
         assert.is_truthy(summary:find("14 already best, 0 to swap, 1 waiting in the Great Vault, 0 not owned", 1, true))
-        -- The same five counts as the chips the panel actually draws.
-        local drawn = {}
-        for _, chip in ipairs(panel.chips) do
-            drawn[#drawn + 1] = chip:GetText()
-        end
-        assert.is_truthy(drawn[1]:find("14 already best", 1, true))
-        assert.is_truthy(drawn[2]:find("0 to swap", 1, true))
-        assert.is_truthy(drawn[3]:find("1 in the Great Vault", 1, true))
+        -- The same counts, in the bar's key - except that a state with nothing
+        -- in it is not drawn at all, because a `0 to swap` is a word spent
+        -- saying nothing (M5-1b).
+        local key = panel.barKey:GetText()
+        assert.is_truthy(key:find("14 already best", 1, true))
+        assert.is_truthy(key:find("1 in the Great Vault", 1, true))
+        assert.is_falsy(key:find("0 to swap", 1, true))
+        assert.is_falsy(key:find("0 not owned", 1, true))
+        -- and one segment per slot, never one per point of anything
+        assert.equal(#panel.match.rows, #ns.UI.EquipPanel.Bar(panel.match).segments)
     end)
 
     it("does not claim an empty slot is already equipped", function()
@@ -831,6 +916,209 @@ describe("the Equip Now panel on a Great Vault option in the top set (WKE-541)",
         assert.is_falsy(described.text:find("already equipped", 1, true))
         assert.is_truthy(described.text:find("nothing equipped", 1, true))
         assert.is_truthy(described.note:find("Great Vault option in this slot", 1, true))
+    end)
+end)
+
+-- M5-1b (WKE-610): Equip Now redrawn to the approved canvas (WKE-598) with the
+-- owner's five answers of 2026-09-16 - the mark set as drawn, the slot column
+-- dropped, the already-best rows folded, the slot bar kept, dark only at 760.
+-- Everything here is read off the owner's own scan and his own export.
+describe("Equip Now redrawn (M5-1b)", function()
+    local ns, world, panel
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        ns.UI.Frame()
+        ns.UI.frame.pasteBox:SetText(readFile(REAL_EXPORT))
+        ns.UI.frame.importButton:Click()
+        panel = ns.UI.frame.equipPanel
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function rowFor(status)
+        ns.UI.EquipPanel.Refresh(panel, panel.match)
+        for _, frameRow in ipairs(panel.rows) do
+            if frameRow.shown and frameRow.matchRow and frameRow.matchRow.status == status then
+                return frameRow
+            end
+        end
+        return nil
+    end
+
+    it("gives each state its own mark, at the size it is seen at, and no badge word", function()
+        ns.UI.EquipPanel.ToggleFold(ns.db)
+        ns.UI.EquipPanel.Refresh(panel, panel.match)
+        local seen = {}
+        for _, frameRow in ipairs(panel.rows) do
+            if frameRow.shown and frameRow.matchRow then
+                local status = frameRow.matchRow.status
+                seen[status] = true
+                local mark = ns.UI.EquipPanel.MARK[status]
+                if mark then
+                    assert.is_true(frameRow.line.mark:IsShown())
+                    assert.equal(mark.atlas, frameRow.line.mark.atlas)
+                    assert.equal(ns.UI.ItemLine.MARK_SIZE, frameRow.line.mark:GetWidth())
+                    assert.equal(ns.UI.ItemLine.MARK_SIZE, frameRow.line.mark:GetHeight())
+                    -- The art is never asked to draw itself at its own size:
+                    -- R-2b, the fault that squashed a 214x121 atlas into 15
+                    -- points, cannot happen to a mark drawn this way.
+                    assert.is_false(frameRow.line.mark.atlasUsedSize)
+                    assert.equal(ns.UI.EquipPanel.STATUS_HEX[status], mark.hex)
+                else
+                    -- A swap: the pair and the button are the picture.
+                    assert.equal("swap", status)
+                    assert.is_false(frameRow.line.mark:IsShown())
+                end
+                -- No badge word on any row, in any state.
+                assert.equal("", frameRow.line.badge:GetText())
+            end
+        end
+        assert.is_true(seen.equipped_is_best and seen.swap and seen.best_not_owned)
+    end)
+
+    it("puts the slot on the row's second line, because there is no slot column", function()
+        ns.UI.EquipPanel.ToggleFold(ns.db)
+        ns.UI.EquipPanel.Refresh(panel, panel.match)
+        for _, frameRow in ipairs(panel.rows) do
+            if frameRow.shown and frameRow.matchRow then
+                assert.is_truthy(frameRow.line.second:GetText():find(frameRow.matchRow.slot, 1, true))
+                assert.is_nil(frameRow.slotText)
+            end
+        end
+        -- A swap says where the piece is, after the slot; an already-best row
+        -- says the slot and stops.
+        local swap = rowFor("swap")
+        assert.is_table(swap)
+        assert.equal(
+            swap.matchRow.slot .. ns.UI.EquipPanel.SECOND_SEPARATOR .. "in your bags",
+            swap.line.second:GetText()
+        )
+    end)
+
+    it("says the answer in one sentence for each of the three cases", function()
+        -- Something to do: this week has swaps, so the sentence opens with the
+        -- thing to put on and closes with the tail.
+        assert.is_true(panel.match.counts.swap > 0)
+        local answer = ns.UI.EquipPanel.AnswerText(panel.match)
+        assert.equal(answer, panel.answer:GetText())
+        assert.is_truthy(answer:find("Put on ", 1, true))
+        assert.is_truthy(answer:find(ns.UI.EquipPanel.ANSWER_TAIL, 1, true))
+        -- Nothing to do: every row settled.
+        local settled = { ok = true, rows = {}, counts = { equipped_is_best = 0 } }
+        for _, row in ipairs(panel.match.rows) do
+            if row.status == "equipped_is_best" then
+                settled.rows[#settled.rows + 1] = row
+                settled.counts.equipped_is_best = settled.counts.equipped_is_best + 1
+            end
+        end
+        assert.is_true(#settled.rows > 0)
+        assert.equal(ns.UI.EquipPanel.ANSWER_ALL_BEST, ns.UI.EquipPanel.AnswerText(settled))
+        -- Nothing rated at all: the honest state, not a claim that all is well.
+        local unrated = { ok = true, rows = {}, counts = { equipped_is_best = 0, no_verdict = 0 } }
+        for _, row in ipairs(panel.match.rows) do
+            if row.status == "equipped_is_best" then
+                unrated.rows[#unrated.rows + 1] = { slot = row.slot, status = "no_verdict", equipped = row.equipped }
+                unrated.counts.no_verdict = unrated.counts.no_verdict + 1
+            end
+        end
+        assert.equal(ns.UI.EquipPanel.ANSWER_NOTHING_RATED, ns.UI.EquipPanel.AnswerText(unrated))
+    end)
+
+    it("draws one bar segment per slot, in slot order, and never one per point of value", function()
+        local bar = ns.UI.EquipPanel.Bar(panel.match)
+        assert.equal(#panel.match.rows, #bar.segments)
+        for index, segment in ipairs(bar.segments) do
+            assert.equal(panel.match.rows[index].status, segment.status)
+        end
+        -- Drawn: one texture per segment, each a flat colour in that state's
+        -- own hex, sharing out the panel's own width rather than a number of
+        -- the panel's (M5-2c, WKE-609).
+        local drawnSegments = 0
+        for index, texture in ipairs(panel.segments) do
+            if texture:IsShown() then
+                drawnSegments = drawnSegments + 1
+                local r, g, b = ns.UI.ItemLine.RGB(bar.segments[index].hex)
+                assert.same({ r, g, b }, { texture.colorTexture[1], texture.colorTexture[2], texture.colorTexture[3] })
+                assert.equal(ns.UI.EquipPanel.BAR_HEIGHT, texture:GetHeight())
+            end
+        end
+        assert.equal(#bar.segments, drawnSegments)
+        -- The segments fill the panel's width, gaps included, and no figure of
+        -- this panel's own decides it.
+        local count = #bar.segments
+        local expected = (panel.rowWidth - (count - 1) * ns.UI.EquipPanel.BAR_SEGMENT_GAP) / count
+        assert.equal(expected, panel.segments[1]:GetWidth())
+        -- The key says each present colour's count in words; colour is never
+        -- the only signal.
+        local key = panel.barKey:GetText()
+        for _, entry in ipairs(bar.key) do
+            assert.is_truthy(key:find(entry.text, 1, true))
+        end
+        -- and in the canvas's order: what there is to do first, settled last.
+        local swapAt = key:find("to swap", 1, true)
+        local bestAt = key:find("already best", 1, true)
+        assert.is_truthy(swapAt)
+        assert.is_truthy(bestAt)
+        assert.is_true(swapAt < bestAt)
+        -- No percent on this tab that the export does not itself carry.
+        assert.is_falsy(key:find("%%"))
+    end)
+
+    it("folds the settled rows by default, opens them dim, and remembers which per character", function()
+        local settled = panel.match.counts.equipped_is_best
+        assert.is_true(settled > 0)
+        assert.is_false(ns.UI.EquipPanel.FoldOpen(ns.db))
+        assert.is_true(panel.fold:IsShown())
+        local drawn = 0
+        for _, frameRow in ipairs(panel.rows) do
+            if frameRow.shown and frameRow.matchRow then
+                drawn = drawn + 1
+                assert.is_not.equal("equipped_is_best", frameRow.matchRow.status)
+            end
+        end
+        assert.equal(#panel.match.rows - settled, drawn)
+
+        panel.fold:Click()
+        assert.is_true(ns.UI.EquipPanel.FoldOpen(ns.db))
+        drawn = 0
+        for _, frameRow in ipairs(panel.rows) do
+            if frameRow.shown and frameRow.matchRow then
+                drawn = drawn + 1
+                if frameRow.matchRow.status == "equipped_is_best" then
+                    assert.equal(ns.UI.ItemLine.DIM_ALPHA, frameRow.line:GetAlpha())
+                else
+                    assert.equal(1, frameRow.line:GetAlpha())
+                end
+            end
+        end
+        assert.equal(#panel.match.rows, drawn)
+
+        -- Remembered per character, in the same place the Upgrade Map keeps its
+        -- sections: a fresh panel over the same database opens already open.
+        local second = ns.UI.EquipPanel.Create(ns.UI.frame)
+        ns.UI.EquipPanel.Refresh(second, panel.match)
+        assert.is_true(second.fold:IsShown())
+        assert.is_truthy(second.fold.text:GetText():find(ns.UI.EquipPanel.FOLD_OPEN_MARK, 1, true))
+    end)
+
+    it("moves the quiet notes onto an icon whose hover says them whole", function()
+        world.bankOpen = false
+        ns.UI.Refresh()
+        local note = ns.UI.EquipPanel.NoteText(panel.match)
+        assert.is_truthy(note:find("bank closed", 1, true))
+        assert.is_true(panel.hint:IsShown())
+        assert.equal(note, panel.hintText)
+        -- It is an icon, not a line: nothing on the panel puts those words on
+        -- screen until the hover.
+        assert.is_falsy(panel.answer:GetText():find("bank closed", 1, true))
+        assert.is_falsy(panel.barKey:GetText():find("bank closed", 1, true))
+        panel.hint:GetScript("OnEnter")(panel.hint)
+        assert.equal(note, world.tooltip.stub:Text())
+        assert.equal(panel.hint, world.tooltip.owner)
     end)
 end)
 
@@ -856,8 +1144,15 @@ describe("the Equip Now panel in combat", function()
         world.fireEvent("PLAYER_REGEN_DISABLED")
         assert.is_true(panel.match.stale)
         assert.equal(15, #panel.match.rows)
-        assert.is_truthy(panel.summary:GetText():find("In combat", 1, true))
+        -- The in-combat warning is a condition on the answer, so since M5-1b it
+        -- is the hint icon's own words rather than a line above the list; the
+        -- text model still says it in the same sentence it always did.
+        assert.is_true(panel.hint:IsShown())
+        assert.is_truthy(panel.hintText:find("In combat", 1, true))
+        assert.is_truthy(ns.UI.EquipPanel.NoteText(panel.match):find("In combat", 1, true))
         assert.is_false(panel.equipAll:IsEnabled())
+        ns.UI.EquipPanel.ToggleFold(ns.db)
+        ns.UI.EquipPanel.Refresh(panel, panel.match)
         for i = 1, #panel.match.rows do
             assert.is_false(panel.rows[i].equip:IsEnabled())
         end

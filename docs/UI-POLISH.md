@@ -197,6 +197,56 @@ A `UI/ItemLine.lua` frame that every tab draws instead of a font string:
 
 ### 4c. Equip Now
 
+**Built as described below in M5-1 (WKE-550) and then REDRAWN in M5-1b (WKE-610, 2026-09-17) to the approved canvas of WKE-598, with the owner's five answers of 2026-09-16 applied. What is on screen now:**
+
+- **A row says its state once.** One mark column in a fixed position at the line's
+  right-hand end, one mark per state, drawn at 16 points - the size it is seen
+  at (R-2b) - from an atlas asked of the client at draw time and tinted to that
+  state's own colour, with a flat colour texture in the same place and at the
+  same size on a client that does not ship the art. Already best is the tick and
+  nothing else, and the whole row is dimmed to half weight; to swap carries no
+  mark at all, because the worn icon, the arrow and the Equip button are already
+  the picture; in the Great Vault is the chest glyph with the `Vault ›` verb and
+  the `rated at <n>` second line; not owned is the client's own empty item button
+  with the warning triangle; no rating is a hollow ring with the honesty phrase
+  and its tail whole. **The `already equipped` line and the `already best` badge
+  word are gone from the screen** - `Describe` still returns them, because it is
+  the text model `/lootpath status` and the text tests read and that model is
+  unchanged by decision; the drawn row is `EquipPanel.Drawn` beside it.
+- **No slot column.** The slot word heads the row's second line
+  (`Legs · in your bags`); an already-best row's second line is the slot word
+  alone. The row's left edge is the icon, and the ninety points the column took
+  go to the item's name.
+- **The header is the answer sentence, then the bar.** `EquipPanel.AnswerText`
+  names only what there is to DO, in the words a guildmate would type, through
+  `ns.Roads.ShortName`; nothing to do is `You're set - every slot is your best.`
+  and nothing rated is `Nothing you're wearing is rated yet.` Under it one bar of
+  slot segments in slot order, each the state's colour, with a key carrying each
+  PRESENT colour's count in words - colour is never the only signal - in the
+  canvas's order, what there is to do first and `already best` last and grey.
+  **The bar counts slots, never value**, and no percent appears on this tab that
+  the export does not itself carry.
+- **The fold.** The already-best rows fold behind one line by default
+  (`15 slots already best`), with the bar as the proof that nothing is hidden;
+  the caret opens them dimmed, and which way it is left is remembered per
+  character in `db.char.equipNow.bestOpen`, beside the Upgrade Map's sections.
+  Rows that need something always draw, full weight, above the fold line.
+- **The bank hint and the import and refusal notes are one icon** under the list
+  whose hover says `NoteText` whole. Because they are no longer a line above the
+  list, whether this character's bank is open can no longer move the list's top -
+  which is M5-1a's fault closed at the other end.
+- **Unchanged by decision:** `ns.Match`, `EquipPanel.Describe`, `SummaryText`,
+  `NoteText`, `Chips`, `VaultNoteText`, `Equip`, `EquipAll`, the scroll-to-top
+  rules (M5-1a) and the voice rules.
+- **One premise of the canvas refuted:** Blizzard ships no dashed ring and no
+  dashed slot frame anywhere under `.luals/` (searched 2026-09-17; every `dash`
+  hit was `housing-dashboard-*`), so the no-rating mark is a hollow ring and the
+  not-owned icon is the client's own empty item button. Both say the same thing
+  with art the client actually has.
+
+**What M5-1 built, which the above replaces on screen:**
+
+
 - Rows become icon pairs: the worn item's icon, an arrow atlas
   (`common-icon-forwardarrow`), the best item's icon, then the badge and the
   Equip button. "Already best" rows show one icon and a green

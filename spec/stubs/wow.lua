@@ -282,6 +282,19 @@ local function attachTextureSurface(r)
     function r:GetAtlas()
         return self.atlas
     end
+    -- `TextureBase:SetColorTexture(r, g, b, a)` (Core/Widget/Base/
+    -- TextureBase.lua): a flat colour in place of a file or an atlas. It is
+    -- what a mark falls back to on a client that does not ship the art, and
+    -- what the slot bar's segments are made of (M5-1b, WKE-610). It fills the
+    -- same slot as the other two, so setting one clears the others - exactly as
+    -- SetTexture and SetAtlas already do to each other here. The real widget has
+    -- no getter for it, so the colour is recorded under a name of the stub's own
+    -- and a test reads it back from there.
+    function r:SetColorTexture(red, green, blue, alpha)
+        self.colorTexture = { red, green, blue, alpha }
+        self.texture = nil
+        self.atlas = nil
+    end
     -- The client refuses tex coords on a masked texture - `Texture:SetTexCoord():
     -- Cannot set tex coords when texture has mask.`, read off the owner's Lua
     -- Error window on 2026-09-16 14:39:48 (M5-2a, WKE-593), where it stopped
@@ -1189,6 +1202,17 @@ function Stub.install()
             -- `SetAllPoints` into a 15-point square - the same fault this issue
             -- is about, in another surface. See `spec/tooltip_spec.lua`.
             ["evergreen-weeklyrewards-reward-selected"] = { width = 214, height = 121 },
+            -- M5-1b (WKE-610): Equip Now's four marks and its empty-slot
+            -- frame. Every one was read from Blizzard's own shipped XML or Lua
+            -- under `.luals/` on 2026-09-17, and each cite is in
+            -- `Lootpath/UI/EquipPanel.lua`'s mark block. No size is given: the
+            -- marks are drawn at MARK_SIZE, the size they are seen at (R-2b),
+            -- so nothing here ever asks for the art's own size. A test that
+            -- wants the flat-colour fallback empties the table.
+            ["gficon-chest-evergreen-greatvault-collect"] = true,
+            ["transmog-icon-warning-small"] = true,
+            ["common-radiobutton-circle"] = true,
+            ["auctionhouse-itemicon-empty"] = true,
             -- V-5 (WKE-600): the rest of the Great Vault's own art the tab
             -- draws. The two cell backgrounds are the two strings
             -- `WeeklyRewardsActivityMixin:Refresh` passes to SetAtlas; the

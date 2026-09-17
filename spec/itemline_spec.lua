@@ -353,11 +353,29 @@ describe("the Equip Now tab drawn as item lines", function()
         ns.UI.frame.pasteBox:SetText(readFile(DUNGEON_EXPORT))
         ns.UI.frame.importButton:Click()
         panel = ns.UI.frame.equipPanel
+        -- M5-1b (WKE-610): the already-best rows are folded behind one line by
+        -- default, so this file - which is about how a row is DRAWN - opens the
+        -- fold and looks at all fifteen.
+        ns.UI.EquipPanel.ToggleFold(ns.db)
+        ns.UI.EquipPanel.Refresh(panel, panel.match)
     end)
 
     after_each(function()
         H.unload()
     end)
+
+    -- Every row frame that is actually on screen. Since the fold, the drawn
+    -- order is "everything that needs something, then the settled rows", so a
+    -- row frame's index is no longer its index in the match.
+    local function drawnRows()
+        local out = {}
+        for _, frameRow in ipairs(panel.rows) do
+            if frameRow.shown and frameRow.matchRow then
+                out[#out + 1] = frameRow
+            end
+        end
+        return out
+    end
 
     local function rowsByStatus(status)
         local out = {}
@@ -374,18 +392,21 @@ describe("the Equip Now tab drawn as item lines", function()
         -- carry an icon file ID off the client. The other five are QE Live's
         -- own items, which he names by id only.
         local scanned, named = 0, 0
-        for index = 1, #panel.match.rows do
-            local frameRow = panel.rows[index]
+        assert.equal(#panel.match.rows, #drawnRows())
+        for _, frameRow in ipairs(drawnRows()) do
             local described = frameRow.described
             if described.item and described.item.icon then
                 assert.is_number(frameRow.line.icon.texture)
                 assert.equal(described.item.icon, frameRow.line.icon.texture)
                 scanned = scanned + 1
             else
-                -- An item this replay's client has never described: Blizzard's
-                -- own question mark, and no invented icon.
+                -- An item this replay's client has never described, and one you
+                -- do not own either way: since M5-1b it is drawn as the
+                -- client's own EMPTY item button rather than as a piece of gear
+                -- with a question mark on it, and no icon is invented.
                 assert.equal("best_not_owned", frameRow.matchRow.status)
-                assert.equal(ns.UI.ItemLine.PLACEHOLDER_ICON, frameRow.line.icon.texture)
+                assert.is_nil(frameRow.line.icon.texture)
+                assert.equal(ns.UI.EquipPanel.GHOST_ICON_ATLAS, frameRow.line.icon.atlas)
                 named = named + 1
             end
         end
@@ -397,10 +418,11 @@ describe("the Equip Now tab drawn as item lines", function()
     end)
 
     it("tints every border with the client's colour for that item's quality", function()
-        for index = 1, #panel.match.rows do
-            local frameRow = panel.rows[index]
+        for _, frameRow in ipairs(drawnRows()) do
             local quality = frameRow.described.item and frameRow.described.item.quality
-            if quality then
+            -- Except an item you do not own, which is drawn as an empty slot
+            -- and so has no copy to have a quality (M5-1b).
+            if quality and not frameRow.drawn.ghost then
                 local color = ns.UI.ItemLine.QualityColor(quality)
                 assert.is_true(frameRow.line.border:IsShown())
                 assert.same({ color.r, color.g, color.b }, {
@@ -423,7 +445,10 @@ describe("the Equip Now tab drawn as item lines", function()
             assert.is_true(frameRow.arrow:IsShown())
             assert.equal("common-icon-forwardarrow", frameRow.arrow.atlas)
             assert.is_true(frameRow.equip:IsShown())
-            assert.is_truthy(frameRow.line.badge:GetText():find("swap", 1, true))
+            -- M5-1b: the picture IS the sentence on a swap row, so the row
+            -- carries no mark and no badge word beside the button.
+            assert.is_false(frameRow.line.mark:IsShown())
+            assert.equal("", frameRow.line.badge:GetText())
         end
 
         local best = rowsByStatus("equipped_is_best")
@@ -431,9 +456,15 @@ describe("the Equip Now tab drawn as item lines", function()
         for _, entry in ipairs(best) do
             assert.is_false(entry.row.worn:IsShown())
             assert.is_false(entry.row.arrow:IsShown())
-            assert.is_true(entry.row.line.badgeIcon:IsShown())
-            assert.equal("common-icon-checkmark", entry.row.line.badgeIcon.atlas)
-            assert.is_truthy(entry.row.line.badge:GetText():find("already best", 1, true))
+            -- The tick, in the mark column, and no word anywhere on the row:
+            -- no `already best` badge and no `already equipped` second line.
+            assert.is_true(entry.row.line.mark:IsShown())
+            assert.equal("common-icon-checkmark", entry.row.line.mark.atlas)
+            assert.equal("", entry.row.line.badge:GetText())
+            assert.is_falsy(entry.row.line.second:GetText():find("already equipped", 1, true))
+            assert.is_falsy(entry.row.line.second:GetText():find("already best", 1, true))
+            -- and the whole line is at half weight
+            assert.equal(ns.UI.ItemLine.DIM_ALPHA, entry.row.line:GetAlpha())
         end
     end)
 
@@ -447,22 +478,46 @@ describe("the Equip Now tab drawn as item lines", function()
             assert.is_true(entry.row.arrowText:IsShown())
             assert.equal(ns.UI.EquipPanel.ARROW_FALLBACK, entry.row.arrowText:GetText())
         end
-        for _, entry in ipairs(rowsByStatus("equipped_is_best")) do
-            assert.is_false(entry.row.line.badgeIcon:IsShown())
-            assert.is_truthy(entry.row.line.badge:GetText():find("already best", 1, true))
+        -- A client without the art draws the mark as a flat colour texture in
+        -- the state's own hex - the same column, the same size, no word.
+        local best = rowsByStatus("equipped_is_best")
+        assert.is_true(#best > 0)
+        for _, entry in ipairs(best) do
+            local mark = entry.row.line.mark
+            assert.is_true(mark:IsShown())
+            assert.is_nil(mark.atlas)
+            assert.is_table(mark.colorTexture)
+            local r, g, b = ns.UI.ItemLine.RGB(ns.UI.EquipPanel.STATUS_HEX.equipped_is_best)
+            assert.same({ r, g, b }, { mark.colorTexture[1], mark.colorTexture[2], mark.colorTexture[3] })
+            assert.equal("", entry.row.line.badge:GetText())
         end
     end)
 
-    it("puts the five counts on the chips in their status colours", function()
-        local chips = ns.UI.EquipPanel.Chips(panel.match)
-        assert.equal(5, #chips)
-        for index, chip in ipairs(chips) do
-            assert.equal(chip.count, panel.match.counts[chip.key] or 0)
-            assert.equal("|cff" .. chip.hex .. chip.text .. "|r", panel.chips[index]:GetText())
-            assert.equal(ns.UI.EquipPanel.STATUS_HEX[chip.key], chip.hex)
+    it("puts the counts in the bar's key, in their status colours, and nowhere else", function()
+        local bar = ns.UI.EquipPanel.Bar(panel.match)
+        -- One segment per slot, in the rows' own order: the bar counts slots
+        -- and never value.
+        assert.equal(#panel.match.rows, #bar.segments)
+        for index, segment in ipairs(bar.segments) do
+            assert.equal(panel.match.rows[index].status, segment.status)
+            assert.equal(ns.UI.EquipPanel.STATUS_HEX[segment.status], segment.hex)
         end
-        -- The counts are said once: the chips have them, the note does not.
-        assert.is_falsy(panel.summary:GetText():find("already best", 1, true))
+        -- Only the states that are actually present carry a count in words.
+        local key = ns.UI.EquipPanel.BarKeyText(panel.match)
+        for _, entry in ipairs(bar.key) do
+            assert.is_true(entry.count > 0)
+            assert.equal(panel.match.counts[entry.status], entry.count)
+            assert.is_truthy(key:find(entry.text, 1, true))
+        end
+        assert.equal(key, panel.barKey:GetText())
+        -- and a state with nothing in it is not in the key at all
+        for status, count in pairs(panel.match.counts) do
+            if count == 0 then
+                for _, entry in ipairs(bar.key) do
+                    assert.is_not.equal(status, entry.status)
+                end
+            end
+        end
     end)
 
     it("cancels what a row that is no longer drawn was waiting for", function()

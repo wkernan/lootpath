@@ -59,9 +59,17 @@ EquipPanel.TOP_GAP = 8
 -- happened to equal the same thing at 620.
 EquipPanel.ROW_INSET = 6
 
--- The column the slot name gets. Everything to the right of it is anchored, not
--- sized, so the text a row shows is bounded by the frame and not by a number.
-EquipPanel.SLOT_COLUMN = 80
+-- The slot bar (M5-1b, WKE-610). Its height and the hair between its segments
+-- are the only figures here; how WIDE a segment is is worked out at refresh
+-- from the panel's own width divided by the number of slots, so the bar is as
+-- wide as the window is and this file decides no width (M5-2c, WKE-609).
+EquipPanel.BAR_HEIGHT = 12
+EquipPanel.BAR_SEGMENT_GAP = 2
+-- The fold line inside the list, and the hint icon under it.
+EquipPanel.FOLD_HEIGHT = 18
+EquipPanel.HINT_SIZE = 12
+-- How much room the hint icon needs under the list. A margin, not a width.
+EquipPanel.HINT_ROOM = 18
 -- The worn item on a swap row: the same widget as the best item's icon, drawn
 -- smaller, because the row's subject is what QE Live wants and not what is on
 -- you now.
@@ -102,6 +110,12 @@ EquipPanel.STATUS_COLOR = STATUS_COLOR
 -- The badge each status carries. Short, because it is a column and not a
 -- sentence; the sentence is the note. `already best` also draws Blizzard's
 -- tick when the client has that atlas.
+--
+-- **Nothing draws this any more** (M5-1b, WKE-610). A drawn row says its state
+-- once, through the mark below; `already best` on screen is the tick and no
+-- word at all. The table stays because `Describe` is the text model
+-- `/lootpath status` and the text tests read, and that model is unchanged by
+-- decision - the redraw is a renderer over the same rows.
 EquipPanel.STATUS_BADGE = {
     equipped_is_best = { text = "already best", atlas = EquipPanel.CHECK_ATLAS },
     swap = { text = "swap" },
@@ -119,6 +133,120 @@ EquipPanel.CHIP_ORDER = {
     { key = "best_not_owned", label = "not owned" },
     { key = "no_verdict", label = "no rating" },
 }
+
+-- ---------------------------------------------------------------------------
+-- M5-1b (WKE-610): the marks, the bar and the fold - the approved canvas
+-- (WKE-598) with the owner's five answers of 2026-09-16 applied: the mark set
+-- as drawn, the slot COLUMN dropped and the slot word moved onto the row's
+-- second line, the already-best rows folded behind one line, the slot bar
+-- kept, dark only at ns.UI.WIDTH.
+--
+-- **One mark per state, in one fixed column.** The reader learns the column
+-- once and then reads the list down it instead of reading each row, which is
+-- what lets fifteen settled slots become texture rather than fifteen
+-- sentences. `swap` has no mark on purpose: the worn icon, the arrow and the
+-- Equip button are already the picture of a swap, and a sixth glyph beside
+-- them would be the badge word coming back as art.
+--
+-- Every atlas is asked of the client at draw time through `UI.ItemLine.Atlas`
+-- and drawn at MARK_SIZE, the size it is seen at (R-2b) - never at the art's
+-- own size squeezed into someone else's box. A client that does not have one
+-- gets a flat colour texture in the status's own hex instead, which is the
+-- issue's own rule ("from Blizzard atlases where one exists and flat textures
+-- otherwise") and never a word: the words on this tab are the second line and
+-- the bar's key, and a mark that decayed into a badge would be the thing this
+-- redraw removed.
+--
+-- Where each atlas was read, all under `.luals/vscode-wow-api/Annotations/`
+-- on 2026-09-17, in Blizzard's own shipped XML and Lua:
+--   common-icon-checkmark ....... FrameXML/Annotations/AddOns/
+--       Blizzard_ChromieTimeUI/Blizzard_ChromieTimeUI.xml:23 (parentKey
+--       "CompletedCheck"), and Blizzard_PlayerChoice/
+--       Blizzard_PlayerChoiceOptionBase.lua.annotated.lua:391 draws it through
+--       CreateAtlasMarkup(..., 16, 16), which is this file's own MARK_SIZE.
+--   gficon-chest-evergreen-greatvault-collect ... Blizzard_ChallengesUI/
+--       Mainline/Blizzard_ChallengesUI.xml:890, and .lua.annotated.lua:309-312
+--       builds the same name from "gficon-chest-evergreen-greatvault-" plus the
+--       chest's state. It is the Great Vault's own icon on Blizzard's weekly
+--       chest, which is exactly what this row is about.
+--   transmog-icon-warning-small ... Blizzard_Transmog/
+--       Blizzard_TransmogTemplates.xml:576, and .lua.annotated.lua:533 sets it
+--       on a frame Blizzard itself calls `warningIcon`.
+--   common-radiobutton-circle ... Blizzard_FrameXML/RolePoll.xml:18 - the
+--       hollow outline of an unselected radio button.
+--   auctionhouse-itemicon-empty ... Blizzard_ItemButton/Mainline/
+--       ItemButtonTemplate.xml:78, the shared item button's own "nothing here"
+--       background.
+-- **One thing the canvas drew does not exist**: there is no DASHED ring or
+-- dashed slot frame anywhere in that tree (searched for `dash` on 2026-09-17;
+-- every hit was `housing-dashboard-*`). The no-rating mark is therefore a
+-- hollow ring rather than a dashed one, which says the same thing - not filled
+-- in - with art the client actually ships.
+EquipPanel.VAULT_ATLAS = "gficon-chest-evergreen-greatvault-collect"
+EquipPanel.NOT_OWNED_ATLAS = "transmog-icon-warning-small"
+EquipPanel.NO_RATING_ATLAS = "common-radiobutton-circle"
+-- The frame an item you do not own is drawn in: the client's own empty item
+-- button, under the desaturated icon, so a row you cannot act on looks like a
+-- slot with nothing in it rather than like a piece you have.
+EquipPanel.GHOST_ICON_ATLAS = "auctionhouse-itemicon-empty"
+
+-- Drawn at the size it is seen at, and the column it sits in.
+EquipPanel.MARK_SIZE = 16
+EquipPanel.MARK_COLUMN = 22
+
+-- Each mark carries its state's own hex, so the glyph in the column and the
+-- segment in the bar are the same colour for the same state and the reader
+-- learns one palette rather than two. `swap` is absent on purpose: the worn
+-- icon, the arrow and the Equip button are already the picture of a swap, and a
+-- sixth glyph beside them would be the badge word coming back as art.
+EquipPanel.MARK = {
+    equipped_is_best = { atlas = EquipPanel.CHECK_ATLAS, hex = EquipPanel.STATUS_HEX.equipped_is_best },
+    best_in_vault = { atlas = EquipPanel.VAULT_ATLAS, hex = EquipPanel.STATUS_HEX.best_in_vault },
+    best_not_owned = { atlas = EquipPanel.NOT_OWNED_ATLAS, hex = EquipPanel.STATUS_HEX.best_not_owned },
+    no_verdict = { atlas = EquipPanel.NO_RATING_ATLAS, hex = EquipPanel.STATUS_HEX.no_verdict },
+}
+
+-- The one verb on this tab that is not a button that acts: an item in the
+-- Great Vault cannot be equipped from here, so the row sends the reader to the
+-- tab where it can be acted on. A verb that goes somewhere is the only kind
+-- allowed (docs/ROADS-UX.md, the verb table: "Show in vault").
+EquipPanel.VAULT_VERB = "Vault ›"
+
+-- The one clause a row with nothing to equip carries. Second person, present
+-- tense, and it stops a reader hunting his bags for a piece he has never had.
+EquipPanel.NOT_OWNED_PHRASE = "you don't own this"
+
+-- What the second line joins the slot word to.
+EquipPanel.SECOND_SEPARATOR = " · "
+
+-- The answer sentence's fixed parts. The sentence is the whole tab in one
+-- line, in the words a guildmate would type; the clauses in between are built
+-- from the rows.
+EquipPanel.ANSWER_PROMPT = "Paste a Top Gear export above to fill this panel."
+EquipPanel.ANSWER_ALL_BEST = "You're set - every slot is your best."
+EquipPanel.ANSWER_NOTHING_RATED = "Nothing you're wearing is rated yet."
+EquipPanel.ANSWER_TAIL = " Everything else is your best set."
+
+-- The bar's key, in the order the canvas reads it: what there is to do first,
+-- and `already best` last and quiet, because it is the state that needs
+-- nothing. Colour is never the only signal, so each colour that is present
+-- carries its count in words beside it - and the words are the counts' own
+-- labels from CHIP_ORDER, so nothing on this tab invents a second vocabulary
+-- for the same five states.
+EquipPanel.BAR_KEY_ORDER = {
+    "swap",
+    "best_in_vault",
+    "best_not_owned",
+    "no_verdict",
+    "equipped_is_best",
+}
+
+-- What a shut and an open fold are marked with. Text rather than an atlas, for
+-- the reason `UpgradeMapPanel.SECTION_OPEN_MARK` gives: every atlas this addon
+-- draws is asked of the client first, and a caret that silently disappeared on
+-- a client without the art would take the whole affordance with it.
+EquipPanel.FOLD_OPEN_MARK = "-"
+EquipPanel.FOLD_SHUT_MARK = "+"
 
 local NOTHING_EQUIPPED = "(nothing equipped)"
 
@@ -314,6 +442,310 @@ function EquipPanel.Describe(row)
         item = item,
         worn = worn,
     }
+end
+
+-- ---------------------------------------------------------------------------
+-- The DRAWN row (M5-1b, WKE-610). `Describe` above is the text model and is
+-- untouched; this is the same row as the canvas draws it, and the panel binds
+-- both - `Describe` for the item, the worn item and whether there is anything
+-- to equip, this for what the row shows.
+--
+-- Why two functions rather than one changed one: the text `Describe` returns
+-- is what `/lootpath status` and the text tests read, and the issue holds it
+-- unchanged. What GOES from the screen - the `already equipped` second line
+-- and the `already best` badge word - goes from here, where the screen reads.
+--
+-- Drawn = { second, mark, verb, dim, ghost, note }
+--   second  the row's one extra line: the slot word, then the fact the mark
+--           cannot carry. An already-best row carries the slot word alone,
+--           which is all that is left to say once the tick has said the rest.
+--   mark    the fixed-column glyph for this state, or nil on a swap.
+--   verb    `Vault ›` on a vault row and nothing anywhere else.
+--   dim     an already-best row is drawn at half weight, so the rows that
+--           need something read as the only full-weight things on screen.
+--   ghost   an item you do not own is drawn as an empty slot.
+--   note    a whole sentence under the row, kept for exactly the two cases
+--           that are about THIS row and nothing else: the reason a piece is
+--           not owned, and a refusal from the last Equip click (E-1). The
+--           vault row's old sentence is not here: the mark says where the item
+--           is, the second line carries the level the rating used, and the
+--           verb goes to the tab that shows it - so the sentence said nothing
+--           the row did not already say in three places.
+function EquipPanel.Drawn(row, match)
+    if type(row) ~= "table" then
+        return { second = nil, dim = false }
+    end
+    local status = row.status
+    local slot = type(row.slot) == "string" and row.slot or ""
+    local drawn = { status = status, mark = EquipPanel.MARK[status], dim = false }
+    local tail
+    if status == "equipped_is_best" then
+        drawn.dim = true
+    elseif status == "swap" then
+        tail = row.best and whereText(row.best) or nil
+    elseif status == "best_in_vault" then
+        local level = type(row.verdictItem) == "table" and row.verdictItem.level or nil
+        tail = level and string.format("rated at %s", tostring(level)) or nil
+        drawn.verb = EquipPanel.VAULT_VERB
+    elseif status == "best_not_owned" then
+        tail = EquipPanel.NOT_OWNED_PHRASE
+        drawn.ghost = true
+        drawn.note = row.reason and colored(status, tostring(row.reason)) or nil
+    else
+        tail = EquipPanel.NotRatedPhrase(row, match)
+    end
+    if tail and slot ~= "" then
+        drawn.second = slot .. EquipPanel.SECOND_SEPARATOR .. tail
+    else
+        drawn.second = tail or (slot ~= "" and slot or nil)
+    end
+    if row.matchedBy == ns.Match.MATCHED_BY_ID_LEVEL and drawn.second then
+        drawn.second = drawn.second .. " " .. EquipPanel.NOTE_COLOR .. "[matched by itemID and item level]|r"
+    end
+    -- A refusal from the last Equip click stands as the row's note until the
+    -- row is built again (E-1), and outranks the not-owned reason: it is the
+    -- newer thing that happened to this row.
+    if row.equipRefusal then
+        drawn.note = colored("best_not_owned", tostring(row.equipRefusal))
+    end
+    return drawn
+end
+
+-- Which honesty phrase a `no_verdict` row carries, WITH ITS TAIL WHOLE.
+--
+-- Not a phrase of this file's own: `ns.Roads.NotRatedPhrase` is the one place
+-- that decides between the fixed phrases of `docs/ROADS-UX.md`, and it is
+-- asked here with what a match actually carries - the item worn in the slot,
+-- and the run's own excluded list, which `Match.Build` already puts on the
+-- result. Its third answer needs the later PASSES, which a match does not
+-- carry, so this row gets the two answers that are readable from here: beyond
+-- the rating's item limit when the run's own list holds the piece, and new
+-- since the last refresh when it does not.
+function EquipPanel.NotRatedPhrase(row, match)
+    local record = type(row) == "table" and row.equipped or nil
+    if not (ns.Roads and ns.Roads.NotRatedPhrase and type(record) == "table") then
+        return "no rating"
+    end
+    local excluded = type(match) == "table" and match.excluded or nil
+    return (ns.Roads.NotRatedPhrase(excluded, record, record.key))
+end
+
+-- ---------------------------------------------------------------------------
+-- The answer sentence: the whole tab in one line, first, so a player who reads
+-- nothing else still knows what to do tonight.
+--
+-- It names the things there are to DO and nothing else. A piece you do not own
+-- and a slot with no rating are not things to do on this tab, so they stay in
+-- the bar's key where they are counted; putting them in the sentence would
+-- make it a list of states rather than an answer.
+--
+-- Names come from `ns.Roads.ShortName`, which is the one place that turns
+-- "Venom-Cursed Lynx's Spaulders" into "the Lynx shoulders". More than one
+-- piece in a clause is counted rather than listed, because a sentence with
+-- four names in it is a list wearing a sentence's clothes.
+local function shortName(name, slot)
+    if not (ns.Roads and ns.Roads.ShortName) then
+        return nil
+    end
+    return ns.Roads.ShortName({ name = name, slot = slot })
+end
+
+local function clientName(itemID)
+    if not (C_Item and C_Item.GetItemInfo and itemID) then
+        return nil
+    end
+    local name = ns.Safe(C_Item.GetItemInfo(itemID))
+    if type(name) == "string" and name ~= "" then
+        return name
+    end
+    return nil
+end
+
+function EquipPanel.AnswerText(match)
+    if type(match) ~= "table" then
+        return EquipPanel.ANSWER_PROMPT
+    end
+    if not match.ok then
+        return EquipPanel.SummaryText(match)
+    end
+    -- Counted, not measured by the name list: `ShortName` answers nil when a
+    -- row has neither a name nor a slot it knows a word for, and a nil would
+    -- silently shorten the list rather than the sentence.
+    local swaps, vaults = 0, 0
+    local swapName, vaultName
+    for _, row in ipairs(match.rows or {}) do
+        if row.status == "swap" then
+            swaps = swaps + 1
+            swapName = swapName or shortName(EquipPanel.RecordName(row.best), row.slot)
+        elseif row.status == "best_in_vault" then
+            vaults = vaults + 1
+            local item = type(row.verdictItem) == "table" and row.verdictItem or nil
+            vaultName = vaultName or shortName(item and clientName(item.itemID) or nil, row.slot)
+        end
+    end
+    local clauses = {}
+    if swaps == 1 and swapName then
+        clauses[#clauses + 1] = "Put on " .. swapName
+    elseif swaps == 1 then
+        clauses[#clauses + 1] = "Put on the piece in your bags"
+    elseif swaps > 1 then
+        clauses[#clauses + 1] = string.format("Put on %d pieces", swaps)
+    end
+    if vaults == 1 and vaultName then
+        clauses[#clauses + 1] = string.format("grab %s from the vault", vaultName)
+    elseif vaults == 1 then
+        clauses[#clauses + 1] = "grab a reward from the vault"
+    elseif vaults > 1 then
+        clauses[#clauses + 1] = string.format("grab %d rewards from the vault", vaults)
+    end
+    local counts = type(match.counts) == "table" and match.counts or {}
+    local best = counts.equipped_is_best or 0
+    if #clauses == 0 then
+        if best > 0 then
+            return EquipPanel.ANSWER_ALL_BEST
+        end
+        return EquipPanel.ANSWER_NOTHING_RATED
+    end
+    local sentence = table.concat(clauses, " and ") .. "."
+    if best > 0 then
+        sentence = sentence .. EquipPanel.ANSWER_TAIL
+    end
+    return sentence
+end
+
+-- ---------------------------------------------------------------------------
+-- The bar. One segment per SLOT, in the rows' own order, so it is a picture of
+-- the character rather than a score. It counts slots and never value: no
+-- arithmetic touches a rating on the way here, and no percent this tab's
+-- export does not itself carry appears anywhere near it.
+--
+-- Bar(match) -> { segments = { { status, hex } ... }, key = { ... } }
+function EquipPanel.Bar(match)
+    if not (type(match) == "table" and match.ok and type(match.rows) == "table") then
+        return { segments = {}, key = {} }
+    end
+    local segments = {}
+    for _, row in ipairs(match.rows) do
+        segments[#segments + 1] = {
+            status = row.status,
+            hex = EquipPanel.STATUS_HEX[row.status] or EquipPanel.STATUS_HEX.no_verdict,
+        }
+    end
+    local label = {}
+    for _, chip in ipairs(EquipPanel.CHIP_ORDER) do
+        label[chip.key] = chip.label
+    end
+    local counts = type(match.counts) == "table" and match.counts or {}
+    local key = {}
+    for _, status in ipairs(EquipPanel.BAR_KEY_ORDER) do
+        local count = counts[status] or 0
+        if count > 0 then
+            key[#key + 1] = {
+                status = status,
+                count = count,
+                text = string.format("%d %s", count, label[status]),
+                hex = EquipPanel.STATUS_HEX[status],
+                -- `already best` needs nothing done about it, so it is drawn
+                -- quiet even in the key.
+                quiet = status == "equipped_is_best",
+            }
+        end
+    end
+    return { segments = segments, key = key }
+end
+
+-- The key as one string, which is what the drawn panel puts in its font
+-- string and what a test can read back in one piece.
+function EquipPanel.BarKeyText(match)
+    local parts = {}
+    for _, entry in ipairs(EquipPanel.Bar(match).key) do
+        local hex = entry.quiet and EquipPanel.STATUS_HEX.no_verdict or entry.hex
+        parts[#parts + 1] = "|cff" .. hex .. entry.text .. "|r"
+    end
+    return table.concat(parts, "   ")
+end
+
+-- ---------------------------------------------------------------------------
+-- The fold. Fifteen settled slots are one line by default, with the bar as the
+-- proof that nothing is hidden; a caret opens them, dimmed. Which way it is
+-- left is remembered PER CHARACTER, the way the Upgrade Map's sections are
+-- (`UpgradeMapPanel.CollapseState`), because which character is finished is
+-- about the character and not the account.
+function EquipPanel.FoldState(db)
+    db = db or ns.db
+    local char = db and db.char
+    if type(char) ~= "table" then
+        return { open = false }
+    end
+    char.equipNow = char.equipNow or {}
+    return char.equipNow
+end
+
+function EquipPanel.FoldOpen(db)
+    return EquipPanel.FoldState(db).bestOpen == true
+end
+
+function EquipPanel.ToggleFold(db)
+    local state = EquipPanel.FoldState(db)
+    -- `nil` rather than `false` when it shuts again, the way the Upgrade Map's
+    -- sections do it: the default state leaves nothing behind in the character's
+    -- saved variables at all.
+    state.bestOpen = (state.bestOpen ~= true) or nil
+    return state.bestOpen == true
+end
+
+-- What the fold line says. When every slot is already best there is no list
+-- above it at all, so it offers the whole list rather than a remainder.
+function EquipPanel.FoldText(count, total)
+    count = tonumber(count) or 0
+    if total and count == total then
+        return string.format("show all %d slots", total)
+    end
+    if count == 1 then
+        return "1 slot already best"
+    end
+    return string.format("%d slots already best", count)
+end
+
+-- The drawn order: every row that needs something, in the match's own order
+-- and at full weight, then the fold line, then the already-best rows when the
+-- fold is open. A row that needs something is never behind the fold.
+--
+-- Layout(match, open) -> { { kind = "row", row = ... } or { kind = "fold",
+-- count = n, total = n, open = bool } ... }
+EquipPanel.ELEMENT_ROW = "row"
+EquipPanel.ELEMENT_FOLD = "fold"
+
+function EquipPanel.Layout(match, open)
+    if not (type(match) == "table" and match.ok and type(match.rows) == "table") then
+        return {}
+    end
+    local open_, folded = {}, {}
+    for _, row in ipairs(match.rows) do
+        if row.status == "equipped_is_best" then
+            folded[#folded + 1] = row
+        else
+            open_[#open_ + 1] = row
+        end
+    end
+    local elements = {}
+    for _, row in ipairs(open_) do
+        elements[#elements + 1] = { kind = EquipPanel.ELEMENT_ROW, row = row }
+    end
+    if #folded > 0 then
+        elements[#elements + 1] = {
+            kind = EquipPanel.ELEMENT_FOLD,
+            count = #folded,
+            total = #match.rows,
+            open = open and true or false,
+        }
+        if open then
+            for _, row in ipairs(folded) do
+                elements[#elements + 1] = { kind = EquipPanel.ELEMENT_ROW, row = row }
+            end
+        end
+    end
+    return elements
 end
 
 -- The sentence a row says when the bag slot it was built from no longer holds
@@ -672,25 +1104,39 @@ function EquipPanel.ScrollToTop(panel)
 end
 
 -- The scroll frame hangs off the last element of the header block that has
--- something on it: the note line when it has text, the chips when it does not,
--- and the header itself when there are no chips either. An empty font string
--- still occupies a line, and the list's top must not depend on whether this
--- character's bank happens to be open (M5-1a, WKE-597).
+-- something on it: the bar's key when it has text, the bar when the key is
+-- empty, the answer sentence when there is no bar, and the header itself when
+-- even the answer is blank. An empty font string still occupies a line, and the
+-- list's top must not depend on whether this character's bank happens to be
+-- open (M5-1a, WKE-597) - the rule is unchanged; M5-1b only changed which
+-- elements the header block is made of.
+--
+-- Its bottom clears the hint icon when there is a hint, and runs to the panel's
+-- own floor when there is not, for the same reason: nothing above or below the
+-- list may move it about because of a condition the player cannot see.
 function EquipPanel.AnchorScroll(panel)
     if type(panel) ~= "table" or not panel.scroll then
         return nil
     end
     local anchor = panel.header
-    if panel.chips and panel.chips[1] and panel.chips[1]:IsShown() then
-        anchor = panel.chips[1]
+    local answer = panel.answer and panel.answer:GetText()
+    if answer and answer ~= "" then
+        anchor = panel.answer
     end
-    local note = panel.summary and panel.summary:GetText()
-    if note and note ~= "" then
-        anchor = panel.summary
+    if panel.segments and panel.segments[1] and panel.segments[1]:IsShown() then
+        anchor = panel.bar
+    end
+    local key = panel.barKey and panel.barKey:GetText()
+    if key and key ~= "" then
+        anchor = panel.barKey
+    end
+    local floor = 4
+    if panel.hint and panel.hint:IsShown() then
+        floor = floor + EquipPanel.HINT_ROOM
     end
     panel.scroll:ClearAllPoints()
     panel.scroll:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -EquipPanel.TOP_GAP)
-    panel.scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -26, 4)
+    panel.scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -26, floor)
     panel.scrollAnchor = anchor
     return anchor
 end
@@ -714,12 +1160,6 @@ local function createRow(panel, index)
     end
     row:SetPoint("RIGHT", panel.list, "RIGHT", 0, 0)
 
-    row.slotText = row:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-    row.slotText:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -2)
-    row.slotText:SetWidth(EquipPanel.SLOT_COLUMN)
-    row.slotText:SetHeight(UI.ItemLine.NAME_HEIGHT)
-    row.slotText:SetJustifyH("LEFT")
-
     row.equip = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
     row.equip:SetSize(64, 20)
     -- Anchored to the top, not the middle: a row with a note is taller than the
@@ -740,9 +1180,27 @@ local function createRow(panel, index)
         end
     end)
 
-    -- What you are wearing now, on the rows whose answer is a swap.
+    -- The one verb on this tab that does not act here: a Great Vault option
+    -- cannot be equipped from this panel, so the row sends the reader to the
+    -- tab that shows it. It sits where the Equip button sits, because a row
+    -- has at most one thing to offer and they are never both on.
+    row.vault = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+    row.vault:SetSize(64, 20)
+    row.vault:SetPoint("TOPRIGHT", row, "TOPRIGHT", 0, -1)
+    row.vault:SetText(EquipPanel.VAULT_VERB)
+    row.vault:SetScript("OnClick", function()
+        if UI.frame and UI.ShowTab then
+            UI.ShowTab(UI.frame, UI.VAULT_TAB)
+        end
+    end)
+    row.vault:Hide()
+
+    -- What you are wearing now, on the rows whose answer is a swap. The row's
+    -- left edge is the icon now that the slot column is gone (M5-1b): the slot
+    -- word moved onto the second line, where it costs nothing on a row that
+    -- already had one.
     row.worn = UI.ItemLine.CreateIcon(row, { size = EquipPanel.WORN_ICON_SIZE })
-    row.worn:SetPoint("TOPLEFT", row.slotText, "TOPRIGHT", 4, -4)
+    row.worn:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -4)
     row.worn:Hide()
 
     row.arrow = row:CreateTexture(nil, "ARTWORK")
@@ -755,13 +1213,16 @@ local function createRow(panel, index)
     row.arrowText:SetJustifyH("CENTER")
     row.arrowText:Hide()
 
-    row.line = UI.ItemLine.Create(row, {})
+    -- The badge column becomes the mark column: one glyph wide, so everything
+    -- the ninety-point slot name and the badge word used to take goes to the
+    -- item's name, which is what dropping the column was for.
+    row.line = UI.ItemLine.Create(row, { badgeWidth = EquipPanel.MARK_COLUMN })
 
     -- The note takes its width from the row itself - LEFT and RIGHT anchors,
     -- no SetWidth - so it is as wide as the frame is and wraps inside it. It
     -- clears the Equip button because it sits under it, not beside it.
     row.note = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    row.note:SetPoint("TOPLEFT", row, "TOPLEFT", EquipPanel.SLOT_COLUMN, -EquipPanel.ROW_HEIGHT)
+    row.note:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -EquipPanel.ROW_HEIGHT)
     row.note:SetPoint("RIGHT", row, "RIGHT", 0, 0)
     row.note:SetJustifyH("LEFT")
     row.note:SetWordWrap(true)
@@ -770,15 +1231,23 @@ local function createRow(panel, index)
     return row
 end
 
--- Where the item line starts: after the worn icon and the arrow on a pair,
--- and straight after the slot column on a row that is about one item.
-local function anchorLine(row, paired)
+-- Where the item line starts: after the worn icon and the arrow on a pair, and
+-- at the row's own left edge on a row that is about one item (M5-1b: there is
+-- no slot column to start after).
+--
+-- Its right-hand end is the button the row offers, so the name has every point
+-- the row is not using; a row that offers neither runs to the row's own edge.
+local function anchorLine(row, paired, button)
     row.line:ClearAllPoints()
-    row.line:SetPoint("RIGHT", row.equip, "LEFT", -6, 0)
+    if button then
+        row.line:SetPoint("RIGHT", button, "LEFT", -6, 0)
+    else
+        row.line:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    end
     if paired then
         row.line:SetPoint("TOPLEFT", row.arrowText, "TOPRIGHT", 4, 6)
     else
-        row.line:SetPoint("TOPLEFT", row.slotText, "TOPRIGHT", 4, 2)
+        row.line:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -2)
     end
 end
 
@@ -814,26 +1283,33 @@ function EquipPanel.Create(parent)
     panel.header:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, 0)
     panel.header:SetText("Equip Now")
 
-    -- The counts, as five chips in their status colours, so "5 to swap" is
-    -- legible before the list is read.
-    panel.chips = {}
-    for index = 1, #EquipPanel.CHIP_ORDER do
-        local fontString = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-        if index == 1 then
-            fontString:SetPoint("TOPLEFT", panel.header, "BOTTOMLEFT", 0, -6)
-        else
-            fontString:SetPoint("LEFT", panel.chips[index - 1], "RIGHT", 10, 0)
-        end
-        fontString:SetJustifyH("LEFT")
-        fontString:SetWordWrap(false)
-        panel.chips[index] = fontString
-    end
+    -- The answer, first (M5-1b, WKE-610): the whole tab in one line, so a
+    -- player who reads nothing else still knows what to do tonight. It wraps
+    -- and it takes its width from the panel, so it fits whatever the window is.
+    panel.answer = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    panel.answer:SetPoint("TOPLEFT", panel.header, "BOTTOMLEFT", 0, -6)
+    panel.answer:SetPoint("RIGHT", panel, "RIGHT", 0, 0)
+    panel.answer:SetJustifyH("LEFT")
+    panel.answer:SetWordWrap(true)
 
-    panel.summary = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    panel.summary:SetPoint("TOPLEFT", panel.chips[1], "BOTTOMLEFT", 0, -4)
-    panel.summary:SetPoint("RIGHT", panel, "RIGHT", 0, 0)
-    panel.summary:SetJustifyH("LEFT")
-    panel.summary:SetWordWrap(true)
+    -- Then the bar: one segment per slot, in slot order, so it is a picture of
+    -- the character rather than a score. The segments are flat colour textures
+    -- on a frame that spans the panel, and their widths are shared out at
+    -- refresh from the panel's OWN width - never from a number of this file's
+    -- (M5-2c, WKE-609).
+    panel.bar = CreateFrame("Frame", nil, panel)
+    panel.bar:SetHeight(EquipPanel.BAR_HEIGHT)
+    panel.bar:SetPoint("TOPLEFT", panel.answer, "BOTTOMLEFT", 0, -6)
+    panel.bar:SetPoint("RIGHT", panel, "RIGHT", 0, 0)
+    panel.segments = {}
+
+    -- And the key, which carries each present colour's count in words, because
+    -- colour is never the only signal.
+    panel.barKey = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    panel.barKey:SetPoint("TOPLEFT", panel.bar, "BOTTOMLEFT", 0, -4)
+    panel.barKey:SetPoint("RIGHT", panel, "RIGHT", 0, 0)
+    panel.barKey:SetJustifyH("LEFT")
+    panel.barKey:SetWordWrap(false)
 
     panel.equipAll = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     panel.equipAll:SetSize(90, 22)
@@ -875,6 +1351,42 @@ function EquipPanel.Create(parent)
     panel.list:SetSize(panel.rowWidth, EquipPanel.ROW_HEIGHT * EquipPanel.MAX_ROWS)
     panel.scroll:SetScrollChild(panel.list)
 
+    -- The fold, inside the list: the settled slots are one line by default,
+    -- with the bar above as the proof that nothing is hidden. It lives on the
+    -- scroll child rather than on the panel because the rows it opens come
+    -- after it and scroll with it.
+    panel.fold = CreateFrame("Button", nil, panel.list)
+    panel.fold:SetHeight(EquipPanel.FOLD_HEIGHT)
+    panel.fold.text = panel.fold:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+    panel.fold.text:SetPoint("LEFT", panel.fold, "LEFT", 0, 0)
+    panel.fold.text:SetJustifyH("LEFT")
+    panel.fold:SetScript("OnClick", function()
+        EquipPanel.ToggleFold(panel.db)
+        EquipPanel.Refresh(panel, panel.match)
+    end)
+    panel.fold:Hide()
+
+    -- The notes that are not about an item - the bank hint, the in-combat
+    -- warning, the line about what a run was never shown - are a condition on
+    -- the answer and not part of it, so they are an icon with the words on
+    -- hover rather than a line that pushes the list down (the canvas's own
+    -- recommendation, WKE-598). Nothing is lost: `NoteText` still says all of
+    -- it, and the tooltip is that string.
+    panel.hint = CreateFrame("Button", nil, panel)
+    panel.hint:SetSize(EquipPanel.HINT_SIZE, EquipPanel.HINT_SIZE)
+    panel.hint:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 0, 2)
+    panel.hint.icon = panel.hint:CreateTexture(nil, "ARTWORK")
+    panel.hint.icon:SetAllPoints()
+    panel.hint:SetScript("OnEnter", function(button)
+        tooltipFor(button, panel.hintText)
+    end)
+    panel.hint:SetScript("OnLeave", function()
+        if GameTooltip then
+            GameTooltip:Hide()
+        end
+    end)
+    panel.hint:Hide()
+
     panel.overflow = panel.list:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
     panel.overflow:SetPoint("TOPLEFT", panel.list, "TOPLEFT", 0, 0)
     panel.overflow:SetJustifyH("LEFT")
@@ -895,98 +1407,92 @@ function EquipPanel.Refresh(panel, match)
         panel.rowWidth = width - EquipPanel.ROW_INSET
     end
     panel.list:SetWidth(panel.rowWidth)
-    panel.summary:SetText(EquipPanel.NoteText(match))
 
-    local chips = EquipPanel.Chips(match)
-    for index, fontString in ipairs(panel.chips) do
-        local chip = chips[index]
-        if chip then
-            fontString:SetText("|cff" .. chip.hex .. chip.text .. "|r")
-            fontString:Show()
+    -- The answer first, then the bar, then the key. Everything that is a
+    -- CONDITION on the answer rather than part of it goes to the hint icon.
+    panel.answer:SetText(EquipPanel.AnswerText(match))
+    EquipPanel.DrawBar(panel, match)
+    panel.hintText = EquipPanel.NoteText(match)
+    if type(match) == "table" and match.ok and panel.hintText and panel.hintText ~= "" then
+        local atlas = UI.ItemLine.Atlas(EquipPanel.NOT_OWNED_ATLAS)
+        if atlas then
+            panel.hint.icon:SetAtlas(atlas)
         else
-            fontString:SetText("")
-            fontString:Hide()
+            panel.hint.icon:SetColorTexture(UI.ItemLine.RGB(EquipPanel.STATUS_HEX.no_verdict))
         end
+        -- Grey, not the red the same glyph wears in the mark column: these are
+        -- conditions on the answer, not a gap in the set.
+        panel.hint.icon:SetVertexColor(UI.ItemLine.RGB(EquipPanel.STATUS_HEX.no_verdict))
+        panel.hint:Show()
+    else
+        -- Before an import, and on a refusal, there is no answer for a note to
+        -- be a condition ON: the answer line says the whole of it.
+        panel.hint:Hide()
     end
 
-    -- The chips and the note line are set: the list's top can be placed now.
+    -- The header block is set: the list's top can be placed now.
     EquipPanel.AnchorScroll(panel)
 
+    local elements = EquipPanel.Layout(match, EquipPanel.FoldOpen(panel.db))
     local rows = (type(match) == "table" and match.ok and match.rows) or {}
-    local shown = math.min(#rows, EquipPanel.MAX_ROWS)
     local inCombat = InCombatLockdown() and true or false
     local used = 0
+    -- What the last thing drawn was, so the next thing hangs off it: the fold
+    -- line sits between the rows that need something and the rows that do not,
+    -- so a row's top is no longer always the row above it.
+    local previous = nil
+    local drawn, folded = 0, 0
 
-    for i = 1, shown do
-        local frameRow = panel.rows[i]
-        if not frameRow then
-            frameRow = createRow(panel, i)
-            panel.rows[i] = frameRow
-        end
-        local matchRow = rows[i]
-        local described = EquipPanel.Describe(matchRow)
-        frameRow.matchRow = matchRow
-        frameRow.described = described
-        frameRow.slotText:SetText(described.slot)
-
-        if described.worn then
-            UI.ItemLine.SetIcon(frameRow.worn, described.worn)
-            local atlas = UI.ItemLine.Atlas(EquipPanel.ARROW_ATLAS)
-            if atlas then
-                frameRow.arrow:SetAtlas(atlas)
-                frameRow.arrow:Show()
-                frameRow.arrowText:SetText("")
-                frameRow.arrowText:Hide()
-            else
-                frameRow.arrow:Hide()
-                frameRow.arrowText:SetText(EquipPanel.ARROW_FALLBACK)
-                frameRow.arrowText:Show()
-            end
+    local function place(frame, height)
+        frame:ClearAllPoints()
+        if previous then
+            frame:SetPoint("TOPLEFT", previous, "BOTTOMLEFT", 0, -EquipPanel.ROW_GAP)
         else
-            UI.ItemLine.ClearIcon(frameRow.worn)
-            frameRow.arrow:Hide()
-            frameRow.arrowText:SetText("")
-            frameRow.arrowText:Hide()
+            frame:SetPoint("TOPLEFT", panel.list, "TOPLEFT", 0, 0)
         end
-        anchorLine(frameRow, described.worn ~= nil)
-
-        UI.ItemLine.Set(frameRow.line, {
-            itemID = described.item and described.item.itemID or nil,
-            link = described.item and described.item.link or nil,
-            name = described.item and described.item.name or nil,
-            quality = described.item and described.item.quality or nil,
-            itemLevel = described.item and described.item.itemLevel or nil,
-            icon = described.item and described.item.icon or nil,
-            second = described.second,
-            badge = described.badge,
-            tags = described.tags,
-        })
-
-        local height = EquipPanel.ROW_HEIGHT
-        if described.note then
-            frameRow.note:SetText(described.note)
-            frameRow.note:Show()
-            height = height + EquipPanel.NOTE_HEIGHT
-        else
-            frameRow.note:SetText("")
-            frameRow.note:Hide()
-        end
-        frameRow:SetHeight(height)
+        frame:SetPoint("RIGHT", panel.list, "RIGHT", 0, 0)
+        previous = frame
         used = used + height + EquipPanel.ROW_GAP
-
-        if described.actionable then
-            frameRow.equip:Show()
-            frameRow.equip:SetEnabled(not inCombat)
-            frameRow.disabledReason = inCombat and EquipPanel.COMBAT_TOOLTIP or nil
-        else
-            frameRow.equip:Hide()
-            -- Hidden AND disabled: a row that is not a swap must not be
-            -- clickable by any route, including a stale reference to it.
-            frameRow.equip:SetEnabled(false)
-            frameRow.disabledReason = nil
-        end
-        frameRow:Show()
     end
+
+    for _, element in ipairs(elements) do
+        if element.kind == EquipPanel.ELEMENT_FOLD then
+            folded = element.count
+            panel.fold.text:SetText(
+                EquipPanel.NOTE_COLOR
+                    .. (element.open and EquipPanel.FOLD_OPEN_MARK or EquipPanel.FOLD_SHUT_MARK)
+                    .. " "
+                    .. EquipPanel.FoldText(element.count, element.total)
+                    .. "|r"
+            )
+            place(panel.fold, EquipPanel.FOLD_HEIGHT)
+            panel.fold:SetHeight(EquipPanel.FOLD_HEIGHT)
+            panel.fold:Show()
+        elseif drawn < EquipPanel.MAX_ROWS then
+            drawn = drawn + 1
+            local i = drawn
+            local frameRow = panel.rows[i]
+            if not frameRow then
+                frameRow = createRow(panel, i)
+                panel.rows[i] = frameRow
+            end
+            local matchRow = element.row
+            local described = EquipPanel.Describe(matchRow)
+            local shownRow = EquipPanel.Drawn(matchRow, match)
+            frameRow.matchRow = matchRow
+            frameRow.described = described
+            frameRow.drawn = shownRow
+            EquipPanel.DrawRow(frameRow, described, shownRow, inCombat)
+            place(frameRow, frameRow:GetHeight())
+            frameRow:Show()
+        end
+    end
+    if folded == 0 then
+        panel.fold:Hide()
+        panel.fold.text:SetText("")
+    end
+
+    local shown = drawn
     for i = shown + 1, #panel.rows do
         panel.rows[i]:Hide()
         -- A hidden row waits for nothing: its request is cancelled, so a late
@@ -995,14 +1501,13 @@ function EquipPanel.Refresh(panel, match)
         UI.ItemLine.Clear(panel.rows[i].line)
     end
 
-    if #rows > shown then
-        -- Under the last row that was drawn, not under the list frame: rows with
-        -- a note are taller than one line, so the list's own height is no longer
-        -- where the list ends.
+    if #rows > shown + folded then
+        -- Under the last thing that was drawn, not under the list frame: rows
+        -- with a note are taller than one line, so the list's own height is no
+        -- longer where the list ends.
         panel.overflow:ClearAllPoints()
-        local last = shown > 0 and panel.rows[shown] or panel.list
-        panel.overflow:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, -4)
-        panel.overflow:SetText(string.format("%d more row(s) not shown.", #rows - shown))
+        panel.overflow:SetPoint("TOPLEFT", previous or panel.list, "BOTTOMLEFT", 0, -4)
+        panel.overflow:SetText(string.format("%d more row(s) not shown.", #rows - shown - folded))
         panel.overflow:Show()
         used = used + EquipPanel.NOTE_HEIGHT
     else
@@ -1026,4 +1531,121 @@ function EquipPanel.Refresh(panel, match)
     panel.equipAll:SetEnabled(swaps > 0 and not inCombat)
     panel.equipAllReason = inCombat and EquipPanel.COMBAT_TOOLTIP or "There is nothing to swap."
     panel.equipAll:SetShown(swaps > 0)
+end
+
+-- The bar's segments: one per slot, in the rows' own order, sharing out the
+-- panel's own width. Nothing here reads a number of this file's own - the bar
+-- is as wide as the window makes the panel (M5-2c, WKE-609) - and nothing here
+-- touches a rating: a segment is a slot, and twenty slots are twenty segments
+-- whatever any of them is worth.
+function EquipPanel.DrawBar(panel, match)
+    local bar = EquipPanel.Bar(match)
+    local count = #bar.segments
+    local width = panel.bar:GetWidth()
+    if not (width and width > 0) then
+        width = panel.rowWidth
+    end
+    local each = count > 0 and math.max((width - (count - 1) * EquipPanel.BAR_SEGMENT_GAP) / count, 1) or 0
+    for index = 1, count do
+        local texture = panel.segments[index]
+        if not texture then
+            texture = panel.bar:CreateTexture(nil, "ARTWORK")
+            panel.segments[index] = texture
+        end
+        texture:ClearAllPoints()
+        texture:SetSize(each, EquipPanel.BAR_HEIGHT)
+        texture:SetPoint("TOPLEFT", panel.bar, "TOPLEFT", (index - 1) * (each + EquipPanel.BAR_SEGMENT_GAP), 0)
+        texture:SetColorTexture(UI.ItemLine.RGB(bar.segments[index].hex))
+        texture:Show()
+    end
+    for index = count + 1, #panel.segments do
+        panel.segments[index]:Hide()
+    end
+    panel.bar:SetShown(count > 0)
+    panel.barKey:SetText(EquipPanel.BarKeyText(match))
+end
+
+-- One row, drawn. Split out of Refresh because Refresh now walks a layout
+-- rather than a list, and the two jobs - where a row goes, and what it says -
+-- read better apart.
+function EquipPanel.DrawRow(frameRow, described, shownRow, inCombat)
+    if described.worn then
+        UI.ItemLine.SetIcon(frameRow.worn, described.worn)
+        local atlas = UI.ItemLine.Atlas(EquipPanel.ARROW_ATLAS)
+        if atlas then
+            frameRow.arrow:SetAtlas(atlas)
+            frameRow.arrow:Show()
+            frameRow.arrowText:SetText("")
+            frameRow.arrowText:Hide()
+        else
+            frameRow.arrow:Hide()
+            frameRow.arrowText:SetText(EquipPanel.ARROW_FALLBACK)
+            frameRow.arrowText:Show()
+        end
+    else
+        UI.ItemLine.ClearIcon(frameRow.worn)
+        frameRow.arrow:Hide()
+        frameRow.arrowText:SetText("")
+        frameRow.arrowText:Hide()
+    end
+
+    -- At most one button per row, so a button on screen always means something
+    -- can be done: Equip on a swap, the Vault verb on a vault row, nothing
+    -- anywhere else.
+    local button = nil
+    if described.actionable then
+        frameRow.equip:Show()
+        frameRow.equip:SetEnabled(not inCombat)
+        frameRow.disabledReason = inCombat and EquipPanel.COMBAT_TOOLTIP or nil
+        button = frameRow.equip
+    else
+        frameRow.equip:Hide()
+        -- Hidden AND disabled: a row that is not a swap must not be clickable
+        -- by any route, including a stale reference to it.
+        frameRow.equip:SetEnabled(false)
+        frameRow.disabledReason = nil
+    end
+    if shownRow.verb then
+        frameRow.vault:SetText(shownRow.verb)
+        frameRow.vault:Show()
+        button = frameRow.vault
+    else
+        frameRow.vault:Hide()
+    end
+
+    anchorLine(frameRow, described.worn ~= nil, button)
+
+    UI.ItemLine.Set(frameRow.line, {
+        itemID = described.item and described.item.itemID or nil,
+        link = described.item and described.item.link or nil,
+        name = described.item and described.item.name or nil,
+        quality = described.item and described.item.quality or nil,
+        itemLevel = described.item and described.item.itemLevel or nil,
+        icon = described.item and described.item.icon or nil,
+        -- What the canvas kept and what it took away: the second line is the
+        -- slot word plus the fact the mark cannot carry, the mark is the state,
+        -- and no badge word is bound at all.
+        second = shownRow.second,
+        mark = shownRow.mark,
+        dim = shownRow.dim,
+        ghost = shownRow.ghost,
+        ghostAtlas = EquipPanel.GHOST_ICON_ATLAS,
+        tags = described.tags,
+    })
+
+    local height = EquipPanel.ROW_HEIGHT
+    if shownRow.note then
+        frameRow.note:SetText(shownRow.note)
+        frameRow.note:Show()
+        height = height + EquipPanel.NOTE_HEIGHT
+    else
+        frameRow.note:SetText("")
+        frameRow.note:Hide()
+    end
+    frameRow:SetHeight(height)
+    -- The dim is the LINE's, not the row's, and is applied once: the settled
+    -- rows this is about carry nothing outside the line - no worn icon, no
+    -- button and no note - so dimming the row as well would only halve the
+    -- same pixels twice.
+    return height
 end
