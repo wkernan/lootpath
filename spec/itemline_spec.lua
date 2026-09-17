@@ -177,6 +177,65 @@ describe("UI.ItemLine over a cached item", function()
         assert.equal("|Hitem:271528|h[Placeholder Hood]|h", world.tooltip.hyperlink)
         assert.is_nil(world.tooltip.stub.Text():find("base level", 1, true))
     end)
+
+    -- M5-3b. The link is right about the item and its track and silent about
+    -- the key level the row was rated at, so a hover can draw the right item
+    -- at 292 under a row that says 305. The row says its own level instead;
+    -- no link is ever built with a level modifier.
+    it("says the drop's own level when the link draws another", function()
+        local link = "|Hitem:271528|h[Placeholder Hood]|h"
+        world.items[link] = { level = 292 }
+
+        ns.UI.ItemLine.Set(line, { itemID = ITEM_ID, link = link, dropLevel = 305, keyLevel = 10 })
+        line.iconButton.stub:Enter()
+        local text = world.tooltip.stub.Text()
+        assert.is_truthy(
+            text:find("Drops at 305 from a +10 · shown at 292 above", 1, true),
+            "the level line was not on the tooltip: " .. text
+        )
+        line.iconButton.stub:Leave()
+
+        -- The levels agree: the tooltip is the row, and a line saying so twice
+        -- would be noise.
+        ns.UI.ItemLine.Set(line, { itemID = ITEM_ID, link = link, dropLevel = 292, keyLevel = 10 })
+        line.iconButton.stub:Enter()
+        assert.is_nil(world.tooltip.stub.Text():find("Drops at", 1, true))
+        line.iconButton.stub:Leave()
+
+        -- A raid drop is read at no key level, so the sentence names none
+        -- rather than a number that would mean nothing there.
+        ns.UI.ItemLine.Set(line, { itemID = ITEM_ID, link = link, dropLevel = 311 })
+        line.iconButton.stub:Enter()
+        assert.is_truthy(
+            world.tooltip.stub.Text():find("Drops at 311 · shown at 292 above", 1, true),
+            "the raid wording was not on the tooltip: " .. world.tooltip.stub.Text()
+        )
+        line.iconButton.stub:Leave()
+
+        -- The client will not say what the link draws. Then nothing numeric is
+        -- printed: there is no second number to compare, and neither one would
+        -- have been read from anything.
+        world.items[link] = nil
+        ns.UI.ItemLine.Set(line, { itemID = ITEM_ID, link = link, dropLevel = 305, keyLevel = 10 })
+        line.iconButton.stub:Enter()
+        local unanswered = world.tooltip.stub.Text()
+        assert.is_truthy(
+            unanswered:find("shown at its own level above", 1, true),
+            "the no-answer wording was not on the tooltip: " .. unanswered
+        )
+        assert.is_nil(unanswered:find("305", 1, true))
+        assert.is_nil(unanswered:find("Drops at", 1, true))
+        line.iconButton.stub:Leave()
+
+        -- A row that is not a drop hands in no level of its own, so no tab but
+        -- the map's drops can ever get this line.
+        world.items[link] = { level = 292 }
+        ns.UI.ItemLine.Set(line, { itemID = ITEM_ID, link = link, itemLevel = 305 })
+        line.iconButton.stub:Enter()
+        local plain = world.tooltip.stub.Text()
+        assert.is_nil(plain:find("Drops at", 1, true))
+        assert.is_nil(plain:find("shown at", 1, true))
+    end)
 end)
 
 describe("UI.ItemLine over an item the client has not loaded", function()

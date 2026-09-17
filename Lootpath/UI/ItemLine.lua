@@ -213,8 +213,8 @@ end
 -- Blizzard's own placeholders. `pending` says the client cannot name the item
 -- yet - the row is readable either way, which is the whole point.
 --
--- item = { itemID, link, levelNote, name, quality, itemLevel, icon, second,
---          badge, tags }
+-- item = { itemID, link, levelNote, dropLevel, keyLevel, name, quality,
+--          itemLevel, icon, second, badge, tags }
 function ItemLine.Resolve(item)
     if type(item) ~= "table" then
         return { pending = false, name = ItemLine.PLACEHOLDER_NAME, icon = ItemLine.PLACEHOLDER_ICON }
@@ -250,6 +250,13 @@ function ItemLine.Resolve(item)
         -- Only ever read where there is no link: what the hover says about a
         -- tooltip the client can only draw at the item's base level (M5-3a).
         levelNote = item.levelNote,
+        -- What a DROP row prints and at what key level the walk previewed it
+        -- (M5-3b). Only a drop row sets them, so no other tab can ever get a
+        -- "Drops at" line, and the hover compares them with what the link
+        -- draws on its own. Kept apart from `itemLevel`, which every caller
+        -- sets and which the client may well have filled in itself.
+        dropLevel = tonumber(item.dropLevel),
+        keyLevel = tonumber(item.keyLevel),
         name = name,
         quality = quality,
         itemLevel = itemLevel,
@@ -298,6 +305,55 @@ function ItemLine.BadgeText(badge)
     return text
 end
 
+-- The grey line under the item on a drop's hover, when the tooltip the client
+-- drew is not the level the row printed (M5-3b, WKE-608). Measured by the
+-- owner on 2026-09-16: the journal link carries no level of its own - the
+-- previewed key level rides on the item context - so the walk read 305 off it
+-- with the Adventure Guide previewing key 10, and a later `SetHyperlink` on
+-- the same link drew what the link says by itself, 292. The link is right
+-- about the item and its track and silent about the +10; the row says the
+-- level in its own words instead. **No link is ever built with a level
+-- modifier**: a synthesised link would be a made-up item.
+--
+-- One function decides which line a hover gets, for both cases: the link-less
+-- one M5-3a added (the wording comes in as `levelNote`, built where the row
+-- knows its difficulty) and this one.
+ItemLine.DROP_LEVEL_NOTE_KEYED = "Drops at %d from a +%d · shown at %d above"
+ItemLine.DROP_LEVEL_NOTE = "Drops at %d · shown at %d above"
+-- The client would not say what the link draws. Then there is no number to
+-- print that would be read from anything, and the reader is told only that
+-- the tooltip is the link's own level and the row's is the one above it.
+ItemLine.OWN_LEVEL_NOTE = "shown at its own level above"
+
+function ItemLine.LevelNote(item, linkLevel)
+    if type(item) ~= "table" then
+        return nil
+    end
+    if type(item.link) ~= "string" then
+        local note = item.levelNote
+        if type(note) == "string" and note ~= "" then
+            return note
+        end
+        return nil
+    end
+    local dropLevel = tonumber(item.dropLevel)
+    if dropLevel == nil then
+        return nil
+    end
+    linkLevel = tonumber(linkLevel)
+    if linkLevel == nil then
+        return ItemLine.OWN_LEVEL_NOTE
+    end
+    if linkLevel == dropLevel then
+        return nil
+    end
+    local keyLevel = tonumber(item.keyLevel)
+    if keyLevel then
+        return string.format(ItemLine.DROP_LEVEL_NOTE_KEYED, dropLevel, keyLevel, linkLevel)
+    end
+    return string.format(ItemLine.DROP_LEVEL_NOTE, dropLevel, linkLevel)
+end
+
 function ItemLine.ShowTooltip(line, anchorTo)
     local item = line.resolved
     if not (GameTooltip and item) then
@@ -312,13 +368,21 @@ function ItemLine.ShowTooltip(line, anchorTo)
     else
         GameTooltip:SetText(item.name, 1, 1, 1, 1, true)
     end
-    -- With a link, the client draws the item at the level the link carries and
-    -- there is nothing to say. Without one - an older walk, a row built before
-    -- the link was kept - it draws the item as it exists in its own expansion,
-    -- and the reader is told that in the first line under it rather than left
-    -- to read Item Level 28 as if it were the row's number (M5-3a).
-    if not hasLink and type(item.levelNote) == "string" and item.levelNote ~= "" and GameTooltip.AddLine then
-        GameTooltip:AddLine(colored(ItemLine.GREY, item.levelNote))
+    -- Without a link - an older walk, a row built before the link was kept -
+    -- the client draws the item as it exists in its own expansion, and the
+    -- reader is told that in the first line under it rather than left to read
+    -- Item Level 28 as if it were the row's number (M5-3a). With one, the
+    -- client draws the item the link names at whatever level the link says on
+    -- its own, which is not always the level the row was rated at (M5-3b):
+    -- asked here, at hover time, through the same guarded probe every other
+    -- client read in this file goes through.
+    local linkLevel = nil
+    if hasLink then
+        linkLevel = probe(C_Item and C_Item.GetDetailedItemLevelInfo, item.link)
+    end
+    local note = ItemLine.LevelNote(item, linkLevel)
+    if note and GameTooltip.AddLine then
+        GameTooltip:AddLine(colored(ItemLine.GREY, note))
     end
     GameTooltip:Show()
     -- The shopping compare, which is what makes "what does this actually have

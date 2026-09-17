@@ -202,6 +202,50 @@ describe("UpgradeMapPanel model over the committed walk", function()
         )
     end)
 
+    -- M5-3b: the other half of the same problem, measured by the owner on
+    -- 2026-09-16. The link draws the right item on its own terms - Champion
+    -- 1/6, 292 - and says nothing about the +10 the row was rated at, so a
+    -- 305 row hovered as 292. The row carries the two numbers the hover needs
+    -- and the widget reads the third off the client at hover time.
+    it("carries the key level onto each drop row, so a 305 row drawn at 292 says so", function()
+        local model = ns.UpgradeMapPanel.Model({ sources = sources, summary = summary })
+        local row = findRow(model, 251159, 8)
+        assert.is_table(row)
+        assert.equal(10, row.keyLevel)
+        assert.equal(305, row.itemLevel)
+
+        -- A raid drop is read at no key level, so it carries none.
+        local raid
+        for _, candidate in ipairs(everyCandidate(model)) do
+            if candidate.isRaid then
+                raid = raid or candidate
+            end
+        end
+        assert.is_table(raid)
+        assert.is_nil(raid.keyLevel)
+
+        -- What the client says the link draws by itself, which is the one
+        -- number no walk recorded.
+        world.items[row.link] = { level = 292 }
+        local frame = ns.UpgradeMapPanel.Create()
+        local element = CreateFrame("Frame", nil, frame)
+        ns.UpgradeMapPanel.InitElement(frame, element, { kind = ns.UpgradeMapPanel.ELEMENT_ITEM, row = row })
+        assert.equal(305, element.line.resolved.dropLevel)
+        assert.equal(10, element.line.resolved.keyLevel)
+        element.line.iconButton.stub:Enter()
+        local text = world.tooltip.stub.Text()
+        assert.is_truthy(
+            text:find("Drops at 305 from a +10 · shown at 292 above", 1, true),
+            "the level line was not on the tooltip: " .. text
+        )
+        element.line.iconButton.stub:Leave()
+
+        -- The client draws the link at the level the row prints: nothing to say.
+        world.items[row.link] = { level = 305 }
+        element.line.iconButton.stub:Enter()
+        assert.is_nil(world.tooltip.stub.Text():find("Drops at", 1, true))
+    end)
+
     it("files every candidate under a slot, or under the unidentified list", function()
         local model = ns.UpgradeMapPanel.Model({
             sources = sources,

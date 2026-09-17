@@ -412,13 +412,14 @@ Panel.BASE_LEVEL_NOTE = "shown at its base level - /lootpath capture journal to 
 Panel.BASE_LEVEL_NOTE_PLAIN = "shown at its base level - /lootpath capture journal to read it at this row's level"
 
 -- The keystone level is only part of the sentence where the row has one: a
--- raid drop is not read at a key level, so it gets the plain form rather than
--- a number that means nothing there.
+-- raid drop gets the plain form rather than a number that means nothing there.
+-- `Panel.RunKeyLevel` is the one place that answers "was this read at a key
+-- level, and which one" - the same question the hover-time line asks (M5-3b),
+-- and the one that already honours an entry carrying its own level - so
+-- neither hover can drift into calling a raid drop a +10. An entry with no
+-- difficulty at all names no key level either: it would be a guess.
 function Panel.BaseLevelNote(entry, previewLevel)
-    local level = previewLevel
-    if entry and entry.difficultyID ~= mythicPlusDifficulty() then
-        level = nil
-    end
+    local level = Panel.RunKeyLevel(entry and entry.difficultyID, previewLevel, entry)
     if type(level) == "number" then
         return string.format(Panel.BASE_LEVEL_NOTE, level)
     end
@@ -461,6 +462,11 @@ local function candidateRow(itemID, entry, owned, difficultyLabels, previewLevel
         -- the level the row prints.
         link = entry.link,
         levelNote = entry.link == nil and entry.pending ~= true and Panel.BaseLevelNote(entry, previewLevel) or nil,
+        -- What the hover needs to catch the other half of the same problem
+        -- (M5-3b): the level this row prints and the key level the walk
+        -- previewed it at, so a tooltip drawn at the link's own level can say
+        -- so in the row's words instead of quietly disagreeing with it.
+        keyLevel = Panel.RunKeyLevel(entry.difficultyID, previewLevel, entry),
     }
 end
 
@@ -1785,6 +1791,12 @@ function Panel.RoadRow(road, previewMythicPlusLevel)
         levelNote = (road.kind == ns.Roads.KIND_DROP and not (road.item and road.item.link))
                 and Panel.BaseLevelNote(road.source, previewMythicPlusLevel)
             or nil,
+        -- Only a drop arrives at a level a walk previewed, so only a drop can
+        -- disagree with what its link draws on its own (M5-3b).
+        keyLevel = road.kind == ns.Roads.KIND_DROP
+                and Panel.RunKeyLevel(road.source and road.source.difficultyID, previewMythicPlusLevel, road.source)
+            or nil,
+        dropLevel = road.kind == ns.Roads.KIND_DROP and tonumber(road.arrivesAt) or nil,
         name = road.item and road.item.name or nil,
         icon = road.item and road.item.icon or nil,
         quality = road.item and road.item.quality or nil,
@@ -2789,6 +2801,11 @@ function Panel.InitElement(panel, element, data)
             itemID = row.itemID,
             link = row.link,
             levelNote = row.levelNote,
+            -- Every row of this list is a journal drop, so the level it prints
+            -- is the level it drops at: what the hover checks the link's own
+            -- tooltip against (M5-3b).
+            dropLevel = row.itemLevel,
+            keyLevel = row.keyLevel,
             name = row.name,
             itemLevel = row.itemLevel,
             icon = row.icon,
@@ -2845,6 +2862,10 @@ function Panel.InitRoad(panel, element, row)
         itemID = row.itemID,
         link = row.link,
         levelNote = row.levelNote,
+        -- Set on drop roads alone (M5-3b); a road named by a document arrives
+        -- at a level no walk previewed and has nothing to compare.
+        dropLevel = row.dropLevel,
+        keyLevel = row.keyLevel,
         name = row.name,
         itemLevel = row.itemLevel,
         icon = row.icon,
