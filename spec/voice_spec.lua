@@ -228,13 +228,26 @@ describe("the source-free voice (V-1, WKE-569)", function()
             c.check("tab " .. index .. " label", tab:GetText())
         end
 
-        -- Equip Now: the summary, the note, the chips and every row's words.
+        -- Equip Now: the answer, the bar's key, the fold, the hint, the note,
+        -- the counts and every row's words - the text model's and the drawn
+        -- row's, which since M5-1b (WKE-610) are two different sets of strings.
         local equip = frame.equipPanel
-        c.check("EquipNow.summary", equip.summary:GetText())
+        c.check("EquipNow.answer", equip.answer:GetText())
+        c.check("EquipNow.answerText", ns.UI.EquipPanel.AnswerText(equip.match))
+        c.check("EquipNow.allBest", ns.UI.EquipPanel.ANSWER_ALL_BEST)
+        c.check("EquipNow.nothingRated", ns.UI.EquipPanel.ANSWER_NOTHING_RATED)
+        c.check("EquipNow.barKey", equip.barKey:GetText())
+        c.check("EquipNow.fold", equip.fold.text:GetText())
+        c.check("EquipNow.foldText", ns.UI.EquipPanel.FoldText(15, 20))
+        c.check("EquipNow.foldAll", ns.UI.EquipPanel.FoldText(20, 20))
+        c.check("EquipNow.hint", equip.hintText)
         c.check("EquipNow.note", ns.UI.EquipPanel.NoteText(equip.match))
         for _, chip in ipairs(ns.UI.EquipPanel.Chips(equip.match) or {}) do
             c.check("EquipNow.chip", chip.label)
             c.check("EquipNow.chip", chip.text)
+        end
+        for _, entry in ipairs(ns.UI.EquipPanel.Bar(equip.match).key) do
+            c.check("EquipNow.barKey.entry", entry.text)
         end
         for _, row in ipairs(equip.match and equip.match.rows or {}) do
             local line = ns.UI.EquipPanel.Describe(row)
@@ -242,6 +255,10 @@ describe("the source-free voice (V-1, WKE-569)", function()
             c.check("EquipNow.row.note", line.note)
             c.check("EquipNow.row.second", line.second)
             c.check("EquipNow.row.badge", line.badge and line.badge.text)
+            local drawn = ns.UI.EquipPanel.Drawn(row, equip.match)
+            c.check("EquipNow.drawn.second", drawn.second)
+            c.check("EquipNow.drawn.note", drawn.note)
+            c.check("EquipNow.drawn.verb", drawn.verb)
         end
         for _, reason in ipairs(equip.match and equip.match.fallbacks or {}) do
             c.check("EquipNow.fallback", reason)

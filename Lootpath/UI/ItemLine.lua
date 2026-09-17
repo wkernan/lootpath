@@ -87,6 +87,16 @@ ItemLine.NAME_HEIGHT = 16
 ItemLine.SECOND_HEIGHT = 14
 ItemLine.BADGE_WIDTH = 104
 ItemLine.ICON_GAP = 6
+-- The mark column (M5-1b, WKE-610). A mark is a glyph in a fixed position that
+-- says what a row's state is, where a badge said it in words; Equip Now's rows
+-- carry one and the other two tabs do not, so it is optional on this widget the
+-- way the badge and the tags already are. Drawn at the size it is seen at
+-- (R-2b): the atlas is never asked to draw itself at the art's own size.
+ItemLine.MARK_SIZE = 16
+-- How far an already-settled row is dimmed. Half weight, so fifteen of them
+-- become texture the eye skims and the rows that need something are the only
+-- full-weight things on screen.
+ItemLine.DIM_ALPHA = 0.5
 
 -- Blizzard's own quality border, from ItemButtonTemplate.xml.
 ItemLine.ICON_BORDER_TEXTURE = [[Interface\Common\WhiteIconFrame]]
@@ -386,6 +396,37 @@ function ItemLine.LevelNote(item, linkLevel)
     return string.format(ItemLine.DROP_LEVEL_NOTE, dropLevel, linkLevel)
 end
 
+-- One mark onto one line (M5-1b, WKE-610).
+--
+-- `mark` is `{ atlas, hex }`. The atlas is asked of the client first, the way
+-- every atlas in this file is, and tinted to the state's own colour so the mark
+-- and the slot bar's segment for that state are the same colour. A client that
+-- does not have the art gets a flat texture in that colour instead - the size
+-- and the position are identical either way, so the column never moves - and
+-- never a word: a mark that decayed into a badge would put back the thing the
+-- redraw took out. Returns whether the atlas was there, so a caller can say
+-- which of the two it got.
+function ItemLine.SetMark(line, mark)
+    if not line.mark then
+        return false
+    end
+    if type(mark) ~= "table" then
+        line.mark:Hide()
+        return false
+    end
+    local r, g, b = ItemLine.RGB(mark.hex or ItemLine.GREY)
+    local atlas = ItemLine.Atlas(mark.atlas)
+    if atlas then
+        line.mark:SetAtlas(atlas)
+    else
+        line.mark:SetColorTexture(r, g, b)
+    end
+    line.mark:SetVertexColor(r, g, b)
+    line.mark:SetSize(line.markSize or ItemLine.MARK_SIZE, line.markSize or ItemLine.MARK_SIZE)
+    line.mark:Show()
+    return atlas ~= nil
+end
+
 function ItemLine.ShowTooltip(line, anchorTo)
     local item = line.resolved
     if not (GameTooltip and item) then
@@ -505,6 +546,16 @@ function ItemLine.Create(parent, opts)
     line.badgeIcon:SetPoint("RIGHT", line.badge, "LEFT", -2, 0)
     line.badgeIcon:Hide()
 
+    -- The mark: one glyph, always in the same place, at the right-hand end of
+    -- the line where a badge's word used to start (M5-1b). A caller that hands
+    -- in no mark never sees it.
+    local markSize = tonumber(opts.markSize) or ItemLine.MARK_SIZE
+    line.markSize = markSize
+    line.mark = line:CreateTexture(nil, "OVERLAY")
+    line.mark:SetSize(markSize, markSize)
+    line.mark:SetPoint("TOPRIGHT", line, "TOPRIGHT", 0, -1)
+    line.mark:Hide()
+
     line.tags = line:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
     line.tags:SetPoint("TOPRIGHT", line.badge, "BOTTOMRIGHT", 0, -2)
     line.tags:SetWidth(badgeWidth)
@@ -525,12 +576,24 @@ function ItemLine.Set(line, item)
     local resolved = ItemLine.Resolve(item)
     line.resolved = resolved
 
-    line.icon:SetTexture(resolved.icon)
+    -- An item you do not own is drawn as an empty slot rather than as a piece
+    -- of gear you have: the caller hands in the client's own empty-item-button
+    -- atlas and the line draws that instead of the item's art, with no quality
+    -- border, because there is no copy of this item to have a quality (M5-1b).
+    local ghostAtlas = type(item) == "table" and item.ghost and ItemLine.Atlas(item.ghostAtlas) or nil
+    if ghostAtlas then
+        line.icon:SetAtlas(ghostAtlas)
+    else
+        line.icon:SetTexture(resolved.icon)
+    end
 
     local color = ItemLine.QualityColor(resolved.quality)
-    if color then
+    if color and not ghostAtlas then
         line.border:SetVertexColor(color.r, color.g, color.b)
         line.border:Show()
+        line.name:SetText(colored(color.hex, resolved.name))
+    elseif color then
+        line.border:Hide()
         line.name:SetText(colored(color.hex, resolved.name))
     else
         line.border:Hide()
@@ -556,6 +619,12 @@ function ItemLine.Set(line, item)
 
     line.tags:SetText(ItemLine.TagText(type(item) == "table" and item.tags or nil))
 
+    -- The mark, and the row's weight (M5-1b). A line with no `mark` shows
+    -- none, and a line that is not `dim` is at full alpha, so the two tabs that
+    -- pass neither are drawn exactly as they were.
+    ItemLine.SetMark(line, type(item) == "table" and item.mark or nil)
+    line:SetAlpha(type(item) == "table" and item.dim and ItemLine.DIM_ALPHA or 1)
+
     -- The client cannot name it yet: ask, once, and redraw this line when the
     -- answer comes. If it never comes the row stays exactly as it is - the
     -- question mark and RETRIEVING_ITEM_INFO, which is what Blizzard's own
@@ -578,6 +647,11 @@ function ItemLine.Clear(line)
     line.request = nil
     line.item = nil
     line.resolved = nil
+    -- A recycled line carries nothing of the row it used to hold: a mark left
+    -- behind would put one row's state on another row's item, and a dim left
+    -- behind would keep a row at half weight after it stopped being settled.
+    ItemLine.SetMark(line, nil)
+    line:SetAlpha(1)
     line:Hide()
 end
 
