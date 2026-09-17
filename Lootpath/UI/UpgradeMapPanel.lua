@@ -2195,8 +2195,11 @@ end
 -- Frames. Native only, no AceGUI (decision 2026-09-05).
 -- Only a default: the window anchors this panel by two corners (M3-3 wiring in
 -- UI/MainFrame.lua), which is what actually sizes it. The size matters for a
--- panel built on its own, which is what the render tests do.
-local PANEL_WIDTH = 560
+-- panel built on its own, which is what the render tests do - so since M5-2c
+-- (WKE-609) the default is ns.UI.PANEL_WIDTH, exactly what those anchors
+-- produce, rather than a 620-era number of this file's own. Read at Create
+-- time, not at load: this file loads after UI/MainFrame.lua but nothing here
+-- should depend on that.
 local PANEL_HEIGHT = 420
 local WHITE_TEXTURE = [[Interface\Buttons\WHITE8X8]]
 
@@ -2417,7 +2420,7 @@ end
 
 function Panel.Create(parent)
     local frame = CreateFrame("Frame", "LootpathUpgradeMapPanel", parent or UIParent)
-    frame:SetSize(PANEL_WIDTH, PANEL_HEIGHT)
+    frame:SetSize(ns.UI.PANEL_WIDTH, PANEL_HEIGHT)
     frame:Hide()
 
     frame.header = fontString(frame, "GameFontNormal")

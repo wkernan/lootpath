@@ -1999,10 +1999,15 @@ end
 -- `Panel.Lines` is untouched and is still the pure text the tests read.
 
 local ROW_HEIGHT = 14
--- Only a default; the window anchors this panel by two corners. See the same
--- note in UI/UpgradeMapPanel.lua.
-local PANEL_WIDTH = 560
+-- Only a default; the window anchors this panel by two corners, and the default
+-- is ns.UI.PANEL_WIDTH, read at Create time. See the same note in
+-- UI/UpgradeMapPanel.lua.
 local PANEL_HEIGHT = 420
+-- The room this panel's scroll frame leaves on its right for the scrollbar. It
+-- is already in the scroll frame's own BOTTOMRIGHT anchor below, which is why
+-- the scroll frame's width IS the width the grid may use and nothing subtracts
+-- it twice (M5-2c, WKE-609).
+local SCROLL_INSET = 26
 
 -- The row's own left column: Blizzard's category banner with this row's name
 -- over its left edge (V-5a, WKE-607). It used to be 74, a column narrower than
@@ -2032,6 +2037,15 @@ local LABEL_BAND = 12
 -- cell below it moves.
 local CELL_TICK_SIZE = 12
 local GRID_ROW_GAP = 8
+-- The four widths above, published for spec/vaultpanel_spec.lua: the guard that
+-- the row spends the window's width on its cells has to name them, and naming
+-- them a second time in the test would be a second copy of each (M5-2c,
+-- WKE-609).
+Panel.SCROLL_INSET = SCROLL_INSET
+Panel.ROW_BANNER_WIDTH = ROW_BANNER_WIDTH
+Panel.ROW_BANNER_INSET = ROW_BANNER_INSET
+Panel.CELL_GAP = CELL_GAP
+
 local CELL_ICON_SIZE = 32
 local CHIP_ICON_SIZE = 14
 local CHIP_GAP = 12
@@ -2312,9 +2326,28 @@ local function buildScenarioDropdown(frame)
     return dropdown
 end
 
+-- The width the scroll child may use, which is the width of the scroll frame
+-- that holds it (M5-2c, WKE-609). Until this issue the content frame was
+-- created at a fixed `PANEL_WIDTH - 40` and never resized, so the grid drew
+-- itself into 520 points inside a scroll frame that had more - the defect the
+-- V-5a agent found on 2026-09-16 and left, because it was sizing and not art.
+--
+-- The scrollbar's room is already in the scroll frame's own BOTTOMRIGHT anchor,
+-- so its width is the usable span and SCROLL_INSET is not taken off it again. A
+-- frame sized by anchors answers GetWidth only once the client has laid it out,
+-- and headless it never does, so the same arithmetic is done from the panel's
+-- own width when the scroll frame has no width to give.
+function Panel.ContentWidth(frame)
+    local width = frame.scroll and frame.scroll:GetWidth() or 0
+    if not width or width <= 0 then
+        width = (frame:GetWidth() or 0) - SCROLL_INSET
+    end
+    return math.max(1, width)
+end
+
 function Panel.Create(parent)
     local frame = CreateFrame("Frame", "LootpathVaultPanel", parent or UIParent)
-    frame:SetSize(PANEL_WIDTH, PANEL_HEIGHT)
+    frame:SetSize(ns.UI.PANEL_WIDTH, PANEL_HEIGHT)
     frame:Hide()
 
     frame.header = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
@@ -2330,9 +2363,9 @@ function Panel.Create(parent)
     -- header.
     frame.scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
     frame.scroll:SetPoint("TOPLEFT", frame.header, "BOTTOMLEFT", 0, -12)
-    frame.scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -26, 4)
+    frame.scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SCROLL_INSET, 4)
     frame.content = CreateFrame("Frame", nil, frame.scroll)
-    frame.content:SetSize(PANEL_WIDTH - 40, PANEL_HEIGHT - 60)
+    frame.content:SetSize(Panel.ContentWidth(frame), PANEL_HEIGHT - 60)
     frame.scroll:SetScrollChild(frame.content)
     frame.rows = {}
     frame.gridRows = {}
@@ -2388,7 +2421,9 @@ local function row(frame, index)
     if not text then
         text = frame.content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
         text:SetJustifyH("LEFT")
-        text:SetWidth(PANEL_WIDTH - 60)
+        -- As wide as the frame it wraps inside, rather than a number of its own
+        -- (M5-2c, WKE-609).
+        text:SetWidth(Panel.ContentWidth(frame))
         text:SetWordWrap(true)
         if index == 1 then
             text:SetPoint("TOPLEFT", frame.content, "TOPLEFT", 0, 0)
@@ -2413,8 +2448,9 @@ end
 -- `TextureBase:SetAtlas(atlas, useAtlasSize, ...)` (Ketho,
 -- Core/Widget/Base/TextureBase.lua).
 --
--- This window is 620 wide altogether and Blizzard's boxes are bigger than
--- anything in it - its activity frame is 219x126 and its row header 326x131 -
+-- This window is 760 wide altogether (M5-2c, WKE-609) and Blizzard's boxes are
+-- still bigger than anything in it - its activity frame is 219x126 and its row
+-- header 326x131 -
 -- so art that does not fit at its own size is scaled by ONE factor for both
 -- sides. Never two: two factors is the squash, and giving a texture
 -- `SetAllPoints` over a cell is two factors. The size is asked of the client
@@ -2847,12 +2883,19 @@ function Panel.Refresh(self, opts)
     local model = Panel.Model(Panel.Gather(opts))
     self.model = model
 
+    -- The scroll child takes its width from the scroll frame that holds it,
+    -- every refresh, so a window that has been resized - or laid out for the
+    -- first time - gives the grid the whole span (M5-2c, WKE-609). Only the
+    -- width: the height is what the layout below works out.
+    self.content:SetWidth(Panel.ContentWidth(self))
     local width = math.max(1, self.content:GetWidth())
     local gaps = CELL_GAP * (Panel.ROW_CELLS - 1)
     -- What three cells across are left after the banner. At the width this
-    -- content frame is created with (PANEL_WIDTH - 40 = 520) that is
-    -- (520 - 132 - 16) / 3 = 124 each, against 143 before the banner took its
-    -- room (V-5a, WKE-607) - the trade the issue asked for, taken in width.
+    -- content frame now gets on a 760-wide window (a 734-point panel less the
+    -- 26 the scrollbar takes = 708) that is (708 - 132 - 16) / 3 = 186 each,
+    -- against the 124 it drew at while the content frame was frozen at 520.
+    -- The banner keeps the 132 V-5a gave it: the room the window gained goes to
+    -- the cells, which is the side V-5a had to squeeze.
     local cellWidth = math.max(60, math.floor((width - ROW_BANNER_WIDTH - gaps) / Panel.ROW_CELLS))
 
     local lines = Panel.NoteLines(model)

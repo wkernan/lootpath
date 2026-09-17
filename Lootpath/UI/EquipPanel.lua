@@ -52,6 +52,13 @@ EquipPanel.MAX_ROWS = 20
 -- the list nor move its top.
 EquipPanel.TOP_GAP = 8
 
+-- How far a row sits inside the panel: the scroll frame's own left edge plus
+-- the room the scrollbar wants on the right. A margin, not a width - the width
+-- itself is ns.UI.PANEL_WIDTH less this (M5-2c, WKE-609). Before that this
+-- panel's rows were "UI.WIDTH - 32", a number the window handed in that only
+-- happened to equal the same thing at 620.
+EquipPanel.ROW_INSET = 6
+
 -- The column the slot name gets. Everything to the right of it is anchored, not
 -- sized, so the text a row shows is bounded by the frame and not by a number.
 EquipPanel.SLOT_COLUMN = 80
@@ -795,7 +802,12 @@ end
 
 function EquipPanel.Create(parent)
     local panel = CreateFrame("Frame", nil, parent)
-    panel.rowWidth = 560
+    -- Only a default: the window anchors this panel by two corners, which is
+    -- what actually sizes it in the client. The number is exactly what those
+    -- anchors produce, so a panel built on its own - which is what the render
+    -- tests do - is the size the window would have made it (M5-2c, WKE-609).
+    panel:SetWidth(ns.UI.PANEL_WIDTH)
+    panel.rowWidth = ns.UI.PANEL_WIDTH - EquipPanel.ROW_INSET
     panel.rows = {}
 
     panel.header = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
@@ -873,8 +885,15 @@ end
 
 function EquipPanel.Refresh(panel, match)
     panel.match = match
-    -- The scroll child is as wide as the panel was told to be: the window sets
-    -- `rowWidth` after Create, so the width is taken here rather than frozen.
+    -- The scroll child is as wide as the panel actually is, asked at layout
+    -- time rather than frozen at Create: in the client the window's two corner
+    -- anchors are what size this panel, and a frame sized by anchors only
+    -- answers GetWidth once the client has laid it out (M5-2c, WKE-609). Until
+    -- it does, the default Create derived from ns.UI.PANEL_WIDTH stands.
+    local width = panel:GetWidth()
+    if width and width > 0 then
+        panel.rowWidth = width - EquipPanel.ROW_INSET
+    end
     panel.list:SetWidth(panel.rowWidth)
     panel.summary:SetText(EquipPanel.NoteText(match))
 

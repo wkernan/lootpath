@@ -1804,6 +1804,65 @@ describe("the window's chrome (M5-2)", function()
     end)
 end)
 
+describe("the window's width (M5-2c)", function()
+    local ns, world, frame
+
+    -- The x offset of the first point a frame was given under this name.
+    local function offsetOf(widget, name)
+        for _, point in ipairs(widget.points) do
+            if point[1] == name then
+                return point[4]
+            end
+        end
+        return nil
+    end
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        frame = ns.UI.Frame()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("is the 760 the owner chose, and is still 640 tall", function()
+        assert.equal(760, ns.UI.WIDTH)
+        assert.equal(760, frame:GetWidth())
+        assert.equal(640, ns.UI.HEIGHT)
+        assert.equal(640, frame:GetHeight())
+    end)
+
+    it("gives every tab's panel exactly the width its own two anchors make", function()
+        -- What the window hands a panel, worked out from the anchors and from
+        -- nothing else: the strip's left edge, plus the panel's own offset off
+        -- the strip's BOTTOMLEFT, across to the panel's BOTTOMRIGHT offset off
+        -- the frame's right edge.
+        local left = offsetOf(frame.statusStrip, "TOPLEFT") + offsetOf(frame.equipPanel, "TOPLEFT")
+        local right = ns.UI.WIDTH + offsetOf(frame.equipPanel, "BOTTOMRIGHT")
+        assert.equal(right - left, ns.UI.PANEL_WIDTH)
+        -- and every panel is that wide on its own, so a panel the render tests
+        -- build without a window is the size the window would have made it
+        for _, tab in ipairs(ns.UI.TABS) do
+            assert.equal(ns.UI.PANEL_WIDTH, frame[tab.key]:GetWidth())
+        end
+    end)
+
+    it("derives the Equip Now rows from the panel rather than from a number", function()
+        local panel = frame.equipPanel
+        ns.UI.RefreshEquip(frame)
+        assert.equal(panel:GetWidth() - ns.UI.EquipPanel.ROW_INSET, panel.rowWidth)
+        assert.equal(panel.rowWidth, panel.list:GetWidth())
+        -- and it follows the panel, rather than the width Create happened to
+        -- start it at
+        panel:SetWidth(400)
+        ns.UI.RefreshEquip(frame)
+        assert.equal(400 - ns.UI.EquipPanel.ROW_INSET, panel.rowWidth)
+        assert.equal(panel.rowWidth, panel.list:GetWidth())
+    end)
+end)
+
 describe("the status strip (M5-2)", function()
     local ns, world, frame
 

@@ -57,10 +57,29 @@ UI.MINIMAP_BUTTON_NAME = "LootpathMinimapButton"
 -- R-6 (WKE-578): the badge on the launcher, in points. Small enough to be a
 -- mark on a 31-point button and not a second icon.
 UI.MINIMAP_DOT_SIZE = 9
--- M5-0 (WKE-549) has not answered the window-size question, so the size is the
--- one the window has had since M2-2; the mockups are drawn at 760.
-UI.WIDTH = 620
+-- M5-2c (WKE-609). The owner answered M5-0's window question on WKE-598,
+-- 2026-09-16 night - "keep it dark and grow to 760" - so the window is finally
+-- the width its mockups were drawn at, rather than the M2-2 size it had kept
+-- while nobody had answered. The height is unchanged: no panel asked for more,
+-- and the answer was about width. There is no light skin and none is built;
+-- this addon is dark, the way the client is.
+UI.WIDTH = 760
 UI.HEIGHT = 640
+-- The air a tab's panel leaves on each side of the window, and the only numbers
+-- in this addon's panel widths that are not derived from one of them. They are
+-- margins, not widths: the strip starts UI.STRIP_INSET in from the frame
+-- (buildStatusStrip), a panel's TOPLEFT hangs off the strip's BOTTOMLEFT two
+-- points further in, and a panel's BOTTOMRIGHT is UI.PANEL_INSET_RIGHT in from
+-- the frame's right edge.
+UI.STRIP_INSET = 12
+UI.PANEL_INSET_LEFT = UI.STRIP_INSET + 2
+UI.PANEL_INSET_RIGHT = 12
+-- What a tab's panel is actually given, and the one width every panel derives
+-- its own default from. In the client the two corner anchors are what size a
+-- panel; this is the same arithmetic done ahead of them, so a panel built on
+-- its own - which is what the render tests do - is the size the window would
+-- have made it. `spec/ui_spec.lua` proves the anchors and this number agree.
+UI.PANEL_WIDTH = UI.WIDTH - UI.PANEL_INSET_LEFT - UI.PANEL_INSET_RIGHT
 UI.DIALOG_WIDTH = 520
 UI.DIALOG_HEIGHT = 260
 UI.PASTE_INSTRUCTIONS = "Paste your Top Gear or Upgrade Finder JSON here"
@@ -1045,8 +1064,8 @@ local function buildStatusStrip(frame)
     local strip = CreateFrame("Frame", nil, frame)
     -- Below the ring, full width, on its own row (M5-2b): UI.STRIP_TOP is the
     -- ring's own bottom edge plus the air under it.
-    strip:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, -UI.STRIP_TOP)
-    strip:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -12, -UI.STRIP_TOP)
+    strip:SetPoint("TOPLEFT", frame, "TOPLEFT", UI.STRIP_INSET, -UI.STRIP_TOP)
+    strip:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -UI.STRIP_INSET, -UI.STRIP_TOP)
     strip:SetHeight(UI.STRIP_HEIGHT)
     strip:EnableMouse(true)
     frame.statusStrip = strip
@@ -1750,8 +1769,10 @@ function UI.Frame()
     buildStatusStrip(frame)
     buildTabs(frame)
 
+    -- No width is handed to the panel here any more (M5-2c, WKE-609): every
+    -- panel derives its own from UI.PANEL_WIDTH, so the window setting a second
+    -- copy of the same number would only be a place for the two to disagree.
     local panel = UI.EquipPanel.Create(frame)
-    panel.rowWidth = UI.WIDTH - 32
     frame.equipPanel = panel
     frame.upgradeMapPanel = ns.UpgradeMapPanel.Create(frame)
     frame.vaultPanel = ns.VaultPanel.Create(frame)
@@ -1761,8 +1782,8 @@ function UI.Frame()
     -- has no inset frame to sit inside.
     for _, tab in ipairs(UI.TABS) do
         local tabPanel = frame[tab.key]
-        tabPanel:SetPoint("TOPLEFT", frame.statusStrip, "BOTTOMLEFT", 2, -6)
-        tabPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -12, 12)
+        tabPanel:SetPoint("TOPLEFT", frame.statusStrip, "BOTTOMLEFT", UI.PANEL_INSET_LEFT - UI.STRIP_INSET, -6)
+        tabPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -UI.PANEL_INSET_RIGHT, 12)
     end
     -- H-1 (WKE-596): the same rectangle again, for the screen that replaces all
     -- three. Built last so it is drawn over them, and hidden until `ShowTab`
