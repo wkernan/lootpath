@@ -2004,7 +2004,20 @@ local ROW_HEIGHT = 14
 local PANEL_WIDTH = 560
 local PANEL_HEIGHT = 420
 
-local ROW_LABEL_WIDTH = 74
+-- The row's own left column: Blizzard's category banner with this row's name
+-- over its left edge (V-5a, WKE-607). It used to be 74, a column narrower than
+-- it was tall, and the art was given exactly that box - which is the squeeze the
+-- owner's screenshot of 2026-09-16 caught. Blizzard's own header frame is
+-- 326x131 (WeeklyRewardActivityTypeTemplate, Blizzard_WeeklyRewards.xml), so
+-- its art is about two and a half times as wide as it is tall; a box that is
+-- 132 wide against this row's 104 is the widest this window can give it and
+-- still leave three cells that can be read. The trade the issue asked for is
+-- taken here and only here: the cells give way, and they give way in WIDTH.
+local ROW_BANNER_WIDTH = 132
+-- The air inside the banner. Also where the row's name sits in from the art's
+-- left edge, as Blizzard insets its own header Name (TOPLEFT x=28 of a 326-wide
+-- header, same file).
+local ROW_BANNER_INSET = 8
 local CELL_GAP = 8
 local CELL_HEIGHT = 104
 -- The band at the top of every cell that the "the pick" label lives in. It is
@@ -2388,6 +2401,48 @@ local function row(frame, index)
     return text
 end
 
+-- One atlas, drawn at its own aspect inside the box it was given (V-5a,
+-- WKE-607).
+--
+-- Blizzard draws every one of these atlases at the size the art was authored:
+-- `useAtlasSize = true` in `WeeklyRewardsMixin:SetUpActivity` for the row art
+-- and in `WeeklyRewardsActivityMixin:Refresh` for both cell backgrounds
+-- (Blizzard_WeeklyRewards.lua under `.luals/`), and `useAtlasSize="true"` on the
+-- CompletedIcon and the SelectedTexture of WeeklyRewardActivityTemplate
+-- (Blizzard_WeeklyRewards.xml, same folder). That second argument is
+-- `TextureBase:SetAtlas(atlas, useAtlasSize, ...)` (Ketho,
+-- Core/Widget/Base/TextureBase.lua).
+--
+-- This window is 620 wide altogether and Blizzard's boxes are bigger than
+-- anything in it - its activity frame is 219x126 and its row header 326x131 -
+-- so art that does not fit at its own size is scaled by ONE factor for both
+-- sides. Never two: two factors is the squash, and giving a texture
+-- `SetAllPoints` over a cell is two factors. The size is asked of the client
+-- (`C_Texture.GetAtlasInfo` through `ns.UI.ItemLine.AtlasInfo`); this addon
+-- knows the pixel size of no atlas.
+--
+-- Returns true when there was art to draw.
+local function drawAtlas(texture, name, boxWidth, boxHeight, margin)
+    local info = ns.UI.ItemLine.AtlasInfo(name)
+    if not info then
+        return false
+    end
+    local inset = margin or 0
+    local roomWidth = math.max(1, (boxWidth or 0) - inset * 2)
+    local roomHeight = math.max(1, (boxHeight or 0) - inset * 2)
+    local width, height = info.width, info.height
+    if not width or not height or (width <= roomWidth and height <= roomHeight) then
+        -- It fits as it is - or the client will not say how big it is, and its
+        -- own size is still the only size this addon may draw it at.
+        texture:SetAtlas(info.name, true)
+        return true
+    end
+    local scale = math.min(roomWidth / width, roomHeight / height)
+    texture:SetAtlas(info.name)
+    texture:SetSize(math.max(1, math.floor(width * scale)), math.max(1, math.floor(height * scale)))
+    return true
+end
+
 -- One option cell. Its regions are created once and re-bound on every refresh,
 -- the way every list in this addon works: a cell that stops being the pick must
 -- lose its glow, and a cell that stops holding an item must cancel what that
@@ -2406,8 +2461,9 @@ local function createCell(parent)
     cell.background:SetTexture(WHITE_TEXTURE)
     cell.background:SetVertexColor(0.07, 0.07, 0.08, 0.8)
 
-    -- The tick on an unlocked cell, in Blizzard's own art, top-left of the
-    -- corner band so it never sits on the item's name.
+    -- The tick on an unlocked cell, in Blizzard's own art, in the corner band so
+    -- it never sits on the item's name. Blizzard's own CompletedIcon is drawn at
+    -- the atlas's size; here it is fitted to the band, at its own aspect.
     cell.tick = cell:CreateTexture(nil, "OVERLAY")
     cell.tick:SetSize(CELL_TICK_SIZE, CELL_TICK_SIZE)
     cell.tick:SetPoint("TOPRIGHT", cell, "TOPRIGHT", -4, -2)
@@ -2415,7 +2471,11 @@ local function createCell(parent)
 
     -- Where Blizzard puts the progress: the cell's own corner. The fraction
     -- while it is locked, the level once it is not, nothing once it holds a
-    -- reward.
+    -- reward. A locked cell has nothing else along its bottom, so there the
+    -- fraction goes bottom-right, inside the badge, exactly where Blizzard's
+    -- own Progress sits (BOTTOMRIGHT x=-15 y=15 of WeeklyRewardActivityTemplate,
+    -- Blizzard_WeeklyRewards.xml); a cell holding a reward keeps it in the top
+    -- band, because its footer and its extras own the bottom (V-5a, WKE-607).
     cell.corner = cell:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     cell.corner:SetPoint("TOPRIGHT", cell.tick, "TOPLEFT", -2, 0)
     cell.corner:SetHeight(LABEL_BAND - 2)
@@ -2423,7 +2483,9 @@ local function createCell(parent)
     cell.corner:SetWordWrap(false)
     cell.corner:Hide()
 
-    -- Blizzard's own selected art, when the client still has the atlas.
+    -- Blizzard's own selected art, when the client still has the atlas. Centred
+    -- and at its own aspect like every other atlas here; Blizzard's own
+    -- SelectedTexture is anchored CENTER with useAtlasSize too.
     cell.selectedTexture = cell:CreateTexture(nil, "OVERLAY")
     cell.selectedTexture:SetAllPoints()
     cell.selectedTexture:Hide()
@@ -2507,10 +2569,15 @@ local function createCell(parent)
 
     -- The locked cell's own words, centred, where the item line would be.
     cell.locked = cell:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-    -- Below the corner band, so the threshold sentence and the fraction beside
-    -- it never share a line (V-5, WKE-600).
-    cell.locked:SetPoint("TOPLEFT", cell, "TOPLEFT", 6, -(LABEL_BAND + 4))
-    cell.locked:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", -6, 6)
+    -- Inside the badge rather than inside the cell (V-5a, WKE-607): the art is
+    -- now drawn at its own size and centred, so a sentence anchored to the cell
+    -- would hang off the art it is written on. Anchored to the background it
+    -- follows whatever was drawn - and on a client with no atlas the background
+    -- still covers the whole cell, which is where this sentence used to be. A
+    -- band is left at the top for the corner and one at the bottom for the
+    -- fraction, so the sentence shares a line with neither (V-5, WKE-600).
+    cell.locked:SetPoint("TOPLEFT", cell.background, "TOPLEFT", 6, -(LABEL_BAND + 4))
+    cell.locked:SetPoint("BOTTOMRIGHT", cell.background, "BOTTOMRIGHT", -6, LABEL_BAND + 4)
     cell.locked:SetJustifyH("CENTER")
     cell.locked:SetJustifyV("MIDDLE")
     cell.locked:SetWordWrap(true)
@@ -2616,22 +2683,22 @@ local function gridRow(frame, index)
     -- three atlas names are the ones `WeeklyRewardsMixin:OnLoad` passes to
     -- SetUpActivity, asked for at draw time: a build without one shows the
     -- name alone, which is what the tab showed before this issue.
+    -- A banner, not a column (V-5a, WKE-607): centred in the row's own left
+    -- band, sized at draw time to the art's own aspect, with the row's name over
+    -- its left edge the way Blizzard's header carries its Name.
     rowFrame.art = rowFrame:CreateTexture(nil, "BACKGROUND")
-    rowFrame.art:SetPoint("TOPLEFT", rowFrame, "TOPLEFT", 0, 0)
-    rowFrame.art:SetPoint("BOTTOMLEFT", rowFrame, "BOTTOMLEFT", 0, 0)
-    rowFrame.art:SetWidth(ROW_LABEL_WIDTH - 6)
+    rowFrame.art:SetPoint("CENTER", rowFrame, "LEFT", ROW_BANNER_WIDTH / 2, 0)
     rowFrame.art:Hide()
     rowFrame.label = rowFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    -- Level with the item names beside it, which the label band pushed down.
-    rowFrame.label:SetPoint("TOPLEFT", rowFrame, "TOPLEFT", 0, -(LABEL_BAND + 6))
-    rowFrame.label:SetWidth(ROW_LABEL_WIDTH)
+    rowFrame.label:SetPoint("LEFT", rowFrame.art, "LEFT", ROW_BANNER_INSET, 0)
+    rowFrame.label:SetWidth(ROW_BANNER_WIDTH - ROW_BANNER_INSET * 2)
     rowFrame.label:SetJustifyH("LEFT")
     rowFrame.label:SetWordWrap(false)
     rowFrame.cells = {}
     for cellIndex = 1, Panel.ROW_CELLS do
         local cell = createCell(rowFrame)
         if cellIndex == 1 then
-            cell:SetPoint("TOPLEFT", rowFrame, "TOPLEFT", ROW_LABEL_WIDTH, 0)
+            cell:SetPoint("TOPLEFT", rowFrame, "TOPLEFT", ROW_BANNER_WIDTH, 0)
         else
             cell:SetPoint("TOPLEFT", rowFrame.cells[cellIndex - 1], "TOPRIGHT", CELL_GAP, 0)
         end
@@ -2662,9 +2729,12 @@ end
 -- Marks (or unmarks) one cell as the pick. Blizzard's atlas when the client
 -- has it, four gold edges when it does not; never nothing.
 local function markCell(cell, selected)
-    local atlas = selected and ns.UI.ItemLine.Atlas(Panel.SELECTED_ATLAS) or nil
+    -- Centred and at its own aspect (V-5a, WKE-607), over the badge it marks.
+    cell.selectedTexture:ClearAllPoints()
+    cell.selectedTexture:SetPoint("CENTER", cell, "CENTER", 0, 0)
+    local atlas = selected
+        and drawAtlas(cell.selectedTexture, Panel.SELECTED_ATLAS, cell:GetWidth() or 0, CELL_HEIGHT, 0)
     if atlas then
-        cell.selectedTexture:SetAtlas(atlas)
         cell.selectedTexture:Show()
     else
         cell.selectedTexture:Hide()
@@ -2686,22 +2756,31 @@ end
 -- it the cell keeps M5-4's flat fill and its words, which is a cell that is
 -- plainer rather than a cell that is blank.
 local function paintCell(cell, data)
-    local atlas = ns.UI.ItemLine.Atlas(data.atlas)
+    -- The badge, centred at its own aspect (V-5a, WKE-607). The flat fill still
+    -- covers the whole cell, because a cell with no art must not be a hole.
+    cell.background:ClearAllPoints()
+    cell.background:SetPoint("CENTER", cell, "CENTER", 0, 0)
+    local atlas = drawAtlas(cell.background, data.atlas, cell:GetWidth() or 0, CELL_HEIGHT, 0)
     if atlas then
-        cell.background:SetAtlas(atlas)
         -- An atlas carries its own colour; the tint the flat fill needed would
         -- darken it to nothing.
         cell.background:SetVertexColor(1, 1, 1, 1)
     else
+        cell.background:ClearAllPoints()
+        cell.background:SetAllPoints()
         cell.background:SetTexture(WHITE_TEXTURE)
         cell.background:SetVertexColor(0.07, 0.07, 0.08, 0.8)
     end
-    local tick = data.tick and ns.UI.ItemLine.Atlas(Panel.COMPLETED_ATLAS) or nil
-    if tick then
-        cell.tick:SetAtlas(tick)
-        cell.tick:Show()
+    local tick = data.tick and drawAtlas(cell.tick, Panel.COMPLETED_ATLAS, CELL_TICK_SIZE, CELL_TICK_SIZE, 0)
+    cell.tick:SetShown(tick and true or false)
+    -- A locked cell puts the fraction bottom-right inside the badge, as
+    -- Blizzard does; a cell with a reward keeps it in the top band, where its
+    -- footer and extras are not (V-5a, WKE-607).
+    cell.corner:ClearAllPoints()
+    if data.kind == "locked" then
+        cell.corner:SetPoint("BOTTOMRIGHT", cell.background, "BOTTOMRIGHT", -6, 6)
     else
-        cell.tick:Hide()
+        cell.corner:SetPoint("TOPRIGHT", cell.tick, "TOPLEFT", -2, 0)
     end
     cell.corner:SetText(data.cornerText or "")
     cell.corner:SetShown(data.cornerText ~= nil)
@@ -2770,7 +2849,11 @@ function Panel.Refresh(self, opts)
 
     local width = math.max(1, self.content:GetWidth())
     local gaps = CELL_GAP * (Panel.ROW_CELLS - 1)
-    local cellWidth = math.max(60, math.floor((width - ROW_LABEL_WIDTH - gaps) / Panel.ROW_CELLS))
+    -- What three cells across are left after the banner. At the width this
+    -- content frame is created with (PANEL_WIDTH - 40 = 520) that is
+    -- (520 - 132 - 16) / 3 = 124 each, against 143 before the banner took its
+    -- room (V-5a, WKE-607) - the trade the issue asked for, taken in width.
+    local cellWidth = math.max(60, math.floor((width - ROW_BANNER_WIDTH - gaps) / Panel.ROW_CELLS))
 
     local lines = Panel.NoteLines(model)
     for i, line in ipairs(lines) do
@@ -2890,13 +2973,18 @@ function Panel.Refresh(self, opts)
         if data then
             rowFrame:Show()
             rowFrame.label:SetText(data.label)
-            -- Blizzard's own art for this row (V-5), or the name alone.
-            local rowArt = ns.UI.ItemLine.Atlas(data.atlas)
+            -- Blizzard's own art for this row (V-5), as a banner at the art's
+            -- own aspect (V-5a), or the name alone. The name hangs off the
+            -- art's left edge, so a row with no art anchors it to the row
+            -- instead of to a texture that was never given a size.
+            local rowArt = drawAtlas(rowFrame.art, data.atlas, ROW_BANNER_WIDTH, CELL_HEIGHT, ROW_BANNER_INSET)
+            rowFrame.label:ClearAllPoints()
             if rowArt then
-                rowFrame.art:SetAtlas(rowArt)
                 rowFrame.art:Show()
+                rowFrame.label:SetPoint("LEFT", rowFrame.art, "LEFT", ROW_BANNER_INSET, 0)
             else
                 rowFrame.art:Hide()
+                rowFrame.label:SetPoint("LEFT", rowFrame, "LEFT", ROW_BANNER_INSET, 0)
             end
             for cellIndex, cell in ipairs(rowFrame.cells) do
                 bindCell(cell, data.cells[cellIndex], cellWidth)

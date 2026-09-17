@@ -2640,6 +2640,14 @@ describe("VaultPanel's grid, drawn (WKE-553)", function()
         local drawn = cellFor(model, SPAULDERS_KEY)
         assert.equal("evergreen-weeklyrewards-reward-selected", drawn.selectedTexture:GetAtlas())
         assert.is_true(drawn.selectedTexture:IsShown())
+        -- At the art's own ratio, centred on the cell it marks (V-5a, WKE-607).
+        -- The client's own figures: the owner measured this one atlas at
+        -- 214 x 121 on his client during R-2b, and the stub answers that.
+        local info = C_Texture.GetAtlasInfo("evergreen-weeklyrewards-reward-selected")
+        local want = info.width / info.height
+        local got = drawn.selectedTexture:GetWidth() / drawn.selectedTexture:GetHeight()
+        assert.is_true(math.abs(want - got) < 0.05, string.format("glow drawn at %.3f:1, art is %.3f:1", got, want))
+        assert.equal("CENTER", drawn.selectedTexture.points[1][1])
         -- The atlas is there, so the fallback border is not.
         for _, edge in ipairs(drawn.edges) do
             assert.is_false(edge:IsShown())
@@ -3480,6 +3488,111 @@ describe("the Vault tab's grid over the live client (V-5)", function()
         assert.equal("2/4", locked.corner:GetText())
         assert.is_true(locked.locked:IsShown())
         assert.is_false(frame.gridRows[1].art:IsShown())
+    end)
+
+    -- V-5a (WKE-607). The owner's screenshot of 2026-09-16 beside Blizzard's
+    -- own Great Vault: "the placement of the images is squished and not
+    -- centered". V-5 gave every atlas the box it sat in - `SetAllPoints` for a
+    -- cell, the label column's width for the row art - which is two scale
+    -- factors, one per side, and two factors is the squash. Blizzard gives all
+    -- of them one: `useAtlasSize = true` on the row art
+    -- (`WeeklyRewardsMixin:SetUpActivity`), on both cell backgrounds
+    -- (`WeeklyRewardsActivityMixin:Refresh`) and, in the XML, on the tick and
+    -- the selected glow.
+    --
+    -- No figure below is an atlas size this repo claims to know. Every one of
+    -- these asks the same question: whatever the client said this art measures,
+    -- is that the ratio it was DRAWN at, and is it centred in the box it was
+    -- given. The ratio is read back out of the client here too, never typed in.
+    local function atlasRatio(name)
+        local info = C_Texture.GetAtlasInfo(name)
+        return info.width / info.height
+    end
+
+    local function firstPoint(region)
+        return region.points[1] and region.points[1][1]
+    end
+
+    -- The two ratios agree to within rounding: a drawn size is whole pixels, so
+    -- art fitted into a 124-wide cell lands on 124x71 rather than 124x71.3.
+    local function assertSameShape(texture, atlas)
+        local want = atlasRatio(atlas)
+        local got = texture:GetWidth() / texture:GetHeight()
+        assert.is_true(
+            math.abs(want - got) < 0.05,
+            string.format("%s drawn at %.3f:1; the client says it is %.3f:1", atlas, got, want)
+        )
+    end
+
+    it("draws each cell's badge at the atlas's own ratio, centred in the cell", function()
+        local frame = ns.VaultPanel.Create()
+        frame:Refresh()
+        local unlocked = frame.gridRows[1].cells[1]
+        local locked = frame.gridRows[1].cells[2]
+        assert.equal("CENTER", firstPoint(unlocked.background))
+        assert.equal("CENTER", firstPoint(locked.background))
+        assertSameShape(unlocked.background, "evergreen-weeklyrewards-reward-unlocked")
+        assertSameShape(locked.background, "evergreen-weeklyrewards-reward-locked")
+        -- And no longer the cell's own box, which is what it used to be handed.
+        -- The art is wider than the cell is tall, so the fit is decided by the
+        -- width: it comes out as wide as the cell and SHORTER, with the words
+        -- above and below it, rather than pulled to the cell's own height.
+        assert.not_equal(unlocked.background:GetHeight(), unlocked:GetHeight())
+        assert.is_true(unlocked.background:GetHeight() < unlocked:GetHeight())
+    end)
+
+    it("draws the tick at its own ratio rather than filling its band", function()
+        local frame = ns.VaultPanel.Create()
+        frame:Refresh()
+        local unlocked = frame.gridRows[1].cells[1]
+        assert.is_true(unlocked.tick:IsShown())
+        assertSameShape(unlocked.tick, "activities-icon-checkmark")
+    end)
+
+    -- The row art was a column narrower than it was tall, beside the name. It
+    -- is a banner now: wider than tall, at the art's own ratio, with the name
+    -- over its left edge the way Blizzard's header carries its own Name.
+    it("draws the row art as a banner, wider than tall, at the art's own ratio", function()
+        local frame = ns.VaultPanel.Create()
+        frame:Refresh()
+        for index, atlas in ipairs({
+            "evergreen-weeklyrewards-category-raids",
+            "evergreen-weeklyrewards-category-dungeons",
+            "evergreen-weeklyrewards-category-world",
+        }) do
+            local art = frame.gridRows[index].art
+            assert.is_true(art:IsShown())
+            assert.is_true(
+                art:GetWidth() > art:GetHeight(),
+                string.format("row %d art is %dx%d", index, art:GetWidth(), art:GetHeight())
+            )
+            assertSameShape(art, atlas)
+            assert.equal("LEFT", firstPoint(frame.gridRows[index].label))
+            assert.equal(art, frame.gridRows[index].label.points[1][2])
+        end
+    end)
+
+    -- A client without the art keeps the flat fill M5-4 drew, and that one IS
+    -- meant to cover the cell: it is a fill, not a picture, and a hole in the
+    -- grid reads worse than a rectangle. The name goes back onto the row.
+    it("still covers a cell with the flat fill when the client has no atlas", function()
+        world.atlases = {}
+        local frame = ns.VaultPanel.Create()
+        frame:Refresh()
+        local locked = frame.gridRows[1].cells[2]
+        assert.is_nil(locked.background:GetAtlas())
+        assert.equal("ALL", firstPoint(locked.background))
+        assert.equal("LEFT", firstPoint(frame.gridRows[1].label))
+        assert.equal(frame.gridRows[1], frame.gridRows[1].label.points[1][2])
+    end)
+
+    -- Drawing, and nothing but: the one call that must never be on this path
+    -- (M3-16a/b) is not on it after V-5a either.
+    it("draws all of it without interacting with the vault", function()
+        local frame = ns.VaultPanel.Create()
+        frame:Refresh()
+        assert.equal(0, world.vault.interact.onUIInteract)
+        assert.equal(0, world.vault.interact.closeInteraction)
     end)
 end)
 
