@@ -55,22 +55,37 @@ local ItemLine = UI.ItemLine
 -- Lootpath's own mark is drawn in, wherever the addon draws one. It lives here
 -- because this file owns hex-to-tint and loads before every other UI file.
 --
--- #FF1A8C was picked by measurement, not by taste (§7, 2026-09-16). It is no
--- item-quality colour and reads as none of them - its nearest is epic purple at
--- CIEDE2000 25.2 - it is nowhere near the green arrow Baganator draws two
--- corners away (#42FD02, read out of `Pawn\Textures\UpgradeArrow.tga`, the file
--- Baganator's own corner widget names), nowhere near Pawn's pale blue icon
--- (#A4DBFF, read the same way), and nowhere near QE Live's gold, which goes on
--- meaning "better" in the numbers. It carries a WCAG contrast of 5.34 against
--- the near-black keyline it is drawn on and 3.63 against white, so it reads on
--- the dark bag ground and on Blizzard's pale frame both.
+-- #FFB3DB is the owner's pick (UX-4d, WKE-613, 2026-09-17): rung 5 of the five
+-- brightness rungs the brand page drew after he saw the double chevron in his
+-- full bags - "It still seems difficult to see them, I would say we need to go
+-- brighter on the pink" - and then "lets go with #FFB3DB and see how that looks
+-- with the new both thicker chevrons". It is the same magenta-rose hue as the
+-- #FF1A8C it replaces, lifted in value: the page's own caveat is that at this
+-- brightness the mark reads close to pink-white, so whether it still separates
+-- from the white item-level number in the opposite corner is his eye to judge,
+-- and rung 3 (#FF6AB5) is the fallback if it reads as white - one constant and
+-- one render.
+--
+-- The hue is the one #FF1A8C was picked for by measurement rather than taste
+-- (§7, 2026-09-16), and that argument carries over: this is no item-quality
+-- colour and reads as none of them - the nearest was epic purple at CIEDE2000
+-- 25.2 - it is nowhere near the green arrow Baganator draws two corners away
+-- (#42FD02, read out of `Pawn\Textures\UpgradeArrow.tga`, the file Baganator's
+-- own corner widget names), nowhere near Pawn's pale blue icon (#A4DBFF, read
+-- the same way), and nowhere near QE Live's gold, which goes on meaning
+-- "better" in the numbers. What the brightening changes is the two contrasts,
+-- computed rather than estimated: against the near-black keyline it is drawn
+-- on, #FF1A8C carried 5.35 and #FFB3DB carries 11.78, which is the whole point
+-- of the move; against white, 3.63 becomes 1.65, which is the page's caveat
+-- with a number on it - a white item level in the opposite corner is the one
+-- thing this mark is now close to.
 --
 -- Change this one string and every tinted mark changes with it. The two
 -- textures that cannot be tinted where they are used - `mark64` behind the
 -- .toc's icon line, `icon256` on the listing tile - carry the same hex in
 -- `tools/media/svg/`, and moving the brand means moving it there too and
 -- re-rendering (`tools/media/README.md`).
-UI.BRAND_HEX = "FF1A8C"
+UI.BRAND_HEX = "FFB3DB"
 
 -- The addon's own art, rendered from `tools/media/svg/` (UX-4b). The client
 -- appends the extension itself, so no path here names one; every file is a TGA

@@ -64,3 +64,7 @@ tools/companion/package-lock.json
 # TGAs are committed; the renderer's installed deps are not.
 tools/media/node_modules/
 tools/media/package-lock.json
+
+# Lootpath media: the contact sheets contact-sheet.mjs writes are a look, not
+# an artefact; the TGAs they decode are what is committed.
+tools/media/contact-sheet/

@@ -1,22 +1,26 @@
 <!--
-  The Waymark at 16, FILL layer (UX-4c, WKE-612).
+  The Waymark at 16, FILL layer (UX-4d, WKE-613; shape first drawn for UX-4c).
 
-  The owner picked "Fix E at 16" off the brand sign-off page on 2026-09-17: the
-  full double chevron, the upper solid and the lower quieter behind it, with its
-  own near-black keyline and no plate. The geometry below is that drawing's,
-  path for path, on the same 16-unit grid - a mark is drawn at the size it will
-  be seen at (R-2b), so this is redrawn at 16 rather than mark64 shrunk.
+  The owner saw UX-4c's double chevron in his full bags on 2026-09-17 and asked
+  for round two: "let's increase the thickness of both chevrons by a bit more
+  and let's also keep them the same color. It still seems difficult to see them,
+  I would say we need to go brighter on the pink." The brand sign-off page's
+  section 3b drew exactly that, and the geometry below is that drawing's, path
+  for path, on the same 16-unit grid - a mark is drawn at the size it will be
+  seen at (R-2b), so this is redrawn at 16 rather than mark64 shrunk. Each band
+  is a unit thicker than UX-4c's.
 
-  This file is the two chevron BODIES only, white with alpha, the lower at 65%.
-  Its keyline is a second file, `mark16-edge.svg`: one texture cannot carry two
-  tints, and the brand colour has to stay a Lua string (`ns.UI.BRAND_HEX`) that
-  the owner can change without a re-render. The adapters draw the edge under
-  this at the same anchor with no offset, so the dilated silhouette shows all
-  the way round as a keyline.
+  This file is the two chevron BODIES only, white with alpha, and since UX-4d
+  BOTH at full alpha: the 65% the lower body carried is gone, because the owner
+  asked for one colour across both chevrons. Its keyline is a second file,
+  `mark16-edge.svg`: one texture cannot carry two tints, and the brand colour
+  has to stay a Lua string (`ns.UI.BRAND_HEX`) that the owner can change without
+  a re-render. The adapters draw the edge under this at the same anchor with no
+  offset, so the dilated silhouette shows all the way round as a keyline.
 
   The lower chevron is drawn first and the upper over it, as on the page.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
-  <path d="M8 8.5 L13 13.5 L13 15.5 L8 10.5 L3 15.5 L3 13.5 Z" fill="#FFFFFF" fill-opacity="0.65"/>
-  <path d="M8 1.5 L15 8.5 L15 11.5 L8 4.5 L1 11.5 L1 8.5 Z" fill="#FFFFFF"/>
+  <path d="M8 8 L13.5 13.5 L13.5 16 L8 10.5 L2.5 16 L2.5 13.5 Z" fill="#FFFFFF"/>
+  <path d="M8 1 L15.5 8.5 L15.5 12.5 L8 5 L0.5 12.5 L0.5 8.5 Z" fill="#FFFFFF"/>
 </svg>

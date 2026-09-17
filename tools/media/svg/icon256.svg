@@ -2,7 +2,10 @@
   The listing tile: the Waymark over the name-mark on a near-black ground, which
   is the pairing the field uses to separate a mark from whatever it lands on
   (the proposal's step 1a, points 3 and 8). This one is displayed untinted, so
-  the brand colour is drawn in rather than tinted on.
+  the brand colour is drawn in rather than tinted on: the same hex as
+  `mark64.svg` and `ns.UI.BRAND_HEX`, and the same round-two geometry
+  (UX-4d, WKE-613) - both chevrons one colour at full opacity, each band a
+  unit of the 16-point grid thicker at this file's scale.
 
   256 x 256, alpha, and nothing in the addon reads it: the client's own surfaces
   take mark16 and mark64. This is the tile the addon site shows.
@@ -12,8 +15,8 @@
   <rect x="2" y="2" width="252" height="252" fill="none" stroke="#2A2C34" stroke-width="4"/>
 
   <g transform="translate(64,34) scale(2)" stroke="#0D0D0F" stroke-width="3" stroke-linejoin="round">
-    <path d="M32 33 L52 52 L52 61 L32 43 L12 61 L12 52 Z" fill="#FF1A8C" opacity="0.6"/>
-    <path d="M32 5 L61 33 L61 45 L32 18 L3 45 L3 33 Z" fill="#FF1A8C"/>
+    <path d="M32 29 L52 48 L52 61 L32 43 L12 61 L12 48 Z" fill="#FFB3DB"/>
+    <path d="M32 5 L61 33 L61 49 L32 22 L3 49 L3 33 Z" fill="#FFB3DB"/>
   </g>
 
   <text x="128" y="224"

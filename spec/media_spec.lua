@@ -123,39 +123,139 @@ describe("the addon's own art", function()
     -- by half a stroke on every side, so at the same anchor it shows all the way
     -- round as an outline. A fill accidentally rendered from the edge source, or
     -- the two swapped, would draw a mark with no keyline and pass every path
-    -- test. This reads the alpha of both files and compares the coverage.
-    it("renders the keyline wider than the fill it sits under, and both with real alpha", function()
-        local function alphaCoverage(name)
-            local bytes = readFile(MEDIA .. name .. ".tga")
-            local header = readTGAHeader(MEDIA .. name .. ".tga")
-            local covered, opaque = 0, 0
+    -- test. This reads the alpha of both files and compares them texel by texel.
+    --
+    -- UX-4d changed how that comparison has to be written. UX-4c's bands were
+    -- thin enough that the dilation reached texels the fill never touched, so
+    -- counting texels with any alpha was enough (edge 168, fill 110). The
+    -- round-two bands are a unit thicker inside the same 16-unit box, and the
+    -- dilation now lands mostly INSIDE texels the fill's own antialiasing
+    -- already tints: both files cover the same 126 texels, and the keyline is
+    -- carried in how much alpha each one has there. So the guard is per texel
+    -- and alpha-weighted, which is strictly the stronger statement: the edge is
+    -- at least as opaque as the fill EVERYWHERE, and more opaque somewhere.
+    it("renders the keyline at least as strong as the fill at every texel, and stronger somewhere", function()
+        local function alpha(name)
+            local path = MEDIA .. name .. ".tga"
+            local bytes = readFile(path)
+            local header = readTGAHeader(path)
+            local a, covered, opaque = {}, 0, 0
             for i = 1, header.width * header.height do
                 -- BGRA: the alpha is the fourth byte of each pixel, after the
                 -- 18-byte header.
-                local a = bytes:byte(18 + (i - 1) * 4 + 4)
-                if a > 0 then
+                local value = bytes:byte(18 + (i - 1) * 4 + 4)
+                a[i] = value
+                if value > 0 then
                     covered = covered + 1
                 end
-                if a == 255 then
+                if value == 255 then
                     opaque = opaque + 1
                 end
             end
-            return covered, opaque
+            return a, covered, opaque
         end
 
-        local edgeCovered, edgeOpaque = alphaCoverage("mark16-edge")
-        local fillCovered, fillOpaque = alphaCoverage("mark16-fill")
+        local edge, edgeCovered, edgeOpaque = alpha("mark16-edge")
+        local fill, fillCovered, fillOpaque = alpha("mark16-fill")
 
         -- Both are drawings, not empty files and not solid squares.
         assert.is_true(edgeCovered > 0 and edgeCovered < 256, "edge covers " .. edgeCovered .. " of 256")
         assert.is_true(fillCovered > 0 and fillCovered < 256, "fill covers " .. fillCovered .. " of 256")
         assert.is_true(edgeOpaque > 0 and fillOpaque > 0)
 
-        -- The dilation. Strictly wider, or there is no outline to see.
-        assert.is_true(
-            edgeCovered > fillCovered,
-            "keyline covers " .. edgeCovered .. " texels, fill " .. fillCovered .. "; the keyline must be wider"
-        )
+        local stronger = 0
+        for i = 1, 256 do
+            assert.is_true(
+                edge[i] >= fill[i],
+                "texel " .. i .. ": fill alpha " .. fill[i] .. " over edge " .. edge[i] .. "; fill outside its keyline"
+            )
+            if edge[i] > fill[i] then
+                stronger = stronger + 1
+            end
+        end
+        assert.is_true(stronger > 0, "the edge is nowhere stronger than the fill; there is no keyline to see")
+    end)
+
+    -- UX-4d (WKE-613). The owner saw UX-4c's double chevron in his full bags and
+    -- asked for more of it: "let's increase the thickness of both chevrons by a
+    -- bit more and let's also keep them the same color". Both halves of that are
+    -- measurable in the rendered files and neither is visible in the SVG paths
+    -- alone, because what matters is what resvg put on a 16-texel grid.
+    --
+    -- The thickness, as INK rather than as coverage: a band a unit thicker turns
+    -- antialiased edge texels into solid ones. Measured on the committed files,
+    -- fully opaque texels went 14 -> 52 in the fill and 18 -> 100 in the edge.
+    -- The thresholds below sit well under those and well over UX-4c's, so a
+    -- re-render that quietly went back to the thin bands fails here.
+    it("draws the round-two bands: far more solid ink than UX-4c's thin ones", function()
+        local function opaqueTexels(name)
+            local path = MEDIA .. name .. ".tga"
+            local bytes = readFile(path)
+            local header = readTGAHeader(path)
+            local opaque = 0
+            for i = 1, header.width * header.height do
+                if bytes:byte(18 + (i - 1) * 4 + 4) == 255 then
+                    opaque = opaque + 1
+                end
+            end
+            return opaque
+        end
+
+        local fillOpaque = opaqueTexels("mark16-fill")
+        local edgeOpaque = opaqueTexels("mark16-edge")
+        assert.is_true(fillOpaque > 40, "the fill has " .. fillOpaque .. " solid texels; UX-4c had 14")
+        assert.is_true(edgeOpaque > 80, "the edge has " .. edgeOpaque .. " solid texels; UX-4c had 18")
+    end)
+
+    -- The same colour, both chevrons. UX-4c drew the lower BODY at 65% alpha, so
+    -- every texel of it topped out at 166 and the bottom rows of the fill never
+    -- went past 156. The owner asked for one colour, so the lower body is at
+    -- full alpha now and those rows reach 255. Rows 13 to 15 (counting from the
+    -- top of the image) are the lower chevron's alone - the upper chevron's
+    -- lowest point is y=12.5 on the 16-unit grid, so nothing of it reaches row
+    -- 13 - which makes them the rows where a 65% body has nowhere to hide.
+    it("draws both chevrons of the fill at one alpha: the lower body is no longer at 65%", function()
+        local path = MEDIA .. "mark16-fill.tga"
+        local bytes = readFile(path)
+        local header = readTGAHeader(path)
+        assert.equal(16, header.width)
+        assert.equal(16, header.height)
+
+        local best = 0
+        -- The TGA is bottom-left origin, so image row `y` from the top is file
+        -- row `15 - y`.
+        for y = 13, 15 do
+            local fileRow = 15 - y
+            for x = 0, 15 do
+                local a = bytes:byte(18 + (fileRow * 16 + x) * 4 + 4)
+                if a > best then
+                    best = a
+                end
+            end
+        end
+        assert.equal(255, best, "the lower chevron's own rows top out at " .. best .. "; 65% alpha caps them at 166")
+    end)
+
+    -- UX-4d moved the brand colour, and it lives in three places that CANNOT be
+    -- checked against each other by reading Lua alone: the one Lua constant, and
+    -- the hex baked into the two SVGs whose textures are displayed untinted.
+    -- `tools/media/README.md` says they must move together; this is that
+    -- sentence as a test. The Lua value is pinned as a literal too, because the
+    -- owner picked this exact rung off the brand page (rung 5) and a silent
+    -- drift back to #FF1A8C would look like a merge, not a decision.
+    it("carries the owner's brand colour in the one constant and in both baked sources", function()
+        local ns = H.load()
+        assert.equal("FFB3DB", ns.UI.BRAND_HEX)
+        H.unload()
+
+        for _, source in ipairs({ "mark64", "icon256" }) do
+            local svg = readFile("tools/media/svg/" .. source .. ".svg")
+            assert.is_truthy(
+                svg:find("#FFB3DB", 1, true),
+                source .. ".svg does not bake #FFB3DB, so its texture is a different brand than the Lua constant"
+            )
+            assert.is_nil(svg:find("#FF1A8C", 1, true), source .. ".svg still bakes the old brand colour")
+        end
     end)
 
     it("ships no .blp, and keeps the sources and the renderer beside them", function()

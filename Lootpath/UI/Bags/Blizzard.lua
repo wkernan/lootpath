@@ -50,7 +50,7 @@ local Adapter = {
 -- UX-4c (WKE-612) changed the drawing in both adapters at once, after the owner
 -- opened his full bags and found the mark hard to see across them - he named the
 -- colour, and the sign-off page argued the thin shape and its offset shadow were
--- the larger cause. It is the FULL double chevron now, the upper solid and the lower at 65%, with a
+-- the larger cause. It is the FULL double chevron now, both chevrons in one colour since UX-4d, with a
 -- one-unit near-black outline around every edge and no plate behind it - "Fix E
 -- at 16" on the brand sign-off page, which is his pick of 2026-09-17. Two files
 -- rather than one, `mark16-edge` under `mark16-fill`, because one texture cannot

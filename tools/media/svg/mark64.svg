@@ -1,14 +1,22 @@
 <!--
-  The Waymark, full form: the double chevron of a trail blaze, the upper mark
-  solid and the lower one quieter behind it. Drawn in the brand colour on its
-  own near-black keyline, because this one is displayed untinted: the .toc's
-  `## IconTexture` cannot colour what it names. Change BRAND below and re-render
-  if the brand colour moves; `Lootpath/UI/ItemLine.lua` carries the same hex for
-  everything the addon tints itself.
+  The Waymark, full form: the double chevron of a trail blaze. Since UX-4d
+  (WKE-613) both chevrons are the same colour at full opacity and each band is
+  four units thicker here - one unit of the 16-point grid at this file's 4x
+  scale - which is the round-two proportion the owner picked on the brand page.
+  The upper band's inner edge moved down (18 -> 22 at the apex, 45 -> 49 at the
+  arms) and the lower band's outer edge moved up (33 -> 29, 52 -> 48), so the
+  mark keeps its footprint: nothing crosses the 64-unit box, and the lower arms
+  still end at y=61 with half of the 4-unit stroke inside the canvas.
+
+  Drawn in the brand colour on its own near-black keyline, because this one is
+  displayed untinted: the .toc's `## IconTexture` cannot colour what it names.
+  Change BRAND below and re-render if the brand colour moves;
+  `Lootpath/UI/ItemLine.lua` carries the same hex for everything the addon tints
+  itself, and `icon256.svg` carries it too.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
   <g stroke="#0D0D0F" stroke-width="4" stroke-linejoin="round">
-    <path d="M32 33 L52 52 L52 61 L32 43 L12 61 L12 52 Z" fill="#FF1A8C" opacity="0.6"/>
-    <path d="M32 5 L61 33 L61 45 L32 18 L3 45 L3 33 Z" fill="#FF1A8C"/>
+    <path d="M32 29 L52 48 L52 61 L32 43 L12 61 L12 48 Z" fill="#FFB3DB"/>
+    <path d="M32 5 L61 33 L61 49 L32 22 L3 49 L3 33 Z" fill="#FFB3DB"/>
   </g>
 </svg>
