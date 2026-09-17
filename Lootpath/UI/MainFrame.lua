@@ -828,6 +828,13 @@ function UI.ShowTab(frame, id)
             button:SetEnabled(not gated)
         end
     end
+    -- H-1a (WKE-606): the strip is part of what the screen replaces, so it is
+    -- shown and hidden here beside it - `UI.Frame` opens the window through
+    -- this function and nothing else, and a redraw that comes in through
+    -- `UI.RefreshStrip` sets the same flag from the same read.
+    if frame.statusStrip then
+        frame.statusStrip:SetShown(not gated)
+    end
     if frame.comingSoon then
         frame.comingSoon:SetShown(gated)
         if gated then
@@ -1044,7 +1051,13 @@ local function buildStatusStrip(frame)
     strip:EnableMouse(true)
     frame.statusStrip = strip
 
-    local optionsButton = CreateFrame("Button", nil, strip, "UIPanelButtonTemplate")
+    -- H-1a (WKE-606): the two buttons are the FRAME's children, anchored to the
+    -- strip's row. They were the strip's own, and a child of a hidden frame is
+    -- hidden with it - so taking the strip off the screen over the Coming soon
+    -- screen would have taken Import and Options with it. A point is resolved
+    -- whether or not the frame it hangs off is shown, so the row they sit on is
+    -- exactly where it was.
+    local optionsButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     optionsButton:SetSize(74, 20)
     optionsButton:SetPoint("RIGHT", strip, "RIGHT", 0, 0)
     optionsButton:SetText("Options")
@@ -1053,7 +1066,7 @@ local function buildStatusStrip(frame)
     end)
     frame.optionsButton = optionsButton
 
-    local importButton = CreateFrame("Button", nil, strip, "UIPanelButtonTemplate")
+    local importButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     importButton:SetSize(80, 20)
     importButton:SetPoint("RIGHT", optionsButton, "LEFT", -6, 0)
     importButton:SetText("Import...")
@@ -1177,6 +1190,24 @@ function UI.RefreshStrip(frame)
     if not frame or not frame.stripText then
         return nil
     end
+    -- H-1a (WKE-606): while the Coming soon screen is up the strip is not.
+    -- H-1 left its four facts on the row over a screen that has just said the
+    -- one fact a player who is not healing is owed - the age of the rating - and
+    -- the owner read `Restoration Druid - companion, written 3 minutes ago` over
+    -- `Coming soon for Guardian.`: the healing set's facts, shown to a tank.
+    -- The row comes off, and the model with it, so the tooltip and the click
+    -- have nothing to say either (a hidden frame gets no OnEnter in the client;
+    -- `stripModel` nil is what makes `UI.StripClick` return nothing here). Read
+    -- live, never remembered: the spec change back puts the row on screen with
+    -- the tabs, with no reload.
+    local gated = ns.Companion.Gate and ns.Companion.Gate() ~= nil or false
+    frame.statusStrip:SetShown(not gated)
+    if gated then
+        frame.stripModel = nil
+        frame.stripText:SetText("")
+        UI.RefreshNudge(frame)
+        return nil
+    end
     local model = UI.StatusStripModel()
     frame.stripModel = model
     local width, measure = stripFitter(frame.stripText)
@@ -1206,7 +1237,12 @@ function UI.RefreshNudge(frame)
     if not (frame and frame.nudgeButton) then
         return nil
     end
-    local drift = ns.Drift.Model()
+    -- H-1a (WKE-606): and the row under the strip goes with the strip. Drift
+    -- already takes the nudge down on the spec change itself (H-1), so this is
+    -- the second lock rather than the first: a redraw that arrives from any
+    -- other direction while the gate is up still finds the row off.
+    local gated = ns.Companion.Gate and ns.Companion.Gate() ~= nil or false
+    local drift = not gated and ns.Drift.Model() or nil
     local model = drift and drift.kind == "behind" and drift or nil
     frame.nudgeModel = model
     if not model then
