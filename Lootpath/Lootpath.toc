@@ -7,6 +7,7 @@
 ## X-License: MIT
 ## X-Website: https://github.com/wkernan/lootpath
 ## AddonCompartmentFunc: LootpathToggle
+## IconTexture: Interface\AddOns\Lootpath\Media\mark64
 
 Libs\LibStub\LibStub.lua
 Libs\CallbackHandler-1.0\CallbackHandler-1.0.xml

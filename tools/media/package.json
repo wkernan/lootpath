@@ -1,0 +1,12 @@
+{
+  "name": "lootpath-media",
+  "private": true,
+  "type": "module",
+  "description": "Renders Lootpath's marks from SVG to the TGA files the client reads.",
+  "scripts": {
+    "render": "node render.mjs"
+  },
+  "dependencies": {
+    "@resvg/resvg-js": "2.6.2"
+  }
+}

@@ -50,6 +50,38 @@ local UI = ns.UI
 UI.ItemLine = {}
 local ItemLine = UI.ItemLine
 
+-- The brand (UX-4b, WKE-611). NOT a tone: a tone is what QE Live thinks of an
+-- item, and this says nothing about an item at all - it is the one colour
+-- Lootpath's own mark is drawn in, wherever the addon draws one. It lives here
+-- because this file owns hex-to-tint and loads before every other UI file.
+--
+-- #FF1A8C was picked by measurement, not by taste (§7, 2026-09-16). It is no
+-- item-quality colour and reads as none of them - its nearest is epic purple at
+-- CIEDE2000 25.2 - it is nowhere near the green arrow Baganator draws two
+-- corners away (#42FD02, read out of `Pawn\Textures\UpgradeArrow.tga`, the file
+-- Baganator's own corner widget names), nowhere near Pawn's pale blue icon
+-- (#A4DBFF, read the same way), and nowhere near QE Live's gold, which goes on
+-- meaning "better" in the numbers. It carries a WCAG contrast of 5.34 against
+-- the near-black keyline it is drawn on and 3.63 against white, so it reads on
+-- the dark bag ground and on Blizzard's pale frame both.
+--
+-- Change this one string and every tinted mark changes with it. The two
+-- textures that cannot be tinted where they are used - `mark64` behind the
+-- .toc's icon line, `icon256` on the listing tile - carry the same hex in
+-- `tools/media/svg/`, and moving the brand means moving it there too and
+-- re-rendering (`tools/media/README.md`).
+UI.BRAND_HEX = "FF1A8C"
+
+-- The addon's own art, rendered from `tools/media/svg/` (UX-4b). The client
+-- appends the extension itself, so no path here names one; every file is a TGA
+-- at a power-of-two size and none is a .blp.
+UI.MEDIA = {
+    MARK16 = [[Interface\AddOns\Lootpath\Media\mark16]],
+    MARK64 = [[Interface\AddOns\Lootpath\Media\mark64]],
+    WORDMARK = [[Interface\AddOns\Lootpath\Media\wordmark]],
+    ICON256 = [[Interface\AddOns\Lootpath\Media\icon256]],
+}
+
 ItemLine.ICON_SIZE = 34
 ItemLine.NAME_HEIGHT = 16
 ItemLine.SECOND_HEIGHT = 14

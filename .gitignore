@@ -59,3 +59,8 @@ tools/companion/node_modules/
 tools/companion/.state/
 tools/companion/config.json
 tools/companion/package-lock.json
+
+# Lootpath media (tools/media): the SVG sources, the OFL font and the rendered
+# TGAs are committed; the renderer's installed deps are not.
+tools/media/node_modules/
+tools/media/package-lock.json

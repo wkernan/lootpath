@@ -57,6 +57,12 @@ UI.MINIMAP_BUTTON_NAME = "LootpathMinimapButton"
 -- R-6 (WKE-578): the badge on the launcher, in points. Small enough to be a
 -- mark on a 31-point button and not a second icon.
 UI.MINIMAP_DOT_SIZE = 9
+-- UX-4b (WKE-611): the name-mark on the window's title. The ratio is the
+-- texture's own - 256 x 64 - and drawing it at anything else would stretch the
+-- word. The ink inside that texture measures 240 x 36 (read off the file's own
+-- alpha, `tools/media/README.md`), so the letters stand 36/64 of this height.
+UI.TITLE_WORDMARK_HEIGHT = 22
+UI.TITLE_WORDMARK_RATIO = 4
 -- M5-2c (WKE-609). The owner answered M5-0's window question on WKE-598,
 -- 2026-09-16 night - "keep it dark and grow to 760" - so the window is finally
 -- the width its mockups were drawn at, rather than the M2-2 size it had kept
@@ -83,6 +89,15 @@ UI.PANEL_WIDTH = UI.WIDTH - UI.PANEL_INSET_LEFT - UI.PANEL_INSET_RIGHT
 UI.DIALOG_WIDTH = 520
 UI.DIALOG_HEIGHT = 260
 UI.PASTE_INSTRUCTIONS = "Paste your Top Gear or Upgrade Finder JSON here"
+
+-- Which build this is (UX-4b, WKE-611). The window's title carries the
+-- name-mark now and no words, so the version lives at the foot of the status
+-- strip's tooltip - which is where a reader already goes to ask how old any of
+-- this is. `ns.VERSION` is `dev` when the packager's token was never replaced
+-- (Core.lua), so this never prints `@project-version@`.
+function UI.VersionText()
+    return "Lootpath " .. tostring(ns.VERSION)
+end
 
 -- One tab per promise, in the order the product states them (ARCHITECTURE.md
 -- 1). `key` is the field on the frame that holds that tab's panel; `refresh` is
@@ -538,8 +553,10 @@ function UI.StatusStripModel(now)
     -- line even with no export at all, because "companion: FAILED at profile"
     -- is exactly what an empty window needs to say.
     local companion = ns.Companion.StatusText(ns.companionStatus, now)
-    -- Last in the tooltip, always: the lines above it are about the export on
+    -- Last of the facts, always: the lines above it are about the export on
     -- screen, and a reader looking for why there is no newer one reads down.
+    -- (Since UX-4b the version sits one line below it, which is a label rather
+    -- than a fact about the export, and so does not displace it.)
     local companionNote = ns.Companion.StatusTooltip(ns.companionStatus, now)
     -- R-2 (WKE-563): which bag window the mark is drawn in, or that this one is
     -- not a window Lootpath can mark. It is on the tooltip rather than the line
@@ -554,6 +571,7 @@ function UI.StatusStripModel(now)
         if companionNote then
             tooltip[#tooltip + 1] = companionNote
         end
+        tooltip[#tooltip + 1] = UI.VersionText()
         local emptyText, emptyParts = lineFrom({ UI.NO_VERDICT_STRIP, companion }, tooltip)
         return {
             text = emptyText,
@@ -599,6 +617,7 @@ function UI.StatusStripModel(now)
     if companionNote then
         tooltip[#tooltip + 1] = companionNote
     end
+    tooltip[#tooltip + 1] = UI.VersionText()
     local text, shown = lineFrom(parts, tooltip)
     return {
         text = text,
@@ -658,6 +677,39 @@ function UI.ClassIconCoords()
         return nil
     end
     return coords[fileName:upper()]
+end
+
+-- The window's title (UX-4b, WKE-611). PortraitFrameTemplate centres a
+-- TitleContainer 58 points in, clear of the portrait ring, with TitleText inside
+-- it; the name-mark is a texture in that container and TitleText is blanked, so
+-- the template still owns the layout and nothing draws twice.
+--
+-- The version it used to carry is the last line of the status strip's tooltip
+-- now (UI.VersionText), which is where a reader already goes to ask how old any
+-- of this is.
+--
+-- Returns "wordmark" or "text", so a test can say which way it went. The text
+-- way is the guard, not a design: a client with no TitleContainer to hang a
+-- texture on gets the name in words, because a window with a plain title is a
+-- better answer than a window with no title.
+function UI.ApplyTitle(frame)
+    frame = frame or UI.frame
+    if not (frame and frame.TitleText) then
+        return nil
+    end
+    local container = frame.TitleContainer
+    if not (container and type(container.CreateTexture) == "function") then
+        frame.TitleText:SetText("Lootpath")
+        return "text"
+    end
+    local wordmark = container:CreateTexture(nil, "OVERLAY")
+    wordmark:SetSize(UI.TITLE_WORDMARK_HEIGHT * UI.TITLE_WORDMARK_RATIO, UI.TITLE_WORDMARK_HEIGHT)
+    wordmark:SetPoint("CENTER", container, "CENTER", 0, 0)
+    wordmark:SetTexture(UI.MEDIA.WORDMARK)
+    wordmark:SetVertexColor(ns.UI.ItemLine.RGB(UI.BRAND_HEX))
+    frame.titleWordmark = wordmark
+    frame.TitleText:SetText("")
+    return "wordmark"
 end
 
 -- Fills the frame's portrait ring with the spec the verdict is for, so the
@@ -1618,16 +1670,26 @@ function UI.MinimapButton()
     -- mark (docs/ROADS-UX.md): a mark is drawn at the size it will be seen at,
     -- and an atlas made for a bigger frame is a smear at this one. No sound, no
     -- popup, no flashing.
+    --
+    -- UX-4b (WKE-611): the square is the Waymark now, and the accent is the
+    -- brand colour rather than QE Live's gold - the same two changes the bag
+    -- mark took, for the same reason, so the one shape a reader learns once is
+    -- the same shape in both places. The texture is `mark16`, NOT `mark64`: R-2b
+    -- is the rule that a mark is drawn at the size it will be seen at, this
+    -- badge is 9 points, and the 16-point reduced form is the nearer of the two
+    -- drawings to that. The badge's size, corner and offsets are R-6's and are
+    -- untouched. The launcher's own icon is the spec icon and is not touched
+    -- either (593, and the owner's answer 3 on WKE-602).
     local dot = button:CreateTexture(nil, "OVERLAY")
     dot:SetSize(UI.MINIMAP_DOT_SIZE, UI.MINIMAP_DOT_SIZE)
     dot:SetPoint("TOPRIGHT", button, "TOPRIGHT", -4, -4)
-    dot:SetTexture("Interface/Buttons/WHITE8X8")
+    dot:SetTexture(UI.MEDIA.MARK16)
     dot:SetVertexColor(0, 0, 0, 1)
     local dotAccent = button:CreateTexture(nil, "OVERLAY")
     dotAccent:SetSize(UI.MINIMAP_DOT_SIZE - 2, UI.MINIMAP_DOT_SIZE - 2)
     dotAccent:SetPoint("CENTER", dot, "CENTER", 0, 0)
-    dotAccent:SetTexture("Interface/Buttons/WHITE8X8")
-    dotAccent:SetVertexColor(1, 0.874, 0.078, 1)
+    dotAccent:SetTexture(UI.MEDIA.MARK16)
+    dotAccent:SetVertexColor(ns.UI.ItemLine.RGB(UI.BRAND_HEX))
     button.driftDot = dot
     button.driftDotAccent = dotAccent
     dot:Hide()
@@ -1760,9 +1822,21 @@ function UI.Frame()
     -- 58 points in, clear of the portrait ring; TitleText is the font string
     -- inside it. Both are guarded: a client without them is a window with no
     -- title, not a broken addon.
-    if frame.TitleText then
-        frame.TitleText:SetText("Lootpath " .. ns.VERSION)
-    end
+    --
+    -- UX-4b (WKE-611): the title is the name-mark - `Lootpath` set in Alegreya
+    -- SC Bold and rendered to `Media/wordmark.tga` - rather than a font string,
+    -- and the version it used to carry is the last line of the status strip's
+    -- tooltip. A version belongs where someone goes to ask how old this is, and
+    -- that is the strip; it was on the title because there was nowhere else to
+    -- put it.
+    --
+    -- The texture is white with alpha and tinted here, so the brand colour stays
+    -- one Lua string. It is drawn at UI.TITLE_WORDMARK_HEIGHT with the width the
+    -- texture's own 4:1 ratio gives, because a name-mark stretched is a
+    -- different name-mark. TitleText is blanked rather than removed: the
+    -- template owns it, and it is what draws if this client has no
+    -- TitleContainer to hang a texture on.
+    UI.ApplyTitle(frame)
     UI.ApplyPortrait(frame)
 
     buildImportDialog(frame)

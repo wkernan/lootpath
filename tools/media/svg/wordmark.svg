@@ -1,0 +1,19 @@
+<!--
+  The name-mark: `Lootpath` in Alegreya SC Bold (SIL OFL 1.1, vendored under
+  ../fonts). The font is a small-caps face, so the written name sets itself as a
+  full cap L with small caps after it - the name as it is spelled, not shouted.
+  White with alpha, tinted where it is drawn, so the title's colour is a Lua
+  constant and not a re-render.
+
+  The rendered ink measures 240 x 36 inside the 256 x 64 texture, centred (read
+  off the TGA's own alpha, not estimated): the texture keeps its power-of-two
+  size and its 4:1 aspect, whatever draws it only has to keep that ratio, and
+  the word itself is 36/64 of whatever height it is drawn at.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="64" viewBox="0 0 256 64">
+  <text x="128" y="50"
+        text-anchor="middle"
+        font-family="Alegreya SC" font-weight="700" font-size="53"
+        letter-spacing="2.5"
+        fill="#FFFFFF">Lootpath</text>
+</svg>

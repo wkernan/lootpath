@@ -1345,15 +1345,35 @@ describe("the window after WKE-530", function()
         end
     end)
 
-    it("titles itself with a version, never with the packager's token", function()
-        assert.equal("Lootpath 0.0.0-test", frame.TitleText:GetText())
+    it("titles itself with the name-mark, and says the version where ages are read", function()
+        -- UX-4b: the title is the wordmark texture and carries no words, so the
+        -- version moved to the foot of the status strip's tooltip.
+        assert.equal("", frame.TitleText:GetText())
+        local wordmark = frame.titleWordmark
+        assert.is_table(wordmark)
+        assert.equal(ns.UI.MEDIA.WORDMARK, wordmark:GetTexture())
+        assert.is_nil(wordmark:GetAtlas())
+        -- Drawn at the texture's own 4:1 ratio: a stretched name-mark is a
+        -- different name-mark.
+        assert.equal(ns.UI.TITLE_WORDMARK_HEIGHT, wordmark.height)
+        assert.equal(ns.UI.TITLE_WORDMARK_HEIGHT * ns.UI.TITLE_WORDMARK_RATIO, wordmark.width)
+        -- In the brand colour, from the one string that holds it.
+        local r, g, b = ns.UI.ItemLine.RGB(ns.UI.BRAND_HEX)
+        assert.same({ r, g, b, nil }, wordmark.vertexColor)
+        -- It hangs in the template's title container, which is what centres it
+        -- clear of the portrait ring.
+        assert.same({ "CENTER", frame.TitleContainer, "CENTER", 0, 0 }, wordmark.points[1])
+
+        assert.equal("Lootpath 0.0.0-test", ns.UI.VersionText())
         H.unload()
         local dev = H.load({
             beforeLoad = function(w)
                 w.metadata.Version = "@project-version@"
             end,
         })
-        assert.equal("Lootpath dev", dev.UI.Frame().TitleText:GetText())
+        -- Never the packager's token, wherever the version is printed.
+        assert.equal("Lootpath dev", dev.UI.VersionText())
+        assert.equal("", dev.UI.Frame().TitleText:GetText())
     end)
 end)
 
@@ -1715,7 +1735,36 @@ describe("the window's chrome (M5-2)", function()
         assert.equal(frame.TitleContainer.TitleText, frame.TitleText)
         assert.is_table(frame.CloseButton)
         assert.is_table(frame.PortraitContainer)
-        assert.equal("Lootpath " .. ns.VERSION, frame.TitleText:GetText())
+        -- The template's font string is still there and still the container's;
+        -- since UX-4b it is blank, because the name-mark texture draws instead.
+        assert.equal("", frame.TitleText:GetText())
+        assert.equal(ns.UI.MEDIA.WORDMARK, frame.titleWordmark:GetTexture())
+    end)
+
+    it("keeps a title in words on a client with no container to hang a texture on", function()
+        -- The name-mark hangs in TitleContainer. A client that has a TitleText
+        -- and no container gets the name as text: a window with no title at all
+        -- would be the worse answer.
+        local said = {}
+        local bare = {
+            TitleText = {
+                SetText = function(_, value)
+                    said[#said + 1] = value
+                end,
+                GetText = function()
+                    return said[#said]
+                end,
+            },
+        }
+        assert.equal("text", ns.UI.ApplyTitle(bare))
+        assert.equal("Lootpath", said[1])
+        assert.is_nil(bare.titleWordmark)
+
+        -- And a frame with no title at all is left alone rather than erroring.
+        assert.is_nil(ns.UI.ApplyTitle({}))
+
+        -- The real window goes the other way.
+        assert.equal("wordmark", ns.UI.ApplyTitle(ns.UI.Frame()))
     end)
 
     it("still closes on Escape, still drags and still clamps", function()
@@ -2037,8 +2086,27 @@ describe("the status strip (M5-2)", function()
             finishedAt = "2026-09-13T21:06:00Z",
         }
         local model = ns.UI.StatusStripModel(ns.EpochFromISO("2026-09-13T22:51:00Z"))
-        local last = model.tooltip[#model.tooltip]
+        -- Last of the FACTS. Since UX-4b the version is one line below it, which
+        -- is a label and not a fact about the export.
+        local last = model.tooltip[#model.tooltip - 1]
         assert.is_truthy(last:find("The companion's last run: the fork did not answer", 1, true))
+        assert.equal(ns.UI.VersionText(), model.tooltip[#model.tooltip])
+    end)
+
+    it("ends the strip's tooltip with the version, with an export and without one", function()
+        -- UX-4b: the title carries the name-mark and no words, so this is the
+        -- one place the build is written down. Both branches of the model put it
+        -- last, so a reader always finds it in the same place.
+        local empty = ns.UI.StatusStripModel(ns.EpochFromISO("2026-09-13T22:51:00Z"))
+        assert.equal("Lootpath 0.0.0-test", empty.tooltip[#empty.tooltip])
+
+        importDungeon()
+        local full = ns.UI.StatusStripModel(ns.EpochFromISO("2026-09-13T22:51:00Z"))
+        assert.equal("Lootpath 0.0.0-test", full.tooltip[#full.tooltip])
+
+        -- And it is never on the strip's own line, which is for facts that
+        -- change.
+        assert.is_nil(full.text:find("Lootpath 0.0.0-test", 1, true))
     end)
 
     it("says the companion wrote it, and how long ago", function()
@@ -2279,6 +2347,35 @@ describe("the nudge row (R-6)", function()
         ns.Drift.SetBehind(nil)
         ns.UI.RefreshMinimapDot()
         assert.is_false(button.driftDot:IsShown())
+    end)
+
+    it("draws the badge as the Waymark in the brand colour, and leaves the launcher's icon alone", function()
+        local button = ns.UI.MinimapButton()
+
+        -- UX-4b: the badge is the mark, not a flat square, in both layers.
+        assert.equal(ns.UI.MEDIA.MARK16, button.driftDot:GetTexture())
+        assert.equal(ns.UI.MEDIA.MARK16, button.driftDotAccent:GetTexture())
+        assert.is_nil(button.driftDot:GetAtlas())
+        assert.is_nil(button.driftDotAccent:GetAtlas())
+        -- mark16 and never mark64: R-6 draws this at 9 points, and R-2b is the
+        -- rule that a mark is drawn at the size it will be seen at.
+        assert.are_not.equal(ns.UI.MEDIA.MARK64, button.driftDot:GetTexture())
+
+        -- The accent is the brand, no longer QE Live's gold.
+        local r, g, b = ns.UI.ItemLine.RGB(ns.UI.BRAND_HEX)
+        assert.same({ r, g, b, nil }, button.driftDotAccent.vertexColor)
+        assert.same({ 0, 0, 0, 1 }, button.driftDot.vertexColor)
+
+        -- R-6's geometry is untouched.
+        assert.equal(ns.UI.MINIMAP_DOT_SIZE, button.driftDot.width)
+        assert.equal(ns.UI.MINIMAP_DOT_SIZE - 2, button.driftDotAccent.width)
+        assert.same({ "TOPRIGHT", button, "TOPRIGHT", -4, -4 }, button.driftDot.points[1])
+
+        -- 593 stands: the launcher's own icon is the character's spec icon and
+        -- no mark of ours went onto it.
+        assert.are_not.equal(ns.UI.MEDIA.MARK16, button.icon:GetTexture())
+        assert.are_not.equal(ns.UI.MEDIA.MARK64, button.icon:GetTexture())
+        assert.same({ 0.05, 0.95, 0.05, 0.95 }, button.icon.texCoord)
     end)
 
     -- M3-16b (WKE-583): the wait is the STRIP's, not the row's, and the badge

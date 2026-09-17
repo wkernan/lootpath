@@ -1,0 +1,14 @@
+<!--
+  The Waymark, full form: the double chevron of a trail blaze, the upper mark
+  solid and the lower one quieter behind it. Drawn in the brand colour on its
+  own near-black keyline, because this one is displayed untinted: the .toc's
+  `## IconTexture` cannot colour what it names. Change BRAND below and re-render
+  if the brand colour moves; `Lootpath/UI/ItemLine.lua` carries the same hex for
+  everything the addon tints itself.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <g stroke="#0D0D0F" stroke-width="4" stroke-linejoin="round">
+    <path d="M32 33 L52 52 L52 61 L32 43 L12 61 L12 52 Z" fill="#FF1A8C" opacity="0.6"/>
+    <path d="M32 5 L61 33 L61 45 L32 18 L3 45 L3 33 Z" fill="#FF1A8C"/>
+  </g>
+</svg>

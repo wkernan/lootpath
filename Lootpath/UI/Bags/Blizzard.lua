@@ -31,10 +31,34 @@ local Adapter = {
     label = "drawn in the client's own bag frames",
 }
 
--- The Great Vault's gold selection edge, which is the same mark the Vault tab
--- draws on a cell (M5-4), so one picture means one thing in both places.
-Adapter.ATLAS = "evergreen-weeklyrewards-reward-selected"
+-- THE MARK (UX-4b, WKE-611). This adapter used to draw
+-- `evergreen-weeklyrewards-reward-selected` - the Great Vault's gold selection
+-- edge - stretched over the whole item button with `SetAllPoints`, so that one
+-- picture meant one thing here and on the Vault tab (M5-4). R-2b took that same
+-- atlas out of the Baganator corner and said why: the owner measured it at
+-- 214 x 121 on his own client, a wide soft-edged banner made to sit BEHIND a
+-- cell, and a banner squeezed into a square frame is a smear. That lesson was
+-- applied to one adapter and not to this one. It is applied here now.
+--
+-- So both bag adapters draw the same thing, the same size, in the same corner:
+-- the Waymark out of `Media/mark16.tga` at 16 points in the button's top-right,
+-- in two layers - near-black filling the frame for the keyline, the brand colour
+-- inset 1 point inside it. Top-right is where the Baganator adapter goes for a
+-- reason read off Baganator's own source (R-2a), and going to the same corner
+-- here means a reader who turns Baganator off finds the mark where he left it.
+--
+-- `Adapter.SIZE`, `EDGE_INSET`, `EDGE_COLOR` and `FILL_HEX` are deliberately the
+-- same values the Baganator adapter carries rather than a reference to it:
+-- neither adapter may load without the other, and a mark that changed in one
+-- window and not the other would be the bug this comment exists to prevent. The
+-- tests assert the two are equal.
+Adapter.TEXTURE = ns.UI.MEDIA.MARK16
+Adapter.SIZE = 16
+Adapter.EDGE_INSET = 1
+Adapter.EDGE_COLOR = { 0.05, 0.05, 0.06, 1 }
+Adapter.FILL_HEX = ns.UI.BRAND_HEX
 Adapter.TEXTURE_KEY = "LootpathGlow"
+Adapter.EDGE_KEY = "LootpathGlowEdge"
 
 function Adapter.Available()
     return type(ContainerFrameMixin) == "table"
@@ -43,7 +67,10 @@ function Adapter.Available()
         and type(C_Container.GetContainerItemInfo) == "function"
 end
 
--- Lootpath's own texture on one item button, made once and kept on the button.
+-- Lootpath's own mark on one item button, made once and kept on the button.
+-- Returns the FILL layer, which is what the rest of this file shows and hides;
+-- the edge rides along on `.edge` and is shown and hidden with it, so no caller
+-- can leave half a mark on screen.
 function Adapter.Texture(itemButton)
     if type(itemButton) ~= "table" then
         return nil
@@ -55,14 +82,34 @@ function Adapter.Texture(itemButton)
     if type(itemButton.CreateTexture) ~= "function" then
         return nil
     end
-    texture = itemButton:CreateTexture(nil, "OVERLAY")
-    texture:SetAllPoints()
-    if type(texture.SetAtlas) == "function" then
-        texture:SetAtlas(Adapter.ATLAS)
-    end
+
+    local inset = Adapter.EDGE_INSET
+    local edge = itemButton:CreateTexture(nil, "OVERLAY")
+    edge:SetSize(Adapter.SIZE, Adapter.SIZE)
+    edge:SetPoint("TOPRIGHT", itemButton, "TOPRIGHT", 0, 0)
+    edge:SetTexture(Adapter.TEXTURE)
+    edge:SetVertexColor(unpack(Adapter.EDGE_COLOR))
+    edge:Hide()
+
+    texture = itemButton:CreateTexture(nil, "OVERLAY", nil, 1)
+    texture:SetPoint("TOPLEFT", edge, "TOPLEFT", inset, -inset)
+    texture:SetPoint("BOTTOMRIGHT", edge, "BOTTOMRIGHT", -inset, inset)
+    texture:SetTexture(Adapter.TEXTURE)
+    texture:SetVertexColor(ns.UI.ItemLine.RGB(Adapter.FILL_HEX))
     texture:Hide()
+
+    texture.edge = edge
+    itemButton[Adapter.EDGE_KEY] = edge
     itemButton[Adapter.TEXTURE_KEY] = texture
     return texture
+end
+
+-- Both layers, together, always.
+function Adapter.SetShown(texture, wants)
+    texture:SetShown(wants)
+    if texture.edge then
+        texture.edge:SetShown(wants)
+    end
 end
 
 -- One bag frame's buttons, marked or not. Returns how many it marked, so a
@@ -83,7 +130,7 @@ function Adapter.UpdateFrame(frame)
                 local info = C_Container.GetContainerItemInfo(bagID, slot)
                 wants = ns.Glow.WantsLink(type(info) == "table" and info.hyperlink or nil)
             end
-            texture:SetShown(wants)
+            Adapter.SetShown(texture, wants)
             if wants then
                 marked = marked + 1
             end

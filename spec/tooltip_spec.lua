@@ -827,11 +827,87 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
             widget.fill.points[2]
         )
 
-        -- The accent is the one this addon already defines, not a second gold.
-        assert.equal(ns.UI.ItemLine.TONE.better.hex, Adapter.FILL_HEX)
+        -- UX-4b: the accent is the BRAND, not QE Live's gold. The gold goes on
+        -- meaning "better" in the numbers; this mark means "this is Lootpath",
+        -- and a mark that shared the gold would be saying the other thing.
+        assert.equal(ns.UI.BRAND_HEX, Adapter.FILL_HEX)
+        assert.are_not.equal(ns.UI.ItemLine.TONE.better.hex, Adapter.FILL_HEX)
         local r, g, b = ns.UI.ItemLine.RGB(Adapter.FILL_HEX)
         assert.same({ r, g, b, nil }, widget.fill.vertexColor)
         assert.same(Adapter.EDGE_COLOR, widget.edge.vertexColor)
+    end)
+
+    it("draws the Waymark out of the addon's own file, at the size that file was drawn for", function()
+        local Adapter = ns.UI.Bags.Baganator
+        local button = world.newContainerFrame(0, 1).Items[1]
+        local widget = Adapter.OnInit(button)
+
+        -- The addon's own texture, named through the one MEDIA table, never a
+        -- path spelled out here and never Blizzard's flat white square.
+        assert.equal(ns.UI.MEDIA.MARK16, Adapter.TEXTURE)
+        assert.equal(ns.UI.MEDIA.MARK16, widget.edge:GetTexture())
+        assert.equal(ns.UI.MEDIA.MARK16, widget.fill:GetTexture())
+        assert.are_not.equal([[Interface\Buttons\WHITE8X8]], Adapter.TEXTURE)
+
+        -- R-2b: a mark is drawn at the size it will be seen at. mark16.tga is 16
+        -- texels square, so the frame is 16 points and nothing is resampled.
+        assert.equal(16, Adapter.SIZE)
+        assert.equal(Adapter.SIZE, widget.width)
+    end)
+
+    it("marks the client's own bags with the same mark, the same size, in the same corner", function()
+        local Baganator = ns.UI.Bags.Baganator
+        local Blizzard = ns.UI.Bags.Blizzard
+
+        -- The two adapters never load without each other, and a mark that
+        -- changed in one bag window and not the other is the fault this guards.
+        assert.equal(Baganator.TEXTURE, Blizzard.TEXTURE)
+        assert.equal(Baganator.SIZE, Blizzard.SIZE)
+        assert.equal(Baganator.EDGE_INSET, Blizzard.EDGE_INSET)
+        assert.equal(Baganator.FILL_HEX, Blizzard.FILL_HEX)
+        assert.same(Baganator.EDGE_COLOR, Blizzard.EDGE_COLOR)
+
+        local button = world.newContainerFrame(0, 1).Items[1]
+        local fill = Blizzard.Texture(button)
+        local edge = fill.edge
+
+        -- The vault atlas R-2b took out of the Baganator corner is gone from
+        -- here too: it was a 214 x 121 banner stretched over a square button.
+        assert.equal(ns.UI.MEDIA.MARK16, fill:GetTexture())
+        assert.equal(ns.UI.MEDIA.MARK16, edge:GetTexture())
+        assert.is_nil(fill:GetAtlas())
+        assert.is_nil(edge:GetAtlas())
+        assert.is_nil(Blizzard.ATLAS)
+
+        -- A corner mark at its own size, not SetAllPoints over the whole slot.
+        assert.equal(Blizzard.SIZE, edge.width)
+        assert.equal(Blizzard.SIZE, edge.height)
+        assert.same({ "TOPRIGHT", button, "TOPRIGHT", 0, 0 }, edge.points[1])
+
+        local r, g, b = ns.UI.ItemLine.RGB(ns.UI.BRAND_HEX)
+        assert.same({ r, g, b, nil }, fill.vertexColor)
+        assert.same(Blizzard.EDGE_COLOR, edge.vertexColor)
+    end)
+
+    it("shows and hides both layers of the client-bag mark together", function()
+        local Blizzard = ns.UI.Bags.Blizzard
+        local button = world.newContainerFrame(0, 1).Items[1]
+        local fill = Blizzard.Texture(button)
+
+        -- Both start hidden, so a slot the plan says nothing about carries
+        -- nothing at all.
+        assert.is_false(fill:IsShown())
+        assert.is_false(fill.edge:IsShown())
+
+        Blizzard.SetShown(fill, true)
+        assert.is_true(fill:IsShown())
+        assert.is_true(fill.edge:IsShown())
+
+        -- Half a mark left on screen is the fault: a brand-coloured chevron with
+        -- no keyline, or a near-black one with no colour.
+        Blizzard.SetShown(fill, false)
+        assert.is_false(fill:IsShown())
+        assert.is_false(fill.edge:IsShown())
     end)
 
     it("answers Baganator with exactly true or exactly false, never a truthy value", function()
