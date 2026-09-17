@@ -260,6 +260,15 @@ end
 -- when the key misses - which is the Adventure Guide's hover, whose bonus IDs
 -- are not the ones any document carries.
 function Tooltip.Answer(link)
+    -- H-1 (WKE-596): the healing gate. In a non-healer spec there is no answer
+    -- about any item - no block, no header, no "Why this?" - because every line
+    -- of the block is about a rating for healing gear. It is asked here rather
+    -- than in the post-call because this is the one place an answer comes from
+    -- on the hover path; `Append` asks it again for the one caller that looks
+    -- a key up itself (the Vault tab's cell).
+    if ns.Companion and ns.Companion.Gate and ns.Companion.Gate() then
+        return nil
+    end
     local key, itemID = Tooltip.KeyFromLink(link)
     if not key then
         return nil
@@ -294,6 +303,13 @@ end
 -- vault cell, so both surfaces draw the same lines through the same function.
 function Tooltip.Append(tooltip, answer, opts)
     if type(tooltip) ~= "table" or type(tooltip.AddLine) ~= "function" then
+        return false
+    end
+    -- H-1 (WKE-596): the gate again, because this is the other way in. The
+    -- hover path is already silent (`Tooltip.Answer`); the Vault tab's cell
+    -- looks its own key up in the cache and hands the answer straight here, so
+    -- the block would otherwise still be drawn on a cell hover.
+    if ns.Companion and ns.Companion.Gate and ns.Companion.Gate() then
         return false
     end
     local lines = Tooltip.Lines(answer, opts)

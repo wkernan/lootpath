@@ -2664,3 +2664,113 @@ describe("the scale and compact-rows settings (M5-2)", function()
         assert.is_true(ns.db.profile.settings.compactRows)
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- H-1 (WKE-596): the window in a non-healer spec is one screen.
+--
+-- The owner asked for "a Coming Soon screen for any other spec, and nothing
+-- about healing items when I'm not healing" (2026-09-16 evening). The three
+-- panels are hidden, the three tabs are disabled, and three lines take the
+-- body: which spec he is in, what Lootpath rates and which spec of his class
+-- rates it, and how old the rating waiting for him is.
+describe("the healing gate's screen", function()
+    local ns, world, frame
+
+    local GUARDIAN = { index = 3, id = 104, name = "Guardian", icon = 132276, role = "TANK" }
+    local RESTORATION = { index = 4, id = 105, name = "Restoration", icon = 136041, role = "HEALER" }
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        frame = ns.UI.Frame()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- Proven red by taking the gate out of `UI.ShowTab`: all three tabs are
+    -- clickable in Guardian and the Equip Now panel is on screen with the
+    -- Guardian set in it.
+    it("hides the three panels and disables the three tabs", function()
+        assert.is_true(frame.equipPanel:IsShown())
+        world.spec = GUARDIAN
+        ns.UI.Refresh()
+        for _, tab in ipairs(ns.UI.TABS) do
+            assert.is_false(frame[tab.key]:IsShown(), tab.key .. " is still on screen")
+        end
+        for index, button in ipairs(frame.tabs) do
+            assert.is_false(button:IsEnabled(), "tab " .. index .. " can still be clicked")
+        end
+        assert.is_true(frame.comingSoon:IsShown())
+        -- The tab he was on is remembered, not forgotten.
+        assert.equal(1, frame.selectedTab)
+    end)
+
+    it("puts the tabs back on a spec change, with no reload", function()
+        -- Open: the window redraws on the spec change only while it is on
+        -- screen, and one that is shut is redrawn when it is next opened.
+        frame:Show()
+        world.spec = GUARDIAN
+        world.fireEvent("PLAYER_SPECIALIZATION_CHANGED", "player")
+        assert.is_true(frame.comingSoon:IsShown())
+        world.spec = RESTORATION
+        world.fireEvent("PLAYER_SPECIALIZATION_CHANGED", "player")
+        assert.is_false(frame.comingSoon:IsShown())
+        assert.is_true(frame.equipPanel:IsShown())
+        assert.is_true(frame.tabs[1]:IsEnabled())
+        assert.equal(0, world.reloads)
+    end)
+
+    -- The three lines. Proven red by writing the gate's spec into the body
+    -- instead of the healing one: the sentence tells the player to switch to
+    -- the spec he is already in.
+    it("names the spec, what is rated, and the spec to switch to", function()
+        world.spec = GUARDIAN
+        local model = ns.UI.ComingSoonModel()
+        assert.equal("Coming soon for Guardian.", model.title)
+        assert.equal("Lootpath rates healing gear for now. Switch to Restoration and it's all here.", model.body)
+        ns.UI.Refresh()
+        assert.equal("Coming soon for Guardian.", frame.comingSoon.title:GetText())
+        assert.equal(
+            "Lootpath rates healing gear for now. Switch to Restoration and it's all here.",
+            frame.comingSoon.body:GetText()
+        )
+    end)
+
+    it("says when the rating was last written, in the strip's own words", function()
+        world.spec = GUARDIAN
+        -- Nothing imported yet.
+        assert.equal("Not rated yet.", ns.UI.ComingSoonModel().age)
+        -- and with a rating on screen, its age - the companion's `writtenAt`
+        -- when the file wrote it, which is the stamp the strip reads too.
+        local exported = "2026-09-06T21:14:24.465Z"
+        ns.db.char.qeImport = { exportedAt = exported, spec = "Restoration Druid", topSet = { items = {} } }
+        ns.db.char.qeImports = { Dungeon = ns.db.char.qeImport }
+        local now = ns.EpochFromISO(exported) + 47 * 60
+        assert.equal("Last rated 47 minutes ago.", ns.UI.ComingSoonModel(now).age)
+    end)
+
+    -- The strip keeps its four facts and loses the clause that the screen now
+    -- says. Proven red by leaving `specClause` in the model: the strip says
+    -- `you're in Guardian; this plan is for Restoration Druid` one row above a
+    -- screen that has just said the same thing better.
+    it("drops the strip's spec clause while the screen is up, and keeps the facts", function()
+        ns.db.char.qeImport =
+            { exportedAt = "2026-09-06T21:14:24.465Z", spec = "Restoration Druid", topSet = { items = {} } }
+        ns.db.char.qeImports = { Dungeon = ns.db.char.qeImport }
+        world.spec = GUARDIAN
+        local model = ns.UI.StatusStripModel()
+        assert.is_nil(model.specClause)
+        assert.is_truthy(model.text:find("Restoration Druid", 1, true))
+    end)
+
+    it("is not up in the healing spec, nor in a spec the client does not name", function()
+        assert.is_nil(ns.UI.ComingSoonModel())
+        world.spec = nil
+        assert.is_nil(ns.UI.ComingSoonModel())
+        ns.UI.Refresh()
+        assert.is_false(frame.comingSoon:IsShown())
+        assert.is_true(frame.equipPanel:IsShown())
+    end)
+end)

@@ -243,12 +243,16 @@ describe("ns.Drift and combat", function()
         assert.equal(1, ns.Drift.Behind().count)
     end)
 
-    it("listens to the four events Blizzard's own documentation names", function()
+    -- H-1 (WKE-596) added the fifth, and it is not a gear event: it is what
+    -- takes a standing nudge, the minimap badge and the bag marks down when the
+    -- player changes spec, through the one function that owns all three.
+    it("listens to the four gear events Blizzard's documentation names, and the spec change", function()
         assert.same({
             "BAG_UPDATE_DELAYED",
             "PLAYER_EQUIPMENT_CHANGED",
             "WEEKLY_REWARDS_UPDATE",
             "ITEM_UPGRADE_MASTER_UPDATE",
+            "PLAYER_SPECIALIZATION_CHANGED",
         }, ns.Drift.EVENTS)
         for _, event in ipairs(ns.Drift.EVENTS) do
             world.fireEvent(event)

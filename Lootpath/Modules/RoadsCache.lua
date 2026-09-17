@@ -245,6 +245,15 @@ end
 ns.Glow = ns.Glow or {}
 
 function ns.Glow.Wants(key)
+    -- H-1 (WKE-596): the healing gate, asked here rather than in the adapters
+    -- for the same reason everything else about bags is asked here - an adapter
+    -- knows no road, no rating and no spec, and one question in one place is
+    -- what stops two bag addons disagreeing about whether a slot is marked. In
+    -- a non-healer spec the answer is false for every key, so no mark is drawn
+    -- and the adapter is told nothing else.
+    if ns.Companion and ns.Companion.Gate and ns.Companion.Gate() then
+        return false
+    end
     local map = state.map
     if not map or type(key) ~= "string" then
         return false

@@ -2798,10 +2798,25 @@ describe("the spec you are in against the spec the plan is for", function()
         assert.is_nil(ns.Companion.SpecFromEnv({ specInfo = { absent = true } }))
     end)
 
+    -- **H-1 (WKE-596) took the three cases below off the Guardian path.** R-7b
+    -- said its sentence in a non-healer spec and let the refresh happen anyway;
+    -- the healing gate stops the refresh in that spec outright, and says its own
+    -- sentence on the same three surfaces. The clause itself is not retired: it
+    -- is what a role the client does not NAME still says, off the newest `env`
+    -- capture, and that is the path these three now drive. The gate's own
+    -- behaviour is proven in "the healing gate" below.
+    --
+    -- The stored `env` snapshot is the shape `Companion.SpecFromEnv` reads and
+    -- the one the flush writes.
+    local function envNaming(spec)
+        return { { capturedAt = time() - 60, data = { specInfo = { spec.id, spec.name, n = 2 } } } }
+    end
+
     -- It never stops anything. Proven red by returning early from `Refresh`
     -- when the clause is non-nil: nothing is captured and nothing reloads.
     it("is said before the refresh captures, and the refresh happens anyway", function()
-        world.spec = GUARDIAN
+        world.spec = nil
+        ns.db.global.captures.env = envNaming(GUARDIAN)
         H.dress(world)
         ns.Companion.Refresh()
         assert.is_truthy(world.output():find("this plan is for Restoration", 1, true))
@@ -2812,7 +2827,8 @@ describe("the spec you are in against the spec the plan is for", function()
     -- R-6a's load line answers the question the player asked; this answers the
     -- one he did not know to ask, at the same moment and after it.
     it("is said at the load after a refresh, under the rating's own news", function()
-        world.spec = GUARDIAN
+        world.spec = nil
+        ns.db.global.captures.env = envNaming(GUARDIAN)
         ns.db.global.drift = { refreshStartedAt = date("!%Y-%m-%dT%H:%M:%SZ", time() - 60) }
         ns.companionStatus = { state = "skipped", finishedAt = "2026-09-13T22:06:00Z" }
         local line = ns.Drift.LoadLine()
@@ -2825,7 +2841,8 @@ describe("the spec you are in against the spec the plan is for", function()
     -- `table.concat(parts, ...)` from `lineFrom` regardless: the line is the
     -- facts again and the clause is nowhere.
     it("takes the strip's own line, and the facts it displaces go to the tooltip", function()
-        world.spec = GUARDIAN
+        world.spec = nil
+        ns.db.global.captures.env = envNaming(GUARDIAN)
         local model = ns.UI.StatusStripModel()
         assert.equal("you're in Guardian; this plan is for Restoration Druid - switch and refresh", model.text)
         assert.equal(model.text, model.specClause)
@@ -2836,5 +2853,157 @@ describe("the spec you are in against the spec the plan is for", function()
         local model = ns.UI.StatusStripModel()
         assert.is_nil(model.specClause)
         assert.is_truthy(model.text:find("Restoration", 1, true))
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- H-1 (WKE-596): the healing gate.
+--
+-- The owner, 2026-09-16 evening: "Lootpath is strictly to help healers. When I
+-- change my spec, Lootpath still attempts to tell me in my bags and in the UI
+-- that I need to equip my healing gear. It should only do that in my healing
+-- spec."
+--
+-- The gate is keyed on the ROLE the client names, never on a class or a spec
+-- table of Lootpath's, and a role the client does NOT name is never gated -
+-- which is the whole of R-7b's finding (the spec read is empty at
+-- `ADDON_LOADED` and at a flush) turned into a rule.
+describe("the healing gate", function()
+    local ns, world
+
+    local GUARDIAN = { index = 3, id = 104, name = "Guardian", icon = 132276, role = "TANK" }
+    local BALANCE = { index = 1, id = 102, name = "Balance", icon = 136096, role = "DAMAGER" }
+    -- A class with no healing spec at all: the stub's own four, minus the one.
+    local NO_HEALER = {
+        { index = 1, id = 250, name = "Blood", icon = 135770, role = "TANK" },
+        { index = 2, id = 251, name = "Frost", icon = 135773, role = "DAMAGER" },
+        { index = 3, id = 252, name = "Unholy", icon = 135775, role = "DAMAGER" },
+    }
+
+    before_each(function()
+        ns, world = loadWithChunk(verdictChunkSource(twoRealExports()))
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- The read itself. Blizzard's fifth return, which is the one fact the whole
+    -- gate stands on. Proven red by reading the fourth instead: the role is the
+    -- spec's icon ID and nothing is ever gated.
+    it("reads the role off the client's own fifth return", function()
+        assert.equal("HEALER", ns.Companion.CurrentRole())
+        world.spec = GUARDIAN
+        assert.equal("TANK", ns.Companion.CurrentRole())
+        world.spec = BALANCE
+        assert.equal("DAMAGER", ns.Companion.CurrentRole())
+        world.spec = nil
+        assert.is_nil(ns.Companion.CurrentRole())
+    end)
+
+    -- The healer spec's own name, walked out of the client rather than looked
+    -- up in a table of ours - which is what lets the sentence say `Restoration`
+    -- for this Druid and the right word for any class Lootpath never heard of.
+    it("names the healing spec by walking the class's own specializations", function()
+        assert.equal("Restoration", ns.Companion.HealingSpecName())
+        -- It does not depend on which spec the player is standing in.
+        world.spec = GUARDIAN
+        assert.equal("Restoration", ns.Companion.HealingSpecName())
+        -- A class with no healing spec names none, and the sentences drop the
+        -- clause that would have pointed at one.
+        world.specs = NO_HEALER
+        world.spec = NO_HEALER[1]
+        assert.is_nil(ns.Companion.HealingSpecName())
+        assert.equal("you're in Blood; Lootpath rates healing gear for now.", ns.Companion.GateLine())
+        assert.equal(
+            "you're in Blood; Lootpath rates healing gear, and this class has none",
+            ns.Companion.GateRefreshLine()
+        )
+    end)
+
+    -- Proven red by gating on `role ~= HEALER` alone, without the nil test:
+    -- every assertion in this one fails, and so does half the suite - which is
+    -- the point. A load reads no spec.
+    it("never gates a role the client does not name", function()
+        world.spec = nil
+        assert.is_nil(ns.Companion.CurrentRole())
+        assert.is_nil(ns.Companion.Gate())
+        assert.is_nil(ns.Companion.GateLine())
+        assert.is_nil(ns.Companion.GateCaptureReason())
+        assert.is_nil(ns.Companion.GateRefreshLine())
+    end)
+
+    it("is down in the healing spec and up in every other named role", function()
+        assert.is_nil(ns.Companion.Gate())
+        world.spec = GUARDIAN
+        local gate = ns.Companion.Gate()
+        assert.equal("TANK", gate.role)
+        assert.equal("Guardian", gate.spec)
+        assert.equal("Restoration", gate.healer)
+        world.spec = BALANCE
+        assert.equal("Balance", ns.Companion.Gate().spec)
+    end)
+
+    -- The refresh. Proven red by taking the gate out of `Companion.Refresh`:
+    -- the Guardian set is captured and the client reloads, which is exactly the
+    -- noise the owner reported.
+    it("stops the refresh before it captures or reloads, and says which spec to switch to", function()
+        world.spec = GUARDIAN
+        H.dress(world)
+        local result = ns.Companion.Refresh()
+        assert.is_false(result.ok)
+        assert.equal(ns.Companion.GATE_REFRESH_REASON, result.reason)
+        assert.is_truthy(world.output():find("you're in Guardian; switch to Restoration to refresh", 1, true))
+        -- Nothing stored at all: not the gear, and not the `env` read either,
+        -- because the refresh returns before the first capture runs.
+        assert.equal(0, #(ns.db.global.captures.inventory or {}))
+        assert.equal(0, #(ns.db.global.captures.env or {}))
+        assert.equal(0, world.reloads)
+    end)
+
+    it("refreshes as it always has in the healing spec", function()
+        H.dress(world)
+        local result = ns.Companion.Refresh()
+        assert.is_true(result.ok)
+        assert.equal(1, #ns.db.global.captures.inventory)
+        assert.equal(1, world.reloads)
+    end)
+
+    -- The load line, and `/lootpath status`'s first line: one sentence, the
+    -- screen's own. Proven red by taking the gate out of `Drift.LoadLine`: the
+    -- refresh state is announced again and the spec clause under it.
+    it("says one sentence at the load, and nothing else", function()
+        world.spec = GUARDIAN
+        ns.db.global.drift = { refreshStartedAt = date("!%Y-%m-%dT%H:%M:%SZ", time() - 60) }
+        ns.companionStatus = { state = "skipped", finishedAt = "2026-09-13T22:06:00Z" }
+        local line = ns.Drift.LoadLine()
+        assert.equal(
+            "you're in Guardian; Lootpath rates healing gear for now - switch to Restoration and it's all here.",
+            line
+        )
+        local output = world.output()
+        assert.is_nil(output:find(ns.Drift.LOAD_SKIPPED, 1, true))
+        assert.is_nil(output:find("this plan is for", 1, true))
+    end)
+
+    it("names the gate on the first line of /lootpath status", function()
+        world.spec = GUARDIAN
+        ns.HandleSlash("status")
+        local output = world.output()
+        assert.is_truthy(output:find("you're in Guardian; Lootpath rates healing gear for now", 1, true))
+        -- and everything the command already printed still prints
+        assert.is_truthy(output:find("captures stored:", 1, true))
+    end)
+
+    -- The nudge row and the minimap badge. Proven red by taking the gate out of
+    -- `Drift.Check`: the nudge stands in Guardian and the badge with it.
+    it("raises no nudge, and takes a standing one down on the spec change", function()
+        ns.Drift.SetBehind({ count = 2, name = "Test Helm" })
+        assert.is_table(ns.Drift.Model())
+        world.spec = GUARDIAN
+        world.fireEvent("PLAYER_SPECIALIZATION_CHANGED")
+        world.runTimers(2)
+        assert.is_nil(ns.Drift.Behind())
+        assert.is_nil(ns.Drift.Model())
     end)
 end)

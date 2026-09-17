@@ -1236,6 +1236,66 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         assert.is_nil(GameTooltip.stub.Text():find("Lootpath", 1, true))
         world.inCombat = false
     end)
+
+    -- -----------------------------------------------------------------------
+    -- H-1 (WKE-596): the healing gate, on the two in-place surfaces.
+    --
+    -- Every assertion here is over the SAME week as the ones above - the
+    -- owner's own captures, his own exports, the map already built - so what is
+    -- proven is the gate and nothing else: these keys glow and these blocks
+    -- draw the moment the spec is a healing one again.
+
+    local GUARDIAN = { index = 3, id = 104, name = "Guardian", icon = 132276, role = "TANK" }
+
+    it("marks no bag slot at all in a non-healer spec", function()
+        -- Proven red by taking the gate out of `ns.Glow.Wants`: the Guardian
+        -- assertions answer true again, which is a mark on the owner's bags in
+        -- a spec Lootpath rates nothing for.
+        assert.is_true(ns.Glow.Wants(LYNX))
+        world.spec = GUARDIAN
+        assert.is_false(ns.Glow.Wants(LYNX))
+        assert.is_false(ns.Glow.Wants(HIDE))
+        assert.is_false(ns.Glow.Wants(VAULT_WORLDROOT))
+        -- And the adapter's own way in, which is the one a bag addon calls.
+        local link = nil
+        for _, record in ipairs(gathered.inventory.records) do
+            link = link or (record.key == LYNX and record.link or nil)
+        end
+        assert.is_string(link)
+        assert.is_false(ns.Glow.WantsLink(link))
+        -- Switching back needs nothing but the client answering again: the role
+        -- is read live, never remembered.
+        world.spec = { index = 4, id = 105, name = "Restoration", icon = 136041, role = "HEALER" }
+        assert.is_true(ns.Glow.Wants(LYNX))
+    end)
+
+    it("answers no hover in a non-healer spec, and draws no block on the vault cell", function()
+        local link = nil
+        for _, record in ipairs(gathered.inventory.records) do
+            link = link or (record.key == LYNX and record.link or nil)
+        end
+        assert.is_string(link)
+        assert.is_table(ns.UI.Tooltip.Answer(link))
+        world.spec = GUARDIAN
+        -- No block, no header, no "Why this?" - there is no answer to draw one
+        -- from. Proven red by taking the gate out of `Tooltip.Answer`.
+        assert.is_nil(ns.UI.Tooltip.Answer(link))
+        -- And the other way in: the Vault tab's cell looks its own key up and
+        -- hands the answer straight to `Append`. Proven red by taking the gate
+        -- out of `Tooltip.Append`, which puts the block back on the cell.
+        assert.is_false(ns.VaultPanel.AppendRoads(GameTooltip, { key = VAULT_WORLDROOT }))
+        assert.is_nil(GameTooltip.stub.Text():find("Why this?", 1, true))
+    end)
+
+    it("says nothing about a role the client does not name", function()
+        -- The rule the whole gate turns on: at `ADDON_LOADED` and on a real
+        -- logout the spec read is empty (R-7b), and an unknown role behaves
+        -- exactly as it did before H-1.
+        world.spec = nil
+        assert.is_nil(ns.Companion.CurrentRole())
+        assert.is_nil(ns.Companion.Gate())
+        assert.is_true(ns.Glow.Wants(LYNX))
+    end)
 end)
 
 -- ---------------------------------------------------------------------------

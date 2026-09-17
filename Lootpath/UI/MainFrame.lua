@@ -472,7 +472,13 @@ function UI.StatusStripModel(now)
     -- rated for the wrong gear is wrong whichever spec it was rated in, and
     -- behind the wait, because a player who has already clicked is owed the
     -- news about the run he asked for.
-    local specClause = ns.Companion.SpecClauseNow and ns.Companion.SpecClauseNow() or nil
+    -- **H-1 (WKE-596): when the Coming soon screen is up, the spec clause is
+    -- not.** The screen names the spec, says what Lootpath rates and names the
+    -- spec to switch to; the strip's clause would say the same thing a second
+    -- time, one row above it. The strip keeps its four facts - they are true in
+    -- any spec - and one thing says the rest.
+    local gated = ns.Companion.Gate and ns.Companion.Gate() ~= nil or false
+    local specClause = (not gated) and ns.Companion.SpecClauseNow and ns.Companion.SpecClauseNow() or nil
     local gearClause = ns.Drift and ns.Drift.GearUnreadText and ns.Drift.GearUnreadText(now) or nil
     local clauses = {}
     if gearClause then
@@ -754,6 +760,17 @@ function UI.Refresh()
         return nil
     end
     UI.RefreshStrip(frame)
+    -- H-1 (WKE-596): in a non-healer spec the body is the screen and no panel
+    -- is drawn at all - not even the one that was on top when the spec changed.
+    -- `ShowTab` is called rather than only hiding, so the tabs and the screen
+    -- follow the gate in one place; it is also what puts them back.
+    if ns.Companion.Gate and ns.Companion.Gate() then
+        UI.ShowTab(frame, frame.selectedTab or 1)
+        return nil
+    end
+    if frame.comingSoon and frame.comingSoon:IsShown() then
+        UI.ShowTab(frame, frame.selectedTab or 1)
+    end
     local selected = frame.selectedTab or 1
     if selected == 2 then
         ns.UpgradeMapPanel.Refresh(frame.upgradeMapPanel)
@@ -793,10 +810,28 @@ function UI.ShowTab(frame, id)
         end
     end
     frame.selectedTab = wanted
+    -- H-1 (WKE-596): the healing gate. The tab the player last had open is
+    -- still `frame.selectedTab` - nothing forgets where he was - but in a
+    -- non-healer spec no panel is shown, the tabs cannot be clicked, and the
+    -- Coming soon screen has the body to itself. Read live on every call, so
+    -- changing spec back and calling this again puts the tabs on screen with no
+    -- reload.
+    local gated = ns.Companion.Gate and ns.Companion.Gate() ~= nil or false
     for _, tab in ipairs(UI.TABS) do
         local panel = frame[tab.key]
         if panel then
-            panel:SetShown(tab.id == wanted)
+            panel:SetShown(not gated and tab.id == wanted)
+        end
+    end
+    for _, button in ipairs(frame.tabs or {}) do
+        if type(button.SetEnabled) == "function" then
+            button:SetEnabled(not gated)
+        end
+    end
+    if frame.comingSoon then
+        frame.comingSoon:SetShown(gated)
+        if gated then
+            UI.RefreshComingSoon(frame)
         end
     end
     if type(_G.PanelTemplates_SetTab) == "function" then
@@ -1215,6 +1250,100 @@ local function buildTabs(frame)
 end
 
 -- ---------------------------------------------------------------------------
+-- H-1 (WKE-596): the window in a non-healer spec.
+--
+-- **Three lines and nothing else.** The owner's words, 2026-09-16: "Lootpath is
+-- strictly to help healers... I'd like a Coming Soon screen for any other spec,
+-- and nothing about healing items when I'm not healing." So the three tab
+-- panels are hidden, the three tabs are disabled, and this fills the body:
+-- which spec he is in, what Lootpath rates and which spec of his class rates it,
+-- and how old the rating waiting for him is. Import and Options stay reachable -
+-- they sit on the strip, not in the body - and the strip stays, because its four
+-- facts are true whichever spec he is standing in.
+--
+-- The age is read exactly as the strip reads it: the companion's `writtenAt`
+-- when the file wrote this one and the export's own `exportedAt` otherwise
+-- (`ns.Companion.SourceText` reads the same pair), through `UI.AgeText` so one
+-- formatter says every age on screen.
+UI.COMING_SOON_TITLE = "Coming soon for %s."
+UI.COMING_SOON_BODY = "Lootpath rates healing gear for now. Switch to %s and it's all here."
+UI.COMING_SOON_BODY_NO_HEALER = "Lootpath rates healing gear for now."
+UI.COMING_SOON_AGE = "Last rated %s."
+UI.COMING_SOON_NO_AGE = "Not rated yet."
+
+-- nil when the gate is down and the tabs are the window, or the three lines.
+-- Pure over the client's role read and the rating on screen, so a test drives it
+-- with no frame at all.
+function UI.ComingSoonModel(now)
+    local gate = ns.Companion.Gate and ns.Companion.Gate() or nil
+    if not gate then
+        return nil
+    end
+    local verdict = UI.ActiveVerdict()
+    local stamp = verdict and (verdict.companionWrittenAt or verdict.exportedAt) or nil
+    local age = UI.COMING_SOON_NO_AGE
+    if type(stamp) == "string" then
+        age = string.format(UI.COMING_SOON_AGE, UI.AgeText(stamp, now))
+    end
+    return {
+        title = string.format(UI.COMING_SOON_TITLE, gate.spec),
+        body = gate.healer and string.format(UI.COMING_SOON_BODY, gate.healer) or UI.COMING_SOON_BODY_NO_HEALER,
+        age = age,
+        spec = gate.spec,
+        healer = gate.healer,
+    }
+end
+
+local function buildComingSoon(frame)
+    local panel = CreateFrame("Frame", nil, frame)
+    panel:SetPoint("TOPLEFT", frame.statusStrip, "BOTTOMLEFT", 2, -6)
+    panel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -12, 12)
+
+    local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    title:SetPoint("TOP", panel, "TOP", 0, -60)
+    title:SetPoint("LEFT", panel, "LEFT", 20, 0)
+    title:SetPoint("RIGHT", panel, "RIGHT", -20, 0)
+    title:SetJustifyH("CENTER")
+    panel.title = title
+
+    local body = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    body:SetPoint("TOP", title, "BOTTOM", 0, -12)
+    body:SetPoint("LEFT", panel, "LEFT", 30, 0)
+    body:SetPoint("RIGHT", panel, "RIGHT", -30, 0)
+    body:SetJustifyH("CENTER")
+    panel.body = body
+
+    local age = panel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+    age:SetPoint("TOP", body, "BOTTOM", 0, -16)
+    age:SetPoint("LEFT", panel, "LEFT", 30, 0)
+    age:SetPoint("RIGHT", panel, "RIGHT", -30, 0)
+    age:SetJustifyH("CENTER")
+    panel.age = age
+
+    panel:Hide()
+    frame.comingSoon = panel
+    return panel
+end
+
+-- Writes the three lines, or leaves the screen alone when the gate is down.
+-- Returns the model it drew, or nil.
+function UI.RefreshComingSoon(frame, now)
+    frame = frame or UI.frame
+    local panel = frame and frame.comingSoon or nil
+    if not panel then
+        return nil
+    end
+    local model = UI.ComingSoonModel(now)
+    if not model then
+        return nil
+    end
+    panel.title:SetText(model.title)
+    panel.body:SetText(model.body)
+    panel.age:SetText(model.age)
+    return model
+end
+
+-- ---------------------------------------------------------------------------
 -- M5-2 (WKE-551): the launcher. A minimap button drawn natively and an AddOn
 -- Compartment entry, both of which do nothing but UI.Toggle. No library: an
 -- addon with one user does not need LibDBIcon vendored and licence-recorded to
@@ -1599,6 +1728,10 @@ function UI.Frame()
         tabPanel:SetPoint("TOPLEFT", frame.statusStrip, "BOTTOMLEFT", 2, -6)
         tabPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -12, 12)
     end
+    -- H-1 (WKE-596): the same rectangle again, for the screen that replaces all
+    -- three. Built last so it is drawn over them, and hidden until `ShowTab`
+    -- reads the gate.
+    buildComingSoon(frame)
     UI.ShowTab(frame, 1)
     -- The scale the owner chose (M5-2). Applied to the window only: the dialog
     -- and the minimap button are Blizzard-sized and are not part of it.
