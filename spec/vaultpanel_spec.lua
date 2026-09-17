@@ -2857,8 +2857,12 @@ describe("VaultPanel's grid, drawn (WKE-553)", function()
             },
         }
         -- A panel only as wide as one chip: the second chip cannot share the
-        -- row, so it goes under the first.
-        frame.content:SetWidth(60)
+        -- row, so it goes under the first. Narrowed at the scroll frame rather
+        -- than at the content frame, because since M5-2c (WKE-609) the content
+        -- frame takes its width from the scroll frame on every refresh, and a
+        -- width set straight on the content frame would be overwritten a moment
+        -- later.
+        frame.scroll:SetWidth(60)
         refresh("thisWeek")
         local first, second = frame.chips[1].points[1], frame.chips[2].points[1]
         assert.equal("TOPLEFT", first[1])
@@ -3534,11 +3538,16 @@ describe("the Vault tab's grid over the live client (V-5)", function()
         assertSameShape(unlocked.background, "evergreen-weeklyrewards-reward-unlocked")
         assertSameShape(locked.background, "evergreen-weeklyrewards-reward-locked")
         -- And no longer the cell's own box, which is what it used to be handed.
-        -- The art is wider than the cell is tall, so the fit is decided by the
-        -- width: it comes out as wide as the cell and SHORTER, with the words
-        -- above and below it, rather than pulled to the cell's own height.
-        assert.not_equal(unlocked.background:GetHeight(), unlocked:GetHeight())
-        assert.is_true(unlocked.background:GetHeight() < unlocked:GetHeight())
+        -- Which side decides the fit moved with the window (M5-2c, WKE-609): at
+        -- 620 the cell was narrower than the art was tall in proportion and the
+        -- art came out shorter than the cell, with words above and below it; at
+        -- 760 the cell is wide enough that the HEIGHT is what binds, so the art
+        -- fills the cell's height and stops short of its width. Either way one
+        -- scale factor did both sides - `assertSameShape` above is what proves
+        -- that - and the art never runs past the cell it is drawn in.
+        assert.not_equal(unlocked.background:GetWidth(), unlocked:GetWidth())
+        assert.is_true(unlocked.background:GetWidth() < unlocked:GetWidth())
+        assert.is_true(unlocked.background:GetHeight() <= unlocked:GetHeight())
     end)
 
     it("draws the tick at its own ratio rather than filling its band", function()
@@ -3641,5 +3650,53 @@ describe("the window follows the vault's own event (V-5)", function()
         frame.vaultPanel.model = nil
         world.fireEvent("WEEKLY_REWARDS_UPDATE")
         assert.is_nil(frame.vaultPanel.model)
+    end)
+end)
+
+describe("the Vault tab's content frame tracks its scroll frame (M5-2c)", function()
+    local ns
+
+    before_each(function()
+        ns = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("gives the scroll child the whole scroll frame, not a frozen number", function()
+        local frame = ns.UI.Frame()
+        local panel = frame.vaultPanel
+        -- The client sizes the scroll frame from its two corner anchors; the
+        -- stub does not resolve anchors, so the size the client would work out
+        -- is set here and the content frame is asked to follow it.
+        panel.scroll:SetWidth(panel:GetWidth() - ns.VaultPanel.SCROLL_INSET)
+        panel:Refresh()
+        assert.equal(panel.scroll:GetWidth(), panel.content:GetWidth())
+        -- and it follows a second time, rather than being right once
+        panel.scroll:SetWidth(300)
+        panel:Refresh()
+        assert.equal(300, panel.content:GetWidth())
+    end)
+
+    it("falls back to the panel's own width when the scroll frame has none", function()
+        local panel = ns.VaultPanel.Create()
+        assert.equal(0, panel.scroll:GetWidth())
+        assert.equal(ns.UI.PANEL_WIDTH - ns.VaultPanel.SCROLL_INSET, panel.content:GetWidth())
+        panel:Refresh()
+        assert.equal(ns.UI.PANEL_WIDTH - ns.VaultPanel.SCROLL_INSET, panel.content:GetWidth())
+    end)
+
+    it("spends the width the wider window gave it on the cells, not on the banner", function()
+        local panel = ns.VaultPanel.Create()
+        panel:Refresh()
+        local cell = panel.gridRows[1].cells[1]
+        local banner = panel.gridRows[1].label
+        assert.equal(ns.VaultPanel.ROW_BANNER_WIDTH, banner:GetWidth() + ns.VaultPanel.ROW_BANNER_INSET * 2)
+        -- Three cells and two gaps fill what the banner leaves of the content
+        -- frame, within the point the integer division drops.
+        local left = panel.content:GetWidth() - ns.VaultPanel.ROW_BANNER_WIDTH
+        local used = cell:GetWidth() * 3 + ns.VaultPanel.CELL_GAP * 2
+        assert.is_true(left - used < 3, string.format("%d points of the row unused", left - used))
     end)
 end)
