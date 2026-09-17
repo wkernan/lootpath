@@ -229,6 +229,8 @@ describe("ns.Vault guards", function()
             "C_WeeklyRewards.HasAvailableRewards",
             "C_WeeklyRewards.CanClaimRewards",
             "C_WeeklyRewards.HasGeneratedRewards",
+            "C_WeeklyRewards.AreRewardsForCurrentRewardPeriod",
+            "C_WeeklyRewards.GetDifficultyIDForActivityTier",
             "C_WeeklyRewards.GetActivities",
             "C_WeeklyRewards.GetItemHyperlink",
             "C_DateAndTime.GetSecondsUntilWeeklyReset",
@@ -271,6 +273,33 @@ describe("ns.Vault over the after-reset transcript (generated rewards)", functio
 
     after_each(function()
         H.unload()
+    end)
+
+    -- V-5 (WKE-600): `claimID` is recorded because the client gives it, and the
+    -- comment beside it in Modules/Vault.lua says what it is NOT. On the
+    -- owner's own 2026-09-08 transcript it equals `id`, and it sits on every
+    -- activity that HAS a reward, at a moment when nothing had been claimed -
+    -- so it names the reward a claim would ask for, and a "claimed this week"
+    -- read cannot be built out of it. This guard is that fact, so nobody has to
+    -- take the comment's word for it.
+    it("records claimID as the client gives it, which is not a claimed marker", function()
+        local result = ns.Vault.Options()
+        local withClaimID, rewarded = 0, 0
+        for _, option in ipairs(result.options) do
+            if option.claimID then
+                withClaimID = withClaimID + 1
+                assert.equal(option.id, option.claimID)
+            end
+            if #option.rewards > 0 then
+                rewarded = rewarded + 1
+                assert.is_not_nil(option.claimID)
+            end
+        end
+        -- Rewards were waiting and unclaimed on this transcript, and the IDs
+        -- are there all the same.
+        assert.is_true(result.canClaimRewards)
+        assert.is_true(rewarded > 0)
+        assert.equal(rewarded, withClaimID)
     end)
 
     local function byID(result)

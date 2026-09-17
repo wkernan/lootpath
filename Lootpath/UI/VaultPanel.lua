@@ -30,7 +30,12 @@ local _, ns = ...
 ns.VaultPanel = {}
 local Panel = ns.VaultPanel
 
-Panel.NOTE = "Rated options show their value. Other options are listed by item level only."
+-- The legend that used to sit here - "Rated options show their value. Other
+-- options are listed by item level only." - is gone (V-5, WKE-600). It
+-- explained a badge that says it itself, and it cost the grid a line of the
+-- panel's own height on a tab whose whole subject is nine cells. Nothing
+-- replaced it: the tab's header is the header, and the answer sentence is the
+-- first thing under it.
 
 -- The game's own words for the vault's rows. The owner's Great Vault screenshot
 -- (2026-09-08) names them "Dungeons" ("Complete 1/4/8 Heroic, Mythic, or
@@ -95,6 +100,56 @@ Panel.THRESHOLD_GLOBAL = {
 -- own accent is drawn instead.
 Panel.SELECTED_ATLAS = "evergreen-weeklyrewards-reward-selected"
 Panel.SELECTED_HEX = "FFDF14"
+
+-- ---------------------------------------------------------------------------
+-- V-5 (WKE-600): the cell drawn as Blizzard draws it.
+--
+-- Blizzard's own vault gives a cell exactly two backgrounds, chosen in
+-- `WeeklyRewardsActivityMixin:Refresh` (Blizzard_WeeklyRewards.lua under
+-- `.luals/`) by one line - `self.unlocked or self.hasRewards` - and nothing
+-- else. The same two atlases are named here and the same one line chooses
+-- between them, so a reader with both windows open sees one answer twice.
+-- Every atlas goes through `ns.UI.ItemLine.Atlas` at draw time, so a build
+-- that has dropped one loses the art and keeps the words.
+Panel.CELL_ATLAS = {
+    locked = "evergreen-weeklyrewards-reward-locked",
+    unlocked = "evergreen-weeklyrewards-reward-unlocked",
+}
+
+-- The tick Blizzard puts on a cell it has unlocked (the CompletedIcon of
+-- WeeklyRewardActivityTemplate, Blizzard_WeeklyRewards.xml).
+Panel.COMPLETED_ATLAS = "activities-icon-checkmark"
+
+-- The row art, and it IS reachable by atlas: Blizzard's own frame passes these
+-- three strings to `WeeklyRewardsMixin:SetUpActivity`, which sets them on the
+-- row header's Background (Blizzard_WeeklyRewards.lua, the three consecutive
+-- lines of `WeeklyRewardsMixin:OnLoad`). The XML declares that texture with no
+-- atlas and no file, so the Lua strings are the whole source.
+Panel.ROW_ATLAS = {
+    Raid = "evergreen-weeklyrewards-category-raids",
+    Activities = "evergreen-weeklyrewards-category-dungeons",
+    World = "evergreen-weeklyrewards-category-world",
+}
+
+-- A locked cell's own corner, in the client's own fraction string when it has
+-- one (`GENERIC_FRACTION_STRING`, which is what Blizzard formats
+-- progress/threshold with) and in plain figures when it does not. Never a
+-- number this addon worked out: both figures are the client's.
+Panel.FRACTION_GLOBAL = "GENERIC_FRACTION_STRING"
+Panel.FRACTION_FALLBACK = "%d/%d"
+
+-- What an UNLOCKED cell says where the fraction was, per row, exactly as
+-- `WeeklyRewardsActivityMixin:SetProgressText` says it: the raid difficulty's
+-- own name for a Raids row, Heroic or Mythic <level> for a Dungeons row - told
+-- apart by the client's own difficulty ID, not by the level - and the world
+-- tier for a World row. Each is a FrameXML global asked for at runtime; a
+-- client without one leaves that cell with no level text rather than a word
+-- this addon invented.
+Panel.LEVEL_GLOBAL = {
+    heroic = "WEEKLY_REWARDS_HEROIC",
+    mythic = "WEEKLY_REWARDS_MYTHIC",
+    world = "GREAT_VAULT_WORLD_TIER",
+}
 
 -- What the mark on that cell says. The grey one is the `nothing beats your
 -- set` case: the closest option is still named, and is still not called a pick
@@ -384,7 +439,25 @@ Panel.PENDING_NOTE = "%d reward(s) are waiting for the client to load their item
 -- the Great Vault window being opened (ARCHITECTURE.md 7, 2026-09-15) - so the
 -- sentence that reports the state now also names the one thing that changes it,
 -- rather than leaving the player to read the empty cells and guess.
-Panel.NO_REWARDS_NOTE = "The vault hasn't generated this week's rewards yet. Open the Great Vault once, then refresh."
+--
+-- V-5 (WKE-600) reworded it, because the owner read it on 2026-09-16 with the
+-- Great Vault itself open on the other monitor. "Open the Great Vault once,
+-- then refresh" is the remedy for M3-16b's state - rewards the client has been
+-- told about but not given - and this sentence is the OTHER one: a week that
+-- has generated nothing because nothing has been earned yet. Since this issue
+-- the grid under it draws every cell's own progress, so the sentence says what
+-- is true and points at the cells rather than sending anyone to a window that
+-- would change nothing. The remedy for the state that does have one still
+-- lives on OPEN_VAULT_NOTE below, which is chosen first.
+Panel.NO_REWARDS_NOTE = "Nothing to take from the vault yet this week. Each cell below shows what it still needs."
+
+-- V-5 (WKE-600): rewards the client is holding that belong to an earlier week.
+-- Blizzard's own frame puts its PreviousRewardNotification up on exactly this
+-- reading - `HasAvailableRewards()` true and `AreRewardsForCurrentRewardPeriod()`
+-- false (WeeklyRewardsMixin:UpdatePreviousClaim) - and the tab had no way to
+-- say it at all. Said and not acted on: what happens to them is the client's
+-- business, and nothing here claims to know it.
+Panel.PREVIOUS_PERIOD_NOTE = "The rewards waiting in the vault are from an earlier week, not this one."
 -- V-3 (WKE-587): the FOURTH reading of the same empty list, and the one the
 -- owner read as a lie. Minutes after he claimed the Enigmatic Dreamwatcher's
 -- Leggings on 2026-09-15 the tab told him the vault had not generated this
@@ -610,6 +683,86 @@ function Panel.ThresholdText(option, enumName)
         return nil
     end
     return text
+end
+
+-- V-5 (WKE-600). The fraction in a locked cell's corner, in the client's own
+-- fraction string when it has one. Blizzard formats exactly these two figures
+-- with exactly this global (`WeeklyRewardsActivityMixin:SetProgressText`, the
+-- `GENERIC_FRACTION_STRING` branch); a client without it gets plain figures,
+-- which is the same two numbers and no third one.
+function Panel.FractionText(option)
+    if type(option) ~= "table" then
+        return nil
+    end
+    local progress, threshold = option.progress or 0, option.threshold or 0
+    local pattern = globalString(Panel.FRACTION_GLOBAL)
+    if pattern then
+        local ok, text = pcall(string.format, pattern, progress, threshold)
+        if ok and type(text) == "string" then
+            return text
+        end
+    end
+    return string.format(Panel.FRACTION_FALLBACK, progress, threshold)
+end
+
+-- The difficulty's own name for a level the client reports, through Blizzard's
+-- own DifficultyUtil - which is what its vault frame asks for a Raids row. A
+-- client without the helper, or one that answers nothing for this level, gets
+-- no name rather than a difficulty this addon named itself.
+local function difficultyName(level)
+    if type(DifficultyUtil) ~= "table" or type(DifficultyUtil.GetDifficultyName) ~= "function" then
+        return nil
+    end
+    local ok, name = pcall(DifficultyUtil.GetDifficultyName, level)
+    if ok and type(name) == "string" and name ~= "" then
+        return name
+    end
+    return nil
+end
+
+-- True when the client says this activity's tier is the Heroic dungeon one.
+-- Blizzard asks the same question the same way and for the same reason: in the
+-- activity data a Heroic week and a Mythic week are BOTH level 0, and only the
+-- difficulty ID tells them apart (WeeklyRewardsUtil's own comment under
+-- `.luals/`). Unknown answers false, and false only costs the cell a word.
+local function isHeroicTier(option)
+    local difficultyID = type(option) == "table" and option.difficultyID or nil
+    if difficultyID == nil or type(DifficultyUtil) ~= "table" or type(DifficultyUtil.ID) ~= "table" then
+        return false
+    end
+    return difficultyID == DifficultyUtil.ID.DungeonHeroic
+end
+
+-- What an unlocked cell says in place of the fraction, per row, exactly as
+-- `WeeklyRewardsActivityMixin:SetProgressText` chooses it. nil whenever the
+-- client cannot say it: a cell with no level text is still a cell with the
+-- tick and the threshold sentence on it.
+function Panel.UnlockedLevelText(option, enumName)
+    if type(option) ~= "table" then
+        return nil
+    end
+    local level = tonumber(option.level) or 0
+    if enumName == "Raid" then
+        return difficultyName(level)
+    elseif enumName == "Activities" then
+        if isHeroicTier(option) then
+            return globalString(Panel.LEVEL_GLOBAL.heroic)
+        end
+        local pattern = globalString(Panel.LEVEL_GLOBAL.mythic)
+        if not pattern then
+            return nil
+        end
+        local ok, text = pcall(string.format, pattern, level)
+        return (ok and type(text) == "string") and text or nil
+    elseif enumName == "World" then
+        local pattern = globalString(Panel.LEVEL_GLOBAL.world)
+        if not pattern then
+            return nil
+        end
+        local ok, text = pcall(string.format, pattern, level)
+        return (ok and type(text) == "string") and text or nil
+    end
+    return nil
 end
 
 -- The phrase naming which QE Live upgrade assumptions produced a number, or nil
@@ -1117,14 +1270,32 @@ function Panel.CellTags(line)
 end
 
 -- One cell of the grid, as plain data. `option` is a model option, `enumName`
--- its row's Blizzard enum name, `highlight` the scenario the pick follows.
+-- its row's Blizzard enum name, `highlight` the scenario the pick follows, and
+-- `state` the one fact about the WEEK a single cell cannot see: `claiming`,
+-- the client's own `CanClaimRewards`.
 --
 -- A cell with a gear reward draws that reward as an M5-1 item line and says
 -- ONE verdict line - the highlighted scenario's, the same string
 -- `Panel.ScenarioLine` put on the option below - with every scenario's line
 -- kept in `tooltipLines` for the hover. A cell with no gear reward is locked
 -- and says what the client says it needs.
-function Panel.Cell(option, enumName, highlight)
+--
+-- V-5 (WKE-600): every cell also carries the four things Blizzard's own cell
+-- draws, decided the way `WeeklyRewardsActivityMixin:Refresh` decides them and
+-- not a pixel further. `state` is one of locked / unlocked / reward; `atlas`
+-- is the background that state wears; `tick` is the CompletedIcon; and
+-- `cornerText` is the fraction on a locked cell and the level on an unlocked
+-- one.
+--
+-- There is deliberately no CLAIMED cell state. Two things settled that, both
+-- read rather than assumed: Blizzard's own activity mixin has no claimed
+-- branch - after `ClaimReward` it hides the whole window instead of repainting
+-- one - and a claimed week, by V-3's own definition, is a week whose live
+-- option list carries no rewards at all, so there is no cell holding a reward
+-- for such a treatment to land on. A claimed week draws nine honest live cells
+-- and says what happened in the one line under the grid.
+function Panel.Cell(option, enumName, highlight, state)
+    state = state or {}
     local cell = {
         index = option.index,
         id = option.id,
@@ -1137,13 +1308,33 @@ function Panel.Cell(option, enumName, highlight)
         extrasText = option.extrasText,
     }
     local reward = option.rewards and option.rewards[1] or nil
+    -- Blizzard's own one line, copied as a line: `self.unlocked or
+    -- self.hasRewards` picks the unlocked art, and everything else is locked.
+    local hasRewards = reward ~= nil
+    cell.unlockedArt = cell.unlocked or hasRewards
+    cell.atlas = cell.unlockedArt and Panel.CELL_ATLAS.unlocked or Panel.CELL_ATLAS.locked
+    cell.tick = cell.unlockedArt
+    -- And its own progress line: nothing on a cell that holds a reward, the
+    -- level on an unlocked one, the fraction otherwise - except while the
+    -- client says rewards can be claimed, when Blizzard prints no progress on
+    -- the incomplete activities at all, and neither does this.
+    if hasRewards then
+        cell.cornerText = nil
+    elseif cell.unlocked then
+        cell.levelText = Panel.UnlockedLevelText(option, enumName)
+        cell.cornerText = cell.levelText
+    elseif state.claiming ~= true then
+        cell.cornerText = Panel.FractionText(option)
+    end
     if not reward then
         cell.kind = "locked"
+        cell.state = cell.unlocked and "unlocked" or "locked"
         cell.thresholdText = Panel.ThresholdText(option, enumName)
         cell.text = cell.thresholdText or option.progressText
         return cell
     end
     cell.kind = "reward"
+    cell.state = "reward"
     cell.reward = reward
     cell.pending = reward.pending == true
     cell.name = reward.displayName or Panel.RewardName(reward)
@@ -1201,9 +1392,18 @@ end
 -- of the block already reads.
 function Panel.Grid(model, highlight, best, closest)
     local placed, rows = {}, {}
+    -- The one fact about the week a cell cannot see for itself.
+    local state = { claiming = model.canClaimRewards == true }
     for _, enumName in ipairs(Panel.ROW_ORDER) do
         local activityType = ns.Vault and ns.Vault.ThresholdType(enumName) or nil
-        local row = { key = enumName, type = activityType, label = Panel.GridRowLabel(enumName), cells = {} }
+        local row = {
+            key = enumName,
+            type = activityType,
+            label = Panel.GridRowLabel(enumName),
+            -- Blizzard's own art for this row, when this build still has it.
+            atlas = Panel.ROW_ATLAS[enumName],
+            cells = {},
+        }
         for index = 1, Panel.ROW_CELLS do
             row.cells[index] = { index = index, kind = "empty" }
         end
@@ -1217,7 +1417,7 @@ function Panel.Grid(model, highlight, best, closest)
                 and slot <= Panel.ROW_CELLS
                 and row.cells[slot].kind == "empty"
             then
-                local cell = Panel.Cell(option, enumName, highlight)
+                local cell = Panel.Cell(option, enumName, highlight, state)
                 if best ~= nil and cell.reward == best then
                     cell.selected = not closest
                     cell.closest = closest and true or false
@@ -1328,9 +1528,6 @@ function Panel.Model(opts)
     end
     local qeSettings = type(verdict) == "table" and verdict.qeSettings or nil
     local model = {
-        -- Kept for the headless tests that pin the wording; the frame's header
-        -- is what prints it, and Lines does not repeat it.
-        note = Panel.NOTE,
         ok = vault.ok == true,
         reason = vault.reason,
         hasVerdict = verdict ~= nil,
@@ -1339,6 +1536,9 @@ function Panel.Model(opts)
         -- M3-16b (WKE-583): the third state, and the one the tab used to tell
         -- the player the wrong thing about. See Panel.OPEN_VAULT_NOTE.
         hasGeneratedRewards = vault.hasGeneratedRewards == true,
+        -- V-5 (WKE-600): the client's own answer, kept as the client gave it.
+        -- nil is a client that does not have the read and is not false.
+        currentRewardPeriod = vault.currentRewardPeriod,
         qeSettings = qeSettings,
         -- C-8 (WKE-558): which items the highlighted scenario's own Top Gear
         -- run was never shown. Per scenario and not per file, because the
@@ -1468,6 +1668,11 @@ function Panel.Model(opts)
             -- The client's own threshold sentence for this row, carried so a
             -- locked cell can say what Blizzard's own vault says (M5-4).
             raidString = option.raidString,
+            -- V-5 (WKE-600): the client's own difficulty for this activity's
+            -- tier, carried so an unlocked Dungeons cell can say Heroic or
+            -- Mythic the way Blizzard's own cell does. In the activity data
+            -- both are level 0; only this tells them apart.
+            difficultyID = option.difficultyID,
             unlocked = option.unlocked == true,
             claimable = claimable,
             progressText = progressText(option),
@@ -1674,6 +1879,13 @@ function Panel.Model(opts)
             model.rewardsNote = Panel.NO_REWARDS_NOTE
         end
     end
+    -- V-5 (WKE-600): rewards are waiting and the client says they are not this
+    -- week's. Said whether or not there are options on the grid, because it is
+    -- about WHICH week the waiting rewards belong to and not about how many
+    -- there are - which is also when Blizzard's own frame shows its notice.
+    if model.hasAvailableRewards and model.currentRewardPeriod == false then
+        model.previousPeriodNote = Panel.PREVIOUS_PERIOD_NOTE
+    end
     if model.counts.pending > 0 then
         model.pendingNote = string.format(Panel.PENDING_NOTE, model.counts.pending)
     end
@@ -1712,6 +1924,9 @@ function Panel.NoteLines(model)
     end
     if model.rewardsNote then
         lines[#lines + 1] = model.rewardsNote
+    end
+    if model.previousPeriodNote then
+        lines[#lines + 1] = model.previousPeriodNote
     end
     if model.pendingNote then
         lines[#lines + 1] = Panel.NOTE_COLOR .. model.pendingNote .. "|r"
@@ -1799,6 +2014,10 @@ local CELL_HEIGHT = 104
 -- is a label would move a cell's contents as the pick moves. The height is the
 -- label's own font row plus the two points it is inset by.
 local LABEL_BAND = 12
+-- The tick on an unlocked cell (V-5, WKE-600). One label band square, so the
+-- corner band holds the tick and the progress side by side and nothing in the
+-- cell below it moves.
+local CELL_TICK_SIZE = 12
 local GRID_ROW_GAP = 8
 local CELL_ICON_SIZE = 32
 local CHIP_ICON_SIZE = 14
@@ -2092,14 +2311,12 @@ function Panel.Create(parent)
 
     frame.scenarioDropdown = buildScenarioDropdown(frame)
 
-    frame.note = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-    frame.note:SetJustifyH("LEFT")
-    frame.note:SetPoint("TOPLEFT", frame.header, "BOTTOMLEFT", 0, -4)
-    frame.note:SetPoint("RIGHT", frame, "RIGHT", -8, 0)
-    frame.note:SetText(Panel.NOTE)
-
+    -- No pinned note under the header since V-5 (WKE-600): the legend that sat
+    -- here explained a badge that says it itself, and the grid wanted the
+    -- height more than the tab wanted the sentence. The scroll starts at the
+    -- header.
     frame.scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
-    frame.scroll:SetPoint("TOPLEFT", frame.note, "BOTTOMLEFT", 0, -12)
+    frame.scroll:SetPoint("TOPLEFT", frame.header, "BOTTOMLEFT", 0, -12)
     frame.scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -26, 4)
     frame.content = CreateFrame("Frame", nil, frame.scroll)
     frame.content:SetSize(PANEL_WIDTH - 40, PANEL_HEIGHT - 60)
@@ -2180,10 +2397,31 @@ local function createCell(parent)
     cell:SetHeight(CELL_HEIGHT)
     cell:EnableMouse(true)
 
+    -- The cell's own back. Blizzard's locked/unlocked art when this build has
+    -- the atlas (V-5, WKE-600), and the flat dark fill M5-4 drew when it does
+    -- not: an atlas that has gone from the client must not leave a cell with
+    -- no background at all.
     cell.background = cell:CreateTexture(nil, "BACKGROUND")
     cell.background:SetAllPoints()
     cell.background:SetTexture(WHITE_TEXTURE)
     cell.background:SetVertexColor(0.07, 0.07, 0.08, 0.8)
+
+    -- The tick on an unlocked cell, in Blizzard's own art, top-left of the
+    -- corner band so it never sits on the item's name.
+    cell.tick = cell:CreateTexture(nil, "OVERLAY")
+    cell.tick:SetSize(CELL_TICK_SIZE, CELL_TICK_SIZE)
+    cell.tick:SetPoint("TOPRIGHT", cell, "TOPRIGHT", -4, -2)
+    cell.tick:Hide()
+
+    -- Where Blizzard puts the progress: the cell's own corner. The fraction
+    -- while it is locked, the level once it is not, nothing once it holds a
+    -- reward.
+    cell.corner = cell:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    cell.corner:SetPoint("TOPRIGHT", cell.tick, "TOPLEFT", -2, 0)
+    cell.corner:SetHeight(LABEL_BAND - 2)
+    cell.corner:SetJustifyH("RIGHT")
+    cell.corner:SetWordWrap(false)
+    cell.corner:Hide()
 
     -- Blizzard's own selected art, when the client still has the atlas.
     cell.selectedTexture = cell:CreateTexture(nil, "OVERLAY")
@@ -2269,7 +2507,9 @@ local function createCell(parent)
 
     -- The locked cell's own words, centred, where the item line would be.
     cell.locked = cell:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-    cell.locked:SetPoint("TOPLEFT", cell, "TOPLEFT", 6, -6)
+    -- Below the corner band, so the threshold sentence and the fraction beside
+    -- it never share a line (V-5, WKE-600).
+    cell.locked:SetPoint("TOPLEFT", cell, "TOPLEFT", 6, -(LABEL_BAND + 4))
     cell.locked:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", -6, 6)
     cell.locked:SetJustifyH("CENTER")
     cell.locked:SetJustifyV("MIDDLE")
@@ -2372,6 +2612,15 @@ local function gridRow(frame, index)
     end
     local rowFrame = CreateFrame("Frame", nil, frame.content)
     rowFrame:SetHeight(CELL_HEIGHT)
+    -- Blizzard's own category art, behind this row's name (V-5, WKE-600). Its
+    -- three atlas names are the ones `WeeklyRewardsMixin:OnLoad` passes to
+    -- SetUpActivity, asked for at draw time: a build without one shows the
+    -- name alone, which is what the tab showed before this issue.
+    rowFrame.art = rowFrame:CreateTexture(nil, "BACKGROUND")
+    rowFrame.art:SetPoint("TOPLEFT", rowFrame, "TOPLEFT", 0, 0)
+    rowFrame.art:SetPoint("BOTTOMLEFT", rowFrame, "BOTTOMLEFT", 0, 0)
+    rowFrame.art:SetWidth(ROW_LABEL_WIDTH - 6)
+    rowFrame.art:Hide()
     rowFrame.label = rowFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     -- Level with the item names beside it, which the label band pushed down.
     rowFrame.label:SetPoint("TOPLEFT", rowFrame, "TOPLEFT", 0, -(LABEL_BAND + 6))
@@ -2432,6 +2681,32 @@ local function markCell(cell, selected)
     end
 end
 
+-- The cell's background, its tick and its corner, in Blizzard's own art and by
+-- Blizzard's own rule (V-5, WKE-600). Every atlas is asked for first: without
+-- it the cell keeps M5-4's flat fill and its words, which is a cell that is
+-- plainer rather than a cell that is blank.
+local function paintCell(cell, data)
+    local atlas = ns.UI.ItemLine.Atlas(data.atlas)
+    if atlas then
+        cell.background:SetAtlas(atlas)
+        -- An atlas carries its own colour; the tint the flat fill needed would
+        -- darken it to nothing.
+        cell.background:SetVertexColor(1, 1, 1, 1)
+    else
+        cell.background:SetTexture(WHITE_TEXTURE)
+        cell.background:SetVertexColor(0.07, 0.07, 0.08, 0.8)
+    end
+    local tick = data.tick and ns.UI.ItemLine.Atlas(Panel.COMPLETED_ATLAS) or nil
+    if tick then
+        cell.tick:SetAtlas(tick)
+        cell.tick:Show()
+    else
+        cell.tick:Hide()
+    end
+    cell.corner:SetText(data.cornerText or "")
+    cell.corner:SetShown(data.cornerText ~= nil)
+end
+
 local function bindCell(cell, data, cellWidth)
     cell:SetWidth(cellWidth)
     cell.data = data
@@ -2439,9 +2714,12 @@ local function bindCell(cell, data, cellWidth)
         ns.UI.ItemLine.Clear(cell.line)
         cell:Hide()
         markCell(cell, false)
+        cell.tick:Hide()
+        cell.corner:Hide()
         return
     end
     cell:Show()
+    paintCell(cell, data)
     cell.extras:SetText(data.extrasText or "")
     if data.kind == "locked" then
         ns.UI.ItemLine.Clear(cell.line)
@@ -2612,6 +2890,14 @@ function Panel.Refresh(self, opts)
         if data then
             rowFrame:Show()
             rowFrame.label:SetText(data.label)
+            -- Blizzard's own art for this row (V-5), or the name alone.
+            local rowArt = ns.UI.ItemLine.Atlas(data.atlas)
+            if rowArt then
+                rowFrame.art:SetAtlas(rowArt)
+                rowFrame.art:Show()
+            else
+                rowFrame.art:Hide()
+            end
             for cellIndex, cell in ipairs(rowFrame.cells) do
                 bindCell(cell, data.cells[cellIndex], cellWidth)
             end

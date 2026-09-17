@@ -101,8 +101,17 @@ function R.vault(world, snapshot)
     -- stub's default, because they are the whole difference between the Vault
     -- tab naming the window and naming the refresh.
     world.vault.generated = (data.hasGeneratedRewards and data.hasGeneratedRewards[1]) == true
-    world.vault.currentPeriod = (data.areRewardsForCurrentRewardPeriod and data.areRewardsForCurrentRewardPeriod[1])
-        == true
+    -- V-5 (WKE-600): absence is replayed as nil, not false. Every read above
+    -- has a false that means the same as never having asked; this one does
+    -- not. `AreRewardsForCurrentRewardPeriod` false is the client saying the
+    -- rewards it is holding belong to an EARLIER week, which the tab now puts
+    -- a sentence on - so a transcript taken before the capture recorded this
+    -- read (the 2026-09-08 pair) must say nothing rather than say that.
+    if data.areRewardsForCurrentRewardPeriod ~= nil then
+        world.vault.currentPeriod = data.areRewardsForCurrentRewardPeriod[1] == true
+    else
+        world.vault.currentPeriod = nil
+    end
     world.vault.links = {}
     for _, entry in ipairs(data.rewardLinks or {}) do
         local link = entry.link and entry.link[1]

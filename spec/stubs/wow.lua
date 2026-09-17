@@ -1166,6 +1166,21 @@ function Stub.install()
             -- WeeklyRewardsActivityTemplate in Blizzard's shipped
             -- Blizzard_WeeklyRewards.xml under .luals/ (read 2026-09-09).
             ["evergreen-weeklyrewards-reward-selected"] = true,
+            -- V-5 (WKE-600): the rest of the Great Vault's own art the tab
+            -- draws. The two cell backgrounds are the two strings
+            -- `WeeklyRewardsActivityMixin:Refresh` passes to SetAtlas; the
+            -- three category atlases are the three
+            -- `WeeklyRewardsMixin:OnLoad` passes to SetUpActivity; the tick is
+            -- the CompletedIcon of WeeklyRewardActivityTemplate in
+            -- Blizzard_WeeklyRewards.xml. All read from Blizzard's own shipped
+            -- files under `.luals/` on 2026-09-16. A test that wants the
+            -- fallback empties the table.
+            ["evergreen-weeklyrewards-reward-locked"] = true,
+            ["evergreen-weeklyrewards-reward-unlocked"] = true,
+            ["evergreen-weeklyrewards-category-raids"] = true,
+            ["evergreen-weeklyrewards-category-dungeons"] = true,
+            ["evergreen-weeklyrewards-category-world"] = true,
+            ["activities-icon-checkmark"] = true,
         },
         -- ITEM_QUALITY_COLORS, in Blizzard's documented shape
         -- ({ r, g, b, hex }, ColorManager.lua under .luals/) with PLACEHOLDER
@@ -1221,6 +1236,12 @@ function Stub.install()
             activities = {},
             links = {},
             examples = {},
+            -- V-5 (WKE-600): what GetDifficultyIDForActivityTier answers,
+            -- keyed by activityTierID. Empty by default, which is a client
+            -- that says nothing about the tier - the answer the panel has to
+            -- survive, since in the activity data a Heroic dungeon week and a
+            -- Mythic one are both level 0 and only this read tells them apart.
+            difficultyIDs = {},
             interact = { onUIInteract = 0, closeInteraction = 0 },
             answerOnInteract = nil,
             answerDelaySeconds = 0,
@@ -2328,6 +2349,9 @@ function Stub.install()
         GetActivities = function()
             return deepcopy(world.vault.activities)
         end,
+        GetDifficultyIDForActivityTier = function(activityTierID)
+            return world.vault.difficultyIDs[activityTierID]
+        end,
         GetItemHyperlink = function(itemDBID)
             return world.vault.links[itemDBID]
         end,
@@ -2505,10 +2529,20 @@ function Stub.install()
             DungeonHeroic = 2,
             DungeonChallenge = 8,
             DungeonMythic = 23,
+            DungeonTimewalker = 24,
             PrimaryRaidNormal = 14,
             PrimaryRaidHeroic = 15,
             PrimaryRaidMythic = 16,
+            PrimaryRaidLFR = 17,
         },
+        -- V-5 (WKE-600): what Blizzard's own vault frame asks for a Raids row's
+        -- unlocked text, at the level the client reported. It reads the same
+        -- `world.difficultyNames` GetDifficultyInfo above does - one table, so
+        -- a test that names a difficulty names it for both - and an empty one
+        -- is a client that does not answer, which the panel has to survive.
+        GetDifficultyName = function(difficultyID)
+            return world.difficultyNames[difficultyID]
+        end,
     })
 
     -- The Encounter Journal. Selecting an instance or a difficulty starts the

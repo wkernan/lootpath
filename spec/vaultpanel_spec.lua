@@ -697,7 +697,6 @@ describe("VaultPanel frames", function()
             assert.equal(line, frame.rows[i]:GetText())
         end
         assert.equal(#notes, #frame.lines)
-        assert.equal(ns.VaultPanel.NOTE, frame.note:GetText())
         assert.equal("in your best set", model.best.value)
         -- Three rows of three cells, and the option the export covers is drawn
         -- in one of them with QE Live's own line on it (M5-4).
@@ -808,7 +807,12 @@ end)
 -- once by the panel header and once as the list's first row - in the owner's
 -- first in-game run, 2026-09-06.
 
-describe("VaultPanel draws the pinned note once (WKE-530 finding 3)", function()
+-- WKE-530 finding 3 was the pinned legend drawn TWICE - once in the header and
+-- once as the list's first row. V-5 (WKE-600) took the legend off this tab
+-- altogether: it explained a badge that says it itself, and the grid wanted the
+-- height. So the guard that kept it to one is now the guard that keeps it at
+-- none, and it names the sentence, so putting it back anywhere fails here.
+describe("the Vault tab carries no pinned legend (WKE-530 finding 3, V-5)", function()
     local ns, world
 
     before_each(function()
@@ -820,36 +824,45 @@ describe("VaultPanel draws the pinned note once (WKE-530 finding 3)", function()
         H.unload()
     end)
 
-    local function noteCount(frame)
+    -- The sentence itself, written out, because the constant that held it is
+    -- gone and a guard that reads a nil constant guards nothing.
+    local LEGEND = "Rated options show their value. Other options are listed by item level only."
+
+    local function legendCount(frame)
         local seen = 0
-        if frame.note:GetText():find(ns.VaultPanel.NOTE, 1, true) then
+        -- The header's own font string, whatever else the panel grows.
+        if frame.header:GetText():find(LEGEND, 1, true) then
             seen = seen + 1
         end
         for _, text in ipairs(frame.rows) do
-            if text:GetText():find(ns.VaultPanel.NOTE, 1, true) then
+            if text:GetText():find(LEGEND, 1, true) then
                 seen = seen + 1
             end
         end
         return seen
     end
 
-    it("puts it in the header and never in the list", function()
+    it("draws it nowhere, and has no field left to draw it from", function()
         local frame = ns.VaultPanel.Create()
         local model = frame:Refresh()
         assert.is_true(model.ok)
-        assert.equal(1, noteCount(frame))
-        assert.equal(ns.VaultPanel.NOTE, frame.note:GetText())
-        -- The model still carries it, which is what pins the wording headlessly.
-        assert.equal(ns.VaultPanel.NOTE, model.note)
+        assert.equal(0, legendCount(frame))
+        assert.is_nil(ns.VaultPanel.NOTE)
+        assert.is_nil(model.note)
+        assert.is_nil(rawget(frame, "note"))
+        -- The header is still the header, and the grid starts under it.
+        assert.equal("Vault", frame.header:GetText())
     end)
 
-    it("still says it once when the vault refuses to be read", function()
+    it("draws it nowhere when the vault refuses to be read either", function()
         local frame = ns.VaultPanel.Create()
         frame:Refresh()
         world.inCombat = true
         frame:Refresh()
         assert.is_false(frame.model.ok)
-        assert.equal(1, noteCount(frame))
+        assert.equal(0, legendCount(frame))
+        -- And the refusal itself is still the first thing in the list.
+        assert.equal("The vault could not be read: combat", frame.rows[1]:GetText())
     end)
 end)
 
@@ -3168,7 +3181,16 @@ describe("the Vault tab after this week's reward is claimed (V-3)", function()
         local nothing = model({ captures = false })
         assert.is_false(nothing.claimed)
         assert.equal(ns.VaultPanel.NO_REWARDS_NOTE, nothing.rewardsNote)
-        assert.is_truthy(ns.VaultPanel.NO_REWARDS_NOTE:find("Open the Great Vault", 1, true))
+        -- V-5 (WKE-600) took the remedy out of THIS sentence. Opening the Great
+        -- Vault does not fill a week nothing has been earned in, and the owner
+        -- read the old wording on 2026-09-16 with that very window open beside
+        -- it. The remedy still belongs to M3-16b's state, and lives on the
+        -- sentence that state chooses.
+        assert.is_nil(ns.VaultPanel.NO_REWARDS_NOTE:find("Open the Great Vault", 1, true))
+        assert.is_truthy(ns.VaultPanel.OPEN_VAULT_NOTE:find("Great Vault", 1, true))
+        -- It points at the grid instead, which since V-5 has every cell's own
+        -- progress on it.
+        assert.is_truthy(ns.VaultPanel.NO_REWARDS_NOTE:find("cell", 1, true))
         assert.is_nil(nothing.headline)
     end)
 
@@ -3230,5 +3252,281 @@ describe("the Vault tab after this week's reward is claimed (V-3)", function()
         assert.equal(drawn.rewardsNote, frame.rows[#notes]:GetText())
         -- No pick line where the vault has nothing to pick.
         assert.equal("", frame.headline.text:GetText())
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- V-5 (WKE-600): the grid mirrors Blizzard's Great Vault, from the live client.
+--
+-- The owner put the two windows side by side on 2026-09-16 and Lootpath's was
+-- nine flat cells with a threshold sentence each - no lock, no progress, no
+-- unlocked state, no row art - under a sentence telling him to open a Great
+-- Vault that was already open on the other monitor.
+--
+-- What is asserted here is the DECISION, not the pixels: every cell is put in
+-- the state `WeeklyRewardsActivityMixin:Refresh` would put it in, with the
+-- atlas that mixin would set, the tick it would show and the progress text
+-- `SetProgressText` would write. The vault below is hand-built in Blizzard's
+-- documented WeeklyRewardActivityInfo shape (Ketho's
+-- WeeklyRewardsDocumentation.lua) because no committed transcript carries one
+-- vault with all three states on it at once; every FrameXML global is a
+-- PLACEHOLDER set by the test, since this repo has no transcript of what any
+-- of them actually reads.
+describe("the Vault tab's grid over the live client (V-5)", function()
+    local ns, world
+    local NOW = 1788900000
+
+    local function activity(activityType, index, threshold, progress, level, id, tier)
+        return {
+            type = activityType,
+            index = index,
+            threshold = threshold,
+            progress = progress,
+            level = level,
+            id = id,
+            activityTierID = tier or 0,
+            rewards = {},
+        }
+    end
+
+    -- Blizzard's own three rows, in Blizzard's own enum, with the states a
+    -- mid-week vault really shows: one row part-way, one row with an option
+    -- already unlocked, one row untouched.
+    local function liveVault()
+        local RAID = ns.Vault.ThresholdType("Raid")
+        local DUNGEONS = ns.Vault.ThresholdType("Activities")
+        local WORLD = ns.Vault.ThresholdType("World")
+        world.vault.activities = {
+            activity(RAID, 1, 2, 2, 16, 301),
+            activity(RAID, 2, 4, 2, 0, 302),
+            activity(RAID, 3, 8, 2, 0, 303),
+            activity(DUNGEONS, 1, 1, 1, 10, 311, 41),
+            activity(DUNGEONS, 2, 4, 1, 0, 312),
+            activity(DUNGEONS, 3, 8, 1, 0, 313),
+            activity(WORLD, 1, 2, 0, 0, 321),
+            activity(WORLD, 2, 4, 0, 0, 322),
+            activity(WORLD, 3, 8, 0, 0, 323),
+        }
+        world.secondsUntilReset = 589830
+    end
+
+    -- Every word the client would supply, as a placeholder. Nothing here claims
+    -- to be what the real client reads.
+    local function withGlobals()
+        _G.RAIDS, _G.DUNGEONS, _G.WORLD = "PLACEHOLDER RAIDS", "PLACEHOLDER DUNGEONS", "PLACEHOLDER WORLD"
+        _G.WEEKLY_REWARDS_THRESHOLD_RAID = "PLACEHOLDER defeat %d bosses"
+        _G.WEEKLY_REWARDS_THRESHOLD_DUNGEONS = "PLACEHOLDER complete %d dungeons"
+        _G.WEEKLY_REWARDS_THRESHOLD_WORLD = "PLACEHOLDER complete %d world activities"
+        _G.GENERIC_FRACTION_STRING = "%d/%d"
+        _G.WEEKLY_REWARDS_MYTHIC = "PLACEHOLDER Mythic %d"
+        _G.WEEKLY_REWARDS_HEROIC = "PLACEHOLDER Heroic"
+        _G.GREAT_VAULT_WORLD_TIER = "PLACEHOLDER Tier %d"
+        world.difficultyNames[16] = "PLACEHOLDER Mythic raid"
+    end
+
+    local function clearGlobals()
+        _G.RAIDS, _G.DUNGEONS, _G.WORLD = nil, nil, nil
+        _G.WEEKLY_REWARDS_THRESHOLD_RAID = nil
+        _G.WEEKLY_REWARDS_THRESHOLD_DUNGEONS = nil
+        _G.WEEKLY_REWARDS_THRESHOLD_WORLD = nil
+        _G.GENERIC_FRACTION_STRING = nil
+        _G.WEEKLY_REWARDS_MYTHIC = nil
+        _G.WEEKLY_REWARDS_HEROIC = nil
+        _G.GREAT_VAULT_WORLD_TIER = nil
+    end
+
+    before_each(function()
+        ns, world = H.load()
+        liveVault()
+        withGlobals()
+    end)
+
+    after_each(function()
+        clearGlobals()
+        H.unload()
+    end)
+
+    local function model()
+        return ns.VaultPanel.Model({ vault = ns.Vault.Options(), captures = false, now = NOW })
+    end
+
+    local function cellAt(m, rowIndex, cellIndex)
+        return m.grid.rows[rowIndex].cells[cellIndex]
+    end
+
+    it("reads the live activities, and asks the client to generate nothing", function()
+        local m = model()
+        assert.equal(9, m.counts.options)
+        -- The one call that must never be on this path: reading activities is
+        -- free, generating rewards is the one login ask and it stays there
+        -- (M3-16a/b). Asserted on the stub's own call record.
+        assert.equal(0, world.vault.interact.onUIInteract)
+        assert.equal(0, world.vault.interact.closeInteraction)
+    end)
+
+    it("locks a cell below its threshold, with Blizzard's art and the client's fraction", function()
+        local locked = cellAt(model(), 1, 2)
+        assert.equal("locked", locked.state)
+        assert.equal("evergreen-weeklyrewards-reward-locked", locked.atlas)
+        assert.is_false(locked.tick)
+        -- Both figures are the client's, in the client's own fraction string.
+        assert.equal("2/4", locked.cornerText)
+        assert.equal("PLACEHOLDER defeat 4 bosses", locked.text)
+    end)
+
+    it("unlocks a cell at its threshold, with the tick and the difficulty the client names", function()
+        local unlocked = cellAt(model(), 1, 1)
+        assert.equal("unlocked", unlocked.state)
+        assert.equal("evergreen-weeklyrewards-reward-unlocked", unlocked.atlas)
+        assert.is_true(unlocked.tick)
+        -- A Raids row says its difficulty's own name, which is what Blizzard's
+        -- own mixin asks DifficultyUtil for, at the level the client reported.
+        assert.equal("PLACEHOLDER Mythic raid", unlocked.cornerText)
+        assert.equal("PLACEHOLDER Mythic raid", unlocked.levelText)
+    end)
+
+    it("says Mythic and its level on an unlocked Dungeons cell", function()
+        assert.equal("PLACEHOLDER Mythic 10", cellAt(model(), 2, 1).cornerText)
+    end)
+
+    -- In the activity data a Heroic week and a Mythic one are BOTH level 0, and
+    -- only the client's difficulty ID tells them apart (WeeklyRewardsUtil's own
+    -- comment under `.luals/`). So this is asked, never inferred from the level.
+    it("says Heroic instead when the client's difficulty ID says the tier is Heroic", function()
+        world.vault.difficultyIDs[41] = _G.DifficultyUtil.ID.DungeonHeroic
+        assert.equal("PLACEHOLDER Heroic", cellAt(model(), 2, 1).cornerText)
+    end)
+
+    it("says the world tier on an unlocked World cell", function()
+        world.vault.activities[7].progress = 2
+        world.vault.activities[7].level = 8
+        assert.equal("PLACEHOLDER Tier 8", cellAt(model(), 3, 1).cornerText)
+    end)
+
+    it("still prints both client figures when the client has no fraction string", function()
+        _G.GENERIC_FRACTION_STRING = nil
+        -- The same two client figures, and still no third one.
+        assert.equal("2/4", cellAt(model(), 1, 2).cornerText)
+    end)
+
+    it("leaves an unlocked cell with no level text when the client cannot name one", function()
+        _G.WEEKLY_REWARDS_MYTHIC = nil
+        local unlocked = cellAt(model(), 2, 1)
+        assert.is_nil(unlocked.cornerText)
+        -- The cell is still unlocked, still ticked, still Blizzard's own art.
+        assert.equal("unlocked", unlocked.state)
+        assert.is_true(unlocked.tick)
+    end)
+
+    it("carries Blizzard's own category art on each of the three rows", function()
+        local m = model()
+        assert.same({
+            "evergreen-weeklyrewards-category-raids",
+            "evergreen-weeklyrewards-category-dungeons",
+            "evergreen-weeklyrewards-category-world",
+        }, { m.grid.rows[1].atlas, m.grid.rows[2].atlas, m.grid.rows[3].atlas })
+    end)
+
+    it("says nothing about opening a window that would change nothing", function()
+        local m = model()
+        assert.equal(ns.VaultPanel.NO_REWARDS_NOTE, m.rewardsNote)
+        assert.is_nil(m.rewardsNote:find("Open the Great Vault", 1, true))
+    end)
+
+    it("says the waiting rewards are an earlier week's when the client says so", function()
+        world.vault.hasAvailable = true
+        world.vault.currentPeriod = false
+        local m = model()
+        assert.equal(ns.VaultPanel.PREVIOUS_PERIOD_NOTE, m.previousPeriodNote)
+        local found = false
+        for _, line in ipairs(ns.VaultPanel.NoteLines(m)) do
+            found = found or line == ns.VaultPanel.PREVIOUS_PERIOD_NOTE
+        end
+        assert.is_true(found)
+    end)
+
+    it("says nothing about the period when the client has no answer about it", function()
+        world.vault.hasAvailable = true
+        world.vault.currentPeriod = nil
+        assert.is_nil(model().previousPeriodNote)
+    end)
+
+    it("draws the states into the window, art and all", function()
+        local frame = ns.VaultPanel.Create()
+        frame:Refresh()
+        local unlocked = frame.gridRows[1].cells[1]
+        local locked = frame.gridRows[1].cells[2]
+        assert.equal("evergreen-weeklyrewards-reward-unlocked", unlocked.background:GetAtlas())
+        assert.equal("evergreen-weeklyrewards-reward-locked", locked.background:GetAtlas())
+        assert.is_true(unlocked.tick:IsShown())
+        assert.is_false(locked.tick:IsShown())
+        assert.equal("PLACEHOLDER Mythic raid", unlocked.corner:GetText())
+        assert.equal("2/4", locked.corner:GetText())
+        assert.equal("evergreen-weeklyrewards-category-raids", frame.gridRows[1].art:GetAtlas())
+        assert.is_true(frame.gridRows[1].art:IsShown())
+        -- And still nothing asked of the client (M3-16a/b).
+        assert.equal(0, world.vault.interact.onUIInteract)
+    end)
+
+    -- An atlas Blizzard has removed must cost the cell its art and nothing
+    -- else: the words are the answer, the art is how it reads.
+    it("keeps every word when the client has none of the art", function()
+        world.atlases = {}
+        local frame = ns.VaultPanel.Create()
+        frame:Refresh()
+        local locked = frame.gridRows[1].cells[2]
+        assert.is_nil(locked.background:GetAtlas())
+        assert.is_false(locked.tick:IsShown())
+        assert.equal("2/4", locked.corner:GetText())
+        assert.is_true(locked.locked:IsShown())
+        assert.is_false(frame.gridRows[1].art:IsShown())
+    end)
+end)
+
+-- The vault changed under an open window. Blizzard's own frame re-reads on
+-- every WEEKLY_REWARDS_UPDATE while it is shown; since V-5 (WKE-600) so does
+-- this one, which is what makes the grid live rather than as-of-the-last-open.
+describe("the window follows the vault's own event (V-5)", function()
+    local ns, world
+
+    before_each(function()
+        ns, world = H.load()
+        R.vault(world, R.snapshot("vault", 3, R.JOURNAL))
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("redraws the open window when the client says the vault changed", function()
+        local frame = ns.UI.Frame()
+        frame:Show()
+        frame.tabs[3]:Click()
+        local before = frame.vaultPanel.model.counts.options
+        assert.is_true(before > 0)
+        -- One more activity than there was, and nothing has clicked anything.
+        local activities = world.vault.activities
+        activities[#activities + 1] = {
+            type = ns.Vault.ThresholdType("World"),
+            index = 3,
+            threshold = 8,
+            progress = 0,
+            level = 0,
+            id = 999,
+            activityTierID = 0,
+            rewards = {},
+        }
+        world.fireEvent("WEEKLY_REWARDS_UPDATE")
+        assert.equal(before + 1, frame.vaultPanel.model.counts.options)
+        -- Reading is free; nothing on this path asks the client for anything.
+        assert.equal(0, world.vault.interact.onUIInteract)
+    end)
+
+    it("does not redraw a window nobody has open", function()
+        local frame = ns.UI.Frame()
+        frame:Hide()
+        frame.vaultPanel.model = nil
+        world.fireEvent("WEEKLY_REWARDS_UPDATE")
+        assert.is_nil(frame.vaultPanel.model)
     end)
 end)
