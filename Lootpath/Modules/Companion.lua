@@ -888,6 +888,53 @@ function Companion.SourceText(verdict, now)
     return string.format("companion, written %s", ns.UI.AgeText(writtenAt, now))
 end
 
+-- C-15a (WKE-620). The one line said when a stored rating is dropped, in the
+-- addon's voice: what happened and the one thing that fixes it. No source is
+-- named - the player never has to know a file on disk exists - and nothing
+-- offers to repair anything.
+Companion.DROPPED_LINE = "dropped a rating that wasn't for this character - /lootpath refresh to rate this one"
+
+-- Is this STORED rating somebody else's? (C-15a, WKE-620.)
+--
+-- Two questions, and both have to be yes.
+--
+-- Where it came from is asked first, and it is asked of `source`, never of the
+-- absence of a `character` field. A PASTE carries no character and never will -
+-- the player pasted that export onto this character himself, which is his own
+-- act and is not second-guessed - so every paste is kept whoever pasted it and
+-- whatever it names. Only a companion import can be here without anyone having
+-- chosen it on this character.
+--
+-- Who it is for is then the SAME question C-15's file gate asks, through the
+-- same function, so a stored rating and a file on disk can never disagree about
+-- whose they are: no `character` at all is somebody else's (that is every
+-- import stored before C-15, including the Druid's answer sitting in the
+-- owner's Shaman), another name or realm is somebody else's, and a client that
+-- names nobody yet drops nothing.
+function Companion.IsForeignImport(verdict)
+    if type(verdict) ~= "table" then
+        return false
+    end
+    if Companion.SourceOf(verdict) ~= Companion.SOURCE_COMPANION then
+        return false
+    end
+    return Companion.CharacterClause(verdict.character) ~= nil
+end
+
+-- Every stored rating that is not this character's, gone (C-15a, WKE-620).
+-- Both stores walk their own shelves; this only owns the rule. Returns how many
+-- went, which is what decides whether anything is said.
+function Companion.DropForeignImports()
+    local dropped = 0
+    if ns.QEImport and ns.QEImport.Forget then
+        dropped = dropped + ns.QEImport.Forget(Companion.IsForeignImport)
+    end
+    if ns.UFImport and ns.UFImport.Forget then
+        dropped = dropped + ns.UFImport.Forget(Companion.IsForeignImport)
+    end
+    return dropped
+end
+
 -- Runs at load, once the DB exists. Chat is the only output: at login the
 -- window has not been built, and building it here would put a frame on screen
 -- nobody asked for. If it IS open (a /lootpath refresh with the window up),
@@ -901,9 +948,31 @@ function Companion.Startup(now)
     local refusal = Companion.CharacterRefusal(ns.companionVerdict)
     if refusal then
         ns.Log("%s", refusal)
-        return { ok = false, otherCharacter = true, reason = refusal }
+    end
+    -- C-15a (WKE-620): and the store is swept whichever way the gate answered,
+    -- because the rating on screen was put there by a login the gate never ran
+    -- at. The refused case is the owner's Shaman - the file is the Druid's and
+    -- so is what is stored - and the imported case is the Druid himself, where
+    -- the sweep runs BEFORE ImportAll so a rating that arrives replaces nothing
+    -- and is compared against nothing.
+    local dropped = Companion.DropForeignImports()
+    if dropped > 0 then
+        ns.Log("%s", Companion.DROPPED_LINE)
+        -- A dropped rating is a new answer for every hover and every bag slot,
+        -- exactly as an import is (R-2), and for the sharper reason: the cache
+        -- may already hold roads built from what has just gone.
+        if ns.RoadsCache then
+            ns.RoadsCache.Changed()
+        end
+        if ns.UI and ns.UI.frame then
+            ns.UI.Refresh()
+        end
+    end
+    if refusal then
+        return { ok = false, otherCharacter = true, reason = refusal, dropped = dropped }
     end
     local result = Companion.ImportAll(ns.companionVerdict, now)
+    result.dropped = dropped
     if result.absent then
         return result
     end

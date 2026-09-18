@@ -509,6 +509,51 @@ function UFImport.Store(verdict)
     return { ok = true, verdict = verdict }
 end
 
+-- C-15a (WKE-620): the Upgrade Finder half of the login sweep, and the reason
+-- it is its own function rather than a second call into QEImport's.
+--
+-- An Upgrade Finder document lives on three shelves of its own - `ufImport`,
+-- `ufImports` by content type, and `ufImportsByLevel` keyed by the Mythic+ key
+-- level (C-7) - and none of them is a Top Gear shelf. A rating on THIS side is
+-- dropped by exactly the rule the other side uses, because both sides were
+-- written by the same companion file and both name the same character; only the
+-- shape of the store differs, and the store owns its own shape.
+--
+-- Same contract: `shouldDrop(verdict)` over one stored document, the count by
+-- table identity because one document is on all three shelves at once, and
+-- nothing else in `db.char` touched.
+function UFImport.Forget(shouldDrop)
+    if type(shouldDrop) ~= "function" or not ns.db or not ns.db.char then
+        return 0
+    end
+    local char = ns.db.char
+    local gone = {}
+    local function sweep(shelf)
+        if type(shelf) ~= "table" then
+            return
+        end
+        for key, verdict in pairs(shelf) do
+            if type(verdict) == "table" and shouldDrop(verdict) then
+                shelf[key] = nil
+                gone[verdict] = true
+            end
+        end
+    end
+    sweep(char.ufImports)
+    for _, byLevel in pairs(char.ufImportsByLevel or {}) do
+        sweep(byLevel)
+    end
+    if type(char.ufImport) == "table" and shouldDrop(char.ufImport) then
+        gone[char.ufImport] = true
+        char.ufImport = nil
+    end
+    local dropped = 0
+    for _ in pairs(gone) do
+        dropped = dropped + 1
+    end
+    return dropped
+end
+
 function UFImport.Current()
     return ns.db and ns.db.char and ns.db.char.ufImport or nil
 end

@@ -1737,3 +1737,138 @@ describe("QEImport and the later Top Gear passes", function()
         assert.same({}, ns.QEImport.Passes("Dungeon", "asOffered"))
     end)
 end)
+
+-- C-15a (WKE-620): QEImport.Forget, on its own terms.
+--
+-- The rule for what a foreign rating IS belongs to ns.Companion; this is the
+-- walk, and the walk is the store's because `db.char`'s four Top Gear shelves
+-- are this module's shape. What it guards is that every shelf is reached, that
+-- the count is by verdict rather than by shelf entry, and that nothing outside
+-- the shelves is touched.
+describe("QEImport.Forget (C-15a)", function()
+    local ns
+
+    before_each(function()
+        ns = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function verdictOf(contentType, scenario, pass, tag)
+        return {
+            contentType = contentType,
+            scenario = scenario,
+            pass = pass,
+            tag = tag,
+            topSet = { order = {}, items = {} },
+            alternatives = {},
+        }
+    end
+
+    local function dropTagged(tag)
+        return function(verdict)
+            return verdict.tag == tag
+        end
+    end
+
+    it("takes a rating off every shelf it sits on and counts it once", function()
+        local plan = verdictOf("Dungeon", "asOffered", 1, "drop")
+        ns.QEImport.Store(plan)
+        assert.equal(plan, ns.db.char.qeImport)
+        assert.equal(plan, ns.db.char.qeImports.Dungeon)
+        assert.equal(plan, ns.db.char.qeImportsByScenario.Dungeon.asOffered)
+        assert.equal(1, ns.QEImport.Forget(dropTagged("drop")))
+        assert.is_nil(ns.db.char.qeImport)
+        assert.is_nil(ns.db.char.qeImports.Dungeon)
+        assert.is_nil(ns.db.char.qeImportsByScenario.Dungeon.asOffered)
+    end)
+
+    it("reaches the named scenarios and the later passes", function()
+        ns.QEImport.Store(verdictOf("Dungeon", "asOffered", 1, "drop"))
+        ns.QEImport.Store(verdictOf("Dungeon", "catalyzed", 1, "drop"))
+        ns.QEImport.Store(verdictOf("Dungeon", "asOffered", 2, "drop"))
+        ns.QEImport.Store(verdictOf("Raid", "asOffered", 1, "keep"))
+        assert.equal(3, ns.QEImport.Forget(dropTagged("drop")))
+        assert.is_nil(ns.QEImport.ForContentTypeAndScenario("Dungeon", "asOffered"))
+        assert.is_nil(ns.QEImport.ForContentTypeAndScenario("Dungeon", "catalyzed"))
+        assert.same({}, ns.QEImport.Passes("Dungeon", "asOffered"))
+        -- And the one the predicate kept is still exactly where it was.
+        assert.is_table(ns.QEImport.ForContentType("Raid"))
+    end)
+
+    it("leaves `qeImport` alone when the rating on it is kept", function()
+        local kept = verdictOf("Raid", "asOffered", 1, "keep")
+        ns.QEImport.Store(kept)
+        assert.equal(0, ns.QEImport.Forget(dropTagged("drop")))
+        assert.equal(kept, ns.QEImport.Current())
+    end)
+
+    it("touches nothing else in db.char", function()
+        ns.QEImport.Store(verdictOf("Dungeon", "asOffered", 1, "drop"))
+        ns.db.char.upgradeMap.collapsedSlots.Chest = true
+        ns.db.char.equipNow = { folded = true }
+        ns.QEImport.Forget(dropTagged("drop"))
+        assert.is_true(ns.db.char.upgradeMap.collapsedSlots.Chest)
+        assert.same({ folded = true }, ns.db.char.equipNow)
+    end)
+
+    it("answers 0 for anything that is not a predicate", function()
+        ns.QEImport.Store(verdictOf("Dungeon", "asOffered", 1, "drop"))
+        assert.equal(0, ns.QEImport.Forget(nil))
+        assert.equal(0, ns.QEImport.Forget("every one of them"))
+        assert.is_table(ns.QEImport.Current())
+    end)
+end)
+
+-- The Upgrade Finder store answers the same question over its own three shelves
+-- (C-15a). It is a second function rather than a second call because an Upgrade
+-- Finder document is filed by content type AND key level (C-7) and none of its
+-- shelves is a Top Gear shelf.
+describe("UFImport.Forget (C-15a)", function()
+    local ns
+
+    before_each(function()
+        ns = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function document(contentType, keyLevel, tag)
+        return { contentType = contentType, keyLevel = keyLevel, tag = tag, items = {} }
+    end
+
+    local function dropTagged(tag)
+        return function(verdict)
+            return verdict.tag == tag
+        end
+    end
+
+    it("takes a document off `ufImport`, the content type and the key level", function()
+        local doc = document("Dungeon", 10, "drop")
+        ns.UFImport.Store(doc)
+        assert.equal(doc, ns.UFImport.Current())
+        assert.equal(1, ns.UFImport.Forget(dropTagged("drop")))
+        assert.is_nil(ns.UFImport.Current())
+        assert.is_nil(ns.UFImport.ForContentType("Dungeon"))
+        assert.same({}, ns.UFImport.Documents("Dungeon"))
+    end)
+
+    it("drops one key level and keeps another", function()
+        ns.UFImport.Store(document("Dungeon", 10, "drop"))
+        ns.UFImport.Store(document("Dungeon", 12, "keep"))
+        assert.equal(1, ns.UFImport.Forget(dropTagged("drop")))
+        assert.equal(1, #ns.UFImport.Documents("Dungeon"))
+        assert.is_nil(ns.UFImport.ForContentTypeAndLevel("Dungeon", 10))
+        assert.is_table(ns.UFImport.ForContentTypeAndLevel("Dungeon", 12))
+    end)
+
+    it("answers 0 for anything that is not a predicate", function()
+        ns.UFImport.Store(document("Dungeon", 10, "drop"))
+        assert.equal(0, ns.UFImport.Forget(nil))
+        assert.is_table(ns.UFImport.Current())
+    end)
+end)
