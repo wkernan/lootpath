@@ -953,6 +953,20 @@ function newFrame(kind, world, parent, template)
     function f:SetFrameStrata(value)
         self.strata = value
     end
+    -- R-8a (WKE-618): frame levels, because a level is what decides which of two
+    -- overlapping frames takes a click. A frame's default is its parent's plus
+    -- one - the owner's own `/fstack` over the window read `LootpathMainFrame`
+    -- at 1 and every child of it at 2 - and the setter is Blizzard's
+    -- (Core/Widget/Frame/Frame.lua:441 SetFrameLevel, :176 GetFrameLevel). A
+    -- level set here is remembered: nothing in the exported documentation says a
+    -- hide or a show changes it, so neither does this.
+    f.frameLevel = (parent and parent.frameLevel or 0) + 1
+    function f:SetFrameLevel(value)
+        self.frameLevel = value
+    end
+    function f:GetFrameLevel()
+        return self.frameLevel
+    end
     function f:SetToplevel(value)
         self.toplevel = value
     end

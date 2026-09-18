@@ -905,6 +905,9 @@ function UI.ShowTab(frame, id)
     -- `UI.RefreshStrip` sets the same flag from the same read.
     if frame.statusStrip then
         frame.statusStrip:SetShown(not gated)
+        -- R-8a (WKE-618): a show is the one moment the row's order could change,
+        -- so the buttons are put back above the strip right after it.
+        UI.RaiseStripButtons(frame)
     end
     if frame.comingSoon then
         frame.comingSoon:SetShown(gated)
@@ -1222,6 +1225,44 @@ local function buildStatusStrip(frame)
     end)
 
     buildNudgeRow(frame, strip)
+    -- R-8a (WKE-618): and the three of them come up one level, once they all
+    -- exist. The nudge row's button is not in that list: it is the STRIP's own
+    -- child, so the client already puts it a level above its parent, and it sits
+    -- on the row below rather than under the strip's mouse.
+    UI.RaiseStripButtons(frame)
+end
+
+-- R-8a (WKE-618): the strip's buttons sit ABOVE the strip.
+--
+-- Since H-1a (WKE-606) `Options` and `Import...` - and since R-8 `Refresh` - are
+-- the FRAME's children rather than the strip's, for a reason that stands: a
+-- child of a hidden frame is hidden with it, and those three stay on screen over
+-- the Coming soon screen. But a frame's default level is its parent's plus one,
+-- so the strip and the three buttons all came out at the SAME level, and the
+-- strip - which takes the mouse, for M3-16b's wait click - swallowed every press
+-- on them. The owner's `/fstack` over `Refresh` on `main` `4279b37` read the
+-- strip above the button, both at 2.
+--
+-- One list, so a fourth button on this row cannot forget it: every key it names
+-- is put one level above the strip, and it is re-asserted wherever the strip is
+-- shown again, because nothing in Blizzard's exported documentation says what a
+-- re-show does to the order of two siblings that share a level.
+UI.STRIP_BUTTON_KEYS = { "refreshButton", "openImportButton", "optionsButton" }
+
+function UI.RaiseStripButtons(frame)
+    frame = frame or UI.frame
+    local strip = frame and frame.statusStrip
+    if not (strip and type(strip.GetFrameLevel) == "function") then
+        return nil
+    end
+    local level = strip:GetFrameLevel() + 1
+    for _, key in ipairs(UI.STRIP_BUTTON_KEYS) do
+        local button = frame[key]
+        if button and type(button.SetFrameLevel) == "function" then
+            button:SetFrameLevel(level)
+        end
+    end
+    return level
 end
 
 -- What a press on the strip does: the wait's own click when the strip is
@@ -1324,6 +1365,7 @@ function UI.RefreshStrip(frame)
     -- the tabs, with no reload.
     local gated = ns.Companion.Gate and ns.Companion.Gate() ~= nil or false
     frame.statusStrip:SetShown(not gated)
+    UI.RaiseStripButtons(frame)
     if gated then
         frame.stripModel = nil
         frame.stripText:SetText("")
