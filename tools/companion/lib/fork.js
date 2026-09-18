@@ -76,19 +76,161 @@ async function ensureUp(config, log) {
     );
 }
 
+// -------------------------------------------------------------------------
+// Which character QE Live is on (C-16, WKE-619).
+//
+// QE Live holds ONE active character at a time and refuses a SimC string whose
+// class is not that character's: `checkSimCValid` in his
+// `General/Items/GearImport/SimCImportEngine.ts` line 354 tests the header's
+// class line against the selected character's spec string and line 360 writes
+// "You're currently a <spec> but this SimC string is for a different spec." into
+// `#SimCError`. That is the message `importProfile` reads and turns into
+// `REFUSED`, and on 2026-09-18 it is what the owner's Restoration Shaman got
+// twice, because nothing in this driver had ever set the character.
+//
+// He names a healer by spec and class in one string - "Restoration Shaman" -
+// and his two lists are exactly that: `General/Engine/CONSTANTS.ts` line 24
+// (`specs`, the welcome dialog's tiles) and
+// `General/Modules/SetupAndMenus/Header/QEHeaderClassSelector.js` lines 15-23
+// (the header's own menu). The client hands the companion the two halves
+// separately - `identity.class` is `UnitClass`'s TOKEN (`SHAMAN`) and
+// `identity.spec` is the spec's own NAME (`Restoration`), C-15 - so the name QE
+// Live would print is built from the pair.
+//
+// This map is the one restatement of his table in this file, and it earns its
+// place: a profile whose class he has no character for is refused BEFORE a
+// browser is opened, and nothing can be read off a page that is not open. It is
+// the class half only; which SPECS he rates is settled against his own menu.
+const QE_CLASS_WORD = {
+    DRUID: 'Druid',
+    PRIEST: 'Priest',
+    SHAMAN: 'Shaman',
+    PALADIN: 'Paladin',
+    MONK: 'Monk',
+    EVOKER: 'Evoker',
+};
+
+// `{ class: "SHAMAN", spec: "Restoration" }` -> `"Restoration Shaman"`. Null
+// when either half is missing, which is a capture too old to say rather than a
+// character QE Live will not rate; `qeHasClass` below is the question that
+// refuses.
+function qeSpecOf(identity) {
+    const word = QE_CLASS_WORD[qeClassToken(identity)];
+    const spec = identity && identity.spec ? String(identity.spec).trim() : '';
+    if (!word || !spec) return null;
+    return `${spec} ${word}`;
+}
+
+function qeClassToken(identity) {
+    return identity && identity.class ? String(identity.class).trim().toUpperCase() : '';
+}
+
+// Does QE Live have a character of this class at all? A token he has no word
+// for is a class he does not rate - a Warrior, a Rogue - and H-1 should have
+// stopped that profile long before the companion saw it.
+function qeHasClass(identity) {
+    const token = qeClassToken(identity);
+    return !token || !!QE_CLASS_WORD[token];
+}
+
+// The welcome dialog's tile caption for one of his spec names.
+// `Welcome.tsx`'s `getShortClassName` (lines 72-76) prints "H Priest" for Holy
+// Priest, "D Priest" for Discipline Priest and the second word of the spec name
+// for everything else - so the tile for "Restoration Shaman" reads "Shaman".
+//
+// This is the lookup the welcome path and the switch path SHARE: both start
+// from `qeSpecOf`, one clicks the tile it names and the other picks the menu
+// item it names. Before C-16 the welcome path was handed a class TOKEN and
+// defaulted to `DRUID`, which matched his "Druid" tile by luck of the
+// case-insensitive regex and matched no tile at all for a Priest.
+function welcomeTileLabel(qeSpec) {
+    const name = String(qeSpec || '').trim();
+    if (name.includes('Holy Priest')) return 'H Priest';
+    if (name.includes('Discipline Priest')) return 'D Priest';
+    return name.split(' ')[1] || name;
+}
+
 // A browser with no saved character gets a welcome dialog over the header
 // ("Welcome to QE Live! Select an era" / class tiles / BEGIN!). With a
 // persistent profile it appears once.
-async function dismissWelcome(page, className) {
+async function dismissWelcome(page, qeSpec) {
     const welcome = page.getByText('Welcome to QE Live');
     if (!(await welcome.count())) return false;
+    const label = welcomeTileLabel(qeSpec);
     await page
-        .getByText(new RegExp('^' + className + '$', 'i'))
+        .getByText(new RegExp('^' + label + '$', 'i'))
         .first()
         .click();
     await page.getByRole('button', { name: /begin/i }).click();
     await welcome.waitFor({ state: 'hidden', timeout: 10000 });
     return true;
+}
+
+// The header's "Current Spec" control, which is QE Live's OWN way to change
+// character: `QEHeaderClassSelector.js` line 37 is its `InputLabel` and lines
+// 38-60 the MUI `Select` whose `onChange` is `setSelectedSpec`, wired in
+// `QEHeader.js` lines 131-135 to `props.handlePickPlayerSpec` - `App.tsx` lines
+// 273-277, which looks the character of that spec up and makes it active. The
+// character exists whatever the browser profile held: `PlayerChars.init`
+// auto-adds every one of `CONSTANTS.specs` that local storage is missing
+// (`General/Modules/Player/PlayerChars.ts` lines 44-54). Nothing here touches
+// local storage and nothing here patches his source.
+const CURRENT_SPEC_LABEL = 'Current Spec';
+
+// `QEHeader.js` renders its `drawer` TWICE - once inside the mobile `Drawer`,
+// which is `keepMounted` (line 297) and so is in the DOM at every width, and
+// once in the desktop `Grid` at line 315 - so the label matches two controls and
+// one of them is `display: none`. `.first()` would be the hidden one, so the
+// visible one is found rather than assumed.
+async function specSelect(page) {
+    const all = page.getByLabel(CURRENT_SPEC_LABEL, { exact: true });
+    const total = await all.count();
+    for (let i = 0; i < total; i++) {
+        const one = all.nth(i);
+        if (await one.isVisible().catch(() => false)) return one;
+    }
+    throw new ForkError(
+        total
+            ? `QE Live's header has ${total} "${CURRENT_SPEC_LABEL}" controls and none of them is visible (QEHeader.js renders its drawer twice); the companion will not guess at which one changes the character`
+            : `QE Live's header has no "${CURRENT_SPEC_LABEL}" control (QEHeaderClassSelector.js); the companion will not guess at which control changes the character`,
+        DRIVE
+    );
+}
+
+// Put QE Live on the profile's character before anything is imported, and say
+// which way it went. Returns { spec, was, switched, note }.
+//
+// The driver does NOT loop: the switch is asked for once, read back once, and a
+// `different spec` refusal afterwards is still one `REFUSED` with QE Live's own
+// message. Two attempts at the same question would only put his words on the
+// log twice.
+async function ensureCharacter(page, identity) {
+    const wanted = qeSpecOf(identity);
+    if (!wanted) return null;
+    const select = await specSelect(page);
+    const was = String(await select.innerText()).trim();
+    if (was === wanted) {
+        const note = `${wanted} (already)`;
+        return { spec: wanted, was: was, switched: false, note: note };
+    }
+    await select.click();
+    const option = page.getByRole('option', { name: wanted, exact: true });
+    if (!(await option.count())) {
+        throw new ForkError(
+            `QE Live's "${CURRENT_SPEC_LABEL}" menu does not offer "${wanted}", so it cannot be put on this character; it rates the specs its own menu lists and no others`,
+            REFUSED
+        );
+    }
+    await option.first().click();
+    const now = String(await (await specSelect(page)).innerText()).trim();
+    if (now !== wanted) {
+        throw new ForkError(
+            `QE Live was asked for "${wanted}" and its header still says "${now}"; refusing to import a profile against a character the driver did not choose`,
+            DRIVE
+        );
+    }
+    const note = `${wanted} (switched from ${was})`;
+    return { spec: wanted, was: was, switched: true, note: note };
 }
 
 // The three import checkboxes, by the label each one is rendered with.
@@ -890,6 +1032,19 @@ async function run(config, profileText, log, options) {
     // worth asking depends on the PROFILE - a vault section with gear in it -
     // and this file has only the text.
     const passes = opts.passes || configLib.plannedPasses(config, {});
+    // Who this run is for (C-16, WKE-619). A class QE Live has no character for
+    // is refused HERE, before a browser is opened: nothing downstream could do
+    // anything but open a page and read a menu that was never going to name it,
+    // and H-1's healing gate should have stopped the profile long before.
+    // `REFUSED`, not `DRIVE`, because the profile is the thing that is wrong.
+    const identity = opts.identity || null;
+    if (!qeHasClass(identity)) {
+        throw new ForkError(
+            `QE Live rates healers and has no character for a ${qeClassToken(identity)}; nothing was asked of it`,
+            REFUSED
+        );
+    }
+    const qeSpec = qeSpecOf(identity);
     let chromium;
     try {
         ({ chromium } = require('playwright'));
@@ -930,9 +1085,22 @@ async function run(config, profileText, log, options) {
         timings.push(['page load', done()]);
 
         done = log.stage('  welcome dialog');
-        const hadWelcome = await dismissWelcome(page, opts.className || 'DRUID');
+        const hadWelcome = await dismissWelcome(page, qeSpec || 'Restoration Druid');
         const welcomeNote = hadWelcome ? 'answered' : 'none, the browser profile remembered the character';
         timings.push([`welcome dialog: ${welcomeNote}`, done(welcomeNote)]);
+
+        // Before ANY import, because the three checkboxes are not the only
+        // state an import is made against: QE Live values the character its
+        // header names, and refuses a profile for another one (C-16).
+        done = log.stage('  character');
+        const character = await ensureCharacter(page, identity);
+        if (character) {
+            timings.push([`character: ${character.note}`, done(character.note)]);
+        } else {
+            // A capture too old to name a class or a spec. Nothing is switched
+            // and nothing is claimed; the import speaks for itself either way.
+            timings.push(['character: not named by the capture', done('not named by the capture')]);
+        }
 
         for (const pass of passes) {
             const asked = pass.scenario || 'the configured Upgrade Finder settings';
@@ -1068,6 +1236,14 @@ module.exports = {
     selectKeyLevel,
     exportedKeyIndex,
     runUpgradeFinder,
+    qeSpecOf,
+    qeHasClass,
+    welcomeTileLabel,
+    dismissWelcome,
+    specSelect,
+    ensureCharacter,
+    QE_CLASS_WORD,
+    CURRENT_SPEC_LABEL,
     CARD,
     CHECKBOX_LABELS,
     KEY_LEVEL_SECTION,
