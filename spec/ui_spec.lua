@@ -3146,6 +3146,118 @@ describe("the Refresh button on the strip (R-8)", function()
     end)
 end)
 
+-- R-8a (WKE-618): the three buttons sit ABOVE the strip.
+--
+-- The owner on 2026-09-18: "unable to refresh, nothing happens when I click it
+-- or any of the other buttons." His `/fstack` over `Refresh` listed
+-- `LootpathMainFrame.statusStrip` above `LootpathMainFrame.refreshButton`, both
+-- at frame level 2 - the strip is mouse-enabled for M3-16b's wait click, and
+-- since H-1a the buttons are the FRAME's children, so they came out at the
+-- strip's own level and the strip took every press.
+describe("the strip's buttons take their own clicks (R-8a)", function()
+    local ns, world, frame
+
+    local GUARDIAN = { index = 3, id = 104, name = "Guardian", icon = 132276, role = "TANK" }
+
+    local function levels()
+        local strip = frame.statusStrip:GetFrameLevel()
+        local seen = {}
+        for _, key in ipairs(ns.UI.STRIP_BUTTON_KEYS) do
+            seen[key] = frame[key]:GetFrameLevel()
+        end
+        return strip, seen
+    end
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        frame = ns.UI.Frame()
+        frame:Show()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- Proven red by making `UI.RaiseStripButtons` return before it raises
+    -- anything: all three then come out at the strip's own level, which is what
+    -- the owner's `/fstack` read.
+    it("puts Refresh, Import... and Options one level above the strip", function()
+        local strip, seen = levels()
+        assert.same({ "refreshButton", "openImportButton", "optionsButton" }, ns.UI.STRIP_BUTTON_KEYS)
+        for key, level in pairs(seen) do
+            assert.is_true(level > strip, key)
+        end
+    end)
+
+    -- Proven red by dropping the re-assert out of `UI.RefreshStrip`, with the
+    -- strip raised to the buttons' level first: a redraw leaves the row level
+    -- again.
+    it("keeps them above it across a redraw that shows the strip", function()
+        frame.statusStrip:SetFrameLevel(frame.refreshButton:GetFrameLevel())
+        ns.UI.RefreshStrip(frame)
+        assert.is_true(frame.statusStrip:IsShown())
+        local strip, seen = levels()
+        for key, level in pairs(seen) do
+            assert.is_true(level > strip, key)
+        end
+    end)
+
+    -- And across a tab click, which shows the strip through `UI.ShowTab` before
+    -- `UI.SelectTab`'s own `UI.Refresh` reaches the redraw. There is no third
+    -- raise in `UI.ShowTab`: this guard is what says the click is covered
+    -- anyway, and it goes red with the other three when the helper raises
+    -- nothing.
+    it("keeps them above it when a tab click shows the row", function()
+        frame.statusStrip:SetFrameLevel(frame.optionsButton:GetFrameLevel())
+        frame.tabs[2]:Click()
+        assert.is_true(frame.statusStrip:IsShown())
+        local strip, seen = levels()
+        for key, level in pairs(seen) do
+            assert.is_true(level > strip, key)
+        end
+    end)
+
+    -- And the screen itself: it takes the row away (H-1a) and the spec change
+    -- back puts it on, with the three buttons above it in both states.
+    it("keeps them above it when the Coming soon screen comes and goes", function()
+        local healing = world.spec
+        world.spec = GUARDIAN
+        ns.UI.Refresh()
+        assert.is_false(frame.statusStrip:IsShown())
+        frame.statusStrip:SetFrameLevel(frame.optionsButton:GetFrameLevel())
+        world.spec = healing
+        ns.UI.Refresh()
+        assert.is_true(frame.statusStrip:IsShown())
+        local strip, seen = levels()
+        for key, level in pairs(seen) do
+            assert.is_true(level > strip, key)
+        end
+    end)
+
+    -- Each press still reaches what it reached. Refresh has R-8's own tests;
+    -- Import... has the dialog's; Options had none at all until this issue.
+    it("still reaches the options page, the dialog and the reload", function()
+        frame.optionsButton:Click()
+        assert.equal(1, #world.settings.opened)
+        assert.equal(ns.UI.Options.category:GetID(), world.settings.opened[1])
+        frame.openImportButton:Click()
+        assert.is_true(frame.importDialog:IsShown())
+        frame.refreshButton:Click()
+        assert.equal(1, world.reloads)
+    end)
+
+    -- Nothing else on the row moved: the strip keeps its mouse and the wait's
+    -- click (M3-16b), and the nudge row's button is the strip's own child, one
+    -- row down and already a level above it.
+    it("leaves the strip's mouse and the nudge row alone", function()
+        assert.is_true(frame.statusStrip.mouseEnabled)
+        assert.is_function(frame.statusStrip:GetScript("OnMouseUp"))
+        assert.equal(frame.statusStrip, frame.nudgeButton:GetParent())
+        assert.is_true(frame.nudgeButton:GetFrameLevel() > frame.statusStrip:GetFrameLevel())
+    end)
+end)
+
 describe("the import dialog (M5-2)", function()
     local ns, world, frame
 
