@@ -905,10 +905,6 @@ function UI.ShowTab(frame, id)
     -- `UI.RefreshStrip` sets the same flag from the same read.
     if frame.statusStrip then
         frame.statusStrip:SetShown(not gated)
-        -- R-8a (WKE-618): a show is the one moment the row's order could change,
-        -- so the buttons are put back above the strip right after it. This is
-        -- the show a TAB CLICK goes through, which reaches no other redraw.
-        UI.RaiseStripButtons(frame)
     end
     if frame.comingSoon then
         frame.comingSoon:SetShown(gated)
@@ -1245,9 +1241,13 @@ end
 -- strip above the button, both at 2.
 --
 -- One list, so a fourth button on this row cannot forget it: every key it names
--- is put one level above the strip, and it is re-asserted wherever the strip is
--- shown again, because nothing in Blizzard's exported documentation says what a
--- re-show does to the order of two siblings that share a level.
+-- is put one level above the strip. It is called twice - at the end of
+-- `buildStatusStrip`, and in `UI.RefreshStrip` right after the strip's own
+-- `SetShown` - because nothing in Blizzard's exported documentation says what a
+-- re-show does to the order of two siblings that share a level, and re-asserting
+-- is true whichever way the client behaves. Every other show of the strip goes
+-- through `UI.Refresh` and so through `UI.RefreshStrip`: `UI.ShowTab`'s own
+-- `SetShown` has no third call here, because no test could prove one red.
 UI.STRIP_BUTTON_KEYS = { "refreshButton", "openImportButton", "optionsButton" }
 
 function UI.RaiseStripButtons(frame)

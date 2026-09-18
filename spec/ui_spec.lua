@@ -3203,10 +3203,11 @@ describe("the strip's buttons take their own clicks (R-8a)", function()
         end
     end)
 
-    -- And across the OTHER show. `UI.SelectTab` shows the strip as well - it is
-    -- the row the Coming soon screen replaces (H-1a) - and a TAB CLICK reaches
-    -- that show without going through `UI.RefreshStrip` at all. Proven red by
-    -- dropping the re-assert out of `UI.SelectTab`.
+    -- And across a tab click, which shows the strip through `UI.ShowTab` before
+    -- `UI.SelectTab`'s own `UI.Refresh` reaches the redraw. There is no third
+    -- raise in `UI.ShowTab`: this guard is what says the click is covered
+    -- anyway, and it goes red with the other three when the helper raises
+    -- nothing.
     it("keeps them above it when a tab click shows the row", function()
         frame.statusStrip:SetFrameLevel(frame.optionsButton:GetFrameLevel())
         frame.tabs[2]:Click()
