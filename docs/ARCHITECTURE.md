@@ -128,7 +128,7 @@ with a note **54 -> 56**, a row without one **38 -> 38**, the line **36**, the n
 row's top (which is the line's bottom less the gap, where before it was two points ABOVE the line's bottom on a
 plain row and eight above it on a swap row), and the list's own height **652 -> 656**. `Describe`, `Drawn`, the
 marks, the bar, the fold, `Equip`/`EquipAll` and the note's own words are untouched, and no number on screen came
-from this addon. Six guards proven red, five gates green, 1424 busted tests. **Human-required after the merge:** the
+from this addon. Seven guards proven red, five gates green, 1424 busted tests. **Human-required after the merge:** the
 owner opens Equip Now on a character with a not-owned row and screenshots it - whether the sentence now reads, and
 whether a note that WRAPS to two lines still fits the 16 points the row grows by, are both his screen (§11). One
 premise of the issue scaled down: there is no `spec/equippanel_spec.lua` in this repo, so the guards are in
@@ -459,7 +459,7 @@ One shipped package `Lootpath/` (what the packager zips) plus `spec/` (tests) an
   - **The note begins where the line ends.** `row.note` is `TOPLEFT` to `row.line`'s `BOTTOMLEFT` at `-NOTE_GAP` (2), `RIGHT` to the row as before, still no `SetWidth`. It narrows by the pair inset on a swap row, which is the sentence sitting under the item it is about rather than under the row's left edge.
   - **And the row is as tall as that.** `EquipPanel.RowHeight(hasNote)` = `LINE_TOP + ItemLine.Height()` (+ `NOTE_GAP + NOTE_HEIGHT` with a note). Measured over the owner's own export on the stub: a row with a note **54 -> 56**, a row without one **38 -> 38**, the list's height **652 -> 656**, the note's top **-38 -> -40**. `ROW_HEIGHT` stays at 38 as the frame's build default and the list's pre-draw size, with a guard holding it to `RowHeight(false)` so the two cannot drift. The overflow line's 4-point gap is counted into `used` with the line itself, which it was not before.
   - **What was NOT touched:** `Describe`, `Drawn`, the marks, the bar, the fold, `Equip`/`EquipAll`, the note's words, and every number on screen. This is anchors and heights only.
-  - **One premise scaled down:** the issue asks for tests in `spec/ui_spec.lua` / `spec/equippanel_spec.lua`; the second file does not exist in this repo, so the six guards are in `spec/ui_spec.lua` (five) and `spec/itemline_spec.lua` (one).
+  - **One premise scaled down:** the issue asks for tests in `spec/ui_spec.lua` / `spec/equippanel_spec.lua`; the second file does not exist in this repo, so the seven guards are in `spec/ui_spec.lua` (six) and `spec/itemline_spec.lua` (one).
 
 **2026-09-17 (UX-3, WKE-599) - the voice is reopened on purpose: the tooltip block is rewritten short, warm and plain, and "the plan" leaves every screen.** What changed is the SHAPE and the TONE of surface 1 and one word everywhere; the principles behind them stand. `docs/ROADS-UX.md`'s surface 1 and "Copy voice" are rewritten to match, and principle 16's "the plan comes first" keeps its meaning and loses the word.
 
