@@ -109,8 +109,21 @@ Drift.LOAD_SKIPPED_SLOT = "a gear slot was empty when your gear was read, so it 
 -- that is not about a refresh at all. A real logout never reads the gear - four
 -- measured, four empty (`ns.Companion.GearUnreadAtFlush`) - so R-7's "log out
 -- and your plan is current next login" is retired, and this is where it is
--- retired in the player's own words instead of in a comment. The age is the
--- newest stored read's, because that read is what the plan on screen is about.
+-- retired in the player's own words instead of in a comment.
+--
+-- **R-7d (WKE-621): the age is the RATING's, not the read's.** R-7c took it
+-- from the newest stored `inventory` snapshot, and `db.global.captures` is
+-- account-wide: on 2026-09-18 the owner read `last rated 73 seconds ago` on a
+-- Restoration Shaman whose gear has never been rated at all, and `last rated
+-- 75 seconds ago` on the Druid whose rating on screen was written the day
+-- before - both ages were the Shaman's refresh capture, which is a READ and
+-- never a rating. `GearUnreadAtFlush` stays the GATE, because the fact it
+-- proves is still true (the last unload could not read the gear); the CLOCK is
+-- `Drift.PlanStamp()`, this character's own stored verdict, which is the thing
+-- the words claim and the same stamp the tooltip's `Rated ... ago` counts from.
+-- With nothing rated on this character there is no age to give, so the clause
+-- says the fact and stops: `last rated` with nothing rated is a number about
+-- somebody else.
 --
 -- **R-8 (WKE-616): two endings, one sentence.** The owner read the strip on
 -- 2026-09-18 - `... \194\183 /lootpath refresh to rate what you wear now` - and said
@@ -121,8 +134,15 @@ Drift.LOAD_SKIPPED_SLOT = "a gear slot was empty when your gear was read, so it 
 -- type what he could press. The CHAT line keeps a tail, because the chat frame
 -- has no button on it: it names the button first and the command second, so a
 -- player reading the login line knows where to go either way.
-Drift.STRIP_GEAR_UNREAD = "your gear wasn't read at logout - last rated %s"
-Drift.LOAD_GEAR_UNREAD = Drift.STRIP_GEAR_UNREAD .. " \194\183 Refresh in the window, or /lootpath refresh"
+--
+-- R-7d (WKE-621): four strings, because there are two surfaces and two cases.
+-- The bare pair is what a character with nothing rated gets - the fact, and on
+-- the chat line the way out of it.
+Drift.STRIP_GEAR_UNREAD_BARE = "your gear wasn't read at logout"
+Drift.STRIP_GEAR_UNREAD = Drift.STRIP_GEAR_UNREAD_BARE .. " - last rated %s"
+Drift.GEAR_UNREAD_TAIL = " \194\183 Refresh in the window, or /lootpath refresh"
+Drift.LOAD_GEAR_UNREAD = Drift.STRIP_GEAR_UNREAD .. Drift.GEAR_UNREAD_TAIL
+Drift.LOAD_GEAR_UNREAD_BARE = Drift.STRIP_GEAR_UNREAD_BARE .. Drift.GEAR_UNREAD_TAIL
 -- R-8 (WKE-616): the button's own words. It is on the strip's row beside
 -- `Import...` and `Options`, it is always there, and its click is `Drift.Click`
 -- - the same function the strip's wait and `/lootpath refresh` reach, so a
@@ -630,18 +650,27 @@ end
 -- retire. Built here rather than in `Decide` so the strip can ask for the words
 -- directly: `Decide` names the state and this says it.
 --
--- R-8 (WKE-616): one age, two endings. `template` is the strip's clause by
--- default and the chat line's when `Drift.GearUnreadChatText` asks for it; the
--- fact and the age are the same read either way, so the two surfaces cannot
--- disagree about when the gear was last rated.
-local function gearUnreadText(now, template)
-    local inventory = ns.Companion and ns.Companion.GearUnreadAtFlush and ns.Companion.GearUnreadAtFlush()
-    if not inventory then
+-- R-8 (WKE-616): one age, two endings. `template` is the strip's clause and
+-- `bare` the same words without an age; `Drift.GearUnreadChatText` hands over
+-- the chat frame's pair instead. Both surfaces come through here, so they
+-- cannot disagree about when the gear was last rated.
+--
+-- R-7d (WKE-621): `GearUnreadAtFlush` is only asked whether the last unload
+-- refused the gear - its snapshot's `capturedAt` is a read on whichever
+-- character read last, account-wide, and is never the clock. The clock is this
+-- character's stored rating. A stamp that cannot be read is treated as no
+-- rating at all rather than as a wrong second.
+local function gearUnreadText(now, template, bare)
+    local gearUnread = ns.Companion and ns.Companion.GearUnreadAtFlush and ns.Companion.GearUnreadAtFlush()
+    if not gearUnread then
         return nil
     end
-    local age = ns.UI.AgeTextFromSeconds((now or time()) - inventory.capturedAt)
+    now = now or time()
+    local stamp = Drift.PlanStamp()
+    local ratedAt = stamp and ns.EpochFromISO(stamp, now) or nil
+    local age = ratedAt and ns.UI.AgeTextFromSeconds(now - ratedAt) or nil
     if not age then
-        return nil
+        return bare
     end
     return string.format(template, age)
 end
@@ -649,13 +678,13 @@ end
 -- The strip's clause: it ends at the age, because the Refresh button is on the
 -- same row (R-8).
 function Drift.GearUnreadText(now)
-    return gearUnreadText(now, Drift.STRIP_GEAR_UNREAD)
+    return gearUnreadText(now, Drift.STRIP_GEAR_UNREAD, Drift.STRIP_GEAR_UNREAD_BARE)
 end
 
 -- The chat frame's, said once at a login where there is no button to point at,
 -- so it names the button and then the command (R-8).
 function Drift.GearUnreadChatText(now)
-    return gearUnreadText(now, Drift.LOAD_GEAR_UNREAD)
+    return gearUnreadText(now, Drift.LOAD_GEAR_UNREAD, Drift.LOAD_GEAR_UNREAD_BARE)
 end
 
 function Drift.Decide(now)
