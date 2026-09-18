@@ -774,6 +774,10 @@ describe("ns.Drift and a logout that could not read the gear (R-7c)", function()
     -- that worked, twenty-five minutes before it.
     local FLUSH = "2026-09-16T14:25:59Z"
     local LAST_GOOD_READ = "2026-09-16T14:00:11Z"
+    -- R-7d (WKE-621): and the third stamp, which is the only one the words are
+    -- about - when THIS character's rating was written. Four hours before NOW,
+    -- so no arithmetic over the other two could produce it by accident.
+    local RATED = "2026-09-16T10:40:00Z"
 
     before_each(function()
         ns, world = loadToday()
@@ -820,6 +824,21 @@ describe("ns.Drift and a logout that could not read the gear (R-7c)", function()
         }
     end
 
+    -- A rating stored on THIS character, which is what `db.char.qeImports` is
+    -- and what `ns.UI.ActiveVerdict` reads. `db.global.captures` above is the
+    -- ACCOUNT's; the two being different scopes is the whole of R-7d.
+    local function rated(iso)
+        ns.db.char.qeImports = {
+            Dungeon = {
+                spec = "Restoration Druid",
+                exportedAt = iso,
+                companionWrittenAt = iso,
+                items = {},
+                scenario = ns.QEImport.DEFAULT_SCENARIO,
+            },
+        }
+    end
+
     local function said(line)
         assert.is_truthy(tostring(world.output()):find(ns.PREFIX .. line, 1, true))
     end
@@ -827,12 +846,13 @@ describe("ns.Drift and a logout that could not read the gear (R-7c)", function()
     -- R-8 (WKE-616): the chat frame has no button on it, so the line said once
     -- at the login keeps a tail - and it names the button FIRST, because the
     -- window is where the reader is about to go.
-    it("says how old the plan's gear is, and what fixes it", function()
+    it("says how old this character's rating is, and what fixes it", function()
         stored({ refusals = { refusal() } })
+        rated(RATED)
         assert.equal("gearunread", ns.Drift.Decide(at(NOW)))
         local line = ns.Drift.LoadLine(at(NOW))
         assert.equal(
-            "your gear wasn't read at logout - last rated 40 minutes ago \194\183 "
+            "your gear wasn't read at logout - last rated 4 hours ago \194\183 "
                 .. "Refresh in the window, or /lootpath refresh",
             line
         )
@@ -850,15 +870,64 @@ describe("ns.Drift and a logout that could not read the gear (R-7c)", function()
     -- for the user when they click it."
     it("puts the same fact on the status strip, with no command written out", function()
         stored({ refusals = { refusal() } })
+        rated(RATED)
         local model = ns.UI.StatusStripModel(at(NOW))
         assert.equal(ns.Drift.GearUnreadText(at(NOW)), model.gearClause)
         assert.equal(model.gearClause, model.text)
-        assert.equal("your gear wasn't read at logout - last rated 40 minutes ago", model.gearClause)
+        assert.equal("your gear wasn't read at logout - last rated 4 hours ago", model.gearClause)
         assert.is_nil(model.gearClause:find("/lootpath", 1, true))
         -- one age, read once, so the two surfaces cannot disagree about it
         assert.is_truthy(ns.Drift.GearUnreadChatText(at(NOW)):find(model.gearClause, 1, true))
         -- and the facts it displaced are at the top of the tooltip, not lost
         assert.is_truthy(model.tooltip[1])
+    end)
+
+    -- **R-7d (WKE-621): the finding itself.** `db.global.captures` is
+    -- account-wide, so the newest `inventory` snapshot belongs to whichever
+    -- character read last - on 2026-09-18 the owner's Restoration Shaman,
+    -- whose gear has never been rated, put `last rated 73 seconds ago` on its
+    -- own strip and `last rated 75 seconds ago` on the Druid's. A read is not a
+    -- rating. Here the account's newest read is 40 minutes old and this
+    -- character's rating is four hours old, and the sentence says four hours.
+    it("takes the age from this character's rating, not from the newest read on the account", function()
+        stored({ refusals = { refusal() } })
+        rated(RATED)
+        local clause = ns.Drift.GearUnreadText(at(NOW))
+        assert.equal("your gear wasn't read at logout - last rated 4 hours ago", clause)
+        assert.is_nil(clause:find("40 minutes", 1, true))
+        assert.is_nil(ns.Drift.GearUnreadChatText(at(NOW)):find("40 minutes", 1, true))
+    end)
+
+    -- The other half of the same finding: a read by somebody else does not move
+    -- this character's age. The snapshot moves twenty-five minutes closer to
+    -- the flush - still older than it, so the gate is untouched - and the
+    -- sentence does not change by a second.
+    it("does not move when a newer read lands on the account", function()
+        stored({ refusals = { refusal() } })
+        rated(RATED)
+        local before = ns.Drift.GearUnreadText(at(NOW))
+        stored({ refusals = { refusal() }, inventoryAt = "2026-09-16T14:25:00Z" })
+        assert.equal(before, ns.Drift.GearUnreadText(at(NOW)))
+        assert.equal("your gear wasn't read at logout - last rated 4 hours ago", before)
+    end)
+
+    -- The Shaman's own case: the gear was not read at the logout, and nothing
+    -- on this character has ever been rated. The fact is still worth saying and
+    -- there is no age to say it with, so the clause stops - `last rated` with
+    -- nothing rated is a number about somebody else. The chat line keeps its
+    -- tail, because the way out of this is the same either way.
+    it("carries no age when this character has nothing rated", function()
+        stored({ refusals = { refusal() } })
+        assert.is_nil(ns.UI.ActiveVerdict())
+        assert.equal("gearunread", ns.Drift.Decide(at(NOW)))
+        local clause = ns.Drift.GearUnreadText(at(NOW))
+        assert.equal("your gear wasn't read at logout", clause)
+        assert.is_nil(clause:find("last rated", 1, true))
+        assert.equal(clause, ns.UI.StatusStripModel(at(NOW)).gearClause)
+        local line = ns.Drift.LoadLine(at(NOW))
+        assert.equal("your gear wasn't read at logout \194\183 Refresh in the window, or /lootpath refresh", line)
+        assert.is_nil(line:find("last rated", 1, true))
+        said(line)
     end)
 
     -- The negative that matters most: a `/reload` flush reads the gear fine -
