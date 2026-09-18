@@ -3179,8 +3179,9 @@ describe("the strip's buttons take their own clicks (R-8a)", function()
         H.unload()
     end)
 
-    -- Proven red by dropping the `UI.RaiseStripButtons` call out of
-    -- `buildStatusStrip`: all three come out at the strip's own level.
+    -- Proven red by making `UI.RaiseStripButtons` return before it raises
+    -- anything: all three then come out at the strip's own level, which is what
+    -- the owner's `/fstack` read.
     it("puts Refresh, Import... and Options one level above the strip", function()
         local strip, seen = levels()
         assert.same({ "refreshButton", "openImportButton", "optionsButton" }, ns.UI.STRIP_BUTTON_KEYS)
