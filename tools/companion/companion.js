@@ -313,6 +313,11 @@ async function once(config, log, args, deps) {
             stateDir,
             screenshotDir: stateDir,
             passes,
+            // Who this run is for (C-16, WKE-619). QE Live holds ONE active
+            // character and refuses a SimC string for any other, so the driver
+            // puts it on this profile's class and spec before it imports. The
+            // same `identity` C-15 writes into the verdict file.
+            identity: profile.identity,
         });
     } catch (e) {
         log.error(e.message);
