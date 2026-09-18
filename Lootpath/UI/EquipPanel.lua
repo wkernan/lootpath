@@ -33,7 +33,19 @@ UI.EquipPanel = {}
 local EquipPanel = UI.EquipPanel
 
 -- A row is as tall as the item line inside it, plus the gap the icon needs.
+-- The figure is the DEFAULT a row frame is built at and what the list frame is
+-- sized from before anything is drawn; what a DRAWN row is worth is
+-- `EquipPanel.RowHeight`, which asks the line how tall it really is (M5-1c,
+-- WKE-617). A guard holds the two to the same number.
 EquipPanel.ROW_HEIGHT = 38
+-- The clearance above the item line inside a row - on every row, because there
+-- is one vertical rule now and a pair only moves the line sideways (M5-1c).
+EquipPanel.LINE_TOP = 2
+-- The gap between the line's own bottom and the note that hangs off it.
+EquipPanel.NOTE_GAP = 2
+-- The two gaps a swap row's worn icon and arrow put before the line starts.
+EquipPanel.ARROW_GAP = 2
+EquipPanel.LINE_GAP = 4
 -- A row that has something more to say gets a second line under it rather than
 -- a longer first one: the reason a row is what it is used to be appended to the
 -- detail text, which does not wrap, so the frame cut it off mid-sentence
@@ -41,6 +53,8 @@ EquipPanel.ROW_HEIGHT = 38
 -- fits the frame at whatever size the frame is.
 EquipPanel.NOTE_HEIGHT = 16
 EquipPanel.ROW_GAP = 2
+-- The gap the "more rows" line under the list is drawn at.
+EquipPanel.OVERFLOW_GAP = 4
 -- The panel draws a fixed list inside a scroll frame. A full set is 15 to
 -- 19 rows (the export's items plus anything worn in a slot it does not name),
 -- so 20 covers it; anything past that is counted in a line under the list
@@ -75,6 +89,12 @@ EquipPanel.HINT_ROOM = 18
 -- you now.
 EquipPanel.WORN_ICON_SIZE = 24
 EquipPanel.ARROW_SIZE = 16
+-- How far into the row a swap row's item line starts: the worn icon, the gap
+-- before the arrow, the arrow, and the gap after it. It is the ONE thing a
+-- pair now changes about the line (M5-1c, WKE-617) - the line's top is the
+-- row's top either way, so the arrow layout can no longer push the line down
+-- past where the note begins.
+EquipPanel.PAIR_INSET = EquipPanel.WORN_ICON_SIZE + EquipPanel.ARROW_GAP + EquipPanel.ARROW_SIZE + EquipPanel.LINE_GAP
 -- Blizzard's own arrow, from Blizzard_TransformManipulator's RotateControlFrame
 -- (`common-icon-forwardarrow`), and its own tick, from Blizzard_ChromieTimeUI
 -- and the Housing dashboard (`common-icon-checkmark`) - both read under
@@ -1150,9 +1170,22 @@ local function tooltipFor(button, text)
     GameTooltip:Show()
 end
 
+-- What a row is worth, measured rather than assumed (M5-1c, WKE-617): the
+-- clearance above the line, the line's own height as the line reports it, and
+-- - when the row has one - the gap and the note under it. Nothing here reads
+-- ROW_HEIGHT: a row that ends where its line ends is the whole point, and the
+-- note used to be drawn at a constant that the arrow layout had already passed.
+function EquipPanel.RowHeight(hasNote)
+    local height = EquipPanel.LINE_TOP + UI.ItemLine.Height()
+    if hasNote then
+        height = height + EquipPanel.NOTE_GAP + EquipPanel.NOTE_HEIGHT
+    end
+    return height
+end
+
 local function createRow(panel, index)
     local row = CreateFrame("Frame", nil, panel.list)
-    row:SetSize(panel.rowWidth, EquipPanel.ROW_HEIGHT)
+    row:SetSize(panel.rowWidth, EquipPanel.RowHeight(false))
     if index == 1 then
         row:SetPoint("TOPLEFT", panel.list, "TOPLEFT", 0, 0)
     else
@@ -1199,16 +1232,26 @@ local function createRow(panel, index)
     -- left edge is the icon now that the slot column is gone (M5-1b): the slot
     -- word moved onto the second line, where it costs nothing on a row that
     -- already had one.
+    --
+    -- Centred on the line's own icon rather than sat near the row's top: the
+    -- line no longer hangs off the arrow, so the pair hangs off the line
+    -- (M5-1c, WKE-617) and the three icons read as one band.
     row.worn = UI.ItemLine.CreateIcon(row, { size = EquipPanel.WORN_ICON_SIZE })
-    row.worn:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -4)
+    row.worn:SetPoint(
+        "TOPLEFT",
+        row,
+        "TOPLEFT",
+        0,
+        -(EquipPanel.LINE_TOP + (UI.ItemLine.ICON_SIZE - EquipPanel.WORN_ICON_SIZE) / 2)
+    )
     row.worn:Hide()
 
     row.arrow = row:CreateTexture(nil, "ARTWORK")
     row.arrow:SetSize(EquipPanel.ARROW_SIZE, EquipPanel.ARROW_SIZE)
-    row.arrow:SetPoint("LEFT", row.worn, "RIGHT", 2, 0)
+    row.arrow:SetPoint("LEFT", row.worn, "RIGHT", EquipPanel.ARROW_GAP, 0)
     row.arrow:Hide()
     row.arrowText = row:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-    row.arrowText:SetPoint("LEFT", row.worn, "RIGHT", 2, 0)
+    row.arrowText:SetPoint("LEFT", row.worn, "RIGHT", EquipPanel.ARROW_GAP, 0)
     row.arrowText:SetWidth(EquipPanel.ARROW_SIZE)
     row.arrowText:SetJustifyH("CENTER")
     row.arrowText:Hide()
@@ -1218,11 +1261,17 @@ local function createRow(panel, index)
     -- item's name, which is what dropping the column was for.
     row.line = UI.ItemLine.Create(row, { badgeWidth = EquipPanel.MARK_COLUMN })
 
-    -- The note takes its width from the row itself - LEFT and RIGHT anchors,
-    -- no SetWidth - so it is as wide as the frame is and wraps inside it. It
+    -- The note hangs off the LINE, not off a constant (M5-1c, WKE-617): the
+    -- sentence belongs to the item above it, so wherever that line ends the
+    -- note begins. Anchored at a fixed 38 it was drawn over the line's own
+    -- second line on every swap-shaped row, because the arrow layout started
+    -- the line below the row's top and 34 points of icon then ran past 38.
+    --
+    -- Its right-hand end is still the row's, so it takes its width from the
+    -- frame - LEFT and RIGHT anchors, no SetWidth - and wraps inside it. It
     -- clears the Equip button because it sits under it, not beside it.
     row.note = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    row.note:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -EquipPanel.ROW_HEIGHT)
+    row.note:SetPoint("TOPLEFT", row.line, "BOTTOMLEFT", 0, -EquipPanel.NOTE_GAP)
     row.note:SetPoint("RIGHT", row, "RIGHT", 0, 0)
     row.note:SetJustifyH("LEFT")
     row.note:SetWordWrap(true)
@@ -1235,8 +1284,13 @@ end
 -- at the row's own left edge on a row that is about one item (M5-1b: there is
 -- no slot column to start after).
 --
--- Its right-hand end is the button the row offers, so the name has every point
--- the row is not using; a row that offers neither runs to the row's own edge.
+-- ONE vertical rule for both (M5-1c, WKE-617). The line's top is the ROW's
+-- top, always, and a pair only moves it sideways by `PAIR_INSET`. The branch
+-- this replaces anchored the line to the arrow's own top plus 6, which put the
+-- line's top below the row's and its bottom past 38 - the constant the note
+-- started at - so the note was drawn over the line's second line. The worn
+-- icon and the arrow are centred on the line's icon instead, which is the same
+-- picture from the other end.
 local function anchorLine(row, paired, button)
     row.line:ClearAllPoints()
     if button then
@@ -1244,11 +1298,7 @@ local function anchorLine(row, paired, button)
     else
         row.line:SetPoint("RIGHT", row, "RIGHT", 0, 0)
     end
-    if paired then
-        row.line:SetPoint("TOPLEFT", row.arrowText, "TOPRIGHT", 4, 6)
-    else
-        row.line:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -2)
-    end
+    row.line:SetPoint("TOPLEFT", row, "TOPLEFT", paired and EquipPanel.PAIR_INSET or 0, -EquipPanel.LINE_TOP)
 end
 
 function EquipPanel.OnEquipClicked(panel, row)
@@ -1506,10 +1556,12 @@ function EquipPanel.Refresh(panel, match)
         -- with a note are taller than one line, so the list's own height is no
         -- longer where the list ends.
         panel.overflow:ClearAllPoints()
-        panel.overflow:SetPoint("TOPLEFT", previous or panel.list, "BOTTOMLEFT", 0, -4)
+        panel.overflow:SetPoint("TOPLEFT", previous or panel.list, "BOTTOMLEFT", 0, -EquipPanel.OVERFLOW_GAP)
         panel.overflow:SetText(string.format("%d more row(s) not shown.", #rows - shown - folded))
         panel.overflow:Show()
-        used = used + EquipPanel.NOTE_HEIGHT
+        -- The gap it is drawn at as well as the line itself, so the scroll
+        -- child really is as tall as what is on it (M5-1c, WKE-617).
+        used = used + EquipPanel.OVERFLOW_GAP + EquipPanel.NOTE_HEIGHT
     else
         panel.overflow:Hide()
     end
@@ -1633,11 +1685,12 @@ function EquipPanel.DrawRow(frameRow, described, shownRow, inCombat)
         tags = described.tags,
     })
 
-    local height = EquipPanel.ROW_HEIGHT
+    -- Measured off the line rather than off ROW_HEIGHT (M5-1c, WKE-617): the
+    -- row ends where its note ends, and the note starts where the line ends.
+    local height = EquipPanel.RowHeight(shownRow.note ~= nil)
     if shownRow.note then
         frameRow.note:SetText(shownRow.note)
         frameRow.note:Show()
-        height = height + EquipPanel.NOTE_HEIGHT
     else
         frameRow.note:SetText("")
         frameRow.note:Hide()

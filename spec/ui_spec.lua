@@ -587,20 +587,22 @@ describe("the Equip Now panel", function()
         -- item's, the second line is QE Live's level, the note is the reason.
         assert.is_falsy(frameRow.line.name:GetText():find(feet.reason, 1, true))
         assert.is_falsy(frameRow.line.second:GetText():find(feet.reason, 1, true))
-        assert.equal(ns.UI.EquipPanel.ROW_HEIGHT + ns.UI.EquipPanel.NOTE_HEIGHT, frameRow:GetHeight())
+        assert.equal(ns.UI.EquipPanel.RowHeight(true), frameRow:GetHeight())
     end)
 
     it("gives every note line the frame's width rather than a number of its own", function()
         local frameRow = panel.rows[1]
-        -- Never SetWidth: the note is anchored to both edges of the row, so it
-        -- is as wide as the frame is at whatever size the frame is.
+        -- Never SetWidth: the note's right-hand end is the row's, so it is as
+        -- wide as the frame is at whatever size the frame is. Its LEFT is the
+        -- line's since M5-1c (WKE-617) - the sentence belongs to the item above
+        -- it - which narrows it by the pair inset and never by a number here.
         assert.equal(0, frameRow.note:GetWidth())
         assert.is_true(frameRow.note.wordWrap)
         local anchors = {}
         for _, point in ipairs(frameRow.note.points) do
             anchors[point[1]] = point[2]
         end
-        assert.equal(frameRow, anchors["TOPLEFT"])
+        assert.equal(frameRow.line, anchors["TOPLEFT"])
         assert.equal(frameRow, anchors["RIGHT"])
         -- The item line's own two lines still do not wrap: they are one line
         -- each by design, and everything long about a row lives on the note.
@@ -624,7 +626,7 @@ describe("the Equip Now panel", function()
         end
         assert.is_table(feet)
         assert.is_table(head)
-        assert.equal(ns.UI.EquipPanel.ROW_HEIGHT, head:GetHeight())
+        assert.equal(ns.UI.EquipPanel.RowHeight(false), head:GetHeight())
         assert.is_false(head.note:IsShown())
         assert.equal("", head.note:GetText())
         -- Frames are reused across refreshes: a note left on a recycled row
@@ -633,9 +635,9 @@ describe("the Equip Now panel", function()
         -- and these two frames are the ones it is about to hand new rows to.
         local feetRow, headRow = feet.matchRow, head.matchRow
         ns.UI.EquipPanel.Refresh(panel, { ok = true, rows = { feetRow, headRow }, counts = panel.match.counts })
-        assert.equal(ns.UI.EquipPanel.ROW_HEIGHT + ns.UI.EquipPanel.NOTE_HEIGHT, panel.rows[1]:GetHeight())
+        assert.equal(ns.UI.EquipPanel.RowHeight(true), panel.rows[1]:GetHeight())
         ns.UI.EquipPanel.Refresh(panel, { ok = true, rows = { headRow }, counts = panel.match.counts })
-        assert.equal(ns.UI.EquipPanel.ROW_HEIGHT, panel.rows[1]:GetHeight())
+        assert.equal(ns.UI.EquipPanel.RowHeight(false), panel.rows[1]:GetHeight())
         assert.is_false(panel.rows[1].note:IsShown())
     end)
 
@@ -652,6 +654,175 @@ describe("the Equip Now panel", function()
         assert.is_truthy(fresh.answer:GetText():find("Paste a Top Gear", 1, true))
         assert.is_false(fresh.hint:IsShown())
         assert.is_false(fresh.equipAll:IsShown())
+    end)
+end)
+
+-- M5-1c (WKE-617): the owner's screenshot on WKE-592 had the red not-owned
+-- sentence printed ON TOP of the row's second line on all eight not-owned rows.
+-- The note started at a constant 38 from the row's top while the item line
+-- started BELOW that top - the arrow layout anchored it to the arrow's own top
+-- plus 6 - so 34 points of icon ran past the constant. The note hangs off the
+-- line now, and the row is as tall as the line plus the note.
+describe("an Equip Now row's note and its real height (M5-1c)", function()
+    local ns, world, panel
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        world.bankOpen = false
+        ns.UI.Frame()
+        ns.UI.frame.pasteBox:SetText(readFile(REAL_EXPORT))
+        ns.UI.frame.importButton:Click()
+        panel = ns.UI.frame.equipPanel
+        -- The settled rows are behind the fold by default (M5-1b); this is
+        -- about every shape of row, so they are all on screen.
+        ns.UI.EquipPanel.ToggleFold(ns.db)
+        ns.UI.EquipPanel.Refresh(panel, panel.match)
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function pointNamed(frame, name)
+        for _, point in ipairs(frame.points) do
+            if point[1] == name then
+                return point
+            end
+        end
+        return nil
+    end
+
+    -- Where a row's line begins and ends, in the row's own coordinates: the top
+    -- is negative and down is more negative, which is how the client reads an
+    -- offset from a TOPLEFT anchor. Resolved from the stub's recorded points
+    -- rather than assumed, so an anchor moved anywhere else fails here.
+    local function lineSpan(row)
+        local point = pointNamed(row.line, "TOPLEFT")
+        assert.is_table(point)
+        assert.equal(row, point[2])
+        assert.equal("TOPLEFT", point[3])
+        local top = point[5]
+        return top, top - row.line:GetHeight()
+    end
+
+    local function noteTop(row)
+        local point = pointNamed(row.note, "TOPLEFT")
+        assert.is_table(point)
+        assert.equal(row.line, point[2])
+        assert.equal("BOTTOMLEFT", point[3])
+        local _, bottom = lineSpan(row)
+        return bottom + point[5], bottom
+    end
+
+    local function rowsByShape()
+        local paired, plain, noted
+        for _, row in ipairs(panel.rows) do
+            if row.shown then
+                if row.worn:IsShown() then
+                    paired = paired or row
+                else
+                    plain = plain or row
+                end
+                if row.note:IsShown() then
+                    noted = noted or row
+                end
+            end
+        end
+        return paired, plain, noted
+    end
+
+    it("starts the item line at the row's own top in both layouts", function()
+        local paired, plain = rowsByShape()
+        assert.is_table(paired)
+        assert.is_table(plain)
+        -- One vertical rule. A pair moves the line sideways and nothing else:
+        -- the inset is the worn icon, the arrow and the gaps around them.
+        local pairedPoint = pointNamed(paired.line, "TOPLEFT")
+        local plainPoint = pointNamed(plain.line, "TOPLEFT")
+        assert.equal(paired, pairedPoint[2])
+        assert.equal(plain, plainPoint[2])
+        assert.equal(-ns.UI.EquipPanel.LINE_TOP, pairedPoint[5])
+        assert.equal(-ns.UI.EquipPanel.LINE_TOP, plainPoint[5])
+        assert.equal(ns.UI.EquipPanel.PAIR_INSET, pairedPoint[4])
+        assert.equal(0, plainPoint[4])
+        assert.equal(46, ns.UI.EquipPanel.PAIR_INSET)
+        -- And the worn icon is centred on the line's icon, which is the same
+        -- picture read from the other end.
+        local worn = pointNamed(paired.worn, "TOPLEFT")
+        assert.equal(paired, worn[2])
+        assert.equal(
+            -(ns.UI.EquipPanel.LINE_TOP + (ns.UI.ItemLine.ICON_SIZE - ns.UI.EquipPanel.WORN_ICON_SIZE) / 2),
+            worn[5]
+        )
+    end)
+
+    it("begins a swap-shaped row's note under the line, not over its second line", function()
+        local paired = select(1, rowsByShape())
+        assert.is_table(paired)
+        local top, bottom = noteTop(paired)
+        assert.equal(-ns.UI.EquipPanel.LINE_TOP - paired.line:GetHeight(), bottom)
+        assert.is_true(top <= bottom)
+        assert.equal(bottom - ns.UI.EquipPanel.NOTE_GAP, top)
+        -- What the screenshot was: at the old constant the note began 38 points
+        -- down, which is above where a line that starts at the row's top ends
+        -- once the arrow layout has pushed it further down still.
+        assert.is_true(top < -ns.UI.EquipPanel.ROW_HEIGHT)
+        assert.equal(-40, top)
+    end)
+
+    it("begins a plain row's note under the line too", function()
+        local plain = select(2, rowsByShape())
+        assert.is_table(plain)
+        local top, bottom = noteTop(plain)
+        assert.is_true(top <= bottom)
+        assert.equal(-40, top)
+    end)
+
+    it("is as tall as the line plus the note when a note is drawn", function()
+        local _, _, noted = rowsByShape()
+        assert.is_table(noted)
+        assert.equal(36, ns.UI.ItemLine.Height())
+        assert.equal(noted.line:GetHeight(), ns.UI.ItemLine.Height())
+        local expected = ns.UI.EquipPanel.LINE_TOP
+            + noted.line:GetHeight()
+            + ns.UI.EquipPanel.NOTE_GAP
+            + ns.UI.EquipPanel.NOTE_HEIGHT
+        assert.equal(expected, noted:GetHeight())
+        assert.equal(56, noted:GetHeight())
+        -- The note really does fit inside the row it made taller.
+        local top = noteTop(noted)
+        assert.is_true(top - ns.UI.EquipPanel.NOTE_HEIGHT >= -noted:GetHeight())
+    end)
+
+    it("leaves a row without a note at the height it always was", function()
+        local _, plain = rowsByShape()
+        assert.is_table(plain)
+        assert.is_false(plain.note:IsShown())
+        assert.equal(ns.UI.EquipPanel.ROW_HEIGHT, plain:GetHeight())
+        assert.equal(38, plain:GetHeight())
+        -- The constant the rows are BUILT at is the measured height of a row
+        -- with no note, so the two can never drift apart unnoticed.
+        assert.equal(ns.UI.EquipPanel.RowHeight(false), ns.UI.EquipPanel.ROW_HEIGHT)
+    end)
+
+    it("makes the list as tall as the rows it drew", function()
+        local sum = 0
+        for _, row in ipairs(panel.rows) do
+            if row.shown then
+                sum = sum + row:GetHeight() + ns.UI.EquipPanel.ROW_GAP
+            end
+        end
+        if panel.fold:IsShown() then
+            sum = sum + panel.fold:GetHeight() + ns.UI.EquipPanel.ROW_GAP
+        end
+        if panel.overflow:IsShown() then
+            sum = sum + ns.UI.EquipPanel.OVERFLOW_GAP + ns.UI.EquipPanel.NOTE_HEIGHT
+        end
+        assert.equal(sum, panel.list:GetHeight())
+        -- The two notes on this character's set are what the list gained over
+        -- a set of fifteen plain rows and the fold line.
+        assert.equal(656, panel.list:GetHeight())
     end)
 end)
 
@@ -861,7 +1032,7 @@ describe("the Equip Now panel on a Great Vault option in the top set (WKE-541)",
 
         assert.is_false(frameRow.note:IsShown())
         assert.equal("", frameRow.note:GetText())
-        assert.equal(ns.UI.EquipPanel.ROW_HEIGHT, frameRow:GetHeight())
+        assert.equal(ns.UI.EquipPanel.RowHeight(false), frameRow:GetHeight())
         assert.is_falsy(frameRow.line.name:GetText():find("Great Vault", 1, true))
         assert.is_falsy(frameRow.line.second:GetText():find("Great Vault", 1, true))
     end)
