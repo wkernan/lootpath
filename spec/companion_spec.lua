@@ -3235,3 +3235,222 @@ describe("C-15: SpecClause compares the class before the spec name", function()
         assert.is_nil(ns.Companion.SpecClause({ spec = "Restoration Druid" }))
     end)
 end)
+
+-- C-15a (WKE-620): a rating already STORED is swept at login too.
+--
+-- The owner, 2026-09-18 afternoon, on `main` 4279b37 with C-15 in the game:
+-- Equip Now on his Restoration Shaman still showed the Druid's fifteen `you
+-- don't own this` rows. C-15 was doing its job - the chat line said the file on
+-- disk did not say which character it was for - but the gate stops an IMPORT,
+-- and the rating on screen had been stored by the Shaman's FIRST login, months
+-- of reloads before the gate existed. Nothing was ever going to take it out:
+-- the file that would have replaced it is refused every time.
+--
+-- So the store is swept, by source and by character, and one line says so.
+describe("C-15a: a stored rating that is not this character's is dropped at login", function()
+    local ns, world
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local DROPPED_LINE = "dropped a rating that wasn't for this character - /lootpath refresh to rate this one"
+
+    -- The stub's own character (spec/stubs/wow) is Tester of TestRealm, a DRUID.
+    local THIS_CHARACTER = { name = "Tester", realm = "TestRealm", class = "DRUID" }
+    local ANOTHER_CHARACTER = { name = "Hotornot", realm = "Area 52", class = "DRUID" }
+
+    -- A store with one Top Gear rating and one Upgrade Finder document on it,
+    -- put there the way a player puts one there, and NO companion file at all -
+    -- so `Startup` below imports nothing and the only thing it can do is sweep.
+    -- What makes each rating the companion's is then stamped on by hand, which
+    -- is the honest model: a verdict that came back out of SavedVariables is a
+    -- table with a `source` field and nothing more.
+    local function seedStore()
+        ns, world = H.load()
+        ns.UI.Import(readFile(RAID_EXPORT))
+        ns.UI.Import(readFile(UPGRADE_FINDER_EXPORT))
+    end
+
+    local function stamp(verdict, character)
+        verdict.source = ns.Companion.SOURCE_COMPANION
+        verdict.companionWrittenAt = "2026-09-17T02:00:00Z"
+        verdict.character = character
+        return verdict
+    end
+
+    local function storedTopGear()
+        return assert(ns.QEImport.ForContentType("Raid"), "no Top Gear rating was seeded")
+    end
+
+    local function storedUpgradeFinder()
+        return assert(ns.UFImport.Current(), "no Upgrade Finder document was seeded")
+    end
+
+    local function saidDroppedLine()
+        return world.output():find(DROPPED_LINE, 1, true) ~= nil
+    end
+
+    it("drops a companion rating that names no character, and says so once", function()
+        seedStore()
+        stamp(storedTopGear(), nil)
+        local before = #world.output()
+        local result = ns.Companion.Startup()
+        assert.equal(1, result.dropped)
+        assert.is_nil(ns.QEImport.Current())
+        assert.is_nil(ns.QEImport.ForContentType("Raid"))
+        local said = world.output():sub(before + 1)
+        assert.is_truthy(said:find(DROPPED_LINE, 1, true), said)
+        -- Once. The rating is on three shelves; the line is about the player's
+        -- screen, not about the store's shape.
+        local _, times = said:gsub((DROPPED_LINE:gsub("%p", "%%%0")), "")
+        assert.equal(1, times)
+    end)
+
+    it("drops a companion rating that names another character", function()
+        seedStore()
+        stamp(storedTopGear(), ANOTHER_CHARACTER)
+        local result = ns.Companion.Startup()
+        assert.equal(1, result.dropped)
+        assert.is_nil(ns.QEImport.ForContentType("Raid"))
+        assert.is_true(saidDroppedLine())
+    end)
+
+    it("keeps a companion rating that names THIS character, and says nothing", function()
+        seedStore()
+        local kept = stamp(storedTopGear(), THIS_CHARACTER)
+        local result = ns.Companion.Startup()
+        assert.equal(0, result.dropped)
+        assert.equal(kept, ns.QEImport.ForContentType("Raid"))
+        assert.is_false(saidDroppedLine())
+    end)
+
+    -- Deliverable 3. A paste is the player's own act on this character: he went
+    -- and got that export and put it in the box himself. It carries no
+    -- `character` and never will, so the rule is read off `source`, and a paste
+    -- is kept whoever pasted it and whatever it names.
+    it("keeps a pasted rating that names no character", function()
+        seedStore()
+        local pasted = storedTopGear()
+        assert.is_nil(pasted.character)
+        assert.equal("pasted", ns.Companion.SourceText(pasted))
+        local result = ns.Companion.Startup()
+        assert.equal(0, result.dropped)
+        assert.equal(pasted, ns.QEImport.ForContentType("Raid"))
+        assert.is_false(saidDroppedLine())
+    end)
+
+    it("drops the Upgrade Finder documents by the same rule, off all three shelves", function()
+        seedStore()
+        stamp(storedUpgradeFinder(), ANOTHER_CHARACTER)
+        local contentType = ns.UFImport.ContentTypeKey(storedUpgradeFinder())
+        assert.is_true(#ns.UFImport.Documents(contentType) > 0)
+        local result = ns.Companion.Startup()
+        assert.equal(1, result.dropped)
+        assert.is_nil(ns.UFImport.Current())
+        assert.is_nil(ns.UFImport.ForContentType(contentType))
+        assert.same({}, ns.UFImport.Documents(contentType))
+        assert.is_true(saidDroppedLine())
+    end)
+
+    -- Both stores, one line, and the count is by verdict rather than by shelf:
+    -- a Top Gear rating sits on three shelves and an Upgrade Finder document on
+    -- three of its own, and that is two ratings gone, not six.
+    it("counts two ratings, not the six shelf entries they sit on", function()
+        seedStore()
+        stamp(storedTopGear(), ANOTHER_CHARACTER)
+        stamp(storedUpgradeFinder(), ANOTHER_CHARACTER)
+        local result = ns.Companion.Startup()
+        assert.equal(2, result.dropped)
+    end)
+
+    -- C-11's later-pass shelf is a shelf like the others and is swept like the
+    -- others: a pass-2 answer for a character who is not here rates items this
+    -- one does not own.
+    it("sweeps the by-scenario and later-pass shelves as well", function()
+        seedStore()
+        local plan = storedTopGear()
+        local pass2 = { contentType = "Raid", pass = 2, spec = plan.spec, topSet = plan.topSet }
+        ns.QEImport.Store(pass2)
+        stamp(pass2, ANOTHER_CHARACTER)
+        stamp(plan, ANOTHER_CHARACTER)
+        assert.equal(1, #ns.QEImport.Passes("Raid", ns.QEImport.DEFAULT_SCENARIO))
+        local result = ns.Companion.Startup()
+        assert.equal(2, result.dropped)
+        assert.is_nil(ns.QEImport.ForContentTypeAndScenario("Raid", ns.QEImport.DEFAULT_SCENARIO))
+        assert.same({}, ns.QEImport.Passes("Raid", ns.QEImport.DEFAULT_SCENARIO))
+    end)
+
+    -- Deliverable 5, as a guard. The sweep is about ratings and nothing else:
+    -- which slot sections the reader has shut is a fact about this character
+    -- and has nothing to do with whose rating was stored.
+    it("leaves db.char.upgradeMap and the rest of db.char alone", function()
+        seedStore()
+        ns.db.char.upgradeMap.collapsedSlots.Head = true
+        ns.db.char.upgradeMap.expandedRuns["a-run"] = true
+        stamp(storedTopGear(), ANOTHER_CHARACTER)
+        ns.Companion.Startup()
+        assert.is_true(ns.db.char.upgradeMap.collapsedSlots.Head)
+        assert.is_true(ns.db.char.upgradeMap.expandedRuns["a-run"])
+    end)
+
+    -- Deliverable 4. An import calls it because a new rating is a new answer
+    -- for every hover; a DROP is the same event with the sharper edge - the
+    -- cache may already hold roads built from what has just gone.
+    it("tells the roads cache the answer changed", function()
+        seedStore()
+        stamp(storedTopGear(), ANOTHER_CHARACTER)
+        local calls = 0
+        ns.RoadsCache.Changed = function()
+            calls = calls + 1
+        end
+        ns.Companion.Startup()
+        assert.equal(1, calls)
+    end)
+
+    it("does not tell the roads cache anything when nothing was dropped", function()
+        seedStore()
+        local calls = 0
+        ns.RoadsCache.Changed = function()
+            calls = calls + 1
+        end
+        ns.Companion.Startup()
+        assert.equal(0, calls)
+    end)
+
+    -- The owner's own case, end to end: the Shaman logs in, the file on disk is
+    -- the Druid's, and the Druid's rating is already in the Shaman's db.char.
+    -- C-15's line refuses the file, C-15a's drops what is stored, and Equip Now
+    -- has nothing of the Druid's left to draw.
+    it("refuses the file AND empties the store when the Shaman logs in", function()
+        ns, world = loadWithChunk(verdictChunkSource(twoRealExports()))
+        assert.is_table(ns.QEImport.ForContentType("Dungeon"))
+        assert.is_table(ns.QEImport.ForContentType("Raid"))
+        world.playerName = "Zapper"
+        world.playerClass = { "Shaman", "SHAMAN", 7 }
+        local before = #world.output()
+        local result = ns.Companion.Startup()
+        assert.is_false(result.ok)
+        assert.is_true(result.otherCharacter)
+        assert.equal(2, result.dropped)
+        assert.is_nil(ns.QEImport.Current())
+        assert.is_nil(ns.QEImport.ForContentType("Dungeon"))
+        assert.is_nil(ns.QEImport.ForContentType("Raid"))
+        assert.is_nil(ns.UI.ActiveVerdict())
+        local said = world.output():sub(before + 1)
+        assert.is_truthy(said:find("this rating is for Tester on TestRealm", 1, true), said)
+        assert.is_truthy(said:find(DROPPED_LINE, 1, true), said)
+    end)
+
+    -- And the Druid's own login is untouched: the file is his, the sweep finds
+    -- nothing of anyone else's, and the rating is imported exactly as before.
+    it("says nothing and drops nothing on the character the file names", function()
+        ns, world = loadWithChunk(verdictChunkSource(twoRealExports()))
+        local before = #world.output()
+        local result = ns.Companion.Startup()
+        assert.equal(0, result.dropped)
+        assert.is_true(result.ok)
+        assert.is_table(ns.QEImport.ForContentType("Raid"))
+        assert.is_falsy(world.output():sub(before + 1):find(DROPPED_LINE, 1, true))
+    end)
+end)

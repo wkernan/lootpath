@@ -972,6 +972,68 @@ function QEImport.Store(verdict)
     return { ok = true, verdict = verdict }
 end
 
+-- C-15a (WKE-620): drop every stored Top Gear rating `shouldDrop` refuses.
+--
+-- C-15's gate stops a rating for somebody else from being IMPORTED, and says
+-- so. It cannot reach one that is already stored, and the owner's Shaman had
+-- one: his first login, before C-15 existed, wrote the Druid's answer into the
+-- Shaman's own `db.char`, and the gate then kept refusing the file that would
+-- have replaced it. So the store is swept at login too.
+--
+-- The store owns the walk. `db.char`'s four Top Gear shelves - the `asOffered`
+-- one Equip Now reads, the by-content-type one, the by-scenario one and the
+-- later-pass one - are this file's shape, and nobody outside it should have to
+-- know there are four. Nothing else in `db.char` is touched: `upgradeMap`, the
+-- folds and the Upgrade Finder's own shelves are not this function's business
+-- (ns.UFImport.Forget answers for those last).
+--
+-- `shouldDrop(verdict)` is a predicate over ONE stored verdict; the caller owns
+-- what makes a rating foreign. Returns how many DISTINCT verdicts went, counted
+-- by table identity because one verdict sits on up to three shelves at once.
+function QEImport.Forget(shouldDrop)
+    if type(shouldDrop) ~= "function" or not ns.db or not ns.db.char then
+        return 0
+    end
+    local char = ns.db.char
+    local gone = {}
+    -- Assigning nil to a key the traversal has already reached is the one
+    -- modification `pairs` permits during it, and it is the only one made here.
+    local function sweep(shelf)
+        if type(shelf) ~= "table" then
+            return
+        end
+        for key, verdict in pairs(shelf) do
+            if type(verdict) == "table" and shouldDrop(verdict) then
+                shelf[key] = nil
+                gone[verdict] = true
+            end
+        end
+    end
+    sweep(char.qeImports)
+    for _, shelf in pairs(char.qeImportsByScenario or {}) do
+        sweep(shelf)
+    end
+    for _, byScenario in pairs(char.qePassesByScenario or {}) do
+        if type(byScenario) == "table" then
+            for _, shelf in pairs(byScenario) do
+                sweep(shelf)
+            end
+        end
+    end
+    -- Last, and on its own: `qeImport` is a field rather than a shelf entry,
+    -- and it is usually the same table one of the sweeps above has already
+    -- taken off its shelf - which is why the count is by identity.
+    if type(char.qeImport) == "table" and shouldDrop(char.qeImport) then
+        gone[char.qeImport] = true
+        char.qeImport = nil
+    end
+    local dropped = 0
+    for _ in pairs(gone) do
+        dropped = dropped + 1
+    end
+    return dropped
+end
+
 function QEImport.Current()
     return ns.db and ns.db.char and ns.db.char.qeImport or nil
 end
