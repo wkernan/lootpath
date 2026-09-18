@@ -3203,10 +3203,23 @@ describe("the strip's buttons take their own clicks (R-8a)", function()
         end
     end)
 
-    -- And across the other show: the Coming soon screen takes the row away and
-    -- the spec change back puts it on screen, with the three buttons on it in
-    -- every state (H-1a, R-8).
-    it("keeps them above it when the screen comes and goes", function()
+    -- And across the OTHER show. `UI.SelectTab` shows the strip as well - it is
+    -- the row the Coming soon screen replaces (H-1a) - and a TAB CLICK reaches
+    -- that show without going through `UI.RefreshStrip` at all. Proven red by
+    -- dropping the re-assert out of `UI.SelectTab`.
+    it("keeps them above it when a tab click shows the row", function()
+        frame.statusStrip:SetFrameLevel(frame.optionsButton:GetFrameLevel())
+        frame.tabs[2]:Click()
+        assert.is_true(frame.statusStrip:IsShown())
+        local strip, seen = levels()
+        for key, level in pairs(seen) do
+            assert.is_true(level > strip, key)
+        end
+    end)
+
+    -- And the screen itself: it takes the row away (H-1a) and the spec change
+    -- back puts it on, with the three buttons above it in both states.
+    it("keeps them above it when the Coming soon screen comes and goes", function()
         local healing = world.spec
         world.spec = GUARDIAN
         ns.UI.Refresh()

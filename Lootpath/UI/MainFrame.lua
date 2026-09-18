@@ -906,7 +906,8 @@ function UI.ShowTab(frame, id)
     if frame.statusStrip then
         frame.statusStrip:SetShown(not gated)
         -- R-8a (WKE-618): a show is the one moment the row's order could change,
-        -- so the buttons are put back above the strip right after it.
+        -- so the buttons are put back above the strip right after it. This is
+        -- the show a TAB CLICK goes through, which reaches no other redraw.
         UI.RaiseStripButtons(frame)
     end
     if frame.comingSoon then
