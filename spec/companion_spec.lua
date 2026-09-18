@@ -35,6 +35,22 @@ end
 -- ns.companionVerdict, every JSON document a Lua string literal, and nothing
 -- else. Built and compiled here rather than hand-copied so the test carries the
 -- real 16 KB and 7 KB export bodies through Lua's own string escaping.
+-- C-15 (WKE-615): who the file says it rated. The stub's own character
+-- (`spec/stubs/wow.lua`: UnitName "Tester", GetRealmName "TestRealm",
+-- UnitClass's token "DRUID"), because the addon compares the file against
+-- exactly those three calls and imports nothing when they disagree. A verdict
+-- that sets `character = false` writes none at all, which is every file written
+-- before C-15 and is refused the same way a file for somebody else is.
+local STUB_CHARACTER = { name = "Tester", realm = "TestRealm", class = "DRUID" }
+
+local function characterSource(character)
+    if character == false then
+        return ""
+    end
+    local who = character or STUB_CHARACTER
+    return string.format("    character = { name = %q, realm = %q, class = %q },\n", who.name, who.realm, who.class)
+end
+
 local function verdictChunkSource(verdict)
     local parts = {}
     for _, export in ipairs(verdict.exports) do
@@ -70,12 +86,13 @@ local _, ns = ...
 ns.companionVerdict = {
     writtenAt = %q,
     companionVersion = %q,
-    exports = {
+%s    exports = {
 %s    },
 }
 ]],
         verdict.writtenAt,
         verdict.companionVersion or "0.0.0-test",
+        characterSource(verdict.character),
         table.concat(parts)
     )
 end
@@ -415,7 +432,14 @@ describe("Companion refusals", function()
 
     it("reports every refusal in chat with the file's age, and says the paste box still works", function()
         local _, world3 = loadWithChunk(nil, {
-            setVerdict = { writtenAt = "2026-09-08T02:00:00Z", companionVersion = "0.1.0" },
+            setVerdict = {
+                writtenAt = "2026-09-08T02:00:00Z",
+                companionVersion = "0.1.0",
+                -- C-15: the character gate runs first and would answer its own
+                -- line, so this file says it is for the character reading it and
+                -- the refusal under test is the one the exports earn.
+                character = { name = "Tester", realm = "TestRealm", class = "DRUID" },
+            },
         })
         local output = world3.output()
         assert.is_truthy(output:find("companion file refused:", 1, true))
@@ -874,6 +898,7 @@ local _, ns = ...
 ns.companionVerdict = {
     writtenAt = "2026-09-08T02:00:00Z",
     companionVersion = "0.1.0",
+    character = { name = "Tester", realm = "TestRealm", class = "DRUID" },
     qeSettings = { autoUpgradeVault = false, autoUpgradeAll = true },
     exports = {
         { schema = "qe-live-droptimizer", contentType = "Raid", json = %q },
@@ -1528,6 +1553,7 @@ local _, ns = ...
 ns.companionVerdict = {
     writtenAt = "2026-09-10T02:00:00Z",
     companionVersion = "0.1.0",
+    character = { name = "Tester", realm = "TestRealm", class = "DRUID" },
     excluded = {
         { slot = "Finger", name = "Band of the \"Quoted\" Name", level = 678 },
     },
@@ -3005,5 +3031,207 @@ describe("the healing gate", function()
         world.runTimers(2)
         assert.is_nil(ns.Drift.Behind())
         assert.is_nil(ns.Drift.Model())
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- C-15 (WKE-615): a rating is for ONE character.
+--
+-- The owner, 2026-09-18, logged an old Restoration Shaman in on the account his
+-- Druid is rated on. Equip Now showed the DRUID's answer - fifteen `you don't
+-- own this` rows of Druid pieces beside the Shaman's own worn icons - and the
+-- strip said `last rated 15 hours ago` as though the rating were his. His words:
+-- "It looks as though it's trying to add items from 'hotornot' my druid."
+--
+-- `Data/QEVerdict.lua` is one file per machine and every character that logs in
+-- loads it, so the store was never the problem: `QEImport.Store` writes into
+-- `db.char` and always has. The file simply did not say whose gear it had
+-- rated. Now it does, and this is the gate that reads it.
+describe("C-15: the companion file names who it rated", function()
+    local ns, world
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- The stub's own character is Tester of TestRealm, a DRUID (spec/stubs/wow).
+    -- Those are the three the gate compares, and this is somebody else.
+    local function asShaman(w)
+        w.playerName = "Zapper"
+        w.playerClass = { "Shaman", "SHAMAN", 7 }
+    end
+
+    local function druidsFile(writtenAt)
+        local file = twoRealExports(writtenAt)
+        file.character = { name = "Hotornot", realm = "Area 52", class = "DRUID" }
+        return file
+    end
+
+    it("imports the file written for this character, exactly as before", function()
+        ns, world = loadWithChunk(verdictChunkSource(twoRealExports()))
+        assert.is_table(ns.QEImport.ForContentType("Dungeon"))
+        assert.is_table(ns.QEImport.ForContentType("Raid"))
+        assert.is_falsy(world.output():find("/lootpath refresh to rate this character", 1, true))
+    end)
+
+    -- The line the owner sees, in the addon's voice: what the rating is, who it
+    -- is for, and the one thing that fixes it. No source named, nothing about a
+    -- file on disk, and no offer to repair anything.
+    it("refuses a file written for another character, in one line, and stores nothing", function()
+        ns, world = loadWithChunk(verdictChunkSource(druidsFile()), { beforeLoad = asShaman })
+        assert.is_truthy(
+            world
+                .output()
+                :find("this rating is for Hotornot on Area 52 - /lootpath refresh to rate this character", 1, true),
+            world.output()
+        )
+        assert.is_nil(ns.QEImport.Current())
+        assert.is_nil(ns.QEImport.ForContentType("Dungeon"))
+        assert.is_nil(ns.QEImport.ForContentType("Raid"))
+        -- And nothing of the import's own chat, which would read as a rating
+        -- that had arrived.
+        assert.is_falsy(world.output():find("companion import:", 1, true))
+    end)
+
+    -- Two characters of one name on two realms are two characters. The realm is
+    -- compared because the same name exists on every realm there is, and a
+    -- rating for one of them is not a rating for the other.
+    it("refuses a file for the same name on another realm", function()
+        local file = twoRealExports()
+        file.character = { name = "Tester", realm = "Another Realm", class = "DRUID" }
+        ns, world = loadWithChunk(verdictChunkSource(file))
+        assert.is_truthy(
+            world
+                .output()
+                :find("this rating is for Tester on Another Realm - /lootpath refresh to rate this character", 1, true),
+            world.output()
+        )
+        assert.is_nil(ns.QEImport.Current())
+    end)
+
+    -- Every file written before C-15, including the one the owner has on disk
+    -- right now. It is refused for the same reason a file for somebody else is:
+    -- a rating that cannot say who it is for cannot be trusted to anyone, and
+    -- one `/lootpath refresh` replaces it.
+    it("refuses a file that names no character at all", function()
+        ns, world = loadWithChunk(verdictChunkSource({
+            writtenAt = "2026-09-07T02:00:00Z",
+            companionVersion = "0.1.0",
+            character = false,
+            exports = twoRealExports().exports,
+        }))
+        assert.is_truthy(
+            world
+                .output()
+                :find("this rating doesn't say which character it's for - /lootpath refresh to rate this one", 1, true),
+            world.output()
+        )
+        assert.is_nil(ns.QEImport.Current())
+    end)
+
+    -- `/lootpath status` says the same words. A player who types it because a
+    -- tab looks wrong is owed the reason before the counts.
+    it("says the same line on /lootpath status", function()
+        ns, world = loadWithChunk(verdictChunkSource(druidsFile()), { beforeLoad = asShaman })
+        local before = #world.output()
+        ns.HandleSlash("status")
+        local said = world.output():sub(before + 1)
+        assert.is_truthy(
+            said:find("this rating is for Hotornot on Area 52 - /lootpath refresh to rate this character", 1, true),
+            said
+        )
+    end)
+
+    -- The paste box is the player's own act and is untouched: he asked for THIS
+    -- export on THIS character by pasting it.
+    it("leaves the paste path alone", function()
+        ns, world = loadWithChunk(verdictChunkSource(druidsFile()), { beforeLoad = asShaman })
+        ns.UI.Frame()
+        ns.UI.Import(readFile(RAID_EXPORT))
+        assert.is_table(ns.QEImport.ForContentType("Raid"))
+        assert.equal("pasted", ns.Companion.SourceText(ns.QEImport.ForContentType("Raid")))
+    end)
+
+    -- The import carries the file's claim onto the rating, so one that came back
+    -- out of SavedVariables can still say who it is for long after the file that
+    -- brought it was replaced.
+    it("carries the character onto the stored rating", function()
+        ns = loadWithChunk(verdictChunkSource(twoRealExports()))
+        local stored = ns.QEImport.ForContentType("Raid")
+        assert.equal("Tester", stored.character.name)
+        assert.equal("TestRealm", stored.character.realm)
+        assert.equal("DRUID", stored.character.class)
+    end)
+end)
+
+-- The half of C-15 the spec check owns. `SpecClause` compared spec NAMES by
+-- lower-case substring, and `Restoration` matches `Restoration` across Druid and
+-- Shaman - which is why the owner's Shaman was never told anything. The class
+-- token does not collide, so it is compared first, and a rating for somebody
+-- else is never a spec line: switching spec would not fix it.
+describe("C-15: SpecClause compares the class before the spec name", function()
+    local ns
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local DRUIDS_RATING = {
+        spec = "Restoration Druid",
+        character = { name = "Hotornot", realm = "Area 52", class = "DRUID" },
+    }
+
+    it("answers the character refusal for a Restoration Shaman against a Restoration Druid's rating", function()
+        ns = H.load({
+            beforeLoad = function(w)
+                w.playerName = "Zapper"
+                w.playerClass = { "Shaman", "SHAMAN", 7 }
+                w.spec = { index = 1, id = 264, name = "Restoration", icon = 1, role = "HEALER" }
+            end,
+        })
+        assert.equal(
+            "this rating is for Hotornot on Area 52 - /lootpath refresh to rate this character",
+            ns.Companion.SpecClause(DRUIDS_RATING)
+        )
+    end)
+
+    it("says nothing to the Druid the rating is for, whose spec name the Shaman shares", function()
+        ns = H.load({
+            beforeLoad = function(w)
+                w.playerName = "Hotornot"
+                w.realm = "Area 52"
+                w.playerClass = { "Druid", "DRUID", 11 }
+                w.spec = { index = 4, id = 105, name = "Restoration", icon = 1, role = "HEALER" }
+            end,
+        })
+        assert.is_nil(ns.Companion.SpecClause(DRUIDS_RATING))
+    end)
+
+    -- The spec line is still the spec line for the character the rating IS for.
+    it("still says the spec line when only the spec differs", function()
+        ns = H.load({
+            beforeLoad = function(w)
+                w.playerName = "Hotornot"
+                w.realm = "Area 52"
+                w.playerClass = { "Druid", "DRUID", 11 }
+                w.spec = { index = 3, id = 104, name = "Guardian", icon = 1, role = "TANK" }
+            end,
+        })
+        assert.equal(
+            "you're in Guardian; this rating is for Restoration Druid - switch and refresh",
+            ns.Companion.SpecClause(DRUIDS_RATING)
+        )
+    end)
+
+    -- A paste carries no character and is not refused here: the player asked for
+    -- that export on this character by pasting it.
+    it("says nothing about a character for a rating that claims none", function()
+        ns = H.load({
+            beforeLoad = function(w)
+                w.playerName = "Zapper"
+                w.playerClass = { "Shaman", "SHAMAN", 7 }
+            end,
+        })
+        assert.is_nil(ns.Companion.SpecClause({ spec = "Restoration Druid" }))
     end)
 end)

@@ -176,6 +176,13 @@ function build(text, options) {
             realm: env && packValue(env.data.realm),
             // GetSpecializationInfo's second return is the spec's own name.
             spec: env && packValue(env.data.specInfo, 2),
+            // C-15 (WKE-615): UnitClass's SECOND return is the class TOKEN -
+            // `DRUID`, the same word on every locale - and the first is the
+            // localised word, which no comparison may be built on. The verdict
+            // file carries this so the addon can tell a Restoration Druid's
+            // rating from a Restoration Shaman's, which the spec NAME the two
+            // share never could.
+            class: env && packValue(env.data.class, 2),
         },
     };
 }

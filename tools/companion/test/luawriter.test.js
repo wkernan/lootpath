@@ -10,7 +10,14 @@ const fs = require('fs');
 const path = require('path');
 
 const luaWriter = require('../lib/luawriter');
-const { render, luaString, luaNumber, luaBoolean } = luaWriter;
+const { luaString, luaNumber, luaBoolean } = luaWriter;
+
+// C-15 (WKE-615): every verdict file now says which character it rated, and the
+// writer refuses one that cannot. Every payload below gets the same owner's
+// character unless it says otherwise, so the tests that are about something
+// else stay about that; the gate itself is tested at the bottom of this file.
+const CHARACTER = { name: 'Hotornot', realm: 'Arthas', class: 'DRUID' };
+const render = (payload) => luaWriter.render({ character: CHARACTER, ...payload });
 
 const GOLDEN = path.join(__dirname, '..', '..', '..', 'spec', 'fixtures', 'expected', 'qeverdict-sample.lua');
 
@@ -407,4 +414,79 @@ test('writes the profile vault count, and writes a zero as a zero', () => {
             String(bad)
         );
     }
+});
+
+// --- C-15 (WKE-615): a rating is for one character ---------------------------
+//
+// `Data/QEVerdict.lua` is one file per machine and every character that logs in
+// loads it. Until this field existed the file said nothing about whose gear it
+// had rated, and the owner's Restoration Shaman, 2026-09-18, was shown fifteen
+// Druid pieces it did not own. The companion has always known who it rated -
+// `profile.js` builds `identity` out of the newest `env` capture - so the fix
+// on this side is that it says so, and will not write a file that cannot.
+test('C-15: the file names the character it rated, with the class token', () => {
+    const text = render({
+        writtenAt: '2026-09-18T00:00:00Z',
+        companionVersion: '0.1.0',
+        qeSettings: { autoUpgradeVault: false, autoUpgradeAll: false },
+        character: { name: 'Hotornot', realm: 'Area 52', class: 'DRUID' },
+        documents: [topGear()],
+    });
+    assert.ok(
+        text.includes(
+            ['    character = {', '        name = "Hotornot",', '        realm = "Area 52",', '        class = "DRUID",', '    },'].join(
+                '\n'
+            )
+        ),
+        text.slice(0, 800)
+    );
+});
+
+// The class is optional because a transcript captured before the field was
+// carried has none; a file that says nothing about it says nothing, rather than
+// claiming an empty class the addon would then compare against.
+test('C-15: a run that could not read the class writes no class, not an empty one', () => {
+    const text = render({
+        writtenAt: '2026-09-18T00:00:00Z',
+        companionVersion: '0.1.0',
+        qeSettings: { autoUpgradeVault: false, autoUpgradeAll: false },
+        character: { name: 'Hotornot', realm: 'Area 52' },
+        documents: [topGear()],
+    });
+    assert.ok(text.includes('        name = "Hotornot",'), text.slice(0, 800));
+    assert.ok(!text.includes('class ='), text.slice(0, 800));
+});
+
+// The name and the realm are NOT optional. A file that cannot say who it is for
+// cannot be trusted to anyone, and the addon refuses one that does not say - so
+// writing one would only replace a good verdict with a refused one.
+test('C-15: refuses to write a file that cannot say which character it rated', () => {
+    const payload = {
+        writtenAt: '2026-09-18T00:00:00Z',
+        companionVersion: '0.1.0',
+        qeSettings: { autoUpgradeVault: false, autoUpgradeAll: false },
+        documents: [topGear()],
+    };
+    assert.throws(() => luaWriter.render(payload), /does not say which character it rated/);
+    assert.throws(() => luaWriter.render({ ...payload, character: 'Hotornot' }), /does not say which character it rated/);
+    assert.throws(() => luaWriter.render({ ...payload, character: { realm: 'Area 52' } }), /whose character has no name/);
+    assert.throws(() => luaWriter.render({ ...payload, character: { name: 'Hotornot' } }), /whose character has no realm/);
+    assert.throws(
+        () => luaWriter.render({ ...payload, character: { name: '', realm: 'Area 52' } }),
+        /whose character has no name/
+    );
+});
+
+// A name is a string like every other string here, and goes through the same
+// escaper: nothing a character can be called can end the literal early.
+test('C-15: a character name is escaped like every other string in the file', () => {
+    const text = render({
+        writtenAt: '2026-09-18T00:00:00Z',
+        companionVersion: '0.1.0',
+        qeSettings: { autoUpgradeVault: false, autoUpgradeAll: false },
+        character: { name: 'a"b', realm: 'Area 52"]]', class: 'DRUID' },
+        documents: [topGear()],
+    });
+    assert.ok(text.includes('        name = "a\\"b",'), text.slice(0, 800));
+    assert.ok(text.includes('        realm = "Area 52\\"]]",'), text.slice(0, 800));
 });

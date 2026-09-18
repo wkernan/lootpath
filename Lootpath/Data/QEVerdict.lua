@@ -19,7 +19,12 @@
 --   ns.companionVerdict = {
 --       writtenAt = "2026-09-08T14:05:11Z",   -- ISO 8601 UTC, when the companion wrote this file
 --       companionVersion = "0.1.0",           -- whatever wrote it, for a refusal message
---       qeSettings = {                        -- which of QE Live's import settings this run asked for (C-5)
+--       character = {                         -- WHO this rating is for (C-15, WKE-615)
+--           name = "Hotornot",                -- the client's own UnitName("player"),
+--           realm = "Area 52",                -- and GetRealmName(), carried through the env capture
+--           class = "DRUID",                  -- UnitClass("player")'s class TOKEN, never the localised word
+--       },
+--       qeSettings = {                      -- which of QE Live's import settings this run asked for (C-5)
 --           autoUpgradeVault = false,
 --           autoUpgradeAll = false,
 --       },
@@ -48,6 +53,16 @@
 -- so every schema, version and gameType refusal still applies, and the
 -- contentType above is never trusted over the one inside the JSON. Lootpath
 -- computes no healer value here or anywhere; this file moves bytes.
+--
+-- `character` exists because this is ONE file per machine and every character
+-- that logs in loads it (C-15, WKE-615). Without it the last character to
+-- refresh handed its rating to whoever logged in next, which is what put fifteen
+-- Druid pieces on a Restoration Shaman's Equip Now tab on 2026-09-18. The
+-- companion refuses to write a file without a name and a realm, and the addon
+-- refuses to import one that names anybody but the player reading it - in one
+-- line, storing nothing. A file with no `character` at all is one written before
+-- this and is refused the same way: a rating that cannot say who it is for
+-- cannot be trusted to anyone.
 --
 -- ns.Companion (Lootpath/Modules/Companion.lua) validates every field of it
 -- and reports what it refused in chat. Nothing here is code Lootpath calls.

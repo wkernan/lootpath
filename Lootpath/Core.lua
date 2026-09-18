@@ -821,6 +821,17 @@ local function statusCommand()
     if gateLine then
         ns.Log("%s", gateLine)
     end
+    -- C-15 (WKE-615): and then who the companion file on disk was written for,
+    -- in the one line the login says, when it was not written for this
+    -- character. A player who types this because a tab looks wrong is owed that
+    -- reason before the counts.
+    local characterLine = ns.Companion
+            and ns.Companion.CharacterRefusal
+            and ns.Companion.CharacterRefusal(ns.companionVerdict)
+        or nil
+    if characterLine then
+        ns.Log("%s", characterLine)
+    end
     if not ns.db then
         ns.Log("database not loaded yet.")
         return

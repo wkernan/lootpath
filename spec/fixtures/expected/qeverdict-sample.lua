@@ -11,6 +11,11 @@ ns.companionVerdict = {
     writtenAt = "2026-09-08T00:00:00Z",
     companionVersion = "0.1.0",
     profileCapturedAt = "2026-09-05T13:33:25",
+    character = {
+        name = "Hotornot",
+        realm = "Arthas",
+        class = "DRUID",
+    },
     qeSettings = {
         autoUpgradeVault = false,
         autoUpgradeAll = false,

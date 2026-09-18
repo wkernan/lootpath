@@ -24,7 +24,17 @@ test('builds from the committed transcript and reports what it counted', () => {
 
 test('carries the identity the spec check needs', () => {
     const built = profileLib.build(TRANSCRIPT, {});
-    assert.deepStrictEqual(built.identity, { name: 'Hotornot', realm: 'Arthas', spec: 'Guardian' });
+    assert.deepStrictEqual(built.identity, { name: 'Hotornot', realm: 'Arthas', spec: 'Guardian', class: 'DRUID' });
+});
+
+// C-15 (WKE-615): and the class TOKEN, which is what the verdict file carries
+// and what the addon's character gate compares. The committed transcript's own
+// `env` capture holds `UnitClass("player")`'s three returns, and the second of
+// them is the token - the localised first return ("Druid") would be a different
+// word on a client that is not enUS, so no comparison may be built on it.
+test('carries the class TOKEN, not the localised class word', () => {
+    const built = profileLib.build(TRANSCRIPT, {});
+    assert.strictEqual(built.identity.class, 'DRUID');
 });
 
 test('names every field the SavedVariables could not answer', () => {

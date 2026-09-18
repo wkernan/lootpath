@@ -546,6 +546,9 @@ test('every pass of every scenario is one document, filed by scenario AND pass',
     const text = luawriterLib.render({
         writtenAt: '2026-09-14T00:00:00Z',
         companionVersion: '0.1.0',
+        // C-15 (WKE-615): the writer refuses a file that cannot say which
+        // character it rated.
+        character: { name: 'Hotornot', realm: 'Arthas', class: 'DRUID' },
         qeSettings: { autoUpgradeAll: false, autoUpgradeVault: false },
         documents,
     });
