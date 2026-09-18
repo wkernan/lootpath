@@ -111,8 +111,33 @@ Drift.LOAD_SKIPPED_SLOT = "a gear slot was empty when your gear was read, so it 
 -- and your plan is current next login" is retired, and this is where it is
 -- retired in the player's own words instead of in a comment. The age is the
 -- newest stored read's, because that read is what the plan on screen is about.
-Drift.LOAD_GEAR_UNREAD = "your gear wasn't read at logout - last rated %s "
-    .. "\194\183 /lootpath refresh to rate what you wear now"
+--
+-- **R-8 (WKE-616): two endings, one sentence.** The owner read the strip on
+-- 2026-09-18 - `... \194\183 /lootpath refresh to rate what you wear now` - and said
+-- "we should just make this a button that will run that command for the user
+-- when they click it." So the strip's clause STOPS at the age: the Refresh
+-- button is on the same row, a hand's width to the right, and a sentence that
+-- spells out a command while the button is beside it is asking the reader to
+-- type what he could press. The CHAT line keeps a tail, because the chat frame
+-- has no button on it: it names the button first and the command second, so a
+-- player reading the login line knows where to go either way.
+Drift.STRIP_GEAR_UNREAD = "your gear wasn't read at logout - last rated %s"
+Drift.LOAD_GEAR_UNREAD = Drift.STRIP_GEAR_UNREAD .. " \194\183 Refresh in the window, or /lootpath refresh"
+-- R-8 (WKE-616): the button's own words. It is on the strip's row beside
+-- `Import...` and `Options`, it is always there, and its click is `Drift.Click`
+-- - the same function the strip's wait and `/lootpath refresh` reach, so a
+-- rating that is ready loads and anything else refreshes. The tooltip is one
+-- line and it says what THIS press will do, because the two are not the same
+-- act: one sends the gear away, the other brings a rating back, and both cost a
+-- reload, which is the fact worth warning about before the screen goes dark.
+Drift.REFRESH_LABEL = "Refresh"
+Drift.REFRESH_TOOLTIP = "rate what you wear now - takes a reload"
+Drift.REFRESH_TOOLTIP_WAIT = "load the rating that's ready - takes a reload"
+-- Combat: the press is refused before it starts. `Companion.Refresh` already
+-- says why in chat and `ReloadUI` is blocked there anyway, so the button greys
+-- out like the Equip buttons and this is what the hover says instead.
+Drift.REFRESH_TOOLTIP_COMBAT = "not in combat - the reload is blocked there"
+
 Drift.LOAD_DONE = "rated just now; you're up to date."
 Drift.LOAD_FAILED = "the rating failed%s; see companion.log."
 Drift.LOAD_UNSEEN = "the companion hasn't been seen; is it running?"
@@ -604,7 +629,12 @@ end
 -- The sentence R-7c retires the promise with, or nil when there is nothing to
 -- retire. Built here rather than in `Decide` so the strip can ask for the words
 -- directly: `Decide` names the state and this says it.
-function Drift.GearUnreadText(now)
+--
+-- R-8 (WKE-616): one age, two endings. `template` is the strip's clause by
+-- default and the chat line's when `Drift.GearUnreadChatText` asks for it; the
+-- fact and the age are the same read either way, so the two surfaces cannot
+-- disagree about when the gear was last rated.
+local function gearUnreadText(now, template)
     local inventory = ns.Companion and ns.Companion.GearUnreadAtFlush and ns.Companion.GearUnreadAtFlush()
     if not inventory then
         return nil
@@ -613,7 +643,19 @@ function Drift.GearUnreadText(now)
     if not age then
         return nil
     end
-    return string.format(Drift.LOAD_GEAR_UNREAD, age)
+    return string.format(template, age)
+end
+
+-- The strip's clause: it ends at the age, because the Refresh button is on the
+-- same row (R-8).
+function Drift.GearUnreadText(now)
+    return gearUnreadText(now, Drift.STRIP_GEAR_UNREAD)
+end
+
+-- The chat frame's, said once at a login where there is no button to point at,
+-- so it names the button and then the command (R-8).
+function Drift.GearUnreadChatText(now)
+    return gearUnreadText(now, Drift.LOAD_GEAR_UNREAD)
 end
 
 function Drift.Decide(now)
@@ -696,6 +738,19 @@ function Drift.Click(now)
     end
     ns.Companion.Refresh()
     return "refresh"
+end
+
+-- R-8 (WKE-616): what the Refresh button's hover says, for the state the click
+-- is actually in. `Decide` rather than `Waiting`, because `Waiting` ends a wait
+-- it does not find and a hover must not write anything; `Decide` only reads.
+function Drift.RefreshTooltip(now)
+    if type(InCombatLockdown) == "function" and InCombatLockdown() then
+        return Drift.REFRESH_TOOLTIP_COMBAT
+    end
+    if Drift.Decide(now) == "waiting" then
+        return Drift.REFRESH_TOOLTIP_WAIT
+    end
+    return Drift.REFRESH_TOOLTIP
 end
 
 -- ---------------------------------------------------------------------------
@@ -787,7 +842,7 @@ function Drift.LoadLine(now)
         -- that captured no gear, and said again at the next one if that is
         -- still true. A `/reload` or a refresh stores a read newer than the
         -- refusal and it stops being said.
-        line = Drift.GearUnreadText(now)
+        line = Drift.GearUnreadChatText(now)
     elseif decision == "done" then
         line = Drift.LOAD_DONE
     elseif decision == "unseen" then
