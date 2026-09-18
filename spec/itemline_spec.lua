@@ -49,6 +49,24 @@ describe("UI.ItemLine over a cached item", function()
         H.unload()
     end)
 
+    -- M5-1c (WKE-617): a line that REPORTS its height is what lets a caller
+    -- put something under it. Equip Now's note used to hang off a constant of
+    -- the panel's own, which the line had already passed.
+    it("reports the height it takes, from whichever of its two columns is taller", function()
+        assert.equal(36, ns.UI.ItemLine.Height())
+        assert.equal(ns.UI.ItemLine.Height(), line:GetHeight())
+        assert.equal(ns.UI.ItemLine.Height(), line.lineHeight)
+        -- The default 34-point icon is the taller column, so the answer is the
+        -- one the frame has always been set to.
+        assert.equal(ns.UI.ItemLine.ICON_SIZE + ns.UI.ItemLine.LINE_PAD, ns.UI.ItemLine.Height())
+        -- A small icon is not the taller column, and the two text lines are.
+        local text = ns.UI.ItemLine.NAME_HEIGHT + ns.UI.ItemLine.SECOND_GAP + ns.UI.ItemLine.SECOND_HEIGHT
+        assert.equal(31, text)
+        assert.equal(text + ns.UI.ItemLine.LINE_PAD, ns.UI.ItemLine.Height(12))
+        local small = ns.UI.ItemLine.Create(parent, { size = 12 })
+        assert.equal(33, small:GetHeight())
+    end)
+
     it("draws the icon, the quality border, the level and the name", function()
         ns.UI.ItemLine.Set(line, { itemID = ITEM_ID })
         assert.equal(ICON, line.icon.texture)

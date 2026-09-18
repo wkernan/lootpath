@@ -126,6 +126,10 @@ ItemLine.NAME_HEIGHT = 16
 ItemLine.SECOND_HEIGHT = 14
 ItemLine.BADGE_WIDTH = 104
 ItemLine.ICON_GAP = 6
+-- The hair between the name and the second line, and the clearance the frame
+-- keeps under whichever of the two columns is taller.
+ItemLine.SECOND_GAP = 1
+ItemLine.LINE_PAD = 2
 -- The mark column (M5-1b, WKE-610). A mark is a glyph in a fixed position that
 -- says what a row's state is, where a badge said it in words; Equip Now's rows
 -- carry one and the other two tabs do not, so it is optional on this widget the
@@ -520,6 +524,17 @@ local function hoverTarget(line, frame)
     return frame
 end
 
+-- How tall a line of this icon size is: the icon, or the name with the second
+-- line under it, whichever column is taller, plus the frame's own clearance.
+-- A line that REPORTS its height is what lets a caller put something under it
+-- rather than under a constant it has guessed (M5-1c, WKE-617); at the default
+-- 34-point icon the icon is the taller column and the answer is unchanged.
+function ItemLine.Height(size)
+    size = tonumber(size) or ItemLine.ICON_SIZE
+    local text = ItemLine.NAME_HEIGHT + ItemLine.SECOND_GAP + ItemLine.SECOND_HEIGHT
+    return math.max(size, text) + ItemLine.LINE_PAD
+end
+
 -- Create(parent, opts) -> line
 --   opts.size       icon edge, default ICON_SIZE
 --   opts.badgeWidth the column the badge and the tags share
@@ -530,7 +545,10 @@ function ItemLine.Create(parent, opts)
 
     local line = CreateFrame("Frame", nil, parent)
     line.iconSize = size
-    line:SetHeight(size + 2)
+    -- Kept on the frame as well as set on it: a caller that anchors to this
+    -- line's bottom needs the figure before the client has laid anything out.
+    line.lineHeight = ItemLine.Height(size)
+    line:SetHeight(line.lineHeight)
 
     -- The icon and its border are the icon button's own regions, so a hover
     -- anywhere on the icon is a hover on the item.
@@ -566,7 +584,7 @@ function ItemLine.Create(parent, opts)
     line.name:SetWordWrap(false)
 
     line.second = line:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-    line.second:SetPoint("TOPLEFT", nameButton, "BOTTOMLEFT", 0, -1)
+    line.second:SetPoint("TOPLEFT", nameButton, "BOTTOMLEFT", 0, -ItemLine.SECOND_GAP)
     line.second:SetPoint("RIGHT", nameButton, "RIGHT", 0, 0)
     line.second:SetHeight(ItemLine.SECOND_HEIGHT)
     line.second:SetJustifyH("LEFT")
