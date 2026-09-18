@@ -3031,6 +3031,121 @@ describe("the wait on the strip (M3-16b)", function()
     end)
 end)
 
+-- R-8 (WKE-616): the strip's refresh is a button.
+--
+-- The owner read his own strip on 2026-09-18 - `your gear wasn't read at logout
+-- - last rated 15 hours ago \194\183 /lootpath refresh to rate what you wear now` -
+-- and said "we should just make this a button that will run that command for
+-- the user when they click it." So the command comes off the strip and a third
+-- button goes on the row beside `Import...` and `Options`, running exactly what
+-- the chat command runs.
+describe("the Refresh button on the strip (R-8)", function()
+    local ns, world, frame
+
+    local GUARDIAN = { index = 3, id = 104, name = "Guardian", icon = 132276, role = "TANK" }
+
+    local function waiting()
+        ns.db.global.drift = ns.db.global.drift or {}
+        ns.db.global.drift.refreshStartedAt = date("!%Y-%m-%dT%H:%M:%SZ", math.floor(time()))
+    end
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        -- A wait stands only where a companion has been seen (R-6a).
+        ns.companionStatus = { state = "idle", startedAt = "2026-09-14T22:48:00Z", finishedAt = "2026-09-14T22:48:41Z" }
+        frame = ns.UI.Frame()
+        frame:Show()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- Proven red by anchoring the button to the strip's RIGHT instead of to
+    -- `Import...`'s LEFT: it lands on top of Options.
+    it("is the third button on the strip's row, left of Import and Options", function()
+        assert.is_table(frame.refreshButton)
+        assert.equal("Refresh", frame.refreshButton:GetText())
+        -- a FRAME child like the other two (H-1a), so the Coming soon screen
+        -- cannot take it off with the strip
+        assert.equal(frame, frame.refreshButton:GetParent())
+        assert.equal(frame.openImportButton, frame.refreshButton.points[1][2])
+        assert.equal("LEFT", frame.refreshButton.points[1][3])
+        -- the same height as the two it sits beside
+        assert.equal(frame.openImportButton.height, frame.refreshButton.height)
+        -- and the line of facts now stops at IT, not at Import
+        assert.equal(frame.refreshButton, frame.stripText.points[2][2])
+    end)
+
+    -- Proven red by making the OnClick a no-op: nothing is captured and nothing
+    -- reloads.
+    it("runs what /lootpath refresh runs: the captures, the stamp and the reload", function()
+        assert.equal(0, world.reloads)
+        frame.refreshButton:Click()
+        assert.equal(1, world.reloads)
+        assert.is_string(ns.db.global.drift.refreshStartedAt)
+        for _, name in ipairs(ns.Companion.REFRESH_CAPTURES) do
+            assert.is_truthy(ns.db.global.captures[name] and #ns.db.global.captures[name] > 0, name)
+        end
+    end)
+
+    -- The same function the strip's wait click reaches (`Drift.Click`), so a
+    -- rating that is already being made is LOADED rather than asked for twice.
+    it("loads instead of asking again while a rating is out there", function()
+        waiting()
+        local stamp = ns.db.global.drift.refreshStartedAt
+        ns.UI.RefreshStrip(frame)
+        frame.refreshButton:Click()
+        assert.equal(1, world.reloads)
+        -- the wait's own stamp is untouched: nothing was asked for a second time
+        assert.equal(stamp, ns.db.global.drift.refreshStartedAt)
+        assert.is_nil(ns.db.global.captures.inventory)
+    end)
+
+    it("says on its hover what this press will do, in this state", function()
+        frame.refreshButton:GetScript("OnEnter")(frame.refreshButton)
+        assert.equal(ns.Drift.REFRESH_TOOLTIP, world.tooltip.stub:Text())
+        world.tooltip:ClearLines()
+        waiting()
+        frame.refreshButton:GetScript("OnEnter")(frame.refreshButton)
+        assert.equal(ns.Drift.REFRESH_TOOLTIP_WAIT, world.tooltip.stub:Text())
+    end)
+
+    -- Proven red by dropping the `SetEnabled` out of `UI.RefreshStrip`: the
+    -- button stays lit in combat and the click reaches `Companion.Refresh`.
+    it("greys out in combat, and the press does nothing there", function()
+        world.inCombat = true
+        ns.UI.RefreshStrip(frame)
+        assert.is_false(frame.refreshButton:IsEnabled())
+        frame.refreshButton:Click()
+        assert.equal(0, world.reloads)
+        world.tooltip:ClearLines()
+        frame.refreshButton:GetScript("OnEnter")(frame.refreshButton)
+        assert.equal(ns.Drift.REFRESH_TOOLTIP_COMBAT, world.tooltip.stub:Text())
+        -- and it comes back when the fight is over
+        world.inCombat = false
+        ns.UI.RefreshStrip(frame)
+        assert.is_true(frame.refreshButton:IsEnabled())
+    end)
+
+    -- H-1a's rule for Import and Options: a refresh is never wrong to offer, so
+    -- the button stays where it is over the Coming soon screen. Its click then
+    -- reaches `Companion.Refresh`, which refuses with the gate's own line and
+    -- captures nothing (H-1).
+    it("stays on the row over the Coming soon screen, and the press is refused there", function()
+        world.spec = GUARDIAN
+        ns.UI.Refresh()
+        assert.is_false(frame.statusStrip:IsShown())
+        assert.equal(frame, frame.refreshButton:GetParent())
+        assert.equal(frame.openImportButton, frame.refreshButton.points[1][2])
+        frame.refreshButton:Click()
+        assert.equal(0, world.reloads)
+        assert.is_nil(ns.db.global.captures.inventory)
+        assert.is_truthy(tostring(world.output()):find("Guardian", 1, true))
+    end)
+end)
+
 describe("the import dialog (M5-2)", function()
     local ns, world, frame
 

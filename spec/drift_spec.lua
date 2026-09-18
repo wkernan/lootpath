@@ -702,6 +702,22 @@ describe("ns.Drift.Click", function()
         assert.equal(1, world.reloads)
         assert.same({}, ns.db.global.captures)
     end)
+
+    -- R-8 (WKE-616): the button's hover says which of those two the press will
+    -- be. Proven red by returning `REFRESH_TOOLTIP` unconditionally: the
+    -- waiting case reads `rate what you wear now` over a rating that is already
+    -- being made.
+    it("says which of the two the next press is, and writes nothing while it looks", function()
+        assert.equal(ns.Drift.REFRESH_TOOLTIP, ns.Drift.RefreshTooltip())
+        ns.companionStatus = { state = "idle", startedAt = "2026-09-14T22:48:00Z", finishedAt = "2026-09-14T22:48:41Z" }
+        ns.db.global.drift.refreshStartedAt = "2026-09-14T23:10:00Z"
+        local at = ns.EpochFromISO("2026-09-14T23:10:30Z")
+        assert.equal(ns.Drift.REFRESH_TOOLTIP_WAIT, ns.Drift.RefreshTooltip(at))
+        -- a hover is not an act: the wait it just read is still there
+        assert.equal("2026-09-14T23:10:00Z", ns.db.global.drift.refreshStartedAt)
+        world.inCombat = true
+        assert.equal(ns.Drift.REFRESH_TOOLTIP_COMBAT, ns.Drift.RefreshTooltip(at))
+    end)
 end)
 
 describe("the refresh labels what it captured (R-6)", function()
@@ -808,26 +824,39 @@ describe("ns.Drift and a logout that could not read the gear (R-7c)", function()
         assert.is_truthy(tostring(world.output()):find(ns.PREFIX .. line, 1, true))
     end
 
+    -- R-8 (WKE-616): the chat frame has no button on it, so the line said once
+    -- at the login keeps a tail - and it names the button FIRST, because the
+    -- window is where the reader is about to go.
     it("says how old the plan's gear is, and what fixes it", function()
         stored({ refusals = { refusal() } })
         assert.equal("gearunread", ns.Drift.Decide(at(NOW)))
         local line = ns.Drift.LoadLine(at(NOW))
         assert.equal(
             "your gear wasn't read at logout - last rated 40 minutes ago \194\183 "
-                .. "/lootpath refresh to rate what you wear now",
+                .. "Refresh in the window, or /lootpath refresh",
             line
         )
         said(line)
     end)
 
     -- The strip and the chat line are one decision, which is what `Drift.Decide`
-    -- is for: the sentence on the line is the same string, character for
-    -- character, as the one the load printed.
-    it("puts the same sentence on the status strip", function()
+    -- is for, and one fact: the same age, read once.
+    --
+    -- **R-8 (WKE-616): and two endings.** The strip's clause STOPS at the age,
+    -- because the Refresh button is on the strip's own row a hand's width to the
+    -- right; spelling out a command beside the button that runs it is asking the
+    -- reader to type what he could press. The owner, reading his own strip on
+    -- 2026-09-18: "we should just make this a button that will run that command
+    -- for the user when they click it."
+    it("puts the same fact on the status strip, with no command written out", function()
         stored({ refusals = { refusal() } })
         local model = ns.UI.StatusStripModel(at(NOW))
         assert.equal(ns.Drift.GearUnreadText(at(NOW)), model.gearClause)
         assert.equal(model.gearClause, model.text)
+        assert.equal("your gear wasn't read at logout - last rated 40 minutes ago", model.gearClause)
+        assert.is_nil(model.gearClause:find("/lootpath", 1, true))
+        -- one age, read once, so the two surfaces cannot disagree about it
+        assert.is_truthy(ns.Drift.GearUnreadChatText(at(NOW)):find(model.gearClause, 1, true))
         -- and the facts it displaced are at the top of the tooltip, not lost
         assert.is_truthy(model.tooltip[1])
     end)

@@ -1146,9 +1146,52 @@ local function buildStatusStrip(frame)
     end)
     frame.openImportButton = importButton
 
+    -- R-8 (WKE-616): the third button on the row, and the one the strip's own
+    -- sentences used to spell out as a command. It is a FRAME child like the
+    -- other two (H-1a) and for the same reason: a refresh is never wrong to
+    -- offer, so it stays on screen over the Coming soon screen as well, where
+    -- its click reaches `Companion.Refresh` and gets that screen's own refusal
+    -- instead of a rating nobody asked for. The click is `ns.Drift.Click` - the
+    -- same function the strip's wait click and `/lootpath refresh` reach, so a
+    -- rating that is ready loads and anything else refreshes - and an OnClick is
+    -- the hardware event `ReloadUI` requires (M3-16a).
+    local refreshButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    refreshButton:SetSize(74, 20)
+    refreshButton:SetPoint("RIGHT", importButton, "LEFT", -6, 0)
+    refreshButton:SetText(ns.Drift.REFRESH_LABEL)
+    refreshButton:SetScript("OnClick", function()
+        ns.Drift.Click()
+        UI.RefreshStrip(frame)
+    end)
+    -- The hover says what THIS press will do, in this state (Drift.RefreshTooltip),
+    -- including the one state in which it will do nothing: combat, where the
+    -- button is greyed out the way the Equip buttons are. A disabled button gets
+    -- no OnEnter unless it is told to take one - `SetMotionScriptsWhileDisabled`
+    -- is Blizzard's own, read in the exported documentation under `.luals/`
+    -- (SimpleButtonAPIDocumentation:395, Core/Widget/Frame/Button/Button.lua:170)
+    -- - so the combat line has a surface to be read on. Guarded: a client that
+    -- does not carry it loses the hover, not the button.
+    if type(refreshButton.SetMotionScriptsWhileDisabled) == "function" then
+        refreshButton:SetMotionScriptsWhileDisabled(true)
+    end
+    refreshButton:SetScript("OnEnter", function(button)
+        if not GameTooltip then
+            return
+        end
+        GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+        GameTooltip:SetText(ns.Drift.RefreshTooltip(), 1, 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    refreshButton:SetScript("OnLeave", function()
+        if GameTooltip then
+            GameTooltip:Hide()
+        end
+    end)
+    frame.refreshButton = refreshButton
+
     local text = strip:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     text:SetPoint("LEFT", strip, "LEFT", 2, 0)
-    text:SetPoint("RIGHT", importButton, "LEFT", -8, 0)
+    text:SetPoint("RIGHT", refreshButton, "LEFT", -8, 0)
     text:SetJustifyH("LEFT")
     text:SetWordWrap(false)
     frame.stripText = text
@@ -1260,6 +1303,14 @@ function UI.RefreshStrip(frame)
     frame = frame or UI.frame
     if not frame or not frame.stripText then
         return nil
+    end
+    -- R-8 (WKE-616): the Refresh button is on screen in every state the strip
+    -- can be in, INCLUDING the gated one below, so its combat lock is set here,
+    -- ahead of the gate's early return. `PLAYER_REGEN_DISABLED` and
+    -- `PLAYER_REGEN_ENABLED` both reach `UI.Refresh` while the window is up, so
+    -- the grey arrives with the fight and leaves with it.
+    if frame.refreshButton and type(frame.refreshButton.SetEnabled) == "function" then
+        frame.refreshButton:SetEnabled(not (type(InCombatLockdown) == "function" and InCombatLockdown()))
     end
     -- H-1a (WKE-606): while the Coming soon screen is up the strip is not.
     -- H-1 left its four facts on the row over a screen that has just said the
