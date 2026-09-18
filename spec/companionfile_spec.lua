@@ -49,6 +49,20 @@ describe("the companion's Data/QEVerdict.lua", function()
         assert.are.equal(4, #file.exports)
     end)
 
+    -- C-15 (WKE-615): and WHO it rated. One file per machine, loaded by every
+    -- character that logs in, so a file that does not say hands its rating to
+    -- whoever logs in next - which is how fifteen Druid pieces came to be drawn
+    -- on a Restoration Shaman's Equip Now tab on 2026-09-18. The class is the
+    -- TOKEN: `Restoration` is the spec name of both a Druid and a Shaman, and
+    -- `DRUID` is not `SHAMAN`.
+    it("says which character it rated", function()
+        local file = load().companionVerdict
+        assert.is_table(file.character)
+        assert.are.equal("Hotornot", file.character.name)
+        assert.are.equal("Arthas", file.character.realm)
+        assert.are.equal("DRUID", file.character.class)
+    end)
+
     -- C-5 (WKE-539): the file says which of QE Live's own import settings
     -- produced it, so a vault option he values at 321 while the client reads
     -- the same link at 305 is readable rather than a contradiction. They must

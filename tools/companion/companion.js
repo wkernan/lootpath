@@ -352,6 +352,16 @@ async function once(config, log, args, deps) {
             writtenAt,
             companionVersion: VERSION,
             profileCapturedAt: profile.capturedAtLocal,
+            // C-15 (WKE-615): whose gear this run rated. One file per machine,
+            // read by every character that logs in, so the file has to say -
+            // and the writer refuses to write one that cannot. The name and
+            // realm are the capture's own, which is the addon's own
+            // `UnitName("player")` and `GetRealmName()`.
+            character: {
+                name: profile.identity.name,
+                realm: profile.identity.realm,
+                class: profile.identity.class,
+            },
             // What the driver read back off the page, not what was asked for,
             // so the file records the run rather than the intention. A driver
             // that reports nothing (the injected one in the tests) falls back

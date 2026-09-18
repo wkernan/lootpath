@@ -462,6 +462,106 @@ local function safeScenario(value)
     return safeString(value)
 end
 
+-- ---------------------------------------------------------------------------
+-- C-15 (WKE-615): a rating is for ONE character.
+--
+-- `Data/QEVerdict.lua` is one file per machine and every character that logs in
+-- loads it, so before this the LAST character to refresh handed its answer to
+-- whoever logged in next. The owner, 2026-09-18, logged an old Restoration
+-- Shaman in on the same account and Equip Now showed his Druid's rating:
+-- fifteen `you don't own this` rows of Druid pieces beside the Shaman's own
+-- worn icons, and the strip saying `last rated 15 hours ago` as though the
+-- rating were his.
+--
+-- Two things had to be true and only one was. The store was already the right
+-- one - `ns.QEImport.Store` writes into `db.char`, per character - but it was
+-- being filled from a file that named nobody. So the companion says who it
+-- rated, and this is the gate that reads it: the name and realm against the
+-- client's own `UnitName("player")` and `GetRealmName()`, and the class token
+-- against `UnitClass("player")`'s second return.
+--
+-- **The class is the half that matters most.** `SpecClause` compares spec NAMES
+-- and `Restoration` matches `Restoration` across Druid and Shaman, so the spec
+-- line never fired; H-1's healing gate let it through for the same reason, a
+-- Restoration Shaman being a healer. The token does not collide.
+--
+-- Nothing is repaired and nothing is estimated: the file is imported or it is
+-- not, and the paste box is untouched, because a paste is the player's own act.
+Companion.CHARACTER_MISMATCH_LINE = "this rating is for %s on %s - /lootpath refresh to rate this character"
+Companion.CHARACTER_UNNAMED_LINE =
+    "this rating doesn't say which character it's for - /lootpath refresh to rate this one"
+
+-- The { name, realm, class } a companion file names, or nil when it names none.
+-- A file written before C-15 carries no `character` at all, and that is the nil.
+function Companion.FileCharacter(raw)
+    local safe = ns.Safe(raw)
+    if type(safe) ~= "table" then
+        return nil
+    end
+    local character = ns.Safe(safe.character)
+    if type(character) ~= "table" then
+        return nil
+    end
+    return {
+        name = safeString(character.name),
+        realm = safeString(character.realm),
+        class = safeString(character.class),
+    }
+end
+
+-- Who the client says you are, right now. Every field can be nil - at
+-- ADDON_LOADED the client has answered stranger things - and the caller below
+-- treats nil as "the client names nobody", never as a mismatch.
+--
+-- `UnitClass`'s SECOND return is the class token (`DRUID`); the first is the
+-- localised word, and a comparison built on that would refuse every file on a
+-- client that is not enUS.
+function Companion.CurrentCharacter()
+    return {
+        name = safeString(ns.Probe(UnitName, "player")[1]),
+        realm = safeString(ns.Probe(GetRealmName)[1]),
+        class = safeString(ns.Probe(UnitClass, "player")[2]),
+    }
+end
+
+-- nil when this rating is this character's, and otherwise the ONE line the
+-- login, `/lootpath status` and the spec clause all say. `character` is a
+-- `FileCharacter` table.
+--
+-- A file that names nobody is refused too, and for the same reason it is
+-- refused when it names somebody else: a rating that cannot say who it is for
+-- cannot be trusted to anyone. That is every file written before C-15, and one
+-- `/lootpath refresh` replaces it.
+function Companion.CharacterClause(character)
+    local me = Companion.CurrentCharacter()
+    if not me.name or not me.realm then
+        -- The client names nobody. Today's behaviour, not a refusal: a gate
+        -- keyed on nil would refuse every file at the one moment it has
+        -- nothing to go on.
+        return nil
+    end
+    if type(character) ~= "table" or not character.name or not character.realm then
+        return Companion.CHARACTER_UNNAMED_LINE
+    end
+    local mismatch = character.name ~= me.name
+        or character.realm ~= me.realm
+        or (character.class ~= nil and me.class ~= nil and character.class ~= me.class)
+    if not mismatch then
+        return nil
+    end
+    return string.format(Companion.CHARACTER_MISMATCH_LINE, character.name, character.realm)
+end
+
+-- The clause for a raw companion file, or nil when there is nothing to say. nil
+-- for the committed placeholder as well: a file that was never written is not a
+-- file for somebody else.
+function Companion.CharacterRefusal(raw)
+    if raw == nil then
+        return nil
+    end
+    return Companion.CharacterClause(Companion.FileCharacter(raw))
+end
+
 -- Validate(raw) -> { ok = true, writtenAt, writtenAtEpoch, companionVersion,
 -- exports } or { ok = false, reason }. `raw` is whatever the chunk assigned to
 -- ns.companionVerdict; nil means the committed placeholder is still in place,
@@ -509,6 +609,11 @@ function Companion.Validate(raw, now)
         -- made from. File-level, because the profile is the run's and not any
         -- one document's.
         profileVaultCount = safeVaultCount(safe.profileVaultCount),
+        -- C-15 (WKE-615): whose gear the run rated. Read here and carried onto
+        -- each verdict below, so a stored rating can still say who it is for
+        -- after the file that brought it has been replaced. The GATE is in
+        -- `Startup`, not here: `ImportAll` is the importer and stays one.
+        character = Companion.FileCharacter(safe),
         exports = exports,
     }
 end
@@ -689,6 +794,12 @@ function Companion.ImportAll(raw, now)
                     verdict.source = Companion.SOURCE_COMPANION
                     verdict.companionWrittenAt = file.writtenAt
                     verdict.companionVersion = file.companionVersion
+                    -- C-15 (WKE-615): who this rating is FOR, carried onto the
+                    -- verdict for the same reason `qeSettings` is - the surfaces
+                    -- read whichever verdict is on screen, which may have come
+                    -- back from SavedVariables long after the file that wrote it
+                    -- was replaced. `SpecClause` is what reads it.
+                    verdict.character = file.character
                     -- Carried onto the verdict, not left in the file's result:
                     -- the Vault panel reads it off whichever verdict is on
                     -- screen, which may have come back from SavedVariables
@@ -782,6 +893,16 @@ end
 -- nobody asked for. If it IS open (a /lootpath refresh with the window up),
 -- it is redrawn.
 function Companion.Startup(now)
+    -- C-15 (WKE-615): one file, one character. Before anything is parsed or
+    -- stored, because the failure this prevents is a STORE - a rating for the
+    -- Druid landing in the Shaman's `db.char` and being drawn as his. One line
+    -- and nothing else: the file is left where it is, the paste box still
+    -- works, and a `/lootpath refresh` on this character replaces it.
+    local refusal = Companion.CharacterRefusal(ns.companionVerdict)
+    if refusal then
+        ns.Log("%s", refusal)
+        return { ok = false, otherCharacter = true, reason = refusal }
+    end
     local result = Companion.ImportAll(ns.companionVerdict, now)
     if result.absent then
         return result
@@ -1258,6 +1379,22 @@ end
 function Companion.SpecClause(verdict, envData)
     if type(verdict) ~= "table" then
         return nil
+    end
+    -- C-15 (WKE-615): the CHARACTER first, and the class before the spec name.
+    -- `Restoration` matches `Restoration` across Druid and Shaman, so the
+    -- substring test below cannot tell those two apart and the class token can.
+    -- A rating for somebody else is never a spec line: switching spec would not
+    -- fix it.
+    --
+    -- Only when the verdict CARRIES a character: a paste carries none and is
+    -- the player's own act, and a verdict stored before C-15 carries none
+    -- either. Neither is refused here; this is the file's own claim, checked.
+    local character = Companion.FileCharacter(verdict)
+    if character then
+        local mine = Companion.CharacterClause(character)
+        if mine then
+            return mine
+        end
     end
     local planned = safeString(verdict.spec)
     local current = Companion.CurrentSpec() or Companion.SpecFromEnv(envData)

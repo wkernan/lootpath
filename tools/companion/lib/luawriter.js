@@ -272,8 +272,49 @@ function passOf(doc) {
     return doc.pass;
 }
 
+// Who this rating is FOR (C-15, WKE-615).
+//
+// `Data/QEVerdict.lua` is ONE file per machine, and the addon loads it at every
+// character's login. Until this field existed the file said nothing about whose
+// gear it had rated, so an alt logging in imported the main's answer into its
+// own store: the owner's Restoration Shaman, 2026-09-18, was offered fifteen
+// Druid pieces it did not own. The companion has always KNOWN - `profile.js`
+// builds `identity` out of the newest `env` capture - and simply did not say.
+//
+// `name` and `realm` are the client's own `UnitName("player")` and
+// `GetRealmName()`, carried through that capture; the addon compares them
+// against the same two calls and imports nothing when they disagree. BOTH are
+// required: a file that cannot say who it is for cannot be trusted to anyone,
+// and writing one without them would be writing the bug back.
+//
+// `class` is the class TOKEN - `UnitClass`'s second return, `DRUID`, the same
+// word on every locale - and is optional, because a transcript captured before
+// the field was carried has none. It is what finally tells a Restoration
+// Druid's rating from a Restoration Shaman's: the two specs share a name, so
+// the spec check alone never fired.
+function characterOf(character) {
+    if (!character || typeof character !== 'object') {
+        throw new Error('refusing to write a verdict file that does not say which character it rated');
+    }
+    const text = (value) => (value === undefined || value === null ? '' : String(value));
+    const name = text(character.name);
+    const realm = text(character.realm);
+    if (!name) throw new Error('refusing to write a verdict file whose character has no name');
+    if (!realm) throw new Error('refusing to write a verdict file whose character has no realm');
+    return { name, realm, class: text(character.class) };
+}
+
+function characterLines(character, indent) {
+    const pad = ' '.repeat(indent);
+    const lines = [`${pad}character = {`, `${pad}    name = ${luaString(character.name)},`, `${pad}    realm = ${luaString(character.realm)},`];
+    if (character.class) lines.push(`${pad}    class = ${luaString(character.class)},`);
+    lines.push(`${pad}},`);
+    return lines;
+}
+
 function render(payload) {
     const { writtenAt, companionVersion, profileCapturedAt, documents, qeSettings, excluded, scenarioNote, profileVaultCount } = payload;
+    const character = characterOf(payload.character);
     if (!Array.isArray(documents) || !documents.length) {
         throw new Error('refusing to write a verdict file with no documents');
     }
@@ -299,6 +340,7 @@ function render(payload) {
         `    writtenAt = ${luaString(writtenAt)},`,
         `    companionVersion = ${luaString(companionVersion)},`,
         `    profileCapturedAt = ${luaString(profileCapturedAt || '')},`,
+        ...characterLines(character, 4),
         '    qeSettings = {',
         ...QE_SETTING_KEYS.map((key) => `        ${key} = ${luaBoolean(qeSettings[key])},`),
         '    },',
@@ -383,6 +425,8 @@ module.exports = {
     luaString,
     luaNumber,
     luaBoolean,
+    characterOf,
+    characterLines,
     keyLevelOf,
     passOf,
     scenarioOf,

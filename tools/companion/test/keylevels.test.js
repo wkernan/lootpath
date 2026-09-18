@@ -340,6 +340,9 @@ test('an Upgrade Finder document records the key level it was run at', () => {
     const text = luaWriter.render({
         writtenAt: '2026-09-08T00:00:00Z',
         companionVersion: '0.1.0',
+        // C-15 (WKE-615): the writer refuses a file that cannot say which
+        // character it rated.
+        character: { name: 'Hotornot', realm: 'Arthas', class: 'DRUID' },
         profileCapturedAt: '2026-09-05T13:33:25',
         qeSettings: { autoUpgradeVault: false, autoUpgradeAll: false },
         documents: [
@@ -359,6 +362,9 @@ test('a key level that is not a whole number, or is on the wrong kind of documen
     const payload = {
         writtenAt: '2026-09-08T00:00:00Z',
         companionVersion: '0.1.0',
+        // C-15 (WKE-615): the writer refuses a file that cannot say which
+        // character it rated.
+        character: { name: 'Hotornot', realm: 'Arthas', class: 'DRUID' },
         profileCapturedAt: '',
         qeSettings: { autoUpgradeVault: false, autoUpgradeAll: false },
     };

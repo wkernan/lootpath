@@ -142,6 +142,9 @@ test('what the driver reports is exactly what the verdict writer accepts', async
     const text = luaWriter.render({
         writtenAt: '2026-09-08T00:00:00Z',
         companionVersion: '0.1.0',
+        // C-15 (WKE-615): the writer refuses a file that cannot say which
+        // character it rated.
+        character: { name: 'Hotornot', realm: 'Arthas', class: 'DRUID' },
         qeSettings: settings,
         documents: [
             { kind: 'topgear', contentType: 'Dungeon', scenario: 'asOffered', qeSettings: settings, json: '{}' },
@@ -585,6 +588,9 @@ test('C-8: what the driver reports as excluded is exactly what the verdict write
     const text = luaWriter.render({
         writtenAt: '2026-09-10T00:00:00Z',
         companionVersion: '0.1.0',
+        // C-15 (WKE-615): the writer refuses a file that cannot say which
+        // character it rated.
+        character: { name: 'Hotornot', realm: 'Arthas', class: 'DRUID' },
         qeSettings: { autoUpgradeAll: false, autoUpgradeVault: false },
         excluded: selection.excluded,
         documents: [
@@ -733,6 +739,9 @@ test('C-11: what a pass says it considered is exactly what the verdict writer ac
     const text = luaWriter.render({
         writtenAt: '2026-09-14T00:00:00Z',
         companionVersion: '0.1.0',
+        // C-15 (WKE-615): the writer refuses a file that cannot say which
+        // character it rated.
+        character: { name: 'Hotornot', realm: 'Arthas', class: 'DRUID' },
         qeSettings: { autoUpgradeAll: false, autoUpgradeVault: false },
         excluded: passes[passes.length - 1].excluded,
         documents: passes.map((one) => ({

@@ -1159,6 +1159,11 @@ function Stub.install()
         realm = "TestRealm",
         playerName = "Tester",
         playerLevel = 90,
+        -- localizedClassName, classToken, classID (UnitClass). The TOKEN is the
+        -- second, and it is what C-15's character gate compares: `Restoration`
+        -- is the spec name of both a Druid and a Shaman, and `DRUID` is not
+        -- `SHAMAN`. Settable so a test can log an alt in.
+        playerClass = { "Druid", "DRUID", 11 },
         -- localizedRaceName, englishRaceName, raceID
         playerRace = { "Zandalari Troll", "ZandalariTroll", 31 },
         region = "US",
@@ -1499,7 +1504,7 @@ function Stub.install()
         return nil
     end)
     define("UnitClass", function()
-        return "Druid", "DRUID", 11
+        return world.playerClass[1], world.playerClass[2], world.playerClass[3]
     end)
     define("UnitLevel", function(unit)
         return unit == "player" and world.playerLevel or 0
