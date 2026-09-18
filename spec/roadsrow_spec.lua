@@ -218,7 +218,7 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
             { groups[1].group, groups[2].group, groups[3].group }
         )
         assert.equal(
-            "Your best set · this week's plan · the pick first, then the rated alternatives",
+            "Your best set · this week's picks · the pick first, then the rated alternatives",
             groups[1].header
         )
         assert.equal(
@@ -423,7 +423,7 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
         assert.equal("rated under everything upgraded", row.second)
         -- The group header still names the plan the screen is following, off
         -- the pick rather than off this row.
-        assert.equal("this week's plan", ns.UpgradeMapPanel.RoadPlanName(back.roads))
+        assert.equal("this week's picks", ns.UpgradeMapPanel.RoadPlanName(back.roads))
     end)
 
     -- The same rule where the owner's own week cannot reach it: a slot whose
@@ -432,9 +432,9 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
     -- never the `maxed` run the Upgrade road always reads.
     it("never lets the Upgrade road name the plan the group header follows", function()
         local crest = { kind = ns.Roads.KIND_CREST, plan = "everything upgraded", keys = {} }
-        local pick = { kind = ns.Roads.KIND_KEEP, plan = "this week's plan", keys = {} }
+        local pick = { kind = ns.Roads.KIND_KEEP, plan = "this week's picks", keys = {} }
         assert.equal(
-            "this week's plan",
+            "this week's picks",
             ns.UpgradeMapPanel.RoadPlanName({ groups = { [ns.Roads.GROUP_SET] = { crest, pick } } })
         )
         assert.is_nil(ns.UpgradeMapPanel.RoadPlanName({ groups = { [ns.Roads.GROUP_SET] = { crest } } }))
@@ -679,12 +679,14 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
         end
         -- The FIRST VISIBLE use decides, and on this slot that is the sentence
         -- in the section header: "Catalyst your Lynx shoulders" uses the word
-        -- before any group header or row does. "plan" is first used by the set
-        -- group's header, and "crest" by the vault road's facts under it.
-        assert.is_true(at.Catalyst < at.plan)
-        assert.is_true(at.plan < at.crest)
+        -- before any group header or row does. "picks" is first used by the set
+        -- group's header - it is the scenario's own name since UX-3 (WKE-599)
+        -- swept "plan" off every screen - and "crest" by the vault road's facts
+        -- under it.
+        assert.is_true(at.Catalyst < at.picks)
+        assert.is_true(at.picks < at.crest)
         assert.equal(ns.UpgradeMapPanel.ELEMENT_SECTION, list[at.Catalyst - 1].kind)
-        assert.equal(ns.UpgradeMapPanel.ELEMENT_GROUP, list[at.plan - 1].kind)
+        assert.equal(ns.UpgradeMapPanel.ELEMENT_GROUP, list[at.picks - 1].kind)
         assert.equal(ns.UpgradeMapPanel.ELEMENT_ROAD, list[at.crest - 1].kind)
         -- "no crests here" is not a use of "crest": the sentence in the header
         -- did not earn the crest line, the row that says what is not readable
@@ -862,7 +864,7 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
         assert.equal("not asked", usesForbidden("not asked about"))
         assert.equal("no document", usesForbidden("no document covers it"))
         assert.equal("next:", usesForbidden("next: run the key"))
-        assert.is_nil(usesForbidden("this week's plan"))
+        assert.is_nil(usesForbidden("this week's picks"))
         assert.is_nil(usesForbidden("the Hoardmonger"))
     end)
 end)
@@ -1059,7 +1061,7 @@ describe("Roads on the window, over the owner's week of 2026-09-08", function()
                 .. " Skip the vault shoulders.",
             plan.sentence
         )
-        assert.equal("The plan would catalyst the Hide chest too, but you've only got one charge.", plan.footnote)
+        assert.equal("You could catalyst the Hide chest too, but you've only got one charge.", plan.footnote)
         -- Drawn above the pick, and the pick is still there under it.
         assert.equal(plan.sentence, panel.headline.plan:GetText())
         assert.equal(plan.footnote, panel.headline.planFootnote:GetText())

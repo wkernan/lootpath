@@ -1056,7 +1056,7 @@ end
 -- the spec he is not standing in. This says which is which, in one sentence, at
 -- the three moments he is looking: the strip, the load after a refresh, and the
 -- refresh itself before it captures.
-Companion.SPEC_MISMATCH_LINE = "you're in %s; this plan is for %s - switch and refresh"
+Companion.SPEC_MISMATCH_LINE = "you're in %s; this rating is for %s - switch and refresh"
 
 -- The spec named by an `env` capture's `specInfo` probe, or nil.
 -- `GetSpecializationInfo`'s second return is the spec's own name (Ketho's

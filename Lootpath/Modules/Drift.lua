@@ -60,7 +60,7 @@ Drift.WAIT_GIVE_UP_SECONDS = 600
 
 -- The words, all of them, in one place, because the strip, the minimap tooltip
 -- and the chat line must not be able to disagree.
-Drift.NUDGE_LINE = "your gear changed since this plan (%s) \194\183 click to refresh"
+Drift.NUDGE_LINE = "your gear changed since this rating (%s) \194\183 click to refresh"
 Drift.NUDGE_TOOLTIP = "The newest is %s. Clicking captures your gear and reloads; "
     .. "the rating is made while you play."
 Drift.NUDGE_TOOLTIP_UNNAMED = "Clicking captures your gear and reloads; the rating is made while you play."
@@ -90,14 +90,14 @@ Drift.WAIT_CHAT_MEASURED = "usually takes about %s"
 -- refresh always says one line**, and which line it is is `Drift.Decide`'s
 -- single answer, which the strip reads through `Drift.Waiting` as well - so the
 -- chat frame and the strip cannot say two different things about one run.
-Drift.LOAD_SKIPPED = "your gear hasn't changed since the last rating, so the plan you have is current."
+Drift.LOAD_SKIPPED = "your gear hasn't changed since the last rating, so what you have is current."
 -- R-7b (WKE-591): the other `skipped`, and the opposite news. C-4's skip says
 -- the plan is already right; this one says nothing was sent at all, so the plan
 -- is only as new as the last read that worked. The two are told apart by the
 -- exit code the companion writes (`ns.Companion.EXIT_EMPTY_GEAR`), never by its
 -- message.
-Drift.LOAD_SKIPPED_EMPTY = "your gear didn't reach the companion - the last read of it was empty - so the "
-    .. "plan you have is untouched. Try /lootpath refresh."
+Drift.LOAD_SKIPPED_EMPTY = "your gear didn't reach the companion - the last read of it was empty - so what "
+    .. "you have is untouched. Try /lootpath refresh."
 -- C-14 (WKE-603): the third `skipped`, and the only one the player can cure in
 -- ten seconds. The gear was read and it was read correctly; one slot had
 -- nothing in it, and a character with a bare slot is not something the rating
@@ -113,7 +113,7 @@ Drift.LOAD_SKIPPED_SLOT = "a gear slot was empty when your gear was read, so it 
 -- newest stored read's, because that read is what the plan on screen is about.
 Drift.LOAD_GEAR_UNREAD = "your gear wasn't read at logout - last rated %s "
     .. "\194\183 /lootpath refresh to rate what you wear now"
-Drift.LOAD_DONE = "rated just now; the plan is current."
+Drift.LOAD_DONE = "rated just now; you're up to date."
 Drift.LOAD_FAILED = "the rating failed%s; see companion.log."
 Drift.LOAD_UNSEEN = "the companion hasn't been seen; is it running?"
 

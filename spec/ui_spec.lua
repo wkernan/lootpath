@@ -1338,7 +1338,9 @@ describe("the window's three tabs", function()
         ns.UI.ShowUpgradeMap()
         assert.is_true(frame:IsShown())
         assert.equal(2, frame.selectedTab)
-        assert.is_truthy(ns.UI.Tooltip.WHY:find("/lootpath map", 1, true))
+        -- UX-3 (WKE-599) moved those words onto the block's last line,
+        -- which is the one place a command lives now.
+        assert.is_truthy(ns.UI.Tooltip.MAP:find("/lootpath map", 1, true))
     end)
 
     it("shows exactly one panel per tab clicked", function()
@@ -2585,7 +2587,7 @@ describe("the nudge row (R-6)", function()
         ns.UI.RefreshStrip(frame)
         assert.is_true(frame.nudgeButton:IsShown())
         assert.equal(
-            "your gear changed since this plan (2 items) \194\183 click to refresh",
+            "your gear changed since this rating (2 items) \194\183 click to refresh",
             frame.nudgeButton.label.text
         )
         assert.equal(ns.UI.STRIP_HEIGHT + ns.UI.NUDGE_HEIGHT, frame.statusStrip.height)

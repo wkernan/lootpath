@@ -163,7 +163,7 @@ describe("Roads over the owner's week of 2026-09-08", function()
         assert.equal(271526, pick.becomes.itemID)
         assert.equal(2057, pick.becomes.setId)
         assert.equal("in your best set", pick.rating.badge)
-        assert.equal("this week's plan", pick.plan)
+        assert.equal("this week's picks", pick.plan)
         assert.equal("do: Catalyst it · charge 1 held, 8 max", pick.todo)
         -- No verb: the Catalyst is not something the addon may open.
         assert.is_nil(pick.verb)
@@ -814,8 +814,8 @@ describe("Roads over the owner's week of 2026-09-08", function()
         -- His best set spends two charges and the client says one is held, so
         -- the sentence names the first in HIS OWN top-set order and the
         -- footnote says the other. Nothing here chooses between them.
-        assert.equal("The plan would catalyst the Hide chest too, but you've only got one charge.", plan.footnote)
-        assert.equal("this week's plan", plan.plan)
+        assert.equal("You could catalyst the Hide chest too, but you've only got one charge.", plan.footnote)
+        assert.equal("this week's picks", plan.plan)
     end)
 
     it("says both conversions in one clause when no count says one is too many", function()
@@ -934,7 +934,7 @@ describe("Roads over the owner's week of 2026-09-08", function()
             week.scenarioNote = NOTE
             local plan = ns.Roads.PlanSentence(week)
             assert.equal(
-                "The plan would catalyst the Hide chest too, but you've only got one charge. " .. NOTE,
+                "You could catalyst the Hide chest too, but you've only got one charge. " .. NOTE,
                 plan.footnote
             )
         end)
@@ -1030,10 +1030,7 @@ describe("Roads over the owner's week of 2026-09-08", function()
         -- 315 is above the 305 the vault is offering it at, so the crest is
         -- part of what has happened and the step left is not the refresh alone:
         -- the plan wants this staff on the character (R-3c, WKE-580).
-        assert.equal(
-            "This is the vault Worldroot the plan wanted, crested to 315. Put it on; refresh to rate it.",
-            ns.Roads.ItemSentence(answer)
-        )
+        assert.equal("Put this on - then refresh.", ns.Roads.ItemSentence(answer))
     end)
 
     -- The other bag piece in the same slot, on the same screen: the rule is
@@ -1048,7 +1045,7 @@ describe("Roads over the owner's week of 2026-09-08", function()
         end
         assert.is_table(decapitator)
         local answer = answerFor("2H Weapon", decapitator.key)
-        assert.equal("Skip this one, the plan uses the vault Worldroot.", ns.Roads.ItemSentence(answer))
+        assert.equal("Pass - take the vault Worldroot.", ns.Roads.ItemSentence(answer))
     end)
 
     it("says the vault road is claimed and crested, with Refresh as its step", function()
@@ -1101,10 +1098,7 @@ describe("Roads over the owner's week of 2026-09-08", function()
         }
         table.insert(inputs.inventory.records, converted)
         assert.is_true(ns.Roads.IsArrivedPick(converted, pick))
-        assert.equal(
-            "This is the tier shoulders the plan wanted. Refresh to rate it at 295.",
-            ns.Roads.ItemSentence(answerFor("Shoulder", converted.key))
-        )
+        assert.equal("Put these on - then refresh.", ns.Roads.ItemSentence(answerFor("Shoulder", converted.key)))
         -- A Catalyst road is not a vault road and gains no vault badge.
         assert.is_nil(ns.Roads.ForSlot("Shoulder", inputs).groups[ns.Roads.GROUP_SET][1].claimed)
     end)
@@ -1228,7 +1222,7 @@ describe("Roads over the owner's week of 2026-09-08", function()
         -- item's own identity.
         assert.is_table(answer.own)
         assert.equal(ns.Roads.KIND_CREST, answer.own.kind)
-        assert.equal("You've put this on. Refresh to rate it at 298.", ns.Roads.ItemSentence(answer))
+        assert.equal("Refresh - you're already wearing it.", ns.Roads.ItemSentence(answer))
     end)
 
     it("says the crest as well when the worn level is above the one the plan picked", function()
@@ -1236,10 +1230,7 @@ describe("Roads over the owner's week of 2026-09-08", function()
         local worn = cloakCopy(308, "equipped")
         local pick = ns.Roads.PlanPick(ns.Roads.ForSlot("Back", inputs))
         assert.is_true(ns.Roads.ArrivedCrested(worn, pick))
-        assert.equal(
-            "You've crested this and put it on. Refresh to rate it at 308.",
-            ns.Roads.ItemSentence(answerFor("Back", worn.key))
-        )
+        assert.equal("Refresh - you're already wearing it.", ns.Roads.ItemSentence(answerFor("Back", worn.key)))
         -- And the road the reader would otherwise be told to walk again says
         -- where the piece has got to, and has nothing left but the refresh.
         assert.equal(ns.Roads.ARRIVED_NOW_WORN, pick.claimed)
@@ -1256,10 +1247,7 @@ describe("Roads over the owner's week of 2026-09-08", function()
         local crested = cloakCopy(308, "bag")
         local pick = ns.Roads.PlanPick(ns.Roads.ForSlot("Back", inputs))
         assert.is_true(ns.Roads.IsArrivedPick(crested, pick))
-        assert.equal(
-            "This is the Preyhunter cloak the plan wanted, crested to 308. Put it on; refresh to rate it.",
-            ns.Roads.ItemSentence(answerFor("Back", crested.key))
-        )
+        assert.equal("Put this on - then refresh.", ns.Roads.ItemSentence(answerFor("Back", crested.key)))
         -- Still in the bags, so the step the road already carries is the right
         -- one and stays; only the badge is new.
         assert.equal(ns.Roads.ARRIVED_NOW_CRESTED, pick.claimed)
@@ -1272,10 +1260,7 @@ describe("Roads over the owner's week of 2026-09-08", function()
         local crested = cloakCopy(308, "bank")
         local pick = ns.Roads.PlanPick(ns.Roads.ForSlot("Back", inputs))
         assert.is_true(ns.Roads.IsArrivedPick(crested, pick))
-        assert.equal(
-            "This is the Preyhunter cloak the plan wanted, crested to 308. Put it on; refresh to rate it.",
-            ns.Roads.ItemSentence(answerFor("Back", crested.key))
-        )
+        assert.equal("Put this on - then refresh.", ns.Roads.ItemSentence(answerFor("Back", crested.key)))
     end)
 
     -- R-3e (WKE-585) retired the refusal this test used to make. A copy BELOW
@@ -1291,10 +1276,7 @@ describe("Roads over the owner's week of 2026-09-08", function()
         assert.is_true(ns.Roads.IsArrivedPick(short, pick))
         assert.is_true(ns.Roads.ArrivedShort(short, pick))
         assert.is_false(ns.Roads.ArrivedCrested(short, pick))
-        assert.equal(
-            "This is the Preyhunter cloak the plan wanted, at 289. Crest it to 298; refresh to rate it.",
-            ns.Roads.ItemSentence(answerFor("Back", short.key))
-        )
+        assert.equal("Crest this to 298 - then refresh.", ns.Roads.ItemSentence(answerFor("Back", short.key)))
     end)
 
     it("says the same about a copy short of the plan's level that you have put on", function()
@@ -1302,10 +1284,7 @@ describe("Roads over the owner's week of 2026-09-08", function()
         local worn = cloakCopy(289, "equipped")
         local pick = ns.Roads.PlanPick(ns.Roads.ForSlot("Back", inputs))
         assert.is_true(ns.Roads.IsArrivedPick(worn, pick))
-        assert.equal(
-            "You've put this on at 289. Crest it to 298; refresh to rate it.",
-            ns.Roads.ItemSentence(answerFor("Back", worn.key))
-        )
+        assert.equal("Crest this to 298 - then refresh.", ns.Roads.ItemSentence(answerFor("Back", worn.key)))
         -- The badge says where the piece has got to, and says nothing about a
         -- crest that has not happened.
         assert.equal(ns.Roads.ARRIVED_NOW_WORN, pick.claimed)
@@ -1661,7 +1640,7 @@ describe("Roads over the owner's claimed Legs pick of 2026-09-15 (R-3e)", functi
         assert.equal(315, pick.arrivesAt)
         assert.equal(321, pick.rating.level)
         assert.equal("Enigmatic Dreamwatcher's Leggings", pick.item.name)
-        assert.equal("Grab this from the vault and crest it.", ns.Roads.ItemSentence(answerFor("Legs", pick.keys[1])))
+        assert.equal("Grab these - crest it after.", ns.Roads.ItemSentence(answerFor("Legs", pick.keys[1])))
     end)
 
     -- Defect 1, on the screen that filed it. Proven red by restoring the level
@@ -1685,15 +1664,9 @@ describe("Roads over the owner's claimed Legs pick of 2026-09-15 (R-3e)", functi
         -- `RoadsCache.FillNames`, which `Roads.ForSlot` alone does not run. So
         -- the sentence here says the slot's own word, and the owner's own words
         -- are what it says once the road is named.
-        assert.equal(
-            "This is the vault legs the plan wanted, at 318. Crest it to 321; refresh to rate it.",
-            ns.Roads.ItemSentence(answer)
-        )
+        assert.equal("Crest these to 321 - then refresh.", ns.Roads.ItemSentence(answer))
         pick.item.name = "Enigmatic Dreamwatcher's Leggings"
-        assert.equal(
-            "This is the vault Dreamwatcher legs the plan wanted, at 318. Crest it to 321; refresh to rate it.",
-            ns.Roads.ArrivedSentence(held, pick)
-        )
+        assert.equal("Crest these to 321 - then refresh.", ns.Roads.ArrivedSentence(held, pick))
         -- The pick's own row says the reward is out of the vault.
         assert.equal(ns.Roads.VAULT_CLAIMED, pick.claimed)
         assert.equal("claimed · in your bags", pick.claimed)
@@ -1714,10 +1687,7 @@ describe("Roads over the owner's claimed Legs pick of 2026-09-15 (R-3e)", functi
         assert.is_false(ns.Roads.IsArrivedPick(held, pick))
         -- And the sentence itself, asked directly, is the one the cloak reads.
         held.location = "equipped"
-        assert.equal(
-            "You've put this on at 318. Crest it to 321; refresh to rate it.",
-            ns.Roads.ArrivedSentence(held, pick)
-        )
+        assert.equal("Crest these to 321 - then refresh.", ns.Roads.ArrivedSentence(held, pick))
     end)
 
     -- The other state the same afternoon could have been in, and the reason the
@@ -1834,7 +1804,7 @@ describe("Roads vocabulary", function()
         assert.same({
             asOffered = "as offered",
             catalyzed = "catalyzed",
-            thisWeek = "this week's plan",
+            thisWeek = "this week's picks",
             maxed = "everything upgraded",
         }, ns.Roads.PLAN_LABEL)
         -- A name this build does not know is shown as itself rather than
@@ -1983,7 +1953,7 @@ describe("Roads over a vault the rating never imported (R-3d)", function()
         assert.equal("Legs", answer.slot)
         assert.equal(ns.Roads.KIND_VAULT, answer.own.kind)
         assert.equal(ns.Roads.PHRASE_NOT_RATED_NEW, answer.phrase)
-        assert.equal("The plan hasn't rated this yet. Refresh, then look again.", ns.Roads.ItemSentence(answer))
+        assert.equal("Not rated yet - refresh.", ns.Roads.ItemSentence(answer))
         assert.equal(ns.Roads.NOT_RATED_YET_SENTENCE, ns.Roads.ItemSentence(answer))
     end)
 
@@ -2074,8 +2044,8 @@ describe("Roads over a vault the rating never imported (R-3d)", function()
         assert.not_equal(ns.Roads.VAULT_UNRATED_SENTENCE, before.sentence)
         verdict().profileVaultCount = 0
         local plan = ns.Roads.PlanSentence(inputs)
-        assert.equal("The plan was rated before your vault was generated. Refresh.", plan.sentence)
+        assert.equal("Your vault was generated after this rating. Refresh.", plan.sentence)
         assert.equal(ns.Roads.VAULT_UNRATED_SENTENCE, plan.sentence)
-        assert.equal("this week's plan", plan.plan)
+        assert.equal("this week's picks", plan.plan)
     end)
 end)

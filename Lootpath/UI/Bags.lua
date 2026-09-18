@@ -158,7 +158,7 @@ function Bags.LinkLines(link)
     local own = answer and answer.own or nil
     if own then
         lines[#lines + 1] = string.format(
-            "item: its own road is %s, and the plan %s it",
+            "item: its own road is %s, and the map %s it",
             tostring(own.kind),
             ns.Roads.IsForward(own) and "points at" or "does not point at"
         )

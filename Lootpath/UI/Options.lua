@@ -100,7 +100,7 @@ Options.COMPACT_TOOLTIP = "Draw the item rows in a shorter line, so more of them
 Options.EXPLAIN_VARIABLE = "LootpathExplain"
 Options.EXPLAIN_LABEL = "Explain"
 Options.EXPLAIN_TOOLTIP = "Add one plain sentence under the first use of a system word - track, crest, Catalyst, "
-    .. "Bountiful, spark, plan - in an expanded slot on the Upgrade Map."
+    .. "Bountiful, spark, picks - in an expanded slot on the Upgrade Map."
 
 function Options.Get()
     local settings = ns.db and ns.db.profile and ns.db.profile.settings

@@ -2762,7 +2762,7 @@ describe("the spec you are in against the spec the plan is for", function()
     it("says which spec you are in and which the plan is for", function()
         world.spec = GUARDIAN
         assert.equal(
-            "you're in Guardian; this plan is for Restoration Druid - switch and refresh",
+            "you're in Guardian; this rating is for Restoration Druid - switch and refresh",
             ns.Companion.SpecClauseNow()
         )
     end)
@@ -2790,7 +2790,7 @@ describe("the spec you are in against the spec the plan is for", function()
         local env = { specInfo = { 104, "Guardian", n = 2 } }
         assert.equal("Guardian", ns.Companion.SpecFromEnv(env))
         assert.equal(
-            "you're in Guardian; this plan is for Restoration Druid - switch and refresh",
+            "you're in Guardian; this rating is for Restoration Druid - switch and refresh",
             ns.Companion.SpecClause(ns.UI.ActiveVerdict(), env)
         )
         -- and `{ absent = true }`, which is what the capture writes when the
@@ -2819,7 +2819,7 @@ describe("the spec you are in against the spec the plan is for", function()
         ns.db.global.captures.env = envNaming(GUARDIAN)
         H.dress(world)
         ns.Companion.Refresh()
-        assert.is_truthy(world.output():find("this plan is for Restoration", 1, true))
+        assert.is_truthy(world.output():find("this rating is for Restoration", 1, true))
         assert.equal(1, #ns.db.global.captures.inventory)
         assert.equal(1, world.reloads)
     end)
@@ -2833,7 +2833,7 @@ describe("the spec you are in against the spec the plan is for", function()
         ns.companionStatus = { state = "skipped", finishedAt = "2026-09-13T22:06:00Z" }
         local line = ns.Drift.LoadLine()
         assert.equal(ns.Drift.LOAD_SKIPPED, line)
-        assert.is_truthy(world.output():find("this plan is for Restoration", 1, true))
+        assert.is_truthy(world.output():find("this rating is for Restoration", 1, true))
     end)
 
     -- The strip: the sentence takes the line and the four facts go one surface
@@ -2844,7 +2844,7 @@ describe("the spec you are in against the spec the plan is for", function()
         world.spec = nil
         ns.db.global.captures.env = envNaming(GUARDIAN)
         local model = ns.UI.StatusStripModel()
-        assert.equal("you're in Guardian; this plan is for Restoration Druid - switch and refresh", model.text)
+        assert.equal("you're in Guardian; this rating is for Restoration Druid - switch and refresh", model.text)
         assert.equal(model.text, model.specClause)
         assert.is_truthy(table.concat(model.tooltip, "\n"):find("Restoration", 1, true))
     end)
@@ -2983,7 +2983,7 @@ describe("the healing gate", function()
         )
         local output = world.output()
         assert.is_nil(output:find(ns.Drift.LOAD_SKIPPED, 1, true))
-        assert.is_nil(output:find("this plan is for", 1, true))
+        assert.is_nil(output:find("this rating is for", 1, true))
     end)
 
     it("names the gate on the first line of /lootpath status", function()

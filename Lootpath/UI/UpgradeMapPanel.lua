@@ -1625,9 +1625,9 @@ Panel.ROAD_CREST_PLAN_TEXT = "rated under %s"
 -- system word in the expanded slot, in the note colour, off by default. Each
 -- says only what the client says or what the rating names: no cadence, no
 -- promise, no deadline, and no source.
-Panel.EXPLAIN_WORDS = { "plan", "Catalyst", "crest", "track", "spark", "Bountiful" }
+Panel.EXPLAIN_WORDS = { "picks", "Catalyst", "crest", "track", "spark", "Bountiful" }
 Panel.EXPLAIN = {
-    plan = "plan: which assumptions a rating was made under: as offered, catalyzed, this week's plan,"
+    picks = "picks: which assumptions a rating was made under: as offered, catalyzed, this week's picks,"
         .. " everything upgraded.",
     Catalyst = "Catalyst: converts one piece into your tier set and spends one charge.",
     crest = "crest: what an upgrade costs at the upgrade vendor; the type and the cost are not read from the client.",
