@@ -125,7 +125,7 @@ between the welcome dialog and the first import. It reads QE Live's own header c
 (`App.tsx:273-277`), which makes that spec's character active - and when it names another character it opens the menu,
 picks the profile's own, and reads the header BACK. The log says `character: Restoration Shaman (switched from
 Restoration Druid)` or `character: Restoration Druid (already)`, with its milliseconds, every run. Nothing touches
-local storage and nothing patches his fork. Eleven guards, six proven red; 269 companion tests. See §0, §4, §5,
+local storage and nothing patches his fork. Twelve guards, eight proven red; 270 companion tests. See §0, §4, §5,
 §7 2026-09-18 (C-16), §11.
 
 **What the build refuted or scaled down, recorded in §7 and in the PR:** (a) the issue read `fork.js:82`'s

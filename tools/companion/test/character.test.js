@@ -18,7 +18,13 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const companion = require('../companion');
 const forkLib = require('../lib/fork');
+const statusLib = require('../lib/status');
 const configLib = require('../lib/config');
 const logLib = require('../lib/log');
 
@@ -393,4 +399,44 @@ test('the welcome dialog clicks the tile for the profile\'s own character', asyn
     clicks.length = 0;
     await forkLib.dismissWelcome(welcomePage(), 'Holy Priest');
     assert.deepStrictEqual(clicks, ['/^H Priest$/i', 'Begin!'], 'the class token PRIEST named no tile at all');
+});
+
+// --- the hand-off ------------------------------------------------------------
+
+// The driver can only put QE Live on a character the run told it about, so the
+// one line in `companion.js` that hands `profile.identity` over is a guard of
+// its own: without it every switch above is dead code.
+test('the run hands the driver the identity the profile was built from', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lootpath-c16-'));
+    const dir = path.join(root, 'WTF', 'Account', 'TESTACCOUNT#1', 'SavedVariables');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+        path.join(dir, 'Lootpath.lua'),
+        fs.readFileSync(path.join(__dirname, '..', '..', '..', 'spec', 'fixtures', 'captures', 'Lootpath-20260906-200908.lua'), 'utf8'),
+        'utf8'
+    );
+    fs.mkdirSync(path.join(root, 'Interface', 'AddOns', 'Lootpath'), { recursive: true });
+    const config = { ...configLib.DEFAULTS, wowPath: root, stateDir: path.join(root, 'state'), includeBank: true };
+    const handed = [];
+    const fork = {
+        async run(runConfig, profileText, runLog, runOpts) {
+            handed.push(runOpts && runOpts.identity);
+            return { documents: [], timings: [], scenarios: [], qeSettings: {} };
+        },
+    };
+    await companion.once(config, quietLog(), { watch: false, profileOnly: false, force: true }, {
+        fork,
+        status: statusLib.make({ file: path.join(root, 'Interface', 'AddOns', 'Lootpath', 'Data', configLib.STATUS_FILE) }),
+    });
+    assert.strictEqual(handed.length, 1);
+    assert.ok(handed[0], 'the driver was handed no identity at all');
+    // The committed transcript's own character, and the two fields the switch
+    // is built from. It was captured in GUARDIAN - the same capture 2026-09-08
+    // proved QE Live values as a Restoration Druid whatever the `spec=` line
+    // says - so this is also the identity whose name his menu does not offer,
+    // and the one the read above refuses at exit 5 rather than guessing at.
+    assert.strictEqual(handed[0].class, 'DRUID');
+    assert.strictEqual(handed[0].spec, 'Guardian');
+    assert.strictEqual(forkLib.qeSpecOf(handed[0]), 'Guardian Druid');
+    assert.strictEqual(forkLib.qeHasClass(handed[0]), true, 'the CLASS is one he has a character for');
 });
