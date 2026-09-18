@@ -147,6 +147,21 @@ describe("the crest cost, over the owner's vendor transcript of 2026-09-15 16:20
         assert.equal("currency 9999999", ns.Roads.CurrencyName(currencies, 9999999))
     end)
 
+    it("says the same quote on a tooltip without the money, joined by a comma", function()
+        -- UX-3 (WKE-599), reading 5: the block has one line for this and the
+        -- money is never the reason you would or would not crest. One formatter,
+        -- two forms, so the row and the block cannot quote different figures.
+        local cost = ns.UpgradeCost.Cost(rows.byKey[CHEST_KEY], 308)
+        assert.equal(
+            "2 steps, 40 Champion Mistcrest",
+            ns.Roads.CrestCostText(cost, currencies, { money = false, separator = ns.Roads.CREST_QUOTE_SEPARATOR })
+        )
+        -- And the road carries it, so a surface reads it rather than rebuilding
+        -- it: nil for every road whose cost was never readable.
+        assert.is_nil(ns.Roads.CrestQuoteText({ steps = { { text = "crest type and cost not read", fact = true } } }))
+        assert.is_nil(ns.Roads.CrestQuoteText(nil))
+    end)
+
     it("says one step as one step", function()
         local cost = ns.UpgradeCost.Cost(rows.byKey[CHEST_KEY], 305)
         assert.equal("1 step · 20 Champion Mistcrest · 30g", ns.Roads.CrestCostText(cost, currencies))

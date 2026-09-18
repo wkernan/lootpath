@@ -299,6 +299,96 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         assert.equal(ns.Roads.CREST_NOT_READ, row.tooltipFactsText)
     end)
 
+    it("says the age in the shortest unit that says it, rounded down", function()
+        -- Reading 7 of the approved copy set, over the owner's own figure: the
+        -- block he read on 2026-09-16 said `rated 69 minutes ago` and the
+        -- approved one says `1h`. Every other rung is here too, because the
+        -- rule is the ladder and not the one number.
+        local Tip = ns.UI.Tooltip
+        assert.is_nil(Tip.ShortAge(0))
+        assert.is_nil(Tip.ShortAge(59))
+        assert.equal("1m", Tip.ShortAge(60))
+        assert.equal("59m", Tip.ShortAge(3599))
+        assert.equal("1h", Tip.ShortAge(60 * 69))
+        assert.equal("1h", Tip.ShortAge(3600))
+        assert.equal("23h", Tip.ShortAge(86399))
+        assert.equal("2d", Tip.ShortAge(86400 * 2 + 3600 * 23))
+        -- And the words the line is built from.
+        assert.equal("Rated just now", Tip.AgeText(EXPORTED_AT, ns.EpochFromISO(EXPORTED_AT) + 3))
+        assert.equal("Rated 1h ago", Tip.AgeText(EXPORTED_AT, ns.EpochFromISO(EXPORTED_AT) + 60 * 69))
+        assert.is_nil(Tip.AgeText(nil))
+        assert.equal("Rated: not known · /lootpath map", Tip.FooterText({}))
+    end)
+
+    it("writes no Better: line for a road that is rated BEHIND what you wear", function()
+        -- Reading 2 of the approved copy set. "Better:" over a road that loses
+        -- would be a lie, and a reader cannot act on a worse road, so the block
+        -- is three lines instead. Handcrafted off the owner's own vault
+        -- Spaulders row, which reads `1.73% behind` on his week.
+        local function road(inTopSet)
+            return {
+                kind = ns.Roads.KIND_VAULT,
+                group = ns.Roads.GROUP_SET,
+                slot = "Shoulder",
+                keys = {},
+                item = { itemID = 1, name = "Scavenger's Spaulders" },
+                arrivesAt = 308,
+                rating = {
+                    kind = ns.Roads.RATING_SET,
+                    inTopSet = inTopSet,
+                    scorePercent = inTopSet and nil or 1.729166724018797,
+                    badge = inTopSet and "in your best set" or "1.73% behind",
+                },
+            }
+        end
+        local behind = road(false)
+        assert.equal("1.73% behind", ns.Roads.SetBadge(behind.rating))
+        assert.is_nil(ns.UI.Tooltip.BetterText(behind))
+        assert.is_nil(ns.UI.Tooltip.BestOther({ others = { behind } }))
+        -- The same road the other way round earns the line, so what is being
+        -- asserted is the direction and not the road.
+        assert.equal("Better: Scavenger's Spaulders (308), in your best set", ns.UI.Tooltip.BetterText(road(true)))
+    end)
+
+    it("puts the vendor's own quote on the Upgrade road's line, and no money", function()
+        -- M3-17b (WKE-588) read the cost off the owner's `upgrade` capture of
+        -- 2026-09-15 and R-2a kept it off the tooltip, because its referent was
+        -- the vendor window. UX-3 (WKE-599), reading 5, reverses that for this
+        -- one road: since the vendor has been visited it is the only thing on
+        -- that road a reader can act on, and the item is the one under the
+        -- cursor, so the line says what it costs rather than naming it back.
+        --
+        -- Handcrafted, because on the committed week the Upgrade road for a
+        -- worn piece sits in the same group as that piece's own Keep road and
+        -- so is never one of the slot's "other" roads. The figures are the
+        -- owner's own transcript's, asserted against it in
+        -- `spec/upgradecost_spec.lua`.
+        local road = {
+            kind = ns.Roads.KIND_CREST,
+            group = ns.Roads.GROUP_SET,
+            slot = "Chest",
+            keys = {},
+            item = { itemID = 1, name = "Lunar Raiment" },
+            arrivesAt = 308,
+            rating = { kind = ns.Roads.RATING_SET, inTopSet = true, badge = "in your best set" },
+            steps = {
+                {
+                    text = "2 steps · 40 Champion Mistcrest · 60g",
+                    fact = true,
+                    cost = true,
+                    quote = "2 steps, 40 Champion Mistcrest",
+                },
+            },
+        }
+        assert.equal("Better: crest it to 308 - 2 steps, 40 Champion Mistcrest", ns.UI.Tooltip.BetterText(road))
+        -- The money is the row's, not the block's.
+        assert.is_nil(ns.UI.Tooltip.BetterText(road):find("60g", 1, true))
+        -- With no capture behind it the road quotes nothing and the line is the
+        -- level alone.
+        road.steps[1].quote = nil
+        assert.equal("Better: crest it to 308", ns.UI.Tooltip.BetterText(road))
+    end)
+
     it("draws ONE other road however many the slot has, and never the pick", function()
         -- Handcrafted, because the model hands over at most two others on the
         -- owner's own week: the rule has to be asserted against an answer that

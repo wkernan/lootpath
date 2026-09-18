@@ -471,6 +471,14 @@ describe("the source-free voice (V-1, WKE-569)", function()
         -- The importers' and Match's own pinned wording, alongside the
         -- refusals exercised above.
         walkStrings(c.check, "UFImport", ns.UFImport)
-        c.report(160)
+        -- The lines the strip, the minimap and the chat frame say about a run
+        -- (R-6, R-6a, R-7b, R-7c, C-14) and the companion's own status wording.
+        -- They were outside this walk until UX-3 (WKE-599), which is how
+        -- `rated just now; the plan is current.` sat on three surfaces while
+        -- this file passed: the rendered half never reaches a load line,
+        -- because a load line is said once, after a refresh, on the reload.
+        walkStrings(c.check, "Drift", ns.Drift)
+        walkStrings(c.check, "Companion", ns.Companion)
+        c.report(200)
     end)
 end)
