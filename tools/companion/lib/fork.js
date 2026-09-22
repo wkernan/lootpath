@@ -226,6 +226,33 @@ async function specSelect(page) {
     );
 }
 
+// How long his menu is given to mount before the click is called a failure.
+const SPEC_MENU_TIMEOUT = 10000;
+
+// The option in his open menu whose VISIBLE WORDS are the spec, found by the
+// words rather than by the accessible name (C-16b, WKE-625).
+//
+// Each `MenuItem` is `<Box><ClassIcon name={playerClass}/><Typography>...`
+// (QEHeaderClassSelector.js lines 51-60), and `ClassIcon` is an `<img>` whose
+// `alt` names the spec in full - `alt: "Restoration Shaman"`, ClassIcons.tsx
+// lines 27-33. An `<img alt>` inside an element contributes its alt to that
+// element's accessible name, so the option's NAME is the spec twice over
+// (`Restoration Shaman Restoration Shaman`) and the old
+// `getByRole('option', { name: wanted, exact: true })` matched nothing - which
+// is the owner's 2026-09-22 `does not offer "Restoration Shaman"` at exit 5.
+//
+// `hasText` matches an element's text, and an alt is not text, so the doubling
+// cannot reach it. The regex is anchored so the match stays exact on the words:
+// a spec is never chosen because it is the beginning of another option.
+//
+// The header read-back (`select.innerText()`) never had this problem: MUI's own
+// `renderValue` puts the same icon in the CLOSED control, but `innerText`
+// ignores alt.
+function specOption(page, wanted) {
+    const escaped = String(wanted).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return page.getByRole('option').filter({ hasText: new RegExp('^\\s*' + escaped + '\\s*$') });
+}
+
 // Put QE Live on the profile's character before anything is imported, and say
 // which way it went. Returns { spec, was, switched, note }.
 //
@@ -243,7 +270,19 @@ async function ensureCharacter(page, identity) {
         return { spec: wanted, was: was, switched: false, note: note };
     }
     await select.click();
-    const option = page.getByRole('option', { name: wanted, exact: true });
+    // MUI mounts its `Menu` popover a tick after the click, so at the moment
+    // `click()` resolves there are no options in the DOM at all. Until C-16b the
+    // count ran at once and could read zero before his menu had rendered.
+    const listbox = page.getByRole('listbox').first();
+    try {
+        await listbox.waitFor({ state: 'visible', timeout: SPEC_MENU_TIMEOUT });
+    } catch (e) {
+        throw new ForkError(
+            `QE Live's "${CURRENT_SPEC_LABEL}" control was clicked and no menu opened within ${SPEC_MENU_TIMEOUT}ms; nothing was chosen`,
+            DRIVE
+        );
+    }
+    const option = specOption(page, wanted);
     if (!(await option.count())) {
         throw new ForkError(
             `QE Live's "${CURRENT_SPEC_LABEL}" menu does not offer "${wanted}", so it cannot be put on this character; it rates the specs its own menu lists and no others`,
