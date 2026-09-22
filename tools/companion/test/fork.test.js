@@ -361,6 +361,25 @@ function fakeTopGearPage(cards, cap) {
                     }),
                 };
             }
+            // C-14a (WKE-626): the error Typography beside the `Go!` button
+            // (TopGear.tsx:844-846), rendered here so a whole Top Gear run
+            // reads it the way the browser would. `page.goWords` is what his
+            // `getErrorMessage()` returns; undefined is a page with nothing to
+            // say, which is every run that is not refused.
+            if (selector === forkLib.GO_ERROR) {
+                const all = page.goWords === undefined ? [] : [page.goWords];
+                return {
+                    filter(f) {
+                        const kept = all.filter((text) => f.hasText.test(text));
+                        return {
+                            async count() {
+                                return kept.length;
+                            },
+                            first: () => ({ async innerText() { return kept[0]; } }),
+                        };
+                    },
+                };
+            }
             if (selector !== forkLib.CARD) {
                 // `goTo` looks for a nav link first and falls back to history.
                 return { first: () => ({ async count() { return 0; } }) };
@@ -792,4 +811,32 @@ test('C-14: an enabled Go! is clicked exactly as it always was', async () => {
     const passes = await forkLib.runTopGear(page, quietLog(), { baseline: forkLib.baselineOf(cards), maxPasses: 4 });
     assert.ok(passes.length >= 1);
     assert.strictEqual(page.exports.length, passes.length, 'one Go! per pass, still');
+});
+
+// C-14a (WKE-626): and the whole run carries his reason out of the page with
+// it, including the import's own drop count. The words are his real ones
+// (TopGear.tsx:367-389, locale/slotsLocale.ts); see test/godisabled.test.js.
+test('C-14a: a whole Top Gear run refuses with QE Live\'s reason and the drop count', async () => {
+    const cards = ownersPage({});
+    const page = fakeTopGearPage(cards, 30);
+    page.goEnabled = false;
+    page.goWords = 'Add Boots, Ring,  Weapon';
+    await assert.rejects(
+        () =>
+            forkLib.runTopGear(page, quietLog(), {
+                baseline: forkLib.baselineOf(cards),
+                maxPasses: 4,
+                drop: { sent: 33, taken: 25, missing: new Array(8) },
+            }),
+        (e) => {
+            assert.strictEqual(e.code, forkLib.REFUSED);
+            assert.match(e.message, /it wants an item in: Boots, Ring, Weapon \(its own words: "Add Boots, Ring, Weapon"\)$/);
+            assert.strictEqual(
+                e.playerMessage,
+                "couldn't rate this gear: no usable item in Boots, Ring, Weapon - 8 of the 33 pieces sent weren't recognised"
+            );
+            return true;
+        }
+    );
+    assert.strictEqual(page.exports.length, 0, 'nothing was submitted');
 });
