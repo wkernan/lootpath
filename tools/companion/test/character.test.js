@@ -44,14 +44,34 @@ const SHAMAN = { name: 'Bolts', realm: 'Area 52', class: 'SHAMAN', spec: 'Restor
 
 // A fake QE Live page. `events` is every act in the order it happened, which is
 // what proves the switch is asked for BEFORE the import rather than beside it.
+//
+// Since C-16b the menu below is rendered the way MUI and his own `MenuItem`
+// render it, because C-16's double rendered neither and eight red guards passed
+// over a driver that could not find a single option on his real page:
+//
+//   * an option's accessible NAME is the spec twice over. His `MenuItem` holds
+//     `<ClassIcon>`, which is an `<img alt="Restoration Shaman">`
+//     (ClassIcons.tsx lines 27-33 and 71-80), and an `<img alt>` inside an
+//     element contributes its alt to that element's accessible name, beside the
+//     `Typography` that carries the same words.
+//   * an option's visible TEXT is the spec once. Alt is not text.
+//   * neither exists at the moment the control's `click()` resolves: MUI mounts
+//     the `Menu` popover a tick later.
 function fakePage(options) {
     const opts = options || {};
     const events = [];
     let spec = opts.spec || 'Restoration Druid';
-    let menuOpen = false;
+    let mounted = false;
     let refusal = null;
     let submitted = null;
-    const specs = opts.specs || HIS_SPECS;
+    // A string is one of his retail entries: the words once, the accessible
+    // name twice. An object states both halves itself.
+    const specs = (opts.specs || HIS_SPECS).map((entry) =>
+        typeof entry === 'string' ? { text: entry, name: entry + ' ' + entry, value: entry } : entry
+    );
+
+    // One turn of the event loop, which is all his popover costs.
+    const tick = () => new Promise((resolve) => setImmediate(resolve));
 
     const selectAt = (index) => ({
         // The mobile drawer's copy is index 0 and is display:none at every
@@ -64,7 +84,14 @@ function fakePage(options) {
         },
         async click() {
             events.push('spec menu opened');
-            menuOpen = true;
+            // His options are NOT in the DOM when this resolves.
+            if (opts.menuNeverOpens) return;
+            const ticks = opts.optionTicks === undefined ? 2 : opts.optionTicks;
+            (async () => {
+                for (let i = 0; i < ticks; i++) await tick();
+                mounted = true;
+                events.push('menu open');
+            })();
         },
     });
 
@@ -78,6 +105,14 @@ function fakePage(options) {
         get submitted() {
             return submitted;
         },
+        // What this page renders for an option, so a guard can say it rather
+        // than assume it: the accessible name (alt + words) and the text.
+        optionNameOf(value) {
+            return (specs.find((o) => o.value === value) || {}).name;
+        },
+        optionTextOf(value) {
+            return (specs.find((o) => o.value === value) || {}).text;
+        },
         getByLabel(name, options) {
             assert.strictEqual(name, forkLib.CURRENT_SPEC_LABEL);
             assert.strictEqual(options.exact, true);
@@ -90,25 +125,66 @@ function fakePage(options) {
             };
         },
         getByRole(role, options) {
-            if (role === 'option') {
-                assert.strictEqual(options.exact, true);
-                const there = menuOpen && specs.includes(options.name);
+            if (role === 'listbox') {
                 return {
+                    first() {
+                        return this;
+                    },
+                    // Playwright's own `waitFor`: it polls, and it rejects when
+                    // the bound is reached. The bound is asserted to be a real,
+                    // finite one rather than waited out in real time, so a menu
+                    // that never opens costs this test a few ticks and not the
+                    // driver's ten seconds.
+                    async waitFor(waitOptions) {
+                        assert.strictEqual(waitOptions.state, 'visible');
+                        assert.ok(
+                            Number.isFinite(waitOptions.timeout) && waitOptions.timeout > 0,
+                            'the wait for his menu is bounded'
+                        );
+                        for (let i = 0; i < 50; i++) {
+                            if (mounted) return undefined;
+                            await tick();
+                        }
+                        const e = new Error(
+                            `Timeout ${waitOptions.timeout}ms exceeded waiting for getByRole('listbox').first()`
+                        );
+                        e.name = 'TimeoutError';
+                        throw e;
+                    },
+                };
+            }
+            if (role === 'option') {
+                // The words, never the accessible name: the driver may not ask
+                // this page for an option BY NAME any more, because on his own
+                // page that name is doubled.
+                assert.strictEqual(options, undefined, 'options are found by their visible words');
+                const lens = (match) => ({
+                    filter(f) {
+                        assert.ok(
+                            f && f.hasText instanceof RegExp,
+                            'the filter is a regular expression over the visible words'
+                        );
+                        return lens((option) => match(option) && f.hasText.test(option.text));
+                    },
                     async count() {
-                        return there ? 1 : 0;
+                        events.push(mounted ? 'options counted' : 'options counted before the menu opened');
+                        return mounted ? specs.filter(match).length : 0;
                     },
                     first() {
+                        const picked = mounted ? specs.filter(match)[0] : undefined;
                         return {
                             async click() {
-                                events.push(`spec picked: ${options.name}`);
-                                menuOpen = false;
+                                assert.ok(picked, 'the driver clicked an option that is not there');
+                                events.push(`spec picked: ${picked.value}`);
+                                mounted = false;
                                 // His `handlePickPlayerSpec` makes the
                                 // character of that spec active (App.tsx:273).
-                                if (!opts.stuck) spec = options.name;
+                                if (!opts.stuck) spec = picked.value;
                             },
                         };
                     },
-                };
+                });
+                return lens(() => true);
             }
             if (role === 'checkbox') {
                 return {
@@ -324,7 +400,12 @@ test("a page on another character is switched through QE Live's own control, and
         note: 'Restoration Shaman (switched from Restoration Druid)',
     });
     assert.strictEqual(page.spec, 'Restoration Shaman');
-    assert.deepStrictEqual(page.events, ['spec menu opened', 'spec picked: Restoration Shaman']);
+    assert.deepStrictEqual(page.events, [
+        'spec menu opened',
+        'menu open',
+        'options counted',
+        'spec picked: Restoration Shaman',
+    ]);
 });
 
 test('the switch is asked for before the import, and the import only passes because of it', async () => {
@@ -333,6 +414,8 @@ test('the switch is asked for before the import, and the import only passes beca
     await forkLib.importProfile(page, SHAMAN_PROFILE, {}, quietLog());
     assert.deepStrictEqual(page.events, [
         'spec menu opened',
+        'menu open',
+        'options counted',
         'spec picked: Restoration Shaman',
         'clicked /import gear/i',
         'profile pasted',
@@ -370,7 +453,11 @@ test('a "different spec" refusal after the switch is still one refusal, and the 
             return true;
         }
     );
-    assert.deepStrictEqual(page.events, ['spec menu opened', 'spec picked: Restoration Shaman'], 'asked once, not twice');
+    assert.deepStrictEqual(
+        page.events,
+        ['spec menu opened', 'menu open', 'options counted', 'spec picked: Restoration Shaman'],
+        'asked once, not twice'
+    );
 });
 
 test('a spec his own menu does not offer is refused with exit 5 rather than guessed at', async () => {
@@ -384,6 +471,88 @@ test('a spec his own menu does not offer is refused with exit 5 rather than gues
         }
     );
     assert.strictEqual(page.spec, 'Restoration Druid', 'his page is left where it was');
+});
+
+// --- the icon's alt text and the menu's own delay (C-16b, WKE-625) -----------
+
+test("an option's accessible name is the spec twice over, and it is still the one picked", async () => {
+    // What the double renders, stated out loud: his `MenuItem` is an
+    // `<img alt="Restoration Shaman">` beside a `Typography` of the same words,
+    // so the accessible name is doubled and the visible text is not.
+    const page = fakePage({ spec: 'Restoration Druid' });
+    assert.strictEqual(page.optionNameOf('Restoration Shaman'), 'Restoration Shaman Restoration Shaman');
+    assert.strictEqual(page.optionTextOf('Restoration Shaman'), 'Restoration Shaman');
+
+    // The driver never asks by name (the double refuses that question), and the
+    // switch lands anyway - which the C-16 driver's
+    // `getByRole('option', { name, exact: true })` could not do on his page.
+    const character = await forkLib.ensureCharacter(page, SHAMAN);
+    assert.strictEqual(character.note, 'Restoration Shaman (switched from Restoration Druid)');
+    assert.strictEqual(page.spec, 'Restoration Shaman');
+});
+
+test('the options are not counted before his menu has opened', async () => {
+    // MUI mounts the popover after the click resolves. Four ticks here, and the
+    // count still happens on the far side of the wait.
+    const page = fakePage({ spec: 'Restoration Druid', optionTicks: 4 });
+    await forkLib.ensureCharacter(page, SHAMAN);
+    assert.deepStrictEqual(page.events, [
+        'spec menu opened',
+        'menu open',
+        'options counted',
+        'spec picked: Restoration Shaman',
+    ]);
+    assert.ok(
+        !page.events.includes('options counted before the menu opened'),
+        'the 2026-09-22 failure: zero options because none had rendered yet'
+    );
+});
+
+test('a menu that never opens is a named driver failure, not "does not offer"', async () => {
+    const page = fakePage({ spec: 'Restoration Druid', menuNeverOpens: true });
+    await assert.rejects(
+        () => forkLib.ensureCharacter(page, SHAMAN),
+        (e) => {
+            // The control is ours to drive, so this is `fork-drive` and not the
+            // exit-5 refusal that blames his menu's contents.
+            assert.strictEqual(e.code, forkLib.DRIVE);
+            assert.match(e.message, /was clicked and no menu opened within \d+ms; nothing was chosen/);
+            return true;
+        }
+    );
+    assert.deepStrictEqual(page.events, ['spec menu opened'], 'nothing was counted and nothing was clicked');
+});
+
+test('the match is exact on the WORDS: a spec never wins because it begins another', async () => {
+    // His Classic list holds `Restoration Druid Classic`
+    // (QEHeaderClassSelector.js lines 24-31), and the anchored regex is what
+    // keeps the old `exact: true` promise now that the name is no longer used.
+    //
+    // Read, never copied, and said plainly: his Classic `MenuItem` strips the
+    // word in its own `Typography` (line 56), so in a Classic menu the visible
+    // words are identical to retail's and only MUI's `data-value` would tell
+    // them apart. That is unreachable here - `classNames[gameType]` renders one
+    // list, never both, and the driver only ever asks for a retail name.
+    const page = fakePage({
+        spec: 'Holy Paladin',
+        specs: [
+            {
+                text: 'Restoration Druid Classic',
+                name: 'Restoration Druid Restoration Druid Classic',
+                value: 'Restoration Druid Classic',
+            },
+            { text: 'Holy Paladin', name: 'Holy Paladin Holy Paladin', value: 'Holy Paladin' },
+        ],
+    });
+    await assert.rejects(
+        () => forkLib.ensureCharacter(page, DRUID),
+        (e) => {
+            assert.strictEqual(e.code, forkLib.REFUSED);
+            assert.match(e.message, /does not offer "Restoration Druid"/);
+            return true;
+        }
+    );
+    assert.strictEqual(page.spec, 'Holy Paladin', 'the Classic entry was not picked in its place');
 });
 
 test('the visible one of his two header controls is the one that is read', async () => {
