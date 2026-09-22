@@ -180,3 +180,35 @@ test('the committed golden is what the writer renders', () => {
         'spec/fixtures/expected/companionstatus-sample.lua is out of date; re-run with UPDATE_GOLDEN=1 and check spec/companionfile_spec.lua still passes'
     );
 });
+
+// C-17 (WKE-624): a status write that had to wait for the client says so once,
+// through the recorder's own caller, because only the caller has the log.
+test('the retry notice reaches the status recorder\'s caller', () => {
+    const file = dataFile();
+    const said = [];
+    const real = fs.renameSync;
+    let calls = 0;
+    fs.renameSync = (from, to) => {
+        calls += 1;
+        if (calls === 1) {
+            const e = new Error('EPERM: operation not permitted, rename');
+            e.code = 'EPERM';
+            throw e;
+        }
+        return real(from, to);
+    };
+    try {
+        const status = statusLib.make({
+            file,
+            companionVersion: '0.1.0',
+            clock: clock('2026-09-21T17:40:22Z'),
+            onRetry: (tries) => said.push(`status file written after ${tries} tries; the client was reading it`),
+        });
+        const written = status.started();
+        assert.equal(written.tries, 2);
+        assert.deepEqual(said, ['status file written after 2 tries; the client was reading it']);
+        assert.match(read(file), /state = "running"/);
+    } finally {
+        fs.renameSync = real;
+    }
+});

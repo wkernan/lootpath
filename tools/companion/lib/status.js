@@ -116,6 +116,9 @@ function make(options) {
     const file = opts.file || null;
     const clock = opts.clock || (() => new Date());
     const onError = opts.onError || (() => {});
+    // C-17 (WKE-624): the rename waited for the client's own read and then
+    // succeeded. Reported once per write, and only when there was a wait.
+    const onRetry = opts.onRetry || (() => {});
     let broken = false;
     const record = {
         state: 'idle',
@@ -128,7 +131,7 @@ function make(options) {
         }
         try {
             record.at = clock();
-            return output.writeAtomic(file, render(record));
+            return output.writeAtomic(file, render(record), { onRetry });
         } catch (e) {
             broken = true;
             onError(e);
