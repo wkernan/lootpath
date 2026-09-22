@@ -18,11 +18,17 @@ const fs = require('fs');
 const path = require('path');
 
 const configLib = require('./config');
+const simcProfile = require('./simc-profile');
 
+// `message` is what the log and the terminal get: QE Live's own words, naming
+// QE Live. `playerMessage` is the one the status file carries to the strip's
+// tooltip, where no source is ever named (C-14a, WKE-626); absent means the log
+// line is good enough for both, which is what every failure before C-14a did.
 class ForkError extends Error {
-    constructor(message, code) {
+    constructor(message, code, playerMessage) {
         super(message);
         this.code = code;
+        if (playerMessage) this.playerMessage = playerMessage;
     }
 }
 // QE Live refusing the import is a different failure from the fork being down:
@@ -607,6 +613,94 @@ function cardText(card) {
 }
 
 // -------------------------------------------------------------------------
+// Which of the items the profile sent QE Live kept (C-14a, WKE-626).
+//
+// His importer keeps only items it knows: `25 cards from 33 items` on the
+// owner's 2026-09-22 Shaman, and nothing in the run said which eight went
+// missing. Both lists are already in hand after an import - the profile text
+// the run was given, and the cards `probePool` read - so this is a read of two
+// lists and not a new interaction with his page.
+//
+// **Matched by identity, not by name.** The issue asked for a diff "by name and
+// item level, which both sides carry"; the profile's item LINES carry no name
+// at all (his own read is `feet=,id=235964`), only a `# Mysterious Striders
+// (139)` comment above each one, which is the addon's word for the item and not
+// QE Live's. So the match is `simc-profile.itemKey` - the item ID and the
+// sorted bonus IDs, the same identity `ns.ItemKey` and C-10's `excluded` list
+// are built on - and the names are only ever printed, never compared.
+//
+// Catalyst clones are left out of the pool side: `SimCImportEngine.ts:253-263`
+// makes them out of items it already kept, so a clone is a card QE Live
+// invented and never one of the 33 the profile sent. Its source card is on the
+// page beside it and is what matches.
+const PROFILE_NAME_LINE = /^#\s*(.*\S)\s+\((\d+)\)\s*$/;
+
+function profileItems(profileText) {
+    const lines = String(profileText || '').split(/\r?\n/);
+    const items = [];
+    for (const [key, rows] of simcProfile.collectItems(String(profileText || ''))) {
+        for (const row of rows) {
+            const named = PROFILE_NAME_LINE.exec(lines[row.index - 1] || '');
+            items.push({
+                key: key,
+                slot: row.slot || '',
+                section: row.section || '',
+                index: row.index,
+                name: named ? named[1] : '',
+                level: named ? Number(named[2]) : null,
+            });
+        }
+    }
+    return items.sort((a, b) => a.index - b.index);
+}
+
+// One card's identity in the profile's own key shape.
+function cardKey(card) {
+    const bonus = Array.isArray(card.bonusIDs) ? card.bonusIDs.slice().sort((a, b) => a - b).join(':') : '';
+    const id = card.itemID === null || card.itemID === undefined ? '?' : card.itemID;
+    return bonus ? `${id}:${bonus}` : String(id);
+}
+
+// { sent, taken, missing } - a multiset difference, because two rings of one ID
+// and one bonus list are two items and QE Live may have kept one of them.
+function poolDrop(profileText, cards) {
+    const sentItems = profileItems(profileText);
+    const held = new Map();
+    for (const card of (cards || []).filter((card) => !card.catalyst)) {
+        const key = cardKey(card);
+        held.set(key, (held.get(key) || 0) + 1);
+    }
+    const missing = [];
+    for (const item of sentItems) {
+        const left = held.get(item.key) || 0;
+        if (left > 0) held.set(item.key, left - 1);
+        else missing.push(item);
+    }
+    return { sent: sentItems.length, taken: sentItems.length - missing.length, missing: missing };
+}
+
+// One dropped item as the log names it, from the profile's own comment; an
+// item whose line had no comment above it is named by its ID rather than left
+// blank.
+const DROP_NAMES_LOGGED = 15;
+
+function dropText(item) {
+    const name = item.name || `item ${item.key.split(':')[0]}`;
+    return item.level ? `${name} (${item.level})` : name;
+}
+
+function dropLine(drop) {
+    if (!drop || !drop.missing.length) return null;
+    const names = drop.missing.slice(0, DROP_NAMES_LOGGED).map(dropText);
+    const rest = drop.missing.length - names.length;
+    return (
+        `QE Live did not take ${drop.missing.length} of ${drop.sent} imported items: ` +
+        names.join(', ') +
+        (rest ? `, and ${rest} more` : '')
+    );
+}
+
+// -------------------------------------------------------------------------
 // Which pass is which (WKE-572, C-11).
 //
 // One Top Gear run answers a question about thirty items and the character owns
@@ -883,10 +977,117 @@ async function readJson(page) {
 // refusal is one sentence naming what QE Live would not run. `REFUSED`, not
 // `DRIVE`: the profile is the thing that is wrong, which is the same class as
 // QE Live refusing the import outright.
-async function clickGo(page, what) {
+// -------------------------------------------------------------------------
+// C-14a (WKE-626). **The refusal says what QE Live says.**
+//
+// On 2026-09-22 the owner refreshed on a level-81 Restoration Shaman in fresh
+// leveling gear. The profile was whole - all sixteen worn slots, so C-14's
+// mirror passed, correctly - and QE Live built 25 cards out of the 33 items it
+// was sent, because its importer keeps only items it knows and Midnight
+// leveling gear is mostly items it does not. Feet ended at zero, `checkSlots`
+// reported it, `Go!` stayed disabled and the run said `QE Live's Go! button is
+// disabled for this pool - 25 of 30 selected, 6 baseline` and nothing else.
+//
+// QE Live prints the answer on the same row as the button, so it is READ rather
+// than guessed at: `TopGear.tsx:844-846` renders `getErrorMessage()` in a
+// `<Typography variant="subtitle1" color="primary">` immediately before the
+// `Go!` button at `:848-856`, whose `disabled` is `checkSlots(gameType).length
+// > 0 || !btnActive` (`:852`).
+//
+// TWO PREMISES REFUTED, both read out of his own source on 2026-09-22:
+//
+//   * the words are NOT `Error: Add item - feet, finger, weapon`.
+//     `t("TopGear.itemMissingError")` (`locale/en/translate.json:595`) is that
+//     string, and it is only ever assigned to `checkSlots`'s LOCAL
+//     `errorMessage` (`:351`, `:355`) - whose `setErrorMessage` is commented
+//     out at `:361`, and whose state is rendered nowhere. What the row actually
+//     shows is `getErrorMessage()` (`:367-389`), which builds `"Add "` and
+//     appends one slot at a time.
+//   * the slots are NOT the SimC tokens. `getTranslatedSlotName`
+//     (`locale/slotsLocale.ts`) maps `feet` to **Boots** and `finger` to
+//     **Ring**, and the weapon rule (`:381-383`) appends a bare ` Weapon`. So
+//     his line reads `Add Boots, Ring,  Weapon` - two spaces and all.
+//
+// A locator built on the expected prefix would have matched nothing on his
+// page, which is the C-16b lesson again. So the element is found by the class
+// MUI gives `variant="subtitle1"` and filtered on its VISIBLE words with an
+// anchored regex, the same shape `specOption` uses. The only other
+// `subtitle1` on `/topgear` is `MiniItemCard.tsx:345`, which renders `""`
+// inside a `visibility: hidden` wrapper and cannot start with `Add`.
+const GO_ERROR = '.MuiTypography-subtitle1';
+const GO_ERROR_WORDS = /^\s*Add\s+\S/;
+
+// `getErrorMessage`'s other branch: more than ten missing slots means nothing
+// was imported at all (`TopGear.tsx:370-372`), and "an item in: Import String"
+// is not a sentence about slots. It is left to the verbatim half.
+const GO_ERROR_NOTHING = /^Add Import String$/i;
+
+// QE Live's line -> the slots it named, in its order and its words. Pure, so
+// the parsing is proven without a browser (C-10's rule); the DOM half below is
+// one locator and no logic.
+function goErrorSlots(text) {
+    const words = typeof text === 'string' ? text.replace(/\s+/g, ' ').trim() : '';
+    if (!GO_ERROR_WORDS.test(words) || GO_ERROR_NOTHING.test(words)) return [];
+    return words
+        .slice('Add'.length)
+        .split(',')
+        .map((slot) => slot.trim())
+        .filter(Boolean);
+}
+
+// The words beside the button, verbatim but whitespace-collapsed - his own line
+// carries a double space before ` Weapon` and a status file is one sentence.
+// A page that has no such element answers the empty string: nothing is read
+// twice and no failure here may turn a refusal into a drive error.
+async function readGoError(page) {
+    try {
+        const words = page.locator(GO_ERROR).filter({ hasText: GO_ERROR_WORDS });
+        if (!(await words.count())) return '';
+        return String(await words.first().innerText())
+            .replace(/\s+/g, ' ')
+            .trim();
+    } catch {
+        return '';
+    }
+}
+
+// What the PLAYER is told, in the addon's voice: no source named, and never a
+// word about a plan. The log keeps QE Live's name and QE Live's line.
+function goRefusalForPlayer(slots, drop) {
+    const sentence = `couldn't rate this gear: no usable item in ${slots.join(', ')}`;
+    if (!drop || !drop.sent || !drop.missing || !drop.missing.length) return sentence;
+    return `${sentence} - ${drop.missing.length} of the ${drop.sent} pieces sent weren't recognised`;
+}
+
+// C-14 (WKE-603). **The driver never clicks a disabled button.**
+//
+// On 2026-09-16 the owner's profile was short one worn slot, QE Live disabled
+// `Go!` for the pass whose selection did not fill it, and Playwright clicked the
+// disabled button for twenty seconds before it gave up - twice, sixty seconds of
+// a run each time, ending in `locator.click: Timeout 20000ms exceeded` and a
+// page of call log (`Data/companion.log`, 21:26-21:28Z).
+//
+// A disabled `Go!` is not a timing problem and waiting cannot fix it: QE Live
+// has decided it will not rate this pool. So the state is READ first and the
+// refusal is one sentence naming what QE Live would not run. `REFUSED`, not
+// `DRIVE`: the profile is the thing that is wrong, which is the same class as
+// QE Live refusing the import outright.
+//
+// Since C-14a that sentence carries his reason too, when his page gives one;
+// when it does not, it is exactly the line it has always been.
+async function clickGo(page, what, options) {
     const button = page.getByRole('button', { name: 'Go!' });
     if (!(await button.isEnabled())) {
-        throw new ForkError(`QE Live's Go! button is disabled ${what}`, REFUSED);
+        const words = await readGoError(page);
+        const slots = goErrorSlots(words);
+        if (!slots.length) {
+            throw new ForkError(`QE Live's Go! button is disabled ${what}`, REFUSED);
+        }
+        throw new ForkError(
+            `QE Live's Go! button is disabled ${what} - it wants an item in: ${slots.join(', ')} (its own words: "${words}")`,
+            REFUSED,
+            goRefusalForPlayer(slots, options && options.drop)
+        );
     }
     await button.click();
 }
@@ -930,7 +1131,10 @@ async function runTopGear(page, log, options) {
         for (const ident of selection.activated) done.add(ident);
         await clickGo(
             page,
-            `for this pool - ${selection.selected} of ${selection.cap} selected, ${selection.active} baseline`
+            `for this pool - ${selection.selected} of ${selection.cap} selected, ${selection.active} baseline`,
+            // C-14a (WKE-626): the import's own drop count, so a refusal can
+            // say how much of what was sent QE Live never took.
+            { drop: opts.drop || null }
         );
         await page.waitForURL((u) => /\/report\/[a-z0-9]+/.test(u.pathname), { timeout: 120000 });
         passes.push({
@@ -1213,6 +1417,12 @@ async function run(config, profileText, log, options) {
                 cards = await probePool(page);
                 timings.push([`pool (${asked})`, done(`${cards.length} cards`)]);
             }
+            // C-14a (WKE-626): which of the items the profile sent this import
+            // kept, said once per import. Two lists already in hand; nothing is
+            // asked of his page for it.
+            const drop = cards ? poolDrop(profileText, cards) : null;
+            const dropped = dropLine(drop);
+            if (dropped) log.info(`  ${dropped}`);
             const baseline = cards ? baselineOf(cards) : null;
             if (cards && pass.scenario === configLib.DEFAULT_SCENARIO) {
                 baseLevels = configLib.levelsByItem(cards);
@@ -1247,7 +1457,7 @@ async function run(config, profileText, log, options) {
                 // document; an Upgrade Finder run is one document and pass 1.
                 const produced =
                     planned.kind === 'topgear'
-                        ? await runTopGear(page, log, { baseline, maxPasses: config.topGearPasses })
+                        ? await runTopGear(page, log, { baseline, maxPasses: config.topGearPasses, drop })
                         : [{ pass: 1, json: await runUpgradeFinder(page, planned.keyLevel, log), considered: null, excluded: null }];
                 const chars = produced.reduce((total, one) => total + one.json.length, 0);
                 timings.push([`${label} (${produced.length} pass${produced.length === 1 ? '' : 'es'}, ${chars} chars)`, done(`${chars} chars`)]);
@@ -1307,6 +1517,16 @@ module.exports = {
     baselineOf,
     entriesFrom,
     cardText,
+    clickGo,
+    readGoError,
+    goErrorSlots,
+    goRefusalForPlayer,
+    profileItems,
+    cardKey,
+    poolDrop,
+    dropLine,
+    GO_ERROR,
+    GO_ERROR_WORDS,
     setUpgradeCheckboxes,
     settingsFrom,
     importProfile,

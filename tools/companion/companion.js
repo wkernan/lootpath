@@ -327,7 +327,11 @@ async function once(config, log, args, deps) {
     } catch (e) {
         log.error(e.message);
         const code = e.code === forkLib.REFUSED ? EXIT.refused : EXIT.fork;
-        status.failed('qe live', e.message, code);
+        // C-14a (WKE-626): the LOG keeps QE Live's name and QE Live's own line;
+        // the status file - which the strip's tooltip reads out loud - takes the
+        // driver's player-facing sentence when the failure carries one. A
+        // failure that carries none is written exactly as it always was.
+        status.failed('qe live', e.playerMessage || e.message, code);
         return code;
     }
     done(`${run.documents.length} documents`);
