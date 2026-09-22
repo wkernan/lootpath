@@ -2304,17 +2304,20 @@ describe("the window's chrome (M5-2)", function()
     -- M5-2b (WKE-601): the owner's words on 2026-09-16 - "the copy is being
     -- covered by the Spec symbol in the top left corner - let's move it down".
     -- The strip is a full-width row BELOW the portrait ring, which Blizzard's
-    -- own template puts 55 points under the frame's top edge.
-    it("puts the status strip on its own full-width row below the portrait ring", function()
+    -- own template puts 55 points under the frame's top edge. R-8b (WKE-623):
+    -- the row is still that row and still starts at the frame's left inset; its
+    -- right end is the Refresh button's, not the frame's.
+    it("puts the status strip on its own row below the portrait ring", function()
         local left, right = frame.statusStrip.points[1], frame.statusStrip.points[2]
         assert.equal("TOPLEFT", left[1])
         assert.equal(frame, left[2])
         assert.equal("TOPRIGHT", right[1])
-        assert.equal(frame, right[2])
+        assert.equal(frame.refreshButton, right[2])
         -- one row, both ends at the same height, and that height is under the
-        -- ring rather than beside it
+        -- ring rather than beside it: the button's own top is the lift lower,
+        -- and the strip's TOPRIGHT takes it back.
         assert.equal(-ns.UI.STRIP_TOP, left[5])
-        assert.equal(-ns.UI.STRIP_TOP, right[5])
+        assert.equal(-ns.UI.STRIP_TOP, -ns.UI.STRIP_BUTTON_TOP + right[5])
         assert.is_true(ns.UI.STRIP_TOP > ns.UI.RING_BOTTOM)
     end)
 
@@ -2991,7 +2994,7 @@ describe("the wait on the strip (M3-16b)", function()
         )
         -- The whole wait clause is inside the first N characters, which is the
         -- part of the line the owner's screen has been seen to draw.
-        assert.is_truthy(model.text:sub(1, STRIP_BUDGET_CHARS):find("click to load it", 1, true))
+        assert.is_truthy(model.text:sub(1, STRIP_BUDGET_CHARS):find("Refresh loads it when it's ready", 1, true))
     end)
 
     -- The facts it displaced are moved, not lost - the same trade V-2 made with
@@ -3255,6 +3258,107 @@ describe("the strip's buttons take their own clicks (R-8a)", function()
         assert.is_function(frame.statusStrip:GetScript("OnMouseUp"))
         assert.equal(frame.statusStrip, frame.nudgeButton:GetParent())
         assert.is_true(frame.nudgeButton:GetFrameLevel() > frame.statusStrip:GetFrameLevel())
+    end)
+end)
+
+-- R-8b (WKE-623): the strip's mouse stops where its buttons begin.
+--
+-- The owner on 2026-09-21, hovering his own window: "if I hover between the 3
+-- buttons, I'll still see the tooltip as if I'm hovering over the text to the
+-- left." R-8a put the buttons a level above the strip, so a press on a BUTTON
+-- reaches the button - but the gaps between and around them were still the
+-- strip's rectangle, which runs the full width of the frame and takes the mouse
+-- for M3-16b's wait click. The strip's right edge now stops where the leftmost
+-- button starts, which is where its own text already stopped.
+describe("the strip ends where its buttons begin (R-8b)", function()
+    local ns, world, frame
+
+    local function pointNamed(widget, name)
+        for _, point in ipairs(widget.points) do
+            if point[1] == name then
+                return point
+            end
+        end
+        return nil
+    end
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        frame = ns.UI.Frame()
+        frame:Show()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- Proven red by anchoring the strip's TOPRIGHT back to the frame: its right
+    -- edge runs under all three buttons again.
+    it("ends at the Refresh button's left, the same gap its text already used", function()
+        local right = pointNamed(frame.statusStrip, "TOPRIGHT")
+        assert.is_table(right)
+        assert.equal(frame.refreshButton, right[2])
+        assert.equal("TOPLEFT", right[3])
+        assert.equal(-ns.UI.STRIP_TEXT_GAP, right[4])
+        -- the text stops at exactly the same x, so the words did not move
+        local textRight = pointNamed(frame.stripText, "RIGHT")
+        assert.equal(frame.refreshButton, textRight[2])
+        assert.equal("LEFT", textRight[3])
+        assert.equal(right[4], textRight[4])
+        -- and no point of the strip hangs off the frame's right edge any more
+        for _, point in ipairs(frame.statusStrip.points) do
+            assert.is_false(point[1] == "TOPRIGHT" and point[2] == frame)
+        end
+    end)
+
+    -- Proven red by putting `optionsButton`'s point back on the strip's RIGHT:
+    -- the strip hangs off Refresh, Refresh off Import..., Import... off Options
+    -- and Options off the strip, which is a circle the client cannot resolve.
+    it("hangs the three buttons off the frame, not off the strip", function()
+        local options = pointNamed(frame.optionsButton, "TOPRIGHT")
+        assert.equal(frame, options[2])
+        assert.equal("TOPRIGHT", options[3])
+        assert.equal(-ns.UI.STRIP_INSET, options[4])
+        assert.equal(-ns.UI.STRIP_BUTTON_TOP, options[5])
+        for _, key in ipairs(ns.UI.STRIP_BUTTON_KEYS) do
+            for _, point in ipairs(frame[key].points) do
+                assert.not_equal(frame.statusStrip, point[2])
+            end
+        end
+        -- the row is still one row: the buttons' own top is the lift under the
+        -- strip's, which is what centres them on it
+        assert.equal(ns.UI.STRIP_HEIGHT - ns.UI.STRIP_BUTTON_HEIGHT, ns.UI.STRIP_BUTTON_LIFT * 2)
+        for _, key in ipairs(ns.UI.STRIP_BUTTON_KEYS) do
+            assert.equal(ns.UI.STRIP_BUTTON_HEIGHT, frame[key].height)
+        end
+    end)
+
+    -- The row below has no buttons on it, so it keeps the whole width. Proven
+    -- red by anchoring it to the strip's TOPRIGHT again: the clause, which does
+    -- not wrap, loses the width of three buttons.
+    it("leaves the nudge row running to the frame's own right edge", function()
+        local right = pointNamed(frame.nudgeButton, "TOPRIGHT")
+        assert.equal(frame, right[2])
+        assert.equal("TOPRIGHT", right[3])
+        assert.equal(-ns.UI.STRIP_INSET - 2, right[4])
+        assert.equal(-ns.UI.STRIP_TOP - ns.UI.STRIP_HEIGHT, right[5])
+        assert.equal(frame.statusStrip, frame.nudgeButton:GetParent())
+    end)
+
+    -- And what R-8a and M3-16b left here is untouched: the strip still takes the
+    -- mouse, its wait click still reloads, and the buttons are still above it.
+    it("keeps the strip's mouse, its wait click and the buttons above it", function()
+        assert.is_true(frame.statusStrip.mouseEnabled)
+        ns.companionStatus = { state = "idle", startedAt = "2026-09-14T22:48:00Z", finishedAt = "2026-09-14T22:48:41Z" }
+        ns.db.global.drift = ns.db.global.drift or {}
+        ns.db.global.drift.refreshStartedAt = date("!%Y-%m-%dT%H:%M:%SZ", math.floor(time()))
+        ns.UI.RefreshStrip(frame)
+        frame.statusStrip:GetScript("OnMouseUp")(frame.statusStrip)
+        assert.equal(1, world.reloads)
+        for _, key in ipairs(ns.UI.STRIP_BUTTON_KEYS) do
+            assert.is_true(frame[key]:GetFrameLevel() > frame.statusStrip:GetFrameLevel())
+        end
     end)
 end)
 
@@ -3786,17 +3890,19 @@ describe("the healing gate's screen", function()
 
     -- The two buttons are not the strip's to take away. In the client a child of
     -- a hidden frame is hidden with it, so they are the FRAME's children since
-    -- this issue and they still hang off the strip's row, which a hidden frame
-    -- still has. (The stub's `shown` is its own flag and knows nothing about a
-    -- parent, so the parentage is what is asserted: it is the thing that is
-    -- true or false on a real screen.)
+    -- this issue, and since R-8b they hang off the frame's own right edge at the
+    -- strip's row rather than off the strip - so neither the parentage nor the
+    -- point goes anywhere when the strip does. (The stub's `shown` is its own
+    -- flag and knows nothing about a parent, so the parentage is what is
+    -- asserted: it is the thing that is true or false on a real screen.)
     it("leaves Import and Options where they are", function()
         world.spec = GUARDIAN
         ns.UI.Refresh()
         assert.is_false(frame.statusStrip:IsShown())
         assert.equal(frame, frame.openImportButton:GetParent())
         assert.equal(frame, frame.optionsButton:GetParent())
-        assert.equal(frame.statusStrip, frame.optionsButton.points[1][2])
+        assert.equal(frame, frame.optionsButton.points[1][2])
+        assert.equal(-ns.UI.STRIP_BUTTON_TOP, frame.optionsButton.points[1][5])
     end)
 
     -- A hidden frame gets no OnEnter and no mouse-up in the client; the stub

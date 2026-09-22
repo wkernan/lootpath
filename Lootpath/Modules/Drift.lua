@@ -64,11 +64,18 @@ Drift.NUDGE_LINE = "your gear changed since this rating (%s) \194\183 click to r
 Drift.NUDGE_TOOLTIP = "The newest is %s. Clicking captures your gear and reloads; "
     .. "the rating is made while you play."
 Drift.NUDGE_TOOLTIP_UNNAMED = "Clicking captures your gear and reloads; the rating is made while you play."
-Drift.WAIT_LINE = "rating your gear, %s \194\183 click to load it"
+-- R-8b (WKE-623): the wait clause names the button. M3-16b wrote `click to load
+-- it` when the strip's own row was the only clickable thing on the window; since
+-- R-8 the `Refresh` button on that row runs the same `Drift.Click`, and the
+-- owner on 2026-09-21 read the old words off his screen and asked the obvious
+-- question - "I don't like this copy that just says 'click to load it'... click
+-- what?" So the clause points at a thing he can see, and nothing on screen says
+-- `click` about a surface that has no edges.
+Drift.WAIT_LINE = "rating your gear, %s \194\183 Refresh loads it when it's ready"
 Drift.WAIT_READY_DEFAULT = "usually about a minute"
 Drift.WAIT_READY_MEASURED = "usually ready in about %s"
-Drift.WAIT_TOOLTIP = "The rating is being made now. Clicking reloads and loads whatever has been written; "
-    .. "too early and this line comes back."
+Drift.WAIT_TOOLTIP = "The rating is being made now. Refresh loads whatever has been written, and takes a "
+    .. "reload; too early and this line comes back."
 
 -- M3-16b (WKE-583): the chat line at the first load after a refresh. The owner
 -- on 2026-09-15, in his own words: "after I do a refresh and the screen loads

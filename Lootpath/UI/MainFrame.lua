@@ -423,6 +423,16 @@ UI.NUDGE_HEIGHT = 18
 UI.RING_BOTTOM = 55
 UI.STRIP_GAP = 4
 UI.STRIP_TOP = UI.RING_BOTTOM + UI.STRIP_GAP
+
+-- R-8b (WKE-623): the strip's row is shared, so the row's geometry is named
+-- rather than repeated. The three buttons are 20 points tall on a 22-point row,
+-- which puts their top UI.STRIP_BUTTON_LIFT under the row's own top; the strip's
+-- right edge stops UI.STRIP_TEXT_GAP short of the leftmost button, which is
+-- where R-8 already stopped the strip's text.
+UI.STRIP_BUTTON_HEIGHT = 20
+UI.STRIP_BUTTON_LIFT = (UI.STRIP_HEIGHT - UI.STRIP_BUTTON_HEIGHT) / 2
+UI.STRIP_BUTTON_TOP = UI.STRIP_TOP + UI.STRIP_BUTTON_LIFT
+UI.STRIP_TEXT_GAP = 8
 UI.NO_VERDICT_STRIP = "No export on this character yet \194\183 Import... to paste one"
 UI.STALE_STRIP_TOOLTIP =
     "This export was made before the last weekly reset. If the companion is running it should be newer than that."
@@ -1068,7 +1078,11 @@ end
 local function buildNudgeRow(frame, strip)
     local button = CreateFrame("Button", nil, strip)
     button:SetPoint("TOPLEFT", strip, "TOPLEFT", 2, -UI.STRIP_HEIGHT)
-    button:SetPoint("TOPRIGHT", strip, "TOPRIGHT", -2, -UI.STRIP_HEIGHT)
+    -- R-8b (WKE-623): the nudge row's right edge is still the FRAME's. The strip
+    -- above it now stops at the buttons, and there are no buttons on this row -
+    -- hanging the clause off the strip's new right edge would have cut 248
+    -- points off a sentence that does not wrap.
+    button:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -UI.STRIP_INSET - 2, -UI.STRIP_TOP - UI.STRIP_HEIGHT)
     button:SetHeight(UI.NUDGE_HEIGHT)
     frame.nudgeButton = button
 
@@ -1113,24 +1127,18 @@ end
 -- facts that do not fit on one line - the sentence UI.VerdictNoteText states,
 -- the other stored export, why an amber age is amber - are one hover away.
 local function buildStatusStrip(frame)
-    local strip = CreateFrame("Frame", nil, frame)
-    -- Below the ring, full width, on its own row (M5-2b): UI.STRIP_TOP is the
-    -- ring's own bottom edge plus the air under it.
-    strip:SetPoint("TOPLEFT", frame, "TOPLEFT", UI.STRIP_INSET, -UI.STRIP_TOP)
-    strip:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -UI.STRIP_INSET, -UI.STRIP_TOP)
-    strip:SetHeight(UI.STRIP_HEIGHT)
-    strip:EnableMouse(true)
-    frame.statusStrip = strip
-
-    -- H-1a (WKE-606): the two buttons are the FRAME's children, anchored to the
-    -- strip's row. They were the strip's own, and a child of a hidden frame is
-    -- hidden with it - so taking the strip off the screen over the Coming soon
-    -- screen would have taken Import and Options with it. A point is resolved
-    -- whether or not the frame it hangs off is shown, so the row they sit on is
-    -- exactly where it was.
+    -- R-8b (WKE-623): the three buttons are built FIRST, because the strip now
+    -- ends where they begin and so hangs off the leftmost of them.
+    --
+    -- H-1a (WKE-606): they are the FRAME's children, on the strip's row. They
+    -- were the strip's own, and a child of a hidden frame is hidden with it - so
+    -- taking the strip off the screen over the Coming soon screen would have
+    -- taken Import and Options with it. They hung off the STRIP's right edge
+    -- until R-8b; they hang off the frame's own right edge now, which is the
+    -- edge the strip's TOPRIGHT used to reach, so the row is where it was.
     local optionsButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    optionsButton:SetSize(74, 20)
-    optionsButton:SetPoint("RIGHT", strip, "RIGHT", 0, 0)
+    optionsButton:SetSize(74, UI.STRIP_BUTTON_HEIGHT)
+    optionsButton:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -UI.STRIP_INSET, -UI.STRIP_BUTTON_TOP)
     optionsButton:SetText("Options")
     optionsButton:SetScript("OnClick", function()
         UI.OpenOptions()
@@ -1138,7 +1146,7 @@ local function buildStatusStrip(frame)
     frame.optionsButton = optionsButton
 
     local importButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    importButton:SetSize(80, 20)
+    importButton:SetSize(80, UI.STRIP_BUTTON_HEIGHT)
     importButton:SetPoint("RIGHT", optionsButton, "LEFT", -6, 0)
     importButton:SetText("Import...")
     importButton:SetScript("OnClick", function()
@@ -1156,7 +1164,7 @@ local function buildStatusStrip(frame)
     -- rating that is ready loads and anything else refreshes - and an OnClick is
     -- the hardware event `ReloadUI` requires (M3-16a).
     local refreshButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    refreshButton:SetSize(74, 20)
+    refreshButton:SetSize(74, UI.STRIP_BUTTON_HEIGHT)
     refreshButton:SetPoint("RIGHT", importButton, "LEFT", -6, 0)
     refreshButton:SetText(ns.Drift.REFRESH_LABEL)
     refreshButton:SetScript("OnClick", function()
@@ -1189,9 +1197,27 @@ local function buildStatusStrip(frame)
     end)
     frame.refreshButton = refreshButton
 
+    local strip = CreateFrame("Frame", nil, frame)
+    -- Below the ring, on its own row (M5-2b): UI.STRIP_TOP is the ring's own
+    -- bottom edge plus the air under it.
+    --
+    -- R-8b (WKE-623): the row is full width no longer. The strip's right edge
+    -- stops UI.STRIP_TEXT_GAP short of `Refresh` - exactly where its own text
+    -- already stopped - so the gaps between and around the three buttons are not
+    -- the strip's mouse: nothing hovers there and nothing clicks there. The
+    -- owner, 2026-09-21: "if I hover between the 3 buttons, I'll still see the
+    -- tooltip as if I'm hovering over the text to the left." The TOPRIGHT is
+    -- lifted UI.STRIP_BUTTON_LIFT because the buttons are shorter than the row
+    -- and their top sits that far under it.
+    strip:SetPoint("TOPLEFT", frame, "TOPLEFT", UI.STRIP_INSET, -UI.STRIP_TOP)
+    strip:SetPoint("TOPRIGHT", refreshButton, "TOPLEFT", -UI.STRIP_TEXT_GAP, UI.STRIP_BUTTON_LIFT)
+    strip:SetHeight(UI.STRIP_HEIGHT)
+    strip:EnableMouse(true)
+    frame.statusStrip = strip
+
     local text = strip:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     text:SetPoint("LEFT", strip, "LEFT", 2, 0)
-    text:SetPoint("RIGHT", refreshButton, "LEFT", -8, 0)
+    text:SetPoint("RIGHT", refreshButton, "LEFT", -UI.STRIP_TEXT_GAP, 0)
     text:SetJustifyH("LEFT")
     text:SetWordWrap(false)
     frame.stripText = text
@@ -1211,12 +1237,13 @@ local function buildStatusStrip(frame)
             GameTooltip:Hide()
         end
     end)
-    -- The wait's click (M3-16b). While the wait is the strip's first clause it
-    -- is also the strip's click, so the sentence `click to load it` is true of
-    -- the row it is written on; with no wait on the strip the row is facts and
-    -- the press does nothing. `OnMouseUp` rather than an OnClick because the
-    -- strip is a Frame with two buttons of its own on it, and it is a hardware
-    -- event either way, which is what `ReloadUI` requires (M3-16a).
+    -- The wait's click (M3-16b). While the wait is the strip's first clause the
+    -- row it is written on loads the rating too; with no wait on the strip the
+    -- row is facts and the press does nothing. Since R-8b the words point at the
+    -- `Refresh` button instead, and this stays as a second way in - the sentence
+    -- no longer claims it. `OnMouseUp` rather than an OnClick because the strip
+    -- is a Frame, and it is a hardware event either way, which is what
+    -- `ReloadUI` requires (M3-16a).
     strip:SetScript("OnMouseUp", function()
         UI.StripClick(frame)
     end)
