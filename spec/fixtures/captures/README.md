@@ -141,6 +141,26 @@ with every loop rather than by request.
   `0 equipped, 0 in bags, 0 in the bank, 0 vault, 14 lines` - the owner's
   2026-09-15 22:07 terminal, line for line. It is what R-7b (WKE-591) pins the
   companion's refusal and the flush label against. No secrets.
+- flush-after-refresh.lua - **hand-written, not a pull**, the second of the two
+  in this folder that is, and for the same reason: what it carries is the shape
+  of a four-snapshot `env` list, and a real pull of the file it was read from is
+  11 MB of gear the question does not need. The shape is read, not invented -
+  the owner's live SavedVariables, parsed 2026-09-22 with
+  `tools/companion/lib/lua-savedvariables.js`, held exactly four `env` snapshots
+  for Blueheeler-Arthas, his Restoration Shaman: **17:39:15 `trigger =
+  "refresh"` with `specInfo` id 264 / `"Restoration"`, then 17:39:16, 17:40:19
+  and 17:42:49 all `trigger = "flush"` with `specInfo` `{ 0, [7]=0, [9]=0,
+  [10]=true, n=10 }` and no name at all**, every one of them naming
+  `class = { "Shaman", "SHAMAN", 11 }`. The three flush packs are copied field
+  for field; the refresh's description string is shortened, because only its
+  second return is ever read. That list is the whole of C-16a (WKE-622): a
+  refresh ends in a `/reload`, so the refresh's `env` is followed within a
+  second by that reload's flush `env`, and **the newest `env` snapshot can never
+  name a spec**. Built through `tools/companion/lib/profile.js` it gives
+  `identity.spec = "Restoration"` off the 17:39:15 read with the line
+  `spec from the 17:39:15 refresh read; the flush names none`, and a header of
+  `# Blueheeler - Restoration - 2026-09-21 17:42 - US/Arthas`. Its gear halves
+  are deliberately empty. No secrets.
 - Lootpath-20260916-140011.lua - **the third real logout, and the first pulled
   under R-7b (WKE-591) - but the flush itself ran the OLD addon.** The owner
   logged out for real at 14:00:11 local, logged in, and ran `sync.ps1 -Pull`.
