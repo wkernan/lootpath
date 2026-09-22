@@ -111,7 +111,33 @@ Before that: 2026-09-08, late night (WKE-541 / M2-4: the Equip Now tab stops cal
 
 ## 0. Where we are (read this first; keep it current)
 
-**As of 2026-09-18, afternoon (C-15a built, WKE-620, PR open: a stored rating that is not this character's is dropped at login.)**
+**As of 2026-09-22 (C-17 built, WKE-624, PR open: a write into `Data\` that the client is holding is waited out rather than lost.)**
+The owner's terminal, 2026-09-21 17:40:23, on `main` `f735faf`: `warning: the status file cannot be written (EPERM:
+operation not permitted, rename '...\.CompanionStatus.lua.47652.tmp' -> '...\CompanionStatus.lua'); the log is still
+the record`. His SavedVariables had changed a second earlier - he was reloading, and the client reads `Data\*.lua` at
+that instant, while Windows refuses a rename over a file another process holds open. That run then FAILED (QE Live
+refused the profile) and the strip went on saying `rating your gear, started 3 minutes ago` for the whole of it,
+because the failure was never written where the addon reads it. So `output.writeAtomic` - the one function the
+verdict, the status file and the log's directory rule all go through - now RETRIES the rename on `EPERM`, `EBUSY` and
+`EACCES`: **ten tries over at most ~1.9 s**, 25 ms before the second and doubling to a 300 ms ceiling (25, 50, 100,
+200, then 300 five times). The numbers are a choice, not a measurement - nothing here was timed against a real client;
+ten because the warning must still arrive while somebody is watching the terminal, ~2 s because that is the order of a
+reload's read of one small file and far below the minutes a run takes. When there was a wait, ONE line afterwards and
+never one per try: `status file written after 3 tries; the client was reading it`, and `verdict file written after ...`
+for the other writer. Any other error - and the tenth try - gives up exactly as before, with the same warning, the
+temp file removed and the previous file standing. Unchanged: the temp-file-then-rename shape, the warning text, the
+addon. Seven guards proven red; 276 companion tests. See §7 2026-09-22 (C-17), §11.
+
+**Scaled down, and said in the PR:** the issue asked for the retry AND its one log line inside `lib/output.js` alone.
+The line cannot reach `Data/companion.log` from there - `output.js` has no logger, `lib/log.js` already requires it,
+and the configured sink is built in `companion.js` - so the notice is a callback (`options.onRetry`) that
+`lib/status.js` passes through and `companion.js` phrases, two lines in each. That is the smallest wiring that makes
+the requirement real rather than dead code.
+
+**Human-required after the merge:** the owner restarts his watcher, and nothing else. The next reload that collides
+with a write shows up as the one retry line in `Data/companion.log` instead of the warning.
+
+**Before that, 2026-09-18, afternoon (C-15a built, WKE-620, PR open: a stored rating that is not this character's is dropped at login.)**
 The owner refreshed on his Restoration Shaman with C-15 in the game and Equip Now still showed the Druid's fifteen
 `you don't own this` rows. C-15 was doing exactly what it was built to do - the chat line said the file on disk did not
 say which character it was for - but a gate stops an IMPORT, and the rating on screen had been stored by the Shaman's
@@ -424,7 +450,33 @@ Before that: 2026-09-08, late night (WKE-541 / M2-4: the Equip Now tab stops cal
 
 ## 0. Where we are (read this first; keep it current)
 
-**As of 2026-09-18, afternoon (C-15a built, WKE-620, PR open: a stored rating that is not this character's is dropped at login.)**
+**As of 2026-09-22 (C-17 built, WKE-624, PR open: a write into `Data\` that the client is holding is waited out rather than lost.)**
+The owner's terminal, 2026-09-21 17:40:23, on `main` `f735faf`: `warning: the status file cannot be written (EPERM:
+operation not permitted, rename '...\.CompanionStatus.lua.47652.tmp' -> '...\CompanionStatus.lua'); the log is still
+the record`. His SavedVariables had changed a second earlier - he was reloading, and the client reads `Data\*.lua` at
+that instant, while Windows refuses a rename over a file another process holds open. That run then FAILED (QE Live
+refused the profile) and the strip went on saying `rating your gear, started 3 minutes ago` for the whole of it,
+because the failure was never written where the addon reads it. So `output.writeAtomic` - the one function the
+verdict, the status file and the log's directory rule all go through - now RETRIES the rename on `EPERM`, `EBUSY` and
+`EACCES`: **ten tries over at most ~1.9 s**, 25 ms before the second and doubling to a 300 ms ceiling (25, 50, 100,
+200, then 300 five times). The numbers are a choice, not a measurement - nothing here was timed against a real client;
+ten because the warning must still arrive while somebody is watching the terminal, ~2 s because that is the order of a
+reload's read of one small file and far below the minutes a run takes. When there was a wait, ONE line afterwards and
+never one per try: `status file written after 3 tries; the client was reading it`, and `verdict file written after ...`
+for the other writer. Any other error - and the tenth try - gives up exactly as before, with the same warning, the
+temp file removed and the previous file standing. Unchanged: the temp-file-then-rename shape, the warning text, the
+addon. Seven guards proven red; 276 companion tests. See §7 2026-09-22 (C-17), §11.
+
+**Scaled down, and said in the PR:** the issue asked for the retry AND its one log line inside `lib/output.js` alone.
+The line cannot reach `Data/companion.log` from there - `output.js` has no logger, `lib/log.js` already requires it,
+and the configured sink is built in `companion.js` - so the notice is a callback (`options.onRetry`) that
+`lib/status.js` passes through and `companion.js` phrases, two lines in each. That is the smallest wiring that makes
+the requirement real rather than dead code.
+
+**Human-required after the merge:** the owner restarts his watcher, and nothing else. The next reload that collides
+with a write shows up as the one retry line in `Data/companion.log` instead of the warning.
+
+**Before that, 2026-09-18, afternoon (C-15a built, WKE-620, PR open: a stored rating that is not this character's is dropped at login.)**
 The owner refreshed on his Restoration Shaman with C-15 in the game and Equip Now still showed the Druid's fifteen
 `you don't own this` rows. C-15 was doing exactly what it was built to do - the chat line said the file on disk did not
 say which character it was for - but a gate stops an IMPORT, and the rating on screen had been stored by the Shaman's
@@ -892,6 +944,16 @@ One shipped package `Lootpath/` (what the packager zips) plus `spec/` (tests) an
 ---
 
 ## 7. Decisions log (dated; do not reopen without a new entry here)
+
+**2026-09-22 (C-17, WKE-624) - a rename the client is holding is waited out, not lost: every write into `Lootpath/Data/` retries on `EPERM`, `EBUSY` and `EACCES`, ten tries over at most ~1.9 s, and says so once when it had to.**
+
+  - **What the owner saw.** 2026-09-21 17:40:23, `main` `f735faf`: `warning: the status file cannot be written (EPERM: operation not permitted, rename 'C:\World of Warcraft\_retail_\Interface\AddOns\Lootpath\Data\.CompanionStatus.lua.47652.tmp' -> '...\CompanionStatus.lua'); the log is still the record`. The SavedVariables had changed at 17:40:22 - he was reloading, and the client reads `Data\*.lua` as it loads. The run then failed and the strip kept the PREVIOUS status, `rating your gear`, for three minutes, because the failure had nowhere to land. The warning was doing its job; the write was the thing that should not have been given up on.
+  - **Why the collision is structural and not bad luck.** Windows refuses a rename over a file another process holds open. The addon's own refresh IS a `/reload`, so the two moments that most want to write a status - a run starting and a run dying - are exactly the two most likely to land on a load. Every file the companion puts in that folder goes through one `writeAtomic`, so one retry covers the verdict, the status file and anything added later.
+  - **Ten tries, 25 ms doubling to a 300 ms ceiling, ~1.9 s in all, and these are a CHOICE.** Nothing in this repo has timed a real client's read of a `Data` file; what is known is that it is one small file read once during a load, and that a companion run takes minutes. Ten keeps the warning arriving while a person is still watching the terminal; the ceiling is what bounds the wait rather than the doubling's own tail; ~2 s is two orders below the run it protects and one above a file read. The wait is SYNCHRONOUS (`Atomics.wait`), because every writer here is, and an async hop would let a later stage write the same file underneath this one. `options.sleep` exists so the guards record the wait instead of serving it.
+  - **Three codes and no others.** `EPERM`, `EBUSY`, `EACCES` - what a foreign handle produces. A wrong path or a folder that went away answers `ENOENT`, and it will answer the same in two seconds, so it is thrown at once. The temp file STAYS on disk between tries (it is the whole rendered chunk, and rewriting it each time would be work for nothing) and is removed on the final failure, so the folder the addon loads out of never keeps a `.tmp`.
+  - **One line, after the fact, never per try:** `status file written after 3 tries; the client was reading it`, and `verdict file written after N tries; ...` for the other writer. A line every 25 ms would be noise about a second nobody was hurt by. A write that succeeded first time says nothing at all.
+  - **Where that line is phrased, and why not in `output.js`.** The issue put both the retry and the line in `lib/output.js`. `output.js` has no logger and cannot hold one - `lib/log.js` already requires it, and the configured file-and-terminal sink is built in `companion.js` - so the retry raises `options.onRetry(tries, target)` and the callers phrase it: `lib/status.js` passes the recorder's own `onRetry` straight through, `companion.js` supplies both closures over `log`. Two lines in each, and the alternative was a requirement that shipped as dead code.
+  - **Unchanged:** the temp-file-then-rename shape, the directory rule (the `Data` folder is created, the AddOns folder never is), the warning text on a final failure, C-9's rule that a failed write leaves the previous file in place, and the addon, which reads nothing new.
 
 **2026-09-18 (C-15a, WKE-620) - a gate on the file is not a gate on the store: a rating for somebody else that a login before C-15 had already written into this character's `db.char` is dropped at every login, and one line says so. This closes the caveat C-15 left in §11.**
 
@@ -2122,6 +2184,8 @@ The four asked refreshes of that day were answered in **66.7, 77.1, 113.2 and 13
 ---
 
 ## 11. Risks and open questions
+
+- **Any write into `Lootpath\Data\` can collide with a reload, and C-17 makes that survivable rather than impossible (2026-09-22, C-17, WKE-624).** The addon's refresh IS a `/reload`, so the client opens every `Data\*.lua` at the moment the companion is most likely to be writing one. The retry covers the window it was built for - one client read of one small file - and nothing else: a file held by a text editor, an antivirus scan or a backup agent for longer than ~1.9 s still ends in the old warning and the old file, which is the right answer but not a fixed one. **The retry has never run against a real client:** the guards drive `fs.renameSync` through a stub, so what is proved is the loop, the codes, the waits and the one line, not that a reload's hold really is shorter than two seconds. The owner's next reload-collision is the read - the log says `status file written after N tries` instead of the warning, and N is the first measurement anybody has of how long the client holds that file. Any new file put in that folder inherits the retry by going through `output.writeAtomic`; one that does not is a defect.
 
 - **The `Current Spec` control has never been driven on a real fork (2026-09-18, C-16, WKE-619).** Every selector in the switch is read off the owner's clone - the `InputLabel` text, the MUI `Select`, the option names, the doubled drawer - and proven against a page double that answers them. What nothing in this repo can say is whether Playwright's `getByLabel('Current Spec')` really resolves his `InputLabel`/`Select` pair to a clickable combobox, whether his menu's options resolve as `role=option` with those exact names, and whether one read-back is enough for React to have re-rendered the header after `setActiveChar`. The owner's first refresh on the Shaman is the read: the `character:` line either names the switch or the run fails with one of the three named `DRIVE` messages, which is the point of having three.
 - **A rating written before C-16 was made against whatever character the fork happened to be on (2026-09-18, C-16).** The driver never set it, so every verdict file on the owner's disk was produced against his browser profile's Restoration Druid - correct for the Druid, and for the Druid only. C-15 stops the wrong character READING one; it does not say the file was rated as the right one. In practice the only files that exist are Druid files that were refused for anyone else, so nothing is believed to be wrong; a `/lootpath refresh` per character settles it either way.
