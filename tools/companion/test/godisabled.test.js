@@ -237,27 +237,37 @@ test("C-14a: the drop is a multiset difference by identity, and names what QE Li
         'finger1=,id=111,bonus_id=7',
         '# Band of Sameness (120)',
         'finger2=,id=111,bonus_id=7',
+        '# Waterspeaker\'s Cowl (139)',
+        'head=,id=777',
+        '# Waterspeaker\'s Cowl (139)',
+        'head=,id=777',
         '',
     ].join('\n');
-    // QE Live kept the hood and exactly ONE of the two identical rings. The
-    // bonus IDs come back in his own order, which is why the key sorts.
+    // QE Live kept the hood, exactly ONE of the two identical rings, and one of
+    // the two identical tier helms. The bonus IDs come back in his own order,
+    // which is why the key sorts. The last card is a Catalyst CLONE of the hood
+    // - `convertToTier` puts the tier piece's own ID on it (Item.ts:268), which
+    // here is the very helm the character already owns two of. It is his
+    // invention and never one of the items sent, so it must not stand in for
+    // the copy he dropped.
     const cards = [
-        { slot: 'Head', name: 'Mysterious Hood', level: 126, itemID: 235950, bonusIDs: [1, 3], catalyst: false },
+        { slot: 'Head', name: 'Mysterious Hood', level: 126, itemID: 235950, bonusIDs: [3, 1], catalyst: false },
         { slot: 'Finger', name: 'Band of Sameness', level: 120, itemID: 111, bonusIDs: [7], catalyst: false },
-        // A Catalyst clone is his own invention, never one of the items sent.
-        { slot: 'Head', name: 'Tier Hood', level: 126, itemID: 999, bonusIDs: [], catalyst: true, originalItem: 235950 },
+        { slot: 'Head', name: "Waterspeaker's Cowl", level: 139, itemID: 777, bonusIDs: [], catalyst: false },
+        { slot: 'Head', name: "Waterspeaker's Cowl", level: 139, itemID: 777, bonusIDs: [], catalyst: true, originalItem: 235950 },
     ];
     const drop = forkLib.poolDrop(profile, cards);
-    assert.strictEqual(drop.sent, 4);
-    assert.strictEqual(drop.taken, 2);
+    assert.strictEqual(drop.sent, 6);
+    assert.strictEqual(drop.taken, 3);
     assert.deepStrictEqual(
         drop.missing.map((item) => item.name),
-        ['Mysterious Striders', 'Band of Sameness'],
-        'in the profile\'s own order, and the SECOND ring is the one left over'
+        ['Mysterious Striders', 'Band of Sameness', "Waterspeaker's Cowl"],
+        "in the profile's own order, and the SECOND of each pair is the one left over"
     );
     assert.strictEqual(
         forkLib.dropLine(drop),
-        'QE Live did not take 2 of 4 imported items: Mysterious Striders (139), Band of Sameness (120)'
+        'QE Live did not take 3 of 6 imported items: Mysterious Striders (139), Band of Sameness (120),' +
+            " Waterspeaker's Cowl (139)"
     );
 });
 
