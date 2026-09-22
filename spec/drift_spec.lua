@@ -603,6 +603,55 @@ describe("ns.Drift.LoadLine, the five things the load after a refresh can say", 
         assert.is_nil(ns.db.global.drift.refreshStartedAt)
     end)
 
+    -- C-14b (WKE-627). The one `failed` the player can act on: the gear went
+    -- over whole and the rating would not take it, because it is leveling gear
+    -- the rating does not know. Chosen by the reason token the companion
+    -- writes, never by the message - which here says the same thing in the
+    -- tooltip's own words and is still not what the line is picked by.
+    -- Proven red by dropping the `UnratedGear` branch from `LoadLine`: the load
+    -- says "the rating failed at qe live; see companion.log." to a player whose
+    -- answer is to go and level up.
+    -- It is still the `failed` decision: `Drift.Decide` is untouched.
+    it("says the rating could not take the gear when that is why it failed", function()
+        ns.companionStatus = {
+            state = "failed",
+            stage = "qe live",
+            startedAt = "2026-09-14T23:10:05Z",
+            finishedAt = "2026-09-14T23:10:20Z",
+            exitCode = 5,
+            message = "couldn't rate this gear: no usable item in Cape, Chest - 17 of the 32 pieces sent "
+                .. "weren't recognised",
+            reason = "unknown-gear",
+            missingSlots = { "Cape", "Chest" },
+            sent = 32,
+            notTaken = 17,
+        }
+        assert.equal("failed", ns.Drift.Decide(at(NOW)))
+        local line = ns.Drift.LoadLine(at(NOW))
+        assert.equal(
+            "couldn't rate your gear - it's leveling gear the rating doesn't know. "
+                .. "Hit max level, gear up, then Refresh.",
+            line
+        )
+        assert.not_equal("the rating failed at qe live; see companion.log.", line)
+        said(line)
+        assert.is_nil(ns.db.global.drift.refreshStartedAt)
+    end)
+
+    -- The same failure with no reason written - which is every status file on
+    -- disk before C-14b - says exactly what it has always said.
+    it("says the old line for a failure that names no reason", function()
+        ns.companionStatus = {
+            state = "failed",
+            stage = "qe live",
+            startedAt = "2026-09-14T23:10:05Z",
+            finishedAt = "2026-09-14T23:10:20Z",
+            exitCode = 5,
+            message = "couldn't rate this gear: no usable item in Cape, Chest",
+        }
+        assert.equal("the rating failed at qe live; see companion.log.", ns.Drift.LoadLine(at(NOW)))
+    end)
+
     -- A failure C-9 could not place still reads as a sentence.
     it("says it failed even with no stage", function()
         ns.companionStatus = { state = "failed", finishedAt = "2026-09-14T23:10:20Z" }

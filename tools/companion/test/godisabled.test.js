@@ -383,3 +383,133 @@ test('C-14a: a failure with no player sentence is written exactly as it always w
     assert.strictEqual(code, 4);
     assert.ok(h.statusText().includes('message = "playwright is not installed'));
 });
+
+// ---------------------------------------------------------------------------
+// C-14b (WKE-627): the same refusal as DATA.
+//
+// C-14a put the cause into the status file as one string, and a string is a
+// sentence for a tooltip. It cannot be the thing a SCREEN is chosen by - that
+// is the rule R-7b wrote when it told C-4's skip from an empty read by its exit
+// code, and C-14 for the third skip. So the driver hands the failure over as
+// fields as well, `message` unchanged, and the addon switches on the token.
+
+test('C-14b: the refusal carries the reason, the slots and the two counts', () => {
+    const fields = forkLib.goRefusalFields(['Boots', 'Ring', 'Weapon'], { sent: 33, missing: new Array(8) });
+    assert.deepStrictEqual(fields, {
+        reason: 'unknown-gear',
+        missingSlots: ['Boots', 'Ring', 'Weapon'],
+        sent: 33,
+        notTaken: 8,
+    });
+    assert.strictEqual(fields.reason, forkLib.REASON_UNKNOWN_GEAR);
+    assert.ok(statusLib.REASONS.includes(fields.reason), 'the writer will accept it');
+    // No drop read - a pass whose import was never probed - and the counts are
+    // left out rather than made up, exactly as the sentence leaves them out.
+    assert.deepStrictEqual(forkLib.goRefusalFields(['Boots'], null), {
+        reason: 'unknown-gear',
+        missingSlots: ['Boots'],
+    });
+    // The slots are copied, so nothing downstream can edit the driver's list.
+    const slots = ['Boots'];
+    forkLib.goRefusalFields(slots, null).missingSlots.push('Ring');
+    assert.deepStrictEqual(slots, ['Boots']);
+});
+
+test('C-14b: a disabled Go! throws the fields beside the sentence', async () => {
+    const page = goRow({ enabled: false });
+    await assert.rejects(
+        () => forkLib.clickGo(page, 'for this pool', { drop: { sent: 33, missing: new Array(8) } }),
+        (e) => {
+            assert.strictEqual(e.playerFields.reason, 'unknown-gear');
+            assert.deepStrictEqual(e.playerFields.missingSlots, ['Boots', 'Ring', 'Weapon']);
+            assert.strictEqual(e.playerFields.sent, 33);
+            assert.strictEqual(e.playerFields.notTaken, 8);
+            // C-14a's sentence is untouched by any of it.
+            assert.strictEqual(
+                e.playerMessage,
+                "couldn't rate this gear: no usable item in Boots, Ring, Weapon" +
+                    " - 8 of the 33 pieces sent weren't recognised"
+            );
+            return true;
+        }
+    );
+});
+
+test('C-14b: a refusal his page said nothing about carries no fields at all', async () => {
+    const page = goRow({ enabled: false, error: null });
+    await assert.rejects(
+        () => forkLib.clickGo(page, 'for this pool'),
+        (e) => {
+            assert.strictEqual(e.playerFields, undefined, 'nothing read means nothing to write');
+            return true;
+        }
+    );
+});
+
+test('C-14b: the status file carries the four fields, and the log still names QE Live', async () => {
+    const h = harness();
+    const fork = {
+        async run() {
+            throw new forkLib.ForkError(
+                "QE Live's Go! button is disabled for this pool - it wants an item in: Cape, Chest",
+                forkLib.REFUSED,
+                "couldn't rate this gear: no usable item in Cape, Chest - 17 of the 32 pieces sent weren't recognised",
+                { reason: 'unknown-gear', missingSlots: ['Cape', 'Chest'], sent: 32, notTaken: 17 }
+            );
+        },
+    };
+    assert.strictEqual(await h.run(fork), 5);
+    const written = h.statusText();
+    assert.ok(written.includes('reason = "unknown-gear",'));
+    assert.ok(written.includes('missingSlots = { "Cape", "Chest" },'));
+    assert.ok(written.includes('sent = 32,'));
+    assert.ok(written.includes('notTaken = 17,'));
+    assert.ok(written.includes('message = "couldn\'t rate this gear: no usable item in Cape, Chest'));
+    assert.ok(!written.includes('QE Live'), 'the file still names no source');
+    assert.ok(h.logText().includes("QE Live's Go! button is disabled"), 'the log still does');
+});
+
+test('C-14b: any other failure writes none of them, byte for byte as before', async () => {
+    const h = harness();
+    const fork = {
+        async run() {
+            throw new forkLib.ForkError('playwright is not installed; run "npm install" in tools/companion', forkLib.DRIVE);
+        },
+    };
+    assert.strictEqual(await h.run(fork), 4);
+    const written = h.statusText();
+    assert.ok(written.includes('message = "playwright is not installed'));
+    for (const field of ['reason', 'missingSlots', 'sent', 'notTaken']) {
+        assert.ok(!written.includes(`${field} =`), `${field} is not written for a failure that has none`);
+    }
+});
+
+test('C-14b: a reason the addon does not know is refused rather than written', () => {
+    assert.throws(
+        () => statusLib.render({ state: 'failed', reason: 'gremlins' }),
+        /refusing to write status reason "gremlins"/
+    );
+    assert.throws(
+        () => statusLib.render({ state: 'failed', reason: 'unknown-gear', missingSlots: ['Cape', 7] }),
+        /refusing to write missingSlots entry 7/
+    );
+    assert.throws(() => statusLib.render({ state: 'failed', sent: -1 }), /refusing to write sent -1/);
+    assert.throws(() => statusLib.render({ state: 'failed', notTaken: 1.5 }), /refusing to write notTaken 1.5/);
+    // An empty list is not written: "none were named" is what absent says.
+    assert.ok(!statusLib.render({ state: 'failed', missingSlots: [] }).includes('missingSlots'));
+});
+
+test('C-14b: the next run clears them, so yesterday\'s reason never stands over today', () => {
+    const status = statusLib.make({ file: null, companionVersion: '0.1.0' });
+    status.failed('qe live', 'refused', 5, { reason: 'unknown-gear', missingSlots: ['Cape'], sent: 32, notTaken: 17 });
+    assert.strictEqual(status.current().reason, 'unknown-gear');
+    status.started({});
+    for (const field of ['reason', 'missingSlots', 'sent', 'notTaken']) {
+        assert.strictEqual(status.current()[field], undefined, `${field} is cleared when a run begins`);
+    }
+    // And a second failure with nothing to say clears what the first one said.
+    status.failed('qe live', 'refused', 5, { reason: 'unknown-gear', missingSlots: ['Cape'] });
+    status.failed('profile', 'something else', 3);
+    assert.strictEqual(status.current().reason, undefined);
+    assert.strictEqual(status.current().missingSlots, undefined);
+});

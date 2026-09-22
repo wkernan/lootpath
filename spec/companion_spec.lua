@@ -1846,6 +1846,133 @@ describe("Companion.Status", function()
     end)
 end)
 
+-- C-14b (WKE-627). The one place in the addon that decides this state, and the
+-- four fields behind it.
+describe("Companion.UnratedGear", function()
+    local ns, world
+
+    before_each(function()
+        ns, world = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- A sentinel, because `copy` cannot be handed a nil to remove a field with.
+    local DROP = {}
+
+    local REFUSAL = {
+        state = "failed",
+        stage = "qe live",
+        finishedAt = "2026-09-22T17:18:00Z",
+        exitCode = 5,
+        message = "couldn't rate this gear: no usable item in Cape, Chest",
+        reason = "unknown-gear",
+        missingSlots = { "Cape", "Chest", "Belt", "Legs", "Boots", "Weapon" },
+        sent = 32,
+        notTaken = 17,
+    }
+
+    local function copy(overrides)
+        local out = {}
+        for key, value in pairs(REFUSAL) do
+            out[key] = value
+        end
+        -- `DROP` rather than nil, because a nil in a table constructor is not a
+        -- key at all and `pairs` would never see it.
+        for key, value in pairs(overrides or {}) do
+            if value == DROP then
+                out[key] = nil
+            else
+                out[key] = value
+            end
+        end
+        return out
+    end
+
+    it("reads the four fields off the file, in the rating's own order", function()
+        local status = ns.Companion.Status(REFUSAL)
+        assert.equal("unknown-gear", status.reason)
+        assert.same({ "Cape", "Chest", "Belt", "Legs", "Boots", "Weapon" }, status.missingSlots)
+        assert.equal(32, status.sent)
+        assert.equal(17, status.notTaken)
+        local unrated = ns.Companion.UnratedGear(REFUSAL)
+        assert.same({ "Cape", "Chest", "Belt", "Legs", "Boots", "Weapon" }, unrated.slots)
+        assert.equal(32, unrated.sent)
+        assert.equal(17, unrated.notTaken)
+    end)
+
+    -- **THE OLD-SHAPE GUARD.** Every status file on disk before this was built
+    -- carries none of the four, and the owner has several. It must read as the
+    -- ordinary failure it has always been.
+    -- Proven red by making `UnratedGear` answer on `state == "failed"` alone.
+    it("answers nothing for a status file written before these fields existed", function()
+        local old = copy({ reason = DROP, missingSlots = DROP, sent = DROP, notTaken = DROP })
+        assert.is_nil(ns.Companion.UnratedGear(old))
+        assert.is_nil(ns.Companion.UnratedGearFacts(old))
+        local status = ns.Companion.Status(old)
+        assert.is_true(status.ok)
+        assert.is_nil(status.reason)
+        assert.is_nil(status.missingSlots)
+        assert.is_nil(status.sent)
+        assert.is_nil(status.notTaken)
+    end)
+
+    it("answers nothing for any other status, whatever its message says", function()
+        assert.is_nil(ns.Companion.UnratedGear(nil))
+        assert.is_nil(ns.Companion.UnratedGear("a string"))
+        assert.is_nil(ns.Companion.UnratedGear({ state = "exploded", reason = "unknown-gear" }))
+        -- A reason on a run that did NOT fail is not this state.
+        assert.is_nil(ns.Companion.UnratedGear(copy({ state = "idle" })))
+        assert.is_nil(ns.Companion.UnratedGear(copy({ state = "skipped" })))
+        -- A token this addon does not know is silence, never a guess.
+        assert.is_nil(ns.Companion.UnratedGear(copy({ reason = "something-else" })))
+        -- And the sentence alone never stands in for the token: this is the
+        -- whole reason the token exists.
+        assert.is_nil(ns.Companion.UnratedGear(copy({ reason = DROP })))
+    end)
+
+    it("takes the raw file or a record Status already read, and answers the same", function()
+        assert.same(ns.Companion.UnratedGear(REFUSAL), ns.Companion.UnratedGear(ns.Companion.Status(REFUSAL)))
+    end)
+
+    it("passes the slots and the counts through ns.Safe like every other field", function()
+        assert.is_nil(ns.Companion.Status(copy({ missingSlots = world.secretTable() })).missingSlots)
+        assert.is_nil(ns.Companion.Status(copy({ missingSlots = "Cape" })).missingSlots)
+        assert.is_nil(ns.Companion.Status(copy({ sent = world.markSecret(32) })).sent)
+        assert.is_nil(ns.Companion.Status(copy({ sent = 1.5 })).sent)
+        assert.is_nil(ns.Companion.Status(copy({ notTaken = -1 })).notTaken)
+        -- A secret word inside the list is dropped; the rest of the list stands.
+        assert.same(
+            { "Cape", "Belt" },
+            ns.Companion.Status(copy({ missingSlots = { "Cape", world.markSecret("Chest"), "Belt" } })).missingSlots
+        )
+    end)
+
+    it("gives a list even when the file named no slots, so a caller never has to check", function()
+        local unrated = ns.Companion.UnratedGear(copy({ missingSlots = DROP }))
+        assert.same({}, unrated.slots)
+        assert.equal(17, unrated.notTaken)
+    end)
+
+    it("says the quiet facts from the fields, never from the sentence", function()
+        assert.equal(
+            "17 of 32 pieces weren't recognised \194\183 slots with nothing usable: "
+                .. "Cape, Chest, Belt, Legs, Boots, Weapon",
+            ns.Companion.UnratedGearFacts(REFUSAL)
+        )
+        -- Half the facts is half the sentence, not an invented number.
+        assert.equal(
+            "slots with nothing usable: Cape, Chest, Belt, Legs, Boots, Weapon",
+            ns.Companion.UnratedGearFacts(copy({ sent = DROP, notTaken = DROP }))
+        )
+        assert.equal("17 of 32 pieces weren't recognised", ns.Companion.UnratedGearFacts(copy({ missingSlots = DROP })))
+        -- And nothing at all rather than a tooltip that admits it knows nothing.
+        assert.is_nil(ns.Companion.UnratedGearFacts(copy({ missingSlots = DROP, sent = DROP, notTaken = DROP })))
+    end)
+end)
+
 describe("Companion.StatusText", function()
     local ns, world
 
@@ -1933,6 +2060,41 @@ describe("Companion.StatusText", function()
         )
         assert.equal(9, ns.Companion.EXIT_EMPTY_SLOT)
         assert.not_equal(ns.Companion.EXIT_EMPTY_GEAR, ns.Companion.EXIT_EMPTY_SLOT)
+    end)
+
+    -- C-14b (WKE-627). The one failure that is not a breakage: the gear went
+    -- over whole and the rating would not take it. Named by the token the
+    -- companion writes, never by reading `message`.
+    -- Proven red by dropping the `UnratedGear` branch from `StatusText`: the
+    -- clause goes back to "FAILED at qe live", which points at a log file
+    -- instead of saying what happened to the gear.
+    it("says the rating could not take this gear, and only for that reason", function()
+        assert.equal(
+            "companion: couldn't rate this gear (" .. at("2026-09-13T21:06:00Z") .. ") - see companion.log",
+            text({
+                state = "failed",
+                stage = "qe live",
+                finishedAt = "2026-09-13T21:06:00Z",
+                exitCode = 5,
+                message = "couldn't rate this gear: no usable item in Boots",
+                reason = "unknown-gear",
+                missingSlots = { "Boots" },
+                sent = 32,
+                notTaken = 17,
+            })
+        )
+        -- The same stage, the same exit code and the same message, with no
+        -- reason written: the clause every failure has always had.
+        assert.equal(
+            "companion: FAILED at qe live (" .. at("2026-09-13T21:06:00Z") .. ") - see companion.log",
+            text({
+                state = "failed",
+                stage = "qe live",
+                finishedAt = "2026-09-13T21:06:00Z",
+                exitCode = 5,
+                message = "couldn't rate this gear: no usable item in Boots",
+            })
+        )
     end)
 
     it("says where a run died, and where to read why", function()

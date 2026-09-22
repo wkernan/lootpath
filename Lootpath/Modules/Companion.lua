@@ -1059,9 +1059,67 @@ Companion.STATUS_EMPTY_GEAR = "companion: no gear to rate, no run"
 Companion.EXIT_EMPTY_SLOT = 9
 Companion.STATUS_EMPTY_SLOT = "companion: a gear slot was empty, no run"
 
+-- C-14b (WKE-627). **The one `failed` the window can do something about.**
+--
+-- Every failure looked the same from in here until now - the fork down, a click
+-- that timed out, and the rating refusing the character outright were all
+-- `companion: FAILED at qe live - see companion.log`, which points at a log file
+-- instead of answering. One of them is not like the others: the gear WAS sent,
+-- whole, and the rating would not take it, because it is gear the rating does
+-- not know - leveling greens on a character below max level. Nothing is broken,
+-- and there is something the player can do about it.
+--
+-- So the companion writes that reason as a TOKEN beside the facts behind it
+-- (`tools/companion/lib/status.js`, `REASONS`), and `Companion.UnratedGear` is
+-- the only place in the addon that decides the state. Told apart by the token
+-- and never by reading `message`: the rule R-7b wrote for its two skips, and
+-- C-14 for the third.
+--
+-- This is a refinement of `failed`, not a seventh Drift decision: the run DID
+-- fail, `Drift.Decide` still answers "failed", and the only thing that changes
+-- is the words each surface says about it.
+Companion.REASON_UNKNOWN_GEAR = "unknown-gear"
+Companion.STATUS_UNRATED_GEAR = "companion: couldn't rate this gear"
+
+-- The slot list a status file may carry: QE Live's own display words, in its
+-- own order. Every entry through ns.Safe like every other field, a bounded
+-- walk, and anything that is not a word is dropped rather than shown.
+local UNRATED_SLOTS_MAX = 20
+
+local function safeSlots(value)
+    local safe, sawSecret = ns.Safe(value)
+    if sawSecret or type(safe) ~= "table" then
+        return nil
+    end
+    local slots = {}
+    for index = 1, math.min(#safe, UNRATED_SLOTS_MAX) do
+        local word = safeString(safe[index])
+        if word then
+            slots[#slots + 1] = word
+        end
+    end
+    if #slots == 0 then
+        return nil
+    end
+    return slots
+end
+
+local function safeCount(value)
+    local safe, sawSecret = ns.Safe(value)
+    if sawSecret or type(safe) ~= "number" or safe < 0 or safe % 1 ~= 0 then
+        return nil
+    end
+    return safe
+end
+
 -- Status(raw) -> { absent = true } for the committed placeholder, which is not
 -- an error; { ok = false, reason } for a file that is there but says nothing
 -- this can read; or the whole record.
+--
+-- The two `reason`s are different things and never meet: on a `{ ok = false }`
+-- record it is this reader's own sentence about a file it could not read, and
+-- on an `{ ok = true }` record it is the companion's own token (C-14b). Only
+-- `Companion.UnratedGear` reads the second, and it reads it only on `ok`.
 function Companion.Status(raw)
     if raw == nil then
         return { absent = true, reason = "the companion has not written a status file yet" }
@@ -1092,11 +1150,79 @@ function Companion.Status(raw)
         finishedAt = safeString(safe.finishedAt),
         stage = safeString(safe.stage),
         message = safeString(safe.message),
+        -- C-14b (WKE-627). Absent in every file written before it, and absent
+        -- in most written after: a failure with no reason to give carries no
+        -- reason, and these four are then nil, which is exactly what an
+        -- old-shape file gives.
+        reason = safeString(safe.reason),
+        missingSlots = safeSlots(safe.missingSlots),
+        sent = safeCount(safe.sent),
+        notTaken = safeCount(safe.notTaken),
         profileCapturedAt = safeString(safe.profileCapturedAt),
         verdictWrittenAt = safeString(safe.verdictWrittenAt),
         companionVersion = safeString(safe.companionVersion),
         exitCode = exitCode,
     }
+end
+
+-- C-14b (WKE-627). **The one function that decides this state, for all four
+-- surfaces.**
+--
+-- `{ slots, sent, notTaken }` when the last run died because the rating would
+-- not take this character's gear, or nil. Pure, and it takes either the raw
+-- `ns.companionStatus` table or a record `Companion.Status` already parsed -
+-- the UI holds the first and `Drift.Decide` hands back the second, and a state
+-- decided in two places is a state that can be decided two ways.
+--
+-- `slots` is always a list (empty when the file named none), so a caller never
+-- has to test it before walking it; `sent` and `notTaken` are nil when the
+-- import was never probed, and a caller with no counts says the half it knows.
+function Companion.UnratedGear(status)
+    if type(status) ~= "table" then
+        return nil
+    end
+    if status.ok == nil and status.absent == nil then
+        status = Companion.Status(status)
+    end
+    if not status.ok or status.state ~= "failed" then
+        return nil
+    end
+    if status.reason ~= Companion.REASON_UNKNOWN_GEAR then
+        return nil
+    end
+    return {
+        slots = status.missingSlots or {},
+        sent = status.sent,
+        notTaken = status.notTaken,
+    }
+end
+
+-- The quiet facts behind that sentence, for a tooltip: the counts, then the
+-- slots in the rating's own words. nil when the file carried neither, because a
+-- tooltip that says nothing is better than one that says it knows nothing.
+--
+-- It is built from the FIELDS rather than from `message`, so nothing here is
+-- capped, truncated or re-parsed out of prose.
+Companion.UNRATED_COUNT = "%d of %d pieces weren't recognised"
+Companion.UNRATED_SLOTS = "slots with nothing usable: %s"
+Companion.UNRATED_SEPARATOR = " \194\183 "
+
+function Companion.UnratedGearFacts(status)
+    local unrated = Companion.UnratedGear(status)
+    if not unrated then
+        return nil
+    end
+    local parts = {}
+    if unrated.notTaken and unrated.sent then
+        parts[#parts + 1] = string.format(Companion.UNRATED_COUNT, unrated.notTaken, unrated.sent)
+    end
+    if #unrated.slots > 0 then
+        parts[#parts + 1] = string.format(Companion.UNRATED_SLOTS, table.concat(unrated.slots, ", "))
+    end
+    if #parts == 0 then
+        return nil
+    end
+    return table.concat(parts, Companion.UNRATED_SEPARATOR)
 end
 
 -- The wall clock of one of the companion's UTC stamps, in the reader's own
@@ -1169,6 +1295,13 @@ function Companion.StatusText(raw, now)
         return withClock("companion: profile unchanged, no run", status.finishedAt, now)
     end
     if status.state == "failed" then
+        -- C-14b (WKE-627): the one failure that is not a breakage. "FAILED at
+        -- qe live" is what went wrong told as a stage; this says what happened
+        -- to the player's gear, and the Equip Now tab says what to do about it.
+        -- Every other failure keeps the clause it has always had.
+        if Companion.UnratedGear(status) then
+            return withClock(Companion.STATUS_UNRATED_GEAR, status.finishedAt, now) .. Companion.STATUS_LOG_HINT
+        end
         local where = status.stage and (" at " .. status.stage) or ""
         return withClock("companion: FAILED" .. where, status.finishedAt, now) .. Companion.STATUS_LOG_HINT
     end
