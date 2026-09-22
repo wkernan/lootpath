@@ -311,9 +311,29 @@ describe("ns.Drift, the wait after the first reload", function()
         local model = ns.Drift.Model(at("2026-09-14T23:10:30Z"))
         assert.equal("wait", model.kind)
         assert.equal(
-            "rating your gear, started 30 seconds ago, usually about a minute \194\183 click to load it",
+            "rating your gear, started 30 seconds ago, usually about a minute "
+                .. "\194\183 Refresh loads it when it's ready",
             model.text
         )
+    end)
+
+    -- R-8b (WKE-623): the clause names the button on its own row. The owner,
+    -- 2026-09-21: "I don't like this copy that just says 'click to load it'...
+    -- click what?" Proven red by putting M3-16b's `click to load it` back into
+    -- `Drift.WAIT_LINE`: `Refresh` is nowhere in the line and `click` is in it.
+    it("names the Refresh button instead of telling the player to click something", function()
+        waiting()
+        local model = ns.Drift.Model(at("2026-09-14T23:10:30Z"))
+        assert.is_truthy(model.text:find("Refresh loads it when it's ready", 1, true))
+        for _, text in ipairs({ ns.Drift.WAIT_LINE, ns.Drift.WAIT_TOOLTIP, model.text, model.tooltip }) do
+            assert.is_truthy(text:find("Refresh", 1, true), text)
+            assert.is_nil(text:lower():find("click", 1, true), text)
+        end
+        -- the button the words point at carries the same promise on its hover
+        local ready = ns.Drift.RefreshTooltip(at("2026-09-14T23:10:30Z"))
+        assert.equal("load the rating that's ready - takes a reload", ready)
+        -- and the chat line, read where no button is, is untouched
+        assert.equal("your gear is sent; the rating %s. The window says when it's ready.", ns.Drift.WAIT_CHAT_LINE)
     end)
 
     -- V-4 (WKE-589), and the answer to a question §11 left open: whether the
@@ -332,7 +352,8 @@ describe("ns.Drift, the wait after the first reload", function()
         local model = ns.Drift.Model(1789427400 + 30)
         assert.equal("wait", model.kind)
         assert.equal(
-            "rating your gear, started 30 seconds ago, usually about a minute \194\183 click to load it",
+            "rating your gear, started 30 seconds ago, usually about a minute "
+                .. "\194\183 Refresh loads it when it's ready",
             model.text
         )
         assert.equal(STARTED, ns.db.global.drift.refreshStartedAt)
@@ -348,7 +369,8 @@ describe("ns.Drift, the wait after the first reload", function()
         assert.equal(41, ns.Drift.RecordRun())
         waiting()
         assert.equal(
-            "rating your gear, started 30 seconds ago, usually ready in about 45 seconds \194\183 click to load it",
+            "rating your gear, started 30 seconds ago, usually ready in about 45 seconds "
+                .. "\194\183 Refresh loads it when it's ready",
             ns.Drift.Model(at("2026-09-14T23:10:30Z")).text
         )
         -- a run over a minute reads in minutes, and 15 s is the whole precision
@@ -386,7 +408,8 @@ describe("ns.Drift, the wait after the first reload", function()
         local model = ns.Drift.Model(at("2026-09-14T23:10:30Z"))
         -- the elapsed time is the RUN's clock now, not the click's
         assert.equal(
-            "rating your gear, started 25 seconds ago, usually about a minute \194\183 click to load it",
+            "rating your gear, started 25 seconds ago, usually about a minute "
+                .. "\194\183 Refresh loads it when it's ready",
             model.text
         )
     end)
