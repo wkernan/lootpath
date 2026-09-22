@@ -178,6 +178,11 @@ async function once(config, log, args, deps) {
     // pick in it and one without. Said out loud, in the same log, for the same
     // reason the line above it is.
     if (profile.vaultChoice) log.info(`vault read used: ${profile.vaultChoice}`);
+    // C-16a (WKE-622). The spec is read off the newest `env` snapshot that NAMES
+    // one, not simply the newest, because a flush names none and the newest env
+    // is always a flush. When it was borrowed from an older read, say which one:
+    // the character QE Live is put on hangs off that choice.
+    if (profile.specChoice) log.info(profile.specChoice);
     done(
         `${profile.counts.equipped} equipped, ${profile.counts.bag} in bags, ${profile.counts.bank} in the bank, ${profile.counts.vault} vault, ${profile.counts.lines} lines`
     );

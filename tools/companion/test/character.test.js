@@ -215,10 +215,77 @@ test("QE Live's name for a character is the spec's name and the class's word", (
             assert.strictEqual(forkLib.qeSpecOf({ class: token, spec: spec }), name);
         }
     }
-    // A capture too old to say is nothing, never a guess.
-    assert.strictEqual(forkLib.qeSpecOf({ class: 'SHAMAN' }), null);
+    // A capture that names no CLASS is nothing, never a guess.
     assert.strictEqual(forkLib.qeSpecOf({ spec: 'Restoration' }), null);
     assert.strictEqual(forkLib.qeSpecOf(null), null);
+});
+
+// --- the class-only fallback (C-16a, WKE-622) --------------------------------
+//
+// Until C-16a a capture that named the class but no spec was `null` here too,
+// and a spec-less capture is what every run gets: a flush `env` names no spec
+// and the newest `env` is always a flush. The spec is now read off the newest
+// capture that NAMES one (`characterSpec`, simc-profile.js) - but the addon
+// keeps four snapshots (`ns.CAPTURE_HISTORY`, Core.lua), so four flushes after
+// the last refresh there is genuinely no spec anywhere, and this is what
+// happens then.
+
+test('a class with exactly one healer needs no spec named; the Priest has two and is refused', () => {
+    // The table is not a table of ours. It is derived here from HIS OWN menu,
+    // so the two can never drift: for each class word, the specs his retail
+    // list offers for it.
+    const hisSpecsByClass = {};
+    for (const token of Object.keys(forkLib.QE_CLASS_WORD)) {
+        const word = forkLib.QE_CLASS_WORD[token];
+        hisSpecsByClass[token] = HIS_SPECS.filter((name) => name.endsWith(' ' + word)).map((name) =>
+            name.slice(0, name.length - word.length - 1)
+        );
+    }
+    // Five classes with one healer each, and the Priest with two.
+    assert.deepStrictEqual(
+        Object.keys(hisSpecsByClass).filter((token) => hisSpecsByClass[token].length !== 1),
+        ['PRIEST']
+    );
+    assert.deepStrictEqual(hisSpecsByClass.PRIEST.slice().sort(), ['Discipline', 'Holy']);
+
+    // And `QE_CLASS_SOLE_SPEC` is exactly those five, with his own spec words.
+    const derived = {};
+    for (const token of Object.keys(hisSpecsByClass)) {
+        if (hisSpecsByClass[token].length === 1) derived[token] = hisSpecsByClass[token][0];
+    }
+    assert.deepStrictEqual(forkLib.QE_CLASS_SOLE_SPEC, derived);
+
+    // So a spec-less capture of any of the five names one of his characters...
+    assert.strictEqual(forkLib.qeSpecOf({ class: 'SHAMAN' }), 'Restoration Shaman');
+    assert.strictEqual(forkLib.qeSpecOf({ class: 'DRUID' }), 'Restoration Druid');
+    assert.strictEqual(forkLib.qeSpecOf({ class: 'PALADIN' }), 'Holy Paladin');
+    assert.strictEqual(forkLib.qeSpecOf({ class: 'MONK' }), 'Mistweaver Monk');
+    assert.strictEqual(forkLib.qeSpecOf({ class: 'EVOKER' }), 'Preservation Evoker');
+    for (const token of Object.keys(forkLib.QE_CLASS_SOLE_SPEC)) {
+        assert.ok(HIS_SPECS.includes(forkLib.qeSpecOf({ class: token })), token);
+    }
+    // ...and a spec-less Priest names none, because two of them would do.
+    assert.strictEqual(forkLib.qeSpecOf({ class: 'PRIEST' }), null);
+    // A Priest whose capture DOES name a spec is untouched by any of this.
+    assert.strictEqual(forkLib.qeSpecOf({ class: 'PRIEST', spec: 'Holy' }), 'Holy Priest');
+});
+
+test('a Priest whose captures name no spec is refused before the browser is opened', async () => {
+    // Nothing answers this URL and `startFork` is false, so if the refusal were
+    // not first the failure would be `fork-unreachable` instead.
+    const config = { ...configLib.load(null), forkUrl: 'http://127.0.0.1:9/nothing', startFork: false };
+    await assert.rejects(
+        () => forkLib.run(config, SHAMAN_PROFILE, quietLog(), { identity: { name: 'Vows', realm: 'Arthas', class: 'PRIEST' } }),
+        (e) => {
+            assert.strictEqual(e.code, forkLib.REFUSED, 'exit 5, and not the unreachable fork');
+            assert.strictEqual(e.message, "no capture names this Priest's spec - /lootpath refresh in the spec you heal in");
+            return true;
+        }
+    );
+
+    // A capture too old to name the class at all is still not a refusal: it is
+    // `character: not named by the capture`, and the import speaks for itself.
+    assert.strictEqual(forkLib.qeSpecOf({ name: 'Vows' }), null);
 });
 
 test('the welcome tile and the menu item come from the same name', () => {

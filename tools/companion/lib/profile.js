@@ -141,6 +141,18 @@ function build(text, options) {
     if (!transcript.vault || !Object.keys(snapshotRewardLinks(transcript.vault) || {}).length) {
         warnings.push('no generated Great Vault reward in the SavedVariables, so the profile has no vault section');
     }
+    // C-16a (WKE-622): the spec is the one field a flush never carries, and the
+    // newest `env` is always a flush, so it is read off the newest snapshot that
+    // NAMES one (`characterSpec`, simc-profile.js). When not one of the four
+    // kept snapshots names it - four flushes after the last refresh - say so:
+    // downstream the fork falls back to QE Live's own character for the class,
+    // and a Priest has two of those and is refused.
+    const envSpec = built.envSpec || { spec: undefined, note: null };
+    if (!envSpec.spec) {
+        warnings.push(
+            'no capture names this character\'s spec, so the profile says "unknown"; a logout flush never names one - /lootpath refresh in the spec you heal in'
+        );
+    }
 
     return {
         ok: true,
@@ -158,6 +170,11 @@ function build(text, options) {
         // simc-profile.js). The companion logs it, because `0 vault` on reset
         // day was a choice between snapshots and the log said nothing about it.
         vaultChoice: transcript.vaultChoice || null,
+        // C-16a (WKE-622): null when the newest `env` named the spec itself,
+        // and one line naming the read it was borrowed from when it did not.
+        // The companion logs it beside `vault read used:`, for the same reason:
+        // a choice between snapshots decided what was rated.
+        specChoice: envSpec.note || null,
         // R-6 (WKE-578): how the newest `env` snapshot came to be taken, and
         // when. `trigger` is "refresh" for a snapshot `/lootpath refresh` took,
         // "flush" for one the unload sequence took (R-7a, WKE-582; "logout" from
@@ -174,8 +191,11 @@ function build(text, options) {
         identity: {
             name: env && packValue(env.data.player),
             realm: env && packValue(env.data.realm),
-            // GetSpecializationInfo's second return is the spec's own name.
-            spec: env && packValue(env.data.specInfo, 2),
+            // C-16a (WKE-622): GetSpecializationInfo's second return is the
+            // spec's own name, and at a flush there is no second return at all.
+            // This is the SAME reader the SimC header uses, so `spec=` and the
+            // character the fork is put on can never be two different answers.
+            spec: envSpec.spec,
             // C-15 (WKE-615): UnitClass's SECOND return is the class TOKEN -
             // `DRUID`, the same word on every locale - and the first is the
             // localised word, which no comparison may be built on. The verdict

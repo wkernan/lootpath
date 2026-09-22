@@ -110,13 +110,42 @@ const QE_CLASS_WORD = {
     EVOKER: 'Evoker',
 };
 
-// `{ class: "SHAMAN", spec: "Restoration" }` -> `"Restoration Shaman"`. Null
-// when either half is missing, which is a capture too old to say rather than a
-// character QE Live will not rate; `qeHasClass` below is the question that
-// refuses.
+// The class-only fallback (C-16a, WKE-622).
+//
+// A flush `env` names no spec, and after four flushes the last refresh's `env`
+// is off the end of the addon's four-deep history, so a character CAN reach
+// here with a class and no spec at all. For all but one class that is still not
+// a question: his retail menu (`classNames.Retail`,
+// `QEHeaderClassSelector.js` lines 15-23) lists exactly ONE healer for each of
+//
+//   Restoration Druid · Restoration Shaman · Holy Paladin ·
+//   Mistweaver Monk · Preservation Evoker
+//
+// and TWO for the Priest - `Holy Priest` and `Discipline Priest`. So the five
+// have one character each and there is nothing to choose; the Priest has two
+// and the companion will not pick one of them. Priest is absent from this table
+// on purpose, and `run` below turns that absence into a refusal before a
+// browser is opened. The values are the spec halves of HIS OWN list, not a
+// table of ours: `character.test.js` derives this table from that list and
+// fails if the two ever differ.
+const QE_CLASS_SOLE_SPEC = {
+    DRUID: 'Restoration',
+    SHAMAN: 'Restoration',
+    PALADIN: 'Holy',
+    MONK: 'Mistweaver',
+    EVOKER: 'Preservation',
+};
+
+// `{ class: "SHAMAN", spec: "Restoration" }` -> `"Restoration Shaman"`. A
+// capture that names the class but no spec falls back to that class's only
+// healer (C-16a). Null when the CLASS is missing, which is a capture too old to
+// say rather than a character QE Live will not rate, and null for a spec-less
+// Priest, whose two characters `run` refuses to choose between; `qeHasClass`
+// below is the question that refuses an unrated class.
 function qeSpecOf(identity) {
     const word = QE_CLASS_WORD[qeClassToken(identity)];
-    const spec = identity && identity.spec ? String(identity.spec).trim() : '';
+    const named = identity && identity.spec ? String(identity.spec).trim() : '';
+    const spec = named || QE_CLASS_SOLE_SPEC[qeClassToken(identity)] || '';
     if (!word || !spec) return null;
     return `${spec} ${word}`;
 }
@@ -1045,6 +1074,17 @@ async function run(config, profileText, log, options) {
         );
     }
     const qeSpec = qeSpecOf(identity);
+    // C-16a (WKE-622): a class whose captures name no spec falls back to QE
+    // Live's only healer for it - but he has TWO Priests, and which of them a
+    // Priest heals in is not something a companion may guess. Refused in one
+    // line, here, for the same reason the check above it is: the browser cannot
+    // answer it either.
+    if (!qeSpec && qeClassToken(identity)) {
+        throw new ForkError(
+            `no capture names this ${QE_CLASS_WORD[qeClassToken(identity)]}'s spec - /lootpath refresh in the spec you heal in`,
+            REFUSED
+        );
+    }
     let chromium;
     try {
         ({ chromium } = require('playwright'));
@@ -1243,6 +1283,7 @@ module.exports = {
     specSelect,
     ensureCharacter,
     QE_CLASS_WORD,
+    QE_CLASS_SOLE_SPEC,
     CURRENT_SPEC_LABEL,
     CARD,
     CHECKBOX_LABELS,

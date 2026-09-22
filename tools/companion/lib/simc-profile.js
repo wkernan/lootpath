@@ -275,6 +275,86 @@ function newestSnapshot(list, index) {
   return snapshots.reduce((best, snapshot) => ((snapshot.capturedAt || 0) >= (best.capturedAt || 0) ? snapshot : best));
 }
 
+// --- the character's spec (C-16a, WKE-622) -----------------------------------
+//
+// **A flush names no spec, and the newest `env` is always a flush.**
+//
+// `Lootpath/Captures.lua`'s `env` read asks `GetSpecializationInfo` for whatever
+// `GetSpecialization` answered. At `PLAYER_LOGOUT` the client still answers an
+// index but the info call comes back empty: the owner's own SavedVariables,
+// parsed here on 2026-09-22 with `lua-savedvariables.js`, carry four `env`
+// snapshots for Blueheeler-Arthas (SHAMAN) -
+//
+//   2026-09-21T17:39:15 refresh  specInfo = 264 / "Restoration"
+//   2026-09-21T17:39:16 flush    specInfo = 0 / no name
+//   2026-09-21T17:40:19 flush    specInfo = 0 / no name
+//   2026-09-21T17:42:49 flush    specInfo = 0 / no name
+//
+// - and R-7b's `empty-equipment-flush.lua` recorded the same thing a week
+// earlier. Because `/lootpath refresh` ends in a `/reload`, a refresh's `env` is
+// followed within a second by that reload's flush `env`, so **the newest `env`
+// snapshot is the wrong one to read a spec from, always.** Reading it is what
+// made every companion run since C-16 log `character: not named by the capture`
+// and every profile header say `spec=unknown`; the owner's Restoration Shaman
+// was then rated as whatever QE Live happened to be holding, three runs in a
+// row on 2026-09-21 (WKE-622).
+//
+// So the spec is read off the newest snapshot that NAMES one, and the class,
+// name and realm stay the newest snapshot's own. The borrow is bounded three
+// ways, because a name carried too far is worse than none:
+//   - it is the SAME character. `player` and `realm` must match the newest
+//     snapshot's, or the Druid's spec would be borrowed for the Shaman, which
+//     is the exact failure this is fixing.
+//   - it never reads forward. A snapshot newer than the chosen one is skipped,
+//     so `--env-snapshot` still means what it says.
+//   - it is only ever four snapshots deep. `ns.CAPTURE_HISTORY` is 4
+//     (`Lootpath/Core.lua`), so a refresh's `env` is pushed off the end by the
+//     fourth flush after it and no spec is named anywhere - which is why the
+//     class-only fallback in `fork.js` exists rather than being a corner case.
+//
+// Returns `{ spec, from, note }`: `spec` undefined when nothing names one,
+// `note` null unless the spec was borrowed from an older snapshot.
+function clockOf(snapshot) {
+  const local = String((snapshot && snapshot.capturedAtLocal) || "");
+  const time = local.split("T")[1];
+  return time || local || "an earlier";
+}
+
+function namesSameCharacter(snapshot, player, realm) {
+  const data = (snapshot && snapshot.data) || {};
+  return probe(data.player) === player && probe(data.realm) === realm;
+}
+
+function characterSpec(list, chosen) {
+  const none = { spec: undefined, from: null, note: null };
+  if (!chosen) return none;
+  const player = probe((chosen.data || {}).player);
+  const realm = probe((chosen.data || {}).realm);
+  const at = typeof chosen.capturedAt === "number" ? chosen.capturedAt : 0;
+  // A Lua list parses as an object keyed from 1, but the caller may also hand a
+  // plain JS array (`buildProfile` does, for a transcript built by hand), and
+  // `luaArray` would read that one from index 1 and silently drop its first
+  // entry.
+  const all = Array.isArray(list) ? list : luaArray(list);
+  const candidates = all
+    .filter((snapshot) => snapshot === chosen || (snapshot.capturedAt || 0) <= at)
+    .sort((a, b) => (b.capturedAt || 0) - (a.capturedAt || 0));
+  for (const snapshot of candidates) {
+    if (!namesSameCharacter(snapshot, player, realm)) continue;
+    const name = probe((snapshot.data || {}).specInfo, 2);
+    if (typeof name !== "string" || !name.trim()) continue;
+    if (snapshot === chosen) return { spec: name.trim(), from: snapshot, note: null };
+    const borrowed = snapshot.trigger ? `${snapshot.trigger} read` : "earlier read";
+    const nameless = chosen.trigger ? `the ${chosen.trigger}` : "the newest read";
+    return {
+      spec: name.trim(),
+      from: snapshot,
+      note: `spec from the ${clockOf(snapshot)} ${borrowed}; ${nameless} names none`,
+    };
+  }
+  return none;
+}
+
 // Which vault snapshot the profile is built from (M3-16b, WKE-583).
 //
 // The newest is not the best one, and the owner's 2026-09-15 transcript is why.
@@ -338,8 +418,12 @@ function readTranscript(text, options = {}) {
   if (!root) throw new Error("no LootpathDB table in this file - is it a Lootpath SavedVariables file?");
   const captures = (root.global && root.global.captures) || {};
   const vault = chooseVaultSnapshot(captures.vault, options.vaultSnapshot);
+  const env = newestSnapshot(captures.env, options.envSnapshot);
   return {
-    env: newestSnapshot(captures.env, options.envSnapshot),
+    env: env,
+    // C-16a (WKE-622): the one reader both the SimC header and the companion's
+    // `identity` take the spec from, so they can never disagree.
+    envSpec: characterSpec(captures.env, env),
     inventory: newestSnapshot(captures.inventory, options.snapshot),
     vault: vault.snapshot,
     vaultChoice: vault.reason,
@@ -500,7 +584,12 @@ function buildProfile(transcript, options = {}) {
   const playerName = (env && probe(env.data.player)) || "Unknown";
   const classToken = tokenize((env && probe(env.data.class, 2)) || "");
   const realm = (env && probe(env.data.realm)) || "";
-  const specName = (env && probe(env.data.specInfo, 2)) || "unknown";
+  // C-16a (WKE-622): never `env.data.specInfo` directly - the newest `env` is a
+  // flush and a flush names no spec. A transcript handed in without the reader's
+  // answer (a hand-built one in the tests) gets the same reader over its one
+  // snapshot rather than a second, quieter rule.
+  const envSpec = transcript.envSpec || characterSpec(env ? [env] : [], env);
+  const specName = envSpec.spec || "unknown";
   // Fields the env capture does not carry yet. Each one is reported, never
   // guessed; `region` is the only one QE Live's importer actually reads.
   const region = env && probe(env.data.region);
@@ -588,6 +677,10 @@ function buildProfile(transcript, options = {}) {
     // C-14 (WKE-603): the SimC slot names this profile actually wears
     // something in. `counts.equipped` says how many; this says which.
     equippedSlots,
+    // C-16a (WKE-622): which snapshot the header's spec came from, so the
+    // caller's `identity` can be the same answer and the log can say when it
+    // was borrowed from an older read.
+    envSpec,
     counts: {
       equipped: luaArray(inventory.data.equipped).length,
       bag: bags.filter((row) => !row.fromBank).length,
@@ -829,6 +922,7 @@ function formatDiff(built, diff) {
 module.exports = {
   adler32,
   buildProfile,
+  characterSpec,
   collectItems,
   diffProfiles,
   itemKey,
