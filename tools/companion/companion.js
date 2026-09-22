@@ -387,7 +387,11 @@ async function once(config, log, args, deps) {
             profileVaultCount: profile.counts.vault,
             documents: run.documents,
         });
-        const written = output.writeVerdict(target, text);
+        const written = output.writeVerdict(target, text, {
+            // C-17 (WKE-624): the client was reading the file and the rename
+            // waited it out. One line, after the fact, never per try.
+            onRetry: (tries) => log.info(`verdict file written after ${tries} tries; the client was reading it`),
+        });
         done(`${(written.bytes / 1024).toFixed(0)} KB -> ${written.target}`);
     } catch (e) {
         log.error(`writing ${target} failed, so the previous verdict is untouched: ${e.message}`);
@@ -488,6 +492,7 @@ function visibility(config, args, log) {
         file: args.profileOnly ? null : path.join(dir, configLib.STATUS_FILE),
         companionVersion: VERSION,
         onError: (e) => log.warn(`the status file cannot be written (${e.message}); the log is still the record`),
+        onRetry: (tries) => log.info(`status file written after ${tries} tries; the client was reading it`),
     });
     return { logSink, status, logFile: file };
 }
