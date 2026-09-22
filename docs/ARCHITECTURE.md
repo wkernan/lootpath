@@ -137,7 +137,7 @@ status `message` does NOT already reach "the strip's companion clause / `Drift.L
 
 **Human-required, on WKE-626:** the owner restarts the watcher and refreshes on the Shaman - the log should carry the
 two new lines and the strip's tooltip the new sentence; screenshot on the issue. The Shaman will still not be rated
-until it wears gear QE Live knows, which is QE Live's scope and not a defect here. Six guards proven red; 303
+until it wears gear QE Live knows, which is QE Live's scope and not a defect here. Seven guards proven red; 303
 companion tests.
 
 **Before that, 2026-09-22, evening (C-16b MERGED, WKE-625: the driver finds QE Live's spec option by its VISIBLE
