@@ -1224,6 +1224,25 @@ local function buildStatusStrip(frame)
     refreshButton:SetSize(74, UI.STRIP_BUTTON_HEIGHT)
     refreshButton:SetPoint("RIGHT", importButton, "LEFT", -6, 0)
     refreshButton:SetText(ns.Drift.REFRESH_LABEL)
+    -- R-6d (WKE-630): the font object the client gave this button, read and
+    -- kept BEFORE anything sets one, so `UI.ApplyRefreshPhase` can put that
+    -- same object back after the rating phase's `GameFontDisable`. R-6c put
+    -- back the name the annotations give the template's NormalFont
+    -- (`GameFontNormalOutline`) instead, and the owner read `Refresh` in a
+    -- different typeface from `Import...` and `Options` beside it (2026-09-23,
+    -- WKE-592) - those two never have a font set on them. Which object the
+    -- live client really hands the template is not known here and the fix does
+    -- not depend on it: whatever it gave is what comes back.
+    -- `Button:GetNormalFontObject` is Blizzard's own (Button.lua:85); guarded,
+    -- and passed through `ns.Safe` like every value read from the client. A
+    -- client without the method, or with nothing to say, leaves this nil and
+    -- the phase falls back to R-6c's name.
+    if type(refreshButton.GetNormalFontObject) == "function" then
+        local font, secret = ns.Safe(refreshButton:GetNormalFontObject())
+        if not secret and type(font) == "table" then
+            frame.refreshFont = font
+        end
+    end
     refreshButton:SetScript("OnClick", function()
         ns.Drift.Click()
         UI.RefreshStrip(frame)
@@ -1441,8 +1460,12 @@ end
 --            tinted with one `SetVertexColor`. Nothing is drawn from scratch,
 --            no atlas is invented, and the glow is a thing the player has
 --            already seen on this button.
---   neither  the template's normal font back (`GameFontNormalOutline`,
---            ibid.:303), the highlight unlocked and its tint returned to white.
+--   neither  the button's own font back - the object the client gave it at
+--            creation (`frame.refreshFont`, R-6d, WKE-630), so `Refresh` wears
+--            what `Import...` and `Options` wear - and only when the client
+--            gave nothing, the name the annotations give the template's
+--            NormalFont (`GameFontNormalOutline`, ibid.:303); the highlight
+--            unlocked and its tint returned to white.
 --
 -- Every call is guarded: a client that does not carry a font object, a
 -- highlight texture or `LockHighlight` loses the look, never the button.
@@ -1455,7 +1478,12 @@ function UI.ApplyRefreshPhase(frame, phase)
         button:SetText(phase == "ready" and ns.Drift.REFRESH_LABEL_READY or ns.Drift.REFRESH_LABEL)
     end
     if type(button.SetNormalFontObject) == "function" then
-        local font = phase == "rating" and _G.GameFontDisable or _G.GameFontNormalOutline
+        local font
+        if phase == "rating" then
+            font = _G.GameFontDisable
+        else
+            font = frame.refreshFont or _G.GameFontNormalOutline
+        end
         if font then
             button:SetNormalFontObject(font)
         end

@@ -788,6 +788,10 @@ local function attachDropdownSelectionText(dropdown)
     end
 end
 
+-- The stub's stand-in for whatever font object the client gives a
+-- UIPanelButtonTemplate button (R-6d, WKE-630; see attachTemplate).
+local UIPANEL_BUTTON_TEMPLATE_FONT = { fontName = "stub: UIPanelButtonTemplate's own NormalFont" }
+
 local function attachTemplate(f, world, template)
     if type(template) ~= "string" then
         return
@@ -802,6 +806,17 @@ local function attachTemplate(f, world, template)
     -- nothing where the client has art.
     if template:find("UIPanelButtonTemplate", 1, true) and f.SetHighlightTexture then
         f:SetHighlightTexture([[Interface\Buttons\UI-Panel-Button-Highlight]], "ADD")
+    end
+    -- And the font object the template gives the button, which the addon reads
+    -- back with `GetNormalFontObject` and restores (R-6d, WKE-630). The
+    -- annotations name it `GameFontNormalOutline` (ibid.:304), but the owner's
+    -- screen says the live client's answer is not that object - `Refresh`, set
+    -- to it, looked unlike `Import...` and `Options`, which are never set. So
+    -- the stub hands a sentinel of its own, the SAME object to every such
+    -- button and distinct from `_G.GameFontNormalOutline`: a test can then tell
+    -- "put back what it had" from "set the annotation's name".
+    if template:find("UIPanelButtonTemplate", 1, true) and f.SetNormalFontObject then
+        f.normalFontObject = UIPANEL_BUTTON_TEMPLATE_FONT
     end
     -- BasicFrameTemplate -> BaseBasicFrameTemplate carries TitleText and
     -- CloseButton (Blizzard_UIPanelTemplates/UIPanelTemplates.xml).
@@ -1066,13 +1081,19 @@ function newFrame(kind, world, parent, template)
         end
         -- `Button:SetNormalFontObject` (Button.lua:178) is not appearance-only
         -- any more: since R-6c (WKE-629) the Refresh button wears Blizzard's
-        -- own `GameFontDisable` while the rating is being made and its
-        -- template's `GameFontNormalOutline` otherwise, which is a decision the
-        -- addon makes and a test can hold it to. The object it was given is
+        -- own `GameFontDisable` while the rating is being made and, since R-6d
+        -- (WKE-630), the font object it had at creation otherwise, which is a
+        -- decision the addon makes and a test can hold it to. The object it was given is
         -- recorded under a name of the stub's own (`normalFontObject`); the two
         -- siblings stay no-ops, because nothing sets them.
         function f:SetNormalFontObject(font)
             self.normalFontObject = font
+        end
+        -- Its getter (Button.lua:85): what was set, or what the template gave
+        -- (attachTemplate), or nil for a button with neither - R-6d (WKE-630)
+        -- reads it at creation to put the same object back later.
+        function f:GetNormalFontObject()
+            return self.normalFontObject
         end
         f.SetDisabledFontObject = function() end
         f.SetHighlightFontObject = function() end
