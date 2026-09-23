@@ -389,6 +389,32 @@ describe("the source-free voice (V-1, WKE-569)", function()
         strip("strip.upgradeFinder")
 
         c.check("strip.NO_VERDICT_STRIP", ns.UI.NO_VERDICT_STRIP)
+        -- C-14b (WKE-627): the clause that replaces it when the rating would
+        -- not take the gear, and the sentences the same state puts on Equip
+        -- Now. `ns.UI` is not walked whole, so a constant of the strip's is
+        -- named here or it is never read at all; the panel's own table is
+        -- walked below, and the RENDERED state is the one checked here.
+        c.check("strip.UNRATED_GEAR_STRIP", ns.UI.UNRATED_GEAR_STRIP)
+        ns.companionStatus = {
+            state = "failed",
+            stage = "qe live",
+            finishedAt = "2026-09-22T17:18:00Z",
+            exitCode = 5,
+            message = "couldn't rate this gear: no usable item in Cape, Chest - 17 of the 32 pieces sent "
+                .. "weren't recognised",
+            reason = "unknown-gear",
+            missingSlots = { "Cape", "Chest" },
+            sent = 32,
+            notTaken = 17,
+        }
+        ns.UI.EquipPanel.Refresh(frame.equipPanel, nil)
+        c.check("equip.unrated.answer", frame.equipPanel.answer:GetText())
+        c.check("equip.unrated.second", frame.equipPanel.second:GetText())
+        c.check("equip.unrated.hint", frame.equipPanel.hintText)
+        c.check("equip.unrated.companionClause", ns.Companion.StatusText(ns.companionStatus))
+        c.check("equip.unrated.companionFacts", ns.Companion.UnratedGearFacts(ns.companionStatus))
+        c.check("chat.unratedGear", ns.Drift.LOAD_UNRATED_GEAR)
+        ns.companionStatus = nil
         c.check("strip.STALE_STRIP_TOOLTIP", ns.UI.STALE_STRIP_TOOLTIP)
         c.check("window.verdictNote", ns.UI.VerdictNoteText())
 

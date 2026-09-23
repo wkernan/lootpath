@@ -18,6 +18,22 @@
 //   verdictWrittenAt   the `writtenAt` of the verdict this run wrote
 //   exitCode           the code the run returned, once it has one
 //
+// C-14b (WKE-627) adds the fields that let the addon tell ONE failure from every
+// other one. `message` has said it in prose since C-14a; prose is a sentence for
+// a tooltip and never the thing a screen may be chosen by - the rule R-7b wrote
+// when it told C-4's skip from an empty read by its exit code rather than by
+// reading its words.
+//
+//   reason             a short token, and only where there is one to write:
+//                      "unknown-gear" - the rating would not take this
+//                      character because the gear it was sent is gear it does
+//                      not know. Every other failure carries none. This is not
+//                      a taxonomy and nothing is invented to fill it.
+//   missingSlots       for "unknown-gear": the slots QE Live named, in ITS
+//                      display words and ITS order (`Cape`, `Chest`, ...)
+//   sent               how many items the profile sent
+//   notTaken           how many of those the importer did not keep
+//
 // It is written at EVERY stage change, not once at the end, so a run in
 // progress says so rather than leaving the last run's words on screen for the
 // three minutes QE Live takes.
@@ -36,7 +52,22 @@ const STATES = ['idle', 'running', 'skipped', 'failed'];
 // log name one thing.
 const STAGES = ['start', 'savedvariables', 'read', 'profile', 'qe live', 'write'];
 
-const STRING_FIELDS = ['state', 'startedAt', 'finishedAt', 'stage', 'message', 'profileCapturedAt', 'verdictWrittenAt', 'companionVersion'];
+const STRING_FIELDS = ['state', 'startedAt', 'finishedAt', 'stage', 'message', 'reason', 'profileCapturedAt', 'verdictWrittenAt', 'companionVersion'];
+
+// C-14b (WKE-627). The reasons a failure may carry, and nothing else: an
+// unknown token reaching the addon is a state it cannot read, which is the same
+// argument STATES above is refused by. ONE entry, deliberately - a reason is
+// added when a screen needs to say something new, never in advance.
+const REASONS = ['unknown-gear'];
+
+// The one list field, written as a Lua array of strings. It is QE Live's own
+// display words, so it goes through the same escaper every other string here
+// does.
+const LIST_FIELDS = ['missingSlots'];
+
+// The whole-number fields beside `exitCode`. Counts of items, so a negative or
+// a fraction is refused rather than written.
+const COUNT_FIELDS = ['sent', 'notTaken'];
 
 function stamp(at) {
     return at.toISOString().replace(/\.\d+Z$/, 'Z');
@@ -76,6 +107,9 @@ function render(record) {
     if (!STATES.includes(record.state)) {
         throw new Error(`refusing to write status state ${JSON.stringify(record.state)}; it is not one of ${STATES.join(', ')}`);
     }
+    if (record.reason !== undefined && record.reason !== null && !REASONS.includes(record.reason)) {
+        throw new Error(`refusing to write status reason ${JSON.stringify(record.reason)}; it is not one of ${REASONS.join(', ')}`);
+    }
     const lines = [
         '-- Lootpath/Data/CompanionStatus.lua - written by the Lootpath companion (tools/companion).',
         '-- Generated data, never edited by hand and never a place to put logic.',
@@ -93,6 +127,32 @@ function render(record) {
             continue;
         }
         lines.push(`    ${key} = ${luaWriter.luaString(value)},`);
+    }
+    // C-14b: the slots, as a Lua array. An empty list is not written at all -
+    // `missingSlots = {}` would say "none were named", and none named is what
+    // absent already says.
+    for (const key of LIST_FIELDS) {
+        const value = record[key];
+        if (!Array.isArray(value) || !value.length) {
+            continue;
+        }
+        const written = value.map((entry) => {
+            if (typeof entry !== 'string' || entry === '') {
+                throw new Error(`refusing to write ${key} entry ${JSON.stringify(entry)}; it is not a word`);
+            }
+            return luaWriter.luaString(entry);
+        });
+        lines.push(`    ${key} = { ${written.join(', ')} },`);
+    }
+    for (const key of COUNT_FIELDS) {
+        const value = record[key];
+        if (value === undefined || value === null) {
+            continue;
+        }
+        if (!Number.isInteger(value) || value < 0) {
+            throw new Error(`refusing to write ${key} ${JSON.stringify(value)}; it is not a whole count`);
+        }
+        lines.push(`    ${key} = ${luaWriter.luaNumber(value)},`);
     }
     if (record.exitCode !== undefined && record.exitCode !== null) {
         if (!Number.isInteger(record.exitCode) || record.exitCode < 0) {
@@ -150,7 +210,7 @@ function make(options) {
         // that is over.
         started(fields) {
             const startedAt = stamp(clock());
-            for (const key of STRING_FIELDS) {
+            for (const key of STRING_FIELDS.concat(LIST_FIELDS, COUNT_FIELDS)) {
                 delete record[key];
             }
             delete record.exitCode;
@@ -181,7 +241,12 @@ function make(options) {
         },
         // The run died. The stage is the one the log just named, so the strip
         // can say "FAILED at profile" and the log says why.
-        failed(stage, message, exitCode) {
+        //
+        // C-14b (WKE-627): `fields` is the same failure as DATA - the reason
+        // token and, for `unknown-gear`, the slots and the two counts. A
+        // failure that hands over nothing writes none of them and is the file
+        // C-14a wrote, byte for byte.
+        failed(stage, message, exitCode, fields) {
             record.state = 'failed';
             record.stage = stage;
             // C-14 (WKE-603): the first line, stripped and capped. The log
@@ -189,6 +254,10 @@ function make(options) {
             record.message = oneSentence(message);
             record.finishedAt = stamp(clock());
             record.exitCode = exitCode;
+            for (const key of ['reason'].concat(LIST_FIELDS, COUNT_FIELDS)) {
+                delete record[key];
+            }
+            Object.assign(record, fields || {});
             return flush();
         },
         // The verdict is on disk. `verdictWrittenAt` is the file's own
@@ -207,4 +276,16 @@ function make(options) {
     return status;
 }
 
-module.exports = { make, render, stamp, oneSentence, STATES, STAGES, STRING_FIELDS, MESSAGE_MAX };
+module.exports = {
+    make,
+    render,
+    stamp,
+    oneSentence,
+    STATES,
+    STAGES,
+    STRING_FIELDS,
+    REASONS,
+    LIST_FIELDS,
+    COUNT_FIELDS,
+    MESSAGE_MAX,
+};

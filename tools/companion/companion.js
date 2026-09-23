@@ -331,7 +331,10 @@ async function once(config, log, args, deps) {
         // the status file - which the strip's tooltip reads out loud - takes the
         // driver's player-facing sentence when the failure carries one. A
         // failure that carries none is written exactly as it always was.
-        status.failed('qe live', e.playerMessage || e.message, code);
+        // C-14b (WKE-627): and the same failure as DATA beside it - `reason`,
+        // and for `unknown-gear` the slots and the two counts - so the window
+        // can draw a screen off a token rather than off prose.
+        status.failed('qe live', e.playerMessage || e.message, code, e.playerFields);
         return code;
     }
     done(`${run.documents.length} documents`);

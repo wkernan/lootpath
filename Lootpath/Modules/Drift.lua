@@ -167,6 +167,15 @@ Drift.REFRESH_TOOLTIP_COMBAT = "not in combat - the reload is blocked there"
 
 Drift.LOAD_DONE = "rated just now; you're up to date."
 Drift.LOAD_FAILED = "the rating failed%s; see companion.log."
+-- C-14b (WKE-627): the one `failed` that is not a breakage, and the only one
+-- the player can act on. The gear went over whole and the rating would not take
+-- it, because it is leveling gear the rating does not know. Named by the reason
+-- token the companion writes (`ns.Companion.UnratedGear`) and never by reading
+-- the message, which is the rule the two skips above are told apart by. It is
+-- still the `failed` decision: `Drift.Decide`'s six answers are untouched and
+-- only the words this one says have changed.
+Drift.LOAD_UNRATED_GEAR = "couldn't rate your gear - it's leveling gear the rating doesn't know. "
+    .. "Hit max level, gear up, then Refresh."
 Drift.LOAD_UNSEEN = "the companion hasn't been seen; is it running?"
 
 -- Session state. `baseline` is the key set the plan was written over; `stamp` is
@@ -886,8 +895,14 @@ function Drift.LoadLine(now)
     else
         -- failed. The stage is C-9's own word for where it died, and the clause
         -- is the strip's own, in chat as well - the two surfaces name one place.
-        local where = (status and status.stage) and (" at " .. status.stage) or ""
-        line = string.format(Drift.LOAD_FAILED, where)
+        -- C-14b (WKE-627): unless the rating would not take the gear, which is
+        -- the one failure with an answer rather than a log file.
+        if ns.Companion.UnratedGear and ns.Companion.UnratedGear(status) then
+            line = Drift.LOAD_UNRATED_GEAR
+        else
+            local where = (status and status.stage) and (" at " .. status.stage) or ""
+            line = string.format(Drift.LOAD_FAILED, where)
+        end
     end
     -- Said, so a plain `/reload` later says nothing. The wait is the one state
     -- that keeps the stamp: the strip counts from it until the plan arrives,

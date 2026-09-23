@@ -24,11 +24,17 @@ const simcProfile = require('./simc-profile');
 // QE Live. `playerMessage` is the one the status file carries to the strip's
 // tooltip, where no source is ever named (C-14a, WKE-626); absent means the log
 // line is good enough for both, which is what every failure before C-14a did.
+//
+// C-14b (WKE-627) adds `playerFields`: the SAME failure as data - a reason token
+// and the facts behind it - so the addon can draw a screen off it instead of
+// reading the sentence. A failure that carries none is written exactly as it
+// always was.
 class ForkError extends Error {
-    constructor(message, code, playerMessage) {
+    constructor(message, code, playerMessage, playerFields) {
         super(message);
         this.code = code;
         if (playerMessage) this.playerMessage = playerMessage;
+        if (playerFields) this.playerFields = playerFields;
     }
 }
 // QE Live refusing the import is a different failure from the fork being down:
@@ -1059,6 +1065,23 @@ function goRefusalForPlayer(slots, drop) {
     return `${sentence} - ${drop.missing.length} of the ${drop.sent} pieces sent weren't recognised`;
 }
 
+// C-14b (WKE-627). The same refusal as FIELDS, for the status file: the reason
+// token the addon switches a screen on, the slots in QE Live's own display
+// words and its own order, and the two counts. The counts are only written when
+// the import was actually probed - a pass with no `drop` gives the slots alone,
+// for the same reason the sentence above stops after them: a figure nobody
+// measured is not written.
+const REASON_UNKNOWN_GEAR = 'unknown-gear';
+
+function goRefusalFields(slots, drop) {
+    const fields = { reason: REASON_UNKNOWN_GEAR, missingSlots: slots.slice() };
+    if (drop && drop.sent && drop.missing) {
+        fields.sent = drop.sent;
+        fields.notTaken = drop.missing.length;
+    }
+    return fields;
+}
+
 // C-14 (WKE-603). **The driver never clicks a disabled button.**
 //
 // On 2026-09-16 the owner's profile was short one worn slot, QE Live disabled
@@ -1086,7 +1109,8 @@ async function clickGo(page, what, options) {
         throw new ForkError(
             `QE Live's Go! button is disabled ${what} - it wants an item in: ${slots.join(', ')} (its own words: "${words}")`,
             REFUSED,
-            goRefusalForPlayer(slots, options && options.drop)
+            goRefusalForPlayer(slots, options && options.drop),
+            goRefusalFields(slots, options && options.drop)
         );
     }
     await button.click();
@@ -1520,6 +1544,8 @@ module.exports = {
     clickGo,
     readGoError,
     goErrorSlots,
+    goRefusalFields,
+    REASON_UNKNOWN_GEAR,
     goRefusalForPlayer,
     profileItems,
     cardKey,

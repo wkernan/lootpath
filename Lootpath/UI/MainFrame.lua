@@ -434,6 +434,14 @@ UI.STRIP_BUTTON_LIFT = (UI.STRIP_HEIGHT - UI.STRIP_BUTTON_HEIGHT) / 2
 UI.STRIP_BUTTON_TOP = UI.STRIP_TOP + UI.STRIP_BUTTON_LIFT
 UI.STRIP_TEXT_GAP = 8
 UI.NO_VERDICT_STRIP = "No export on this character yet \194\183 Import... to paste one"
+-- C-14b (WKE-627). The same empty window, with a cause. "Import... to paste
+-- one" is the right thing to say to a player who has never run anything; it is
+-- the wrong thing to say to one who just ran a refresh and whose gear the
+-- rating would not take, because pasting is not what is missing. Said only when
+-- there is NO export on this character AND the last run was refused for that
+-- reason; the Equip Now tab says what to do about it, and the tooltip carries
+-- the facts.
+UI.UNRATED_GEAR_STRIP = "can't rate this gear yet"
 UI.STALE_STRIP_TOOLTIP =
     "This export was made before the last weekly reset. If the companion is running it should be newer than that."
 
@@ -581,8 +589,22 @@ function UI.StatusStripModel(now)
         if companionNote then
             tooltip[#tooltip + 1] = companionNote
         end
+        -- C-14b (WKE-627): the facts behind that sentence, on their own line
+        -- and built from the status file's FIELDS rather than out of its prose,
+        -- so the slot list is whole where `message` may have been capped at 200
+        -- characters. Absent on every other status, including every older file.
+        local unrated = ns.Companion.UnratedGear and ns.Companion.UnratedGear(ns.companionStatus) or nil
+        local unratedFacts = unrated and ns.Companion.UnratedGearFacts(ns.companionStatus) or nil
+        if unratedFacts then
+            tooltip[#tooltip + 1] = unratedFacts
+        end
         tooltip[#tooltip + 1] = UI.VersionText()
-        local emptyText, emptyParts = lineFrom({ UI.NO_VERDICT_STRIP, companion }, tooltip)
+        -- The first clause is the cause when there is one: "Import... to paste
+        -- one" is an instruction that would not help. It hangs off the reason
+        -- and not off the facts, because a file that named the reason and no
+        -- slots still knows why there is nothing on screen.
+        local firstClause = unrated and UI.UNRATED_GEAR_STRIP or UI.NO_VERDICT_STRIP
+        local emptyText, emptyParts = lineFrom({ firstClause, companion }, tooltip)
         return {
             text = emptyText,
             parts = emptyParts,

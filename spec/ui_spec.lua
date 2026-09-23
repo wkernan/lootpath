@@ -2390,6 +2390,101 @@ describe("the window's width (M5-2c)", function()
     end)
 end)
 
+-- C-14b (WKE-627). The status file the owner's level-81 Restoration Shaman
+-- produced on 2026-09-22, in the shape the companion writes it: the sentence
+-- C-14a composes, and beside it the same failure as data.
+local UNRATED_STATUS = {
+    state = "failed",
+    stage = "qe live",
+    startedAt = "2026-09-22T17:18:00Z",
+    finishedAt = "2026-09-22T17:18:44Z",
+    exitCode = 5,
+    message = "couldn't rate this gear: no usable item in Cape, Chest - 17 of the 32 pieces sent weren't recognised",
+    reason = "unknown-gear",
+    missingSlots = { "Cape", "Chest" },
+    sent = 32,
+    notTaken = 17,
+    companionVersion = "0.1.0",
+}
+
+-- C-14b (WKE-627). The owner's Shaman opened the window after a refresh that
+-- came back refused, and Equip Now told him to paste an export. It now says
+-- what happened and what to do about it, and the quiet facts go to the hint
+-- icon (M5-1b's pattern) rather than onto a line that pushes the list down.
+describe("the Equip Now tab when the rating would not take the gear (C-14b)", function()
+    local ns, world, frame, panel
+
+    before_each(function()
+        ns, world = H.load()
+        frame = ns.UI.Frame()
+        frame:Show()
+        panel = frame.equipPanel
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- Proven red by making `AnswerText` ignore its second argument: the tab
+    -- reads "Paste a Top Gear export above to fill this panel." again.
+    it("says the cause, the cure and nothing else on screen", function()
+        ns.companionStatus = UNRATED_STATUS
+        ns.UI.EquipPanel.Refresh(panel, nil)
+        assert.equal("Can't rate your gear yet - it's leveling gear the rating doesn't know.", panel.answer:GetText())
+        assert.equal(ns.UI.EquipPanel.UNRATED_HEADER, panel.answer:GetText())
+        assert.is_true(panel.second:IsShown())
+        assert.equal("Hit max level, get some real pieces on, then Refresh.", panel.second:GetText())
+        assert.is_falsy(panel.answer:GetText():find("Paste", 1, true))
+        -- The facts are on the hover and never on the panel.
+        assert.is_true(panel.hint:IsShown())
+        assert.equal(
+            "17 of 32 pieces weren't recognised \194\183 slots with nothing usable: Cape, Chest",
+            panel.hintText
+        )
+        assert.is_falsy(panel.answer:GetText():find("recognised", 1, true))
+        assert.is_falsy(panel.second:GetText():find("Cape", 1, true))
+        panel.hint:GetScript("OnEnter")(panel.hint)
+        assert.equal(panel.hintText, world.tooltip.stub:Text())
+        -- And the list hangs off the line that is actually drawn.
+        assert.equal(panel.second, panel.scrollAnchor)
+    end)
+
+    -- **THE OLD-SHAPE GUARD.** The same refusal from a status file written
+    -- before C-14b - no reason token - is the empty tab it has always been.
+    it("draws exactly today's empty tab for a failure that names no reason", function()
+        ns.companionStatus = {
+            state = "failed",
+            stage = "qe live",
+            finishedAt = "2026-09-22T17:18:00Z",
+            exitCode = 5,
+            message = "couldn't rate this gear: no usable item in Cape, Chest",
+        }
+        ns.UI.EquipPanel.Refresh(panel, nil)
+        assert.equal(ns.UI.EquipPanel.ANSWER_PROMPT, panel.answer:GetText())
+        assert.is_false(panel.second:IsShown())
+        assert.is_false(panel.hint:IsShown())
+    end)
+
+    -- With an import on screen the rating is real, so none of this is drawn
+    -- whatever the last run did.
+    it("says nothing of it when this character has an import", function()
+        ns.companionStatus = UNRATED_STATUS
+        frame.pasteBox:SetText(readFile(DUNGEON_EXPORT))
+        frame.importButton:Click()
+        assert.is_table(panel.match)
+        assert.is_nil(ns.UI.EquipPanel.UnratedState(panel.match, ns.companionStatus))
+        assert.is_false(panel.second:IsShown())
+        assert.is_falsy(panel.answer:GetText():find("Can't rate your gear yet", 1, true))
+    end)
+
+    it("is the empty prompt when nothing has ever run", function()
+        assert.is_nil(ns.companionStatus)
+        ns.UI.EquipPanel.Refresh(panel, nil)
+        assert.equal(ns.UI.EquipPanel.ANSWER_PROMPT, panel.answer:GetText())
+        assert.is_false(panel.second:IsShown())
+    end)
+end)
+
 describe("the status strip (M5-2)", function()
     local ns, world, frame
 
@@ -2417,6 +2512,62 @@ describe("the status strip (M5-2)", function()
         local expected = ns.UI.NO_VERDICT_STRIP .. ns.UI.SEPARATOR .. ns.Companion.STATUS_NEVER
         assert.equal(expected, ns.UI.RefreshStrip(frame).text)
         assert.equal(expected, frame.stripText:GetText())
+    end)
+
+    -- C-14b (WKE-627). The same empty window, with a cause. "Import... to paste
+    -- one" is the right thing to say to a player who has never run anything and
+    -- the wrong thing to say to one whose refresh came back refused: pasting is
+    -- not what is missing.
+    -- Proven red by leaving `UI.NO_VERDICT_STRIP` as the first clause: the strip
+    -- tells the owner's Shaman to paste an export after the rating has just
+    -- refused the gear he is wearing.
+    it("says the gear could not be rated instead of asking for a paste", function()
+        ns.companionStatus = UNRATED_STATUS
+        local model = ns.UI.RefreshStrip(frame)
+        assert.equal(
+            ns.UI.UNRATED_GEAR_STRIP .. ns.UI.SEPARATOR .. ns.Companion.StatusText(ns.companionStatus),
+            model.text
+        )
+        assert.is_nil(model.text:find(ns.UI.NO_VERDICT_STRIP, 1, true))
+        assert.is_truthy(model.text:find("can't rate this gear yet", 1, true))
+        assert.is_truthy(model.text:find("couldn't rate this gear", 1, true))
+        -- The tooltip keeps C-14a's sentence and adds the facts under it, built
+        -- from the fields rather than read back out of that sentence.
+        local tooltip = table.concat(model.tooltip, "\n")
+        assert.is_truthy(tooltip:find("couldn't rate this gear: no usable item in Cape, Chest", 1, true))
+        assert.is_truthy(
+            tooltip:find("17 of 32 pieces weren't recognised \194\183 slots with nothing usable: Cape, Chest", 1, true)
+        )
+    end)
+
+    -- **THE OLD-SHAPE GUARD.** A status file written before C-14b draws exactly
+    -- the screen it always drew: the same stage, the same exit code and the same
+    -- prose, with no reason token.
+    -- Proven red by making `Companion.UnratedGear` answer on `state == "failed"`
+    -- alone: every failed run on the owner's disk starts telling him to level up.
+    it("draws the old empty strip for a failure that names no reason", function()
+        ns.companionStatus = {
+            state = "failed",
+            stage = "qe live",
+            finishedAt = "2026-09-22T17:18:00Z",
+            exitCode = 5,
+            message = "couldn't rate this gear: no usable item in Cape, Chest",
+        }
+        local model = ns.UI.RefreshStrip(frame)
+        assert.is_truthy(model.text:find(ns.UI.NO_VERDICT_STRIP, 1, true))
+        assert.is_nil(model.text:find(ns.UI.UNRATED_GEAR_STRIP, 1, true))
+        assert.is_truthy(model.text:find("companion: FAILED at qe live", 1, true))
+        assert.is_nil(table.concat(model.tooltip, "\n"):find("slots with nothing usable", 1, true))
+    end)
+
+    -- A character with a rating on screen is never in this state, whatever the
+    -- last run did: the rating on screen is real.
+    it("says nothing of it once there is an export for this character", function()
+        ns.companionStatus = UNRATED_STATUS
+        importDungeon()
+        local model = ns.UI.RefreshStrip(frame)
+        assert.is_nil(model.text:find(ns.UI.UNRATED_GEAR_STRIP, 1, true))
+        assert.is_nil(model.text:find(ns.UI.NO_VERDICT_STRIP, 1, true))
     end)
 
     -- Four facts since V-2 (WKE-573), not five: the content type and the

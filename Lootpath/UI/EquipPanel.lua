@@ -247,6 +247,23 @@ EquipPanel.ANSWER_ALL_BEST = "You're set - every slot is your best."
 EquipPanel.ANSWER_NOTHING_RATED = "Nothing you're wearing is rated yet."
 EquipPanel.ANSWER_TAIL = " Everything else is your best set."
 
+-- C-14b (WKE-627). **The empty tab, when the reason it is empty is known.**
+--
+-- `ANSWER_PROMPT` is the right sentence for a player who has never run
+-- anything. It was the wrong one for the owner's level-81 Shaman on
+-- 2026-09-22: the companion HAD run, it sent all sixteen worn slots, and the
+-- rating refused the character because leveling greens are gear it does not
+-- know. He was told to paste an export, which would not have helped.
+--
+-- So when there is no import for this character AND the last run was refused
+-- for that reason, the answer says what happened and the line under it says
+-- what to do. The quiet facts go to the hint icon, M5-1b's pattern: a condition
+-- on the answer is never a line that pushes the list down. With an import on
+-- screen - pasted, or an older run that worked - none of this is drawn, because
+-- the rating on screen is real.
+EquipPanel.UNRATED_HEADER = "Can't rate your gear yet - it's leveling gear the rating doesn't know."
+EquipPanel.UNRATED_SECOND = "Hit max level, get some real pieces on, then Refresh."
+
 -- The bar's key, in the order the canvas reads it: what there is to do first,
 -- and `already best` last and quiet, because it is the state that needs
 -- nothing. Colour is never the only signal, so each colour that is present
@@ -581,8 +598,44 @@ local function clientName(itemID)
     return nil
 end
 
-function EquipPanel.AnswerText(match)
+-- C-14b (WKE-627). Is this the empty tab with a known cause? Pure over the
+-- match and the companion's status file, so one call answers it for all three
+-- of the strings below and the tests can put a fixture status in front of it.
+--
+-- `match` is a table for every import - pasted or from a run - so a character
+-- with a rating on screen is never in this state, whatever the last run did.
+-- `ns.Companion.UnratedGear` is the only place the state itself is decided.
+function EquipPanel.UnratedState(match, status)
+    if type(match) == "table" then
+        return nil
+    end
+    local unrated = ns.Companion and ns.Companion.UnratedGear and ns.Companion.UnratedGear(status) or nil
+    if not unrated then
+        return nil
+    end
+    return {
+        slots = unrated.slots,
+        sent = unrated.sent,
+        notTaken = unrated.notTaken,
+        facts = ns.Companion.UnratedGearFacts(status),
+    }
+end
+
+-- The line under the answer, or nil: this state is the only thing that has one,
+-- because it is the only answer on this tab that is a thing to go and do rather
+-- than a thing to read.
+function EquipPanel.SecondText(unrated)
+    if not unrated then
+        return nil
+    end
+    return EquipPanel.UNRATED_SECOND
+end
+
+function EquipPanel.AnswerText(match, unrated)
     if type(match) ~= "table" then
+        if unrated then
+            return EquipPanel.UNRATED_HEADER
+        end
         return EquipPanel.ANSWER_PROMPT
     end
     if not match.ok then
@@ -1034,8 +1087,15 @@ end
 -- Everything the summary says that the chips do not: the prompt before an
 -- import, a refusal, the in-combat warning and the bank hint. The counts
 -- themselves are the chips' (M5-1), so nothing on screen says them twice.
-function EquipPanel.NoteText(match)
+function EquipPanel.NoteText(match, unrated)
     if type(match) ~= "table" then
+        -- C-14b (WKE-627): in the unrated state the note is the quiet facts
+        -- behind the answer - the counts and the slots - and it goes to the
+        -- hint icon rather than on screen. The answer above already says the
+        -- whole of what happened.
+        if unrated then
+            return unrated.facts
+        end
         return "Paste a Top Gear export above to fill this panel."
     end
     if not match.ok then
@@ -1142,6 +1202,12 @@ function EquipPanel.AnchorScroll(panel)
     local answer = panel.answer and panel.answer:GetText()
     if answer and answer ~= "" then
         anchor = panel.answer
+    end
+    -- C-14b (WKE-627): the line under the answer, when there is one. It is
+    -- SHOWN or not rather than empty or not, for the reason the block comment
+    -- above gives - an empty font string still takes a line.
+    if panel.second and panel.second:IsShown() then
+        anchor = panel.second
     end
     if panel.segments and panel.segments[1] and panel.segments[1]:IsShown() then
         anchor = panel.bar
@@ -1342,6 +1408,19 @@ function EquipPanel.Create(parent)
     panel.answer:SetJustifyH("LEFT")
     panel.answer:SetWordWrap(true)
 
+    -- C-14b (WKE-627): one line under the answer, and only where the answer is
+    -- something to go and do. It is hidden the rest of the time rather than set
+    -- to the empty string, because an empty font string still takes a line
+    -- (M5-1a's rule, the one AnchorScroll is built on). It shares the bar's
+    -- anchor: the two are never both drawn - this state has no match, and with
+    -- no match there are no segments.
+    panel.second = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    panel.second:SetPoint("TOPLEFT", panel.answer, "BOTTOMLEFT", 0, -4)
+    panel.second:SetPoint("RIGHT", panel, "RIGHT", 0, 0)
+    panel.second:SetJustifyH("LEFT")
+    panel.second:SetWordWrap(true)
+    panel.second:Hide()
+
     -- Then the bar: one segment per slot, in slot order, so it is a picture of
     -- the character rather than a score. The segments are flat colour textures
     -- on a frame that spans the panel, and their widths are shared out at
@@ -1460,10 +1539,26 @@ function EquipPanel.Refresh(panel, match)
 
     -- The answer first, then the bar, then the key. Everything that is a
     -- CONDITION on the answer rather than part of it goes to the hint icon.
-    panel.answer:SetText(EquipPanel.AnswerText(match))
+    -- C-14b (WKE-627): asked once, and the three strings under it are drawn
+    -- from the one answer, so the header, the line under it and the hint cannot
+    -- disagree about which state the tab is in.
+    local unrated = EquipPanel.UnratedState(match, ns.companionStatus)
+    panel.answer:SetText(EquipPanel.AnswerText(match, unrated))
+    local second = EquipPanel.SecondText(unrated)
+    panel.second:SetText(second or "")
+    panel.second:SetShown(second ~= nil)
     EquipPanel.DrawBar(panel, match)
-    panel.hintText = EquipPanel.NoteText(match)
-    if type(match) == "table" and match.ok and panel.hintText and panel.hintText ~= "" then
+    panel.hintText = EquipPanel.NoteText(match, unrated)
+    if unrated and panel.hintText and panel.hintText ~= "" then
+        local atlas = UI.ItemLine.Atlas(EquipPanel.NOT_OWNED_ATLAS)
+        if atlas then
+            panel.hint.icon:SetAtlas(atlas)
+        else
+            panel.hint.icon:SetColorTexture(UI.ItemLine.RGB(EquipPanel.STATUS_HEX.no_verdict))
+        end
+        panel.hint.icon:SetVertexColor(UI.ItemLine.RGB(EquipPanel.STATUS_HEX.no_verdict))
+        panel.hint:Show()
+    elseif type(match) == "table" and match.ok and panel.hintText and panel.hintText ~= "" then
         local atlas = UI.ItemLine.Atlas(EquipPanel.NOT_OWNED_ATLAS)
         if atlas then
             panel.hint.icon:SetAtlas(atlas)

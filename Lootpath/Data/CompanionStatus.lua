@@ -32,6 +32,33 @@
 --       companionVersion = "0.1.0",
 --   }
 --
+-- C-14b (WKE-627) adds four more, and all four are OPTIONAL: a file written
+-- before it, or by a run with nothing extra to say, carries none of them and
+-- draws exactly the screens it always did.
+--
+--       reason = "unknown-gear",                -- why a `failed` run failed,
+--                                               -- as a token instead of as
+--                                               -- prose. One value so far:
+--                                               -- the rating would not take
+--                                               -- this character's gear,
+--                                               -- because it is gear it does
+--                                               -- not know. Not a taxonomy -
+--                                               -- a failure with no reason to
+--                                               -- give writes none.
+--       missingSlots = { "Cape", "Chest" },     -- for "unknown-gear": the
+--                                               -- slots the rating named, in
+--                                               -- its own display words and
+--                                               -- its own order
+--       sent = 32,                              -- items the profile sent
+--       notTaken = 17,                          -- how many of those the
+--                                               -- rating's importer did not
+--                                               -- keep
+--
+-- ns.Companion.UnratedGear is the ONE place that reads them, and every surface
+-- that says anything about that state asks it: the strip's clause and its
+-- tooltip, the Equip Now tab and the chat line after a refresh. No screen is
+-- ever chosen by reading `message`.
+--
 -- Lua strings, numbers and tables only - no function, no loop, no call, the
 -- same rules Data\QEVerdict.lua is held to. ns.Companion.Status validates every
 -- field of it and ns.Companion.StatusText turns it into the one clause the
