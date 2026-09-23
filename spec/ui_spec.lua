@@ -3144,8 +3144,12 @@ describe("the wait on the strip (M3-16b)", function()
             string.format("%d characters, budget %d: [%s]", charCount(model.text), STRIP_BUDGET_CHARS, model.text)
         )
         -- The whole wait clause is inside the first N characters, which is the
-        -- part of the line the owner's screen has been seen to draw.
-        assert.is_truthy(model.text:sub(1, STRIP_BUDGET_CHARS):find("Refresh loads it when it's ready", 1, true))
+        -- part of the line the owner's screen has been seen to draw. Since
+        -- R-6c (WKE-629) the clause ends at the two figures: the offer that
+        -- used to tail it is the button's, on the same row.
+        assert.is_truthy(
+            model.text:sub(1, STRIP_BUDGET_CHARS):find("started just now, usually about a minute", 1, true)
+        )
     end)
 
     -- The facts it displaced are moved, not lost - the same trade V-2 made with
@@ -3158,7 +3162,8 @@ describe("the wait on the strip (M3-16b)", function()
         assert.is_nil(model.text:find("vault pick", 1, true))
         local tooltip = table.concat(model.tooltip, "\n")
         assert.is_truthy(tooltip:find(before, 1, true))
-        assert.is_truthy(tooltip:find(ns.Drift.WAIT_TOOLTIP, 1, true))
+        assert.is_truthy(tooltip:find(model.wait.tooltip, 1, true))
+        assert.equal("still rating - usually about a minute; Refresh loads it when you click", model.wait.tooltip)
     end)
 
     -- The row the sentence is written on is the row that answers the click, so
@@ -3263,7 +3268,10 @@ describe("the Refresh button on the strip (R-8)", function()
         world.tooltip:ClearLines()
         waiting()
         frame.refreshButton:GetScript("OnEnter")(frame.refreshButton)
-        assert.equal(ns.Drift.REFRESH_TOOLTIP_WAIT, world.tooltip.stub:Text())
+        assert.equal(
+            "still rating - usually about a minute; Refresh loads it when you click",
+            world.tooltip.stub:Text()
+        )
     end)
 
     -- Proven red by dropping the `SetEnabled` out of `UI.RefreshStrip`: the
@@ -3297,6 +3305,134 @@ describe("the Refresh button on the strip (R-8)", function()
         assert.equal(0, world.reloads)
         assert.is_nil(ns.db.global.captures.inventory)
         assert.is_truthy(tostring(world.output()):find("Guardian", 1, true))
+    end)
+end)
+
+-- R-6c (WKE-629): the strip and its button, over the three states of one
+-- refresh. The page the owner approved on 2026-09-23 draws them together - the
+-- row says the news, the button makes the offer - so they are tested together.
+describe("the strip and the Refresh button through the wait's phases (R-6c)", function()
+    local ns, world, frame
+
+    local CLICK = "2026-09-14T23:10:00Z"
+
+    -- A wait whose clock is far enough back to be in the phase asked for. The
+    -- addon's own clock is what the window reads, so the test moves THAT rather
+    -- than handing a `now` to a drawer that takes none.
+    local function waiting(elapsed)
+        local now = time()
+        ns.db.global.drift = ns.db.global.drift or {}
+        ns.db.global.drift.refreshStartedAt = date("!%Y-%m-%dT%H:%M:%SZ", math.floor(now - (elapsed or 0)))
+    end
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        ns.companionStatus = { state = "idle", startedAt = "2026-09-14T22:48:00Z", finishedAt = "2026-09-14T22:48:41Z" }
+        frame = ns.UI.Frame()
+        frame:Show()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- Proven red by returning nil from `waitTone`: the model says nothing about
+    -- the phase and the row that has just announced a rating looks like every
+    -- other row.
+    it("tones the line only in the ready phase, and by name", function()
+        waiting(20)
+        local model = ns.UI.RefreshStrip(frame)
+        assert.equal("rating", model.waitPhase)
+        assert.is_nil(model.tone)
+        assert.equal(1, model.text:find("rating your gear", 1, true))
+        assert.same(ns.UI.STRIP_PLAIN_COLOR, frame.stripText.textColor)
+
+        waiting(100)
+        model = ns.UI.RefreshStrip(frame)
+        assert.equal("ready", model.waitPhase)
+        assert.equal("ready", model.tone)
+        assert.equal(1, model.text:find("your rating is probably ready", 1, true))
+        local r, g, b = ns.UI.ItemLine.RGB(ns.UI.STRIP_READY_HEX)
+        assert.same({ r, g, b, nil }, frame.stripText.textColor)
+    end)
+
+    -- One green in this addon, not two: the tone is the colour a row already
+    -- wears when there is nothing to do about it.
+    it("borrows the green the panels already use", function()
+        assert.equal(ns.UI.EquipPanel.STATUS_HEX.equipped_is_best, ns.UI.STRIP_READY_HEX)
+    end)
+
+    -- Proven red by dropping the `UI.ApplyRefreshPhase` call out of
+    -- `UI.RefreshStrip`: the button says `Refresh` in its ordinary font through
+    -- all three states.
+    it("dims the button while rating, offers Load rating past the mark, and goes back after", function()
+        waiting(20)
+        ns.UI.RefreshStrip(frame)
+        assert.equal("Refresh", frame.refreshButton:GetText())
+        assert.equal(_G.GameFontDisable, frame.refreshButton.normalFontObject)
+        assert.is_falsy(frame.refreshButton.highlightLocked)
+        -- dimmed, NOT disabled: the early press must still reach `Drift.Click`
+        assert.is_true(frame.refreshButton:IsEnabled())
+        frame.refreshButton:Click()
+        assert.equal(1, world.reloads)
+
+        waiting(100)
+        ns.UI.RefreshStrip(frame)
+        assert.equal("Load rating", frame.refreshButton:GetText())
+        assert.equal(_G.GameFontNormalOutline, frame.refreshButton.normalFontObject)
+        assert.is_true(frame.refreshButton.highlightLocked)
+
+        -- the load lands and the wait ends: the button is `Refresh` again
+        ns.db.global.drift.refreshStartedAt = CLICK
+        ns.companionStatus = { state = "failed", stage = "qe live", finishedAt = "2026-09-14T23:10:20Z" }
+        ns.UI.RefreshStrip(frame)
+        assert.equal("Refresh", frame.refreshButton:GetText())
+        assert.equal(_G.GameFontNormalOutline, frame.refreshButton.normalFontObject)
+        assert.is_false(frame.refreshButton.highlightLocked)
+    end)
+
+    -- The glow is the template's own highlight, tinted. Proven red by dropping
+    -- the `SetVertexColor` call: the button glows the client's white and says
+    -- nothing about which state it is in.
+    it("glows with Blizzard's own highlight texture and one tint", function()
+        local highlight = frame.refreshButton:GetHighlightTexture()
+        assert.is_table(highlight)
+        assert.equal([[Interface\Buttons\UI-Panel-Button-Highlight]], highlight:GetTexture())
+        assert.is_nil(highlight:GetAtlas())
+        waiting(100)
+        ns.UI.RefreshStrip(frame)
+        local r, g, b = ns.UI.ItemLine.RGB(ns.UI.STRIP_READY_HEX)
+        assert.same({ r, g, b, nil }, highlight.vertexColor)
+        waiting(20)
+        ns.UI.RefreshStrip(frame)
+        assert.same({ 1, 1, 1, nil }, highlight.vertexColor)
+    end)
+
+    -- The launcher, which is the only surface Lootpath has while the window is
+    -- shut. Proven red by tinting the badge `BRAND_HEX` in both phases: the dot
+    -- says the same thing for four minutes.
+    it("turns the launcher's badge green in the ready phase, with the row's own words", function()
+        local button = ns.UI.MinimapButton()
+        waiting(20)
+        ns.UI.RefreshMinimapDot()
+        assert.is_true(button.driftDot:IsShown())
+        local br, bg, bb = ns.UI.ItemLine.RGB(ns.UI.BRAND_HEX)
+        assert.same({ br, bg, bb, nil }, button.driftDotAccent.vertexColor)
+        -- the keyline is the mark's own in either phase: one shape, one pair
+        assert.same(ns.UI.MARK_EDGE_COLOR, button.driftDot.vertexColor)
+
+        waiting(100)
+        ns.UI.RefreshMinimapDot()
+        local r, g, b = ns.UI.ItemLine.RGB(ns.UI.STRIP_READY_HEX)
+        assert.same({ r, g, b, nil }, button.driftDotAccent.vertexColor)
+        assert.same(ns.UI.MARK_EDGE_COLOR, button.driftDot.vertexColor)
+        assert.equal(ns.UI.MEDIA.MARK16_FILL, button.driftDotAccent:GetTexture())
+
+        -- and the hover is the strip's own clause, not a second wording
+        world.tooltip:ClearLines()
+        button:GetScript("OnEnter")(button)
+        assert.is_truthy(world.tooltip.stub:Text():find("your rating is probably ready", 1, true))
     end)
 end)
 

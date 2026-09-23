@@ -71,11 +71,32 @@ Drift.NUDGE_TOOLTIP_UNNAMED = "Clicking captures your gear and reloads; the rati
 -- question - "I don't like this copy that just says 'click to load it'... click
 -- what?" So the clause points at a thing he can see, and nothing on screen says
 -- `click` about a surface that has no edges.
-Drift.WAIT_LINE = "rating your gear, %s \194\183 Refresh loads it when it's ready"
+--
+-- **R-6c (WKE-629): the clause has two heads and no tail.** The owner walked
+-- his own window on 2026-09-23 (WKE-592) and said: "I hit the refresh button
+-- and see that the companion run was started, but I have no idea when it is
+-- finished unless I'm looking at my other screen ... Other players won't have
+-- this set up and will need to know when the refresh has finished." The window
+-- cannot know `done` - the client reads the companion's file only at load, and
+-- nothing outside the game can push into it - so the one honest thing it can
+-- say is that the usual time has passed and it is probably worth clicking. Two
+-- heads, one clock: `rating your gear` under the usual time and
+-- `your rating is probably ready` past it. The tail comes off both, because
+-- since R-8 the button is on that same row and it makes the offer itself - it
+-- is dimmed while rating and relabelled `Load rating` past the mark.
+Drift.WAIT_LINE = "%s \194\183 started %s, %s"
+Drift.WAIT_HEAD_RATING = "rating your gear"
+Drift.WAIT_HEAD_READY = "your rating is probably ready"
 Drift.WAIT_READY_DEFAULT = "usually about a minute"
 Drift.WAIT_READY_MEASURED = "usually ready in about %s"
-Drift.WAIT_TOOLTIP = "The rating is being made now. Refresh loads whatever has been written, and takes a "
-    .. "reload; too early and this line comes back."
+-- One tooltip per phase, read on the strip's row AND on the button's hover, so
+-- the two surfaces cannot say different things about one run. The rating one
+-- quotes the same `ReadyText` the clause does, so a measured run does not have
+-- the line naming one figure and the hover another. `click` is said here of a
+-- button that has edges and is named in the same breath, which is the line R-8b
+-- drew: no sentence tells the player to click a surface he cannot see.
+Drift.WAIT_TOOLTIP_RATING = "still rating - %s; Refresh loads it when you click"
+Drift.WAIT_TOOLTIP_READY = "probably written by now - click Load rating; too early and this line comes back"
 
 -- M3-16b (WKE-583): the chat line at the first load after a refresh. The owner
 -- on 2026-09-15, in his own words: "after I do a refresh and the screen loads
@@ -157,9 +178,16 @@ Drift.LOAD_GEAR_UNREAD_BARE = Drift.STRIP_GEAR_UNREAD_BARE .. Drift.GEAR_UNREAD_
 -- line and it says what THIS press will do, because the two are not the same
 -- act: one sends the gear away, the other brings a rating back, and both cost a
 -- reload, which is the fact worth warning about before the screen goes dark.
+--
+-- **R-6c (WKE-629): the label is a function of the wait's phase.** Past the
+-- usual time the button stops offering a refresh and offers the load, in the
+-- word the strip has just used - `Load rating` - so the reader's next act is
+-- named rather than described. Under the mark it keeps saying `Refresh`, dimmed
+-- but still clickable, and after the load it is `Refresh` again. The hover per
+-- phase is the wait's own pair above, for the reason given there.
 Drift.REFRESH_LABEL = "Refresh"
+Drift.REFRESH_LABEL_READY = "Load rating"
 Drift.REFRESH_TOOLTIP = "rate what you wear now - takes a reload"
-Drift.REFRESH_TOOLTIP_WAIT = "load the rating that's ready - takes a reload"
 -- Combat: the press is refused before it starts. `Companion.Refresh` already
 -- says why in chat and `ReloadUI` is blocked there anyway, so the button greys
 -- out like the Equip buttons and this is what the hover says instead.
@@ -542,7 +570,11 @@ end
 -- claim a precision one sample does not have. nil when nothing has been
 -- measured, which is what makes the two lines below say `about a minute` and
 -- nothing more precise.
-function Drift.RunText(seconds)
+-- R-6c (WKE-629): the rounding on its own, because two things need it - the
+-- words below, and the mark `Drift.WaitPhase` decides `probably ready` against.
+-- They must be the SAME number: a strip that says `usually ready in about 45
+-- seconds` and turns green at 41 is saying one thing and doing another.
+function Drift.RoundedRun(seconds)
     local value = tonumber(seconds)
     if not value or value <= 0 then
         return nil
@@ -550,6 +582,14 @@ function Drift.RunText(seconds)
     local rounded = math.floor(value / 15 + 0.5) * 15
     if rounded < 15 then
         rounded = 15
+    end
+    return rounded
+end
+
+function Drift.RunText(seconds)
+    local rounded = Drift.RoundedRun(seconds)
+    if not rounded then
+        return nil
     end
     if rounded < 60 then
         return ns.UI.Plural(rounded, "second")
@@ -570,6 +610,31 @@ function Drift.ReadyText(seconds)
         return Drift.WAIT_READY_DEFAULT
     end
     return string.format(Drift.WAIT_READY_MEASURED, text)
+end
+
+-- R-6c (WKE-629). **The mark the wait's two phases are told apart by, when
+-- nothing has ever been measured.** Sixty seconds, and it is not a measurement:
+-- it is the number the words already say. With no `runSeconds` stored, both the
+-- strip (`WAIT_READY_DEFAULT`) and the chat line (`WAIT_CHAT_DEFAULT`) promise
+-- `about a minute`, and a window that says `about a minute` and then waits
+-- longer before admitting the rating might be done has broken its own promise.
+-- So the mark is the promise. Once a run HAS been measured the mark is that
+-- run, rounded exactly as the words round it (`Drift.RoundedRun`).
+Drift.WAIT_USUAL_DEFAULT_SECONDS = 60
+
+-- The ONE place that decides whether the wait is still `rating` or already
+-- `probably ready`. Pure: seconds in, a word out, no clock and no database, so
+-- every surface that shows a phase is showing this answer and not its own.
+--
+-- `ready` is deliberately inclusive at the mark - elapsed EQUAL to the usual
+-- time is already probably ready - because the usual time is where the last run
+-- finished, not where it was still going.
+function Drift.WaitPhase(elapsed, runSeconds)
+    local usual = Drift.RoundedRun(runSeconds) or Drift.WAIT_USUAL_DEFAULT_SECONDS
+    if (tonumber(elapsed) or 0) >= usual then
+        return "ready"
+    end
+    return "rating"
 end
 
 -- The chat line's half of it: `usually takes about 3 minutes`, which is the
@@ -781,12 +846,20 @@ function Drift.Model(now)
     local waitingSince = Drift.Waiting(now)
     if waitingSince then
         local db = store()
-        local elapsed = ns.UI.AgeText(waitingSince, now)
-        local ready = Drift.ReadyText(db and db.runSeconds)
+        local runSeconds = db and db.runSeconds
+        local ready = Drift.ReadyText(runSeconds)
+        -- R-6c (WKE-629): the third answer. The elapsed SECONDS decide the
+        -- phase; the elapsed WORDS say it. `AgeSeconds` is nil for a stamp that
+        -- cannot be read, and an unreadable stamp is a wait that has told
+        -- nobody anything yet - so it counts as no time passed and the phase is
+        -- `rating`, which is the state that claims the least.
+        local phase = Drift.WaitPhase(ns.UI.AgeSeconds(waitingSince, now), runSeconds)
+        local head = phase == "ready" and Drift.WAIT_HEAD_READY or Drift.WAIT_HEAD_RATING
         return {
             kind = "wait",
-            text = string.format(Drift.WAIT_LINE, string.format("started %s, %s", elapsed, ready)),
-            tooltip = Drift.WAIT_TOOLTIP,
+            phase = phase,
+            text = string.format(Drift.WAIT_LINE, head, ns.UI.AgeText(waitingSince, now), ready),
+            tooltip = phase == "ready" and Drift.WAIT_TOOLTIP_READY or string.format(Drift.WAIT_TOOLTIP_RATING, ready),
         }
     end
     local behind = Drift.Behind()
@@ -824,14 +897,48 @@ end
 -- R-8 (WKE-616): what the Refresh button's hover says, for the state the click
 -- is actually in. `Decide` rather than `Waiting`, because `Waiting` ends a wait
 -- it does not find and a hover must not write anything; `Decide` only reads.
+--
+-- R-6c (WKE-629): while a wait is out there the hover is the wait's own
+-- tooltip for that phase, which is the same pair the strip's row carries.
 function Drift.RefreshTooltip(now)
     if type(InCombatLockdown) == "function" and InCombatLockdown() then
         return Drift.REFRESH_TOOLTIP_COMBAT
     end
-    if Drift.Decide(now) == "waiting" then
-        return Drift.REFRESH_TOOLTIP_WAIT
+    local phase = Drift.RefreshPhase(now)
+    if phase == "ready" then
+        return Drift.WAIT_TOOLTIP_READY
+    end
+    if phase == "rating" then
+        local db = store()
+        return string.format(Drift.WAIT_TOOLTIP_RATING, Drift.ReadyText(db and db.runSeconds))
     end
     return Drift.REFRESH_TOOLTIP
+end
+
+-- R-6c (WKE-629): which phase the wait is in, for a caller that must not
+-- WRITE. `Decide` rather than `Waiting` for R-8's own reason - `Waiting` ends a
+-- wait it does not find, and a hover, a label and a redraw must all be able to
+-- ask without changing the answer. nil when no rating is out there at all,
+-- which is what puts the button back to `Refresh`.
+function Drift.RefreshPhase(now)
+    now = now or time()
+    local decision, _, since = Drift.Decide(now)
+    if decision ~= "waiting" then
+        return nil
+    end
+    local db = store()
+    return Drift.WaitPhase(ns.UI.AgeSeconds(since, now), db and db.runSeconds)
+end
+
+-- What the button says right now. `Load rating` only past the usual time; the
+-- press itself is `Drift.Click` in every phase, so a player who does not wait
+-- loses nothing but a reload (R-6a's `still rating` line says so, and the click
+-- stamp is kept, so the count comes back where it was - R-6b).
+function Drift.RefreshLabel(now)
+    if Drift.RefreshPhase(now) == "ready" then
+        return Drift.REFRESH_LABEL_READY
+    end
+    return Drift.REFRESH_LABEL
 end
 
 -- ---------------------------------------------------------------------------
