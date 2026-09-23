@@ -2969,51 +2969,82 @@ describe("UpgradeMapPanel tiles on the frames", function()
         return nil
     end
 
-    it("draws the delve card atlas when the client names it, and the mosaic when it does not", function()
-        local frame = ns.UpgradeMapPanel.Create()
+    -- UX-5c (WKE-636): the Delves tile draws its four best drops as the
+    -- mosaic, exactly as Crafting does. UX-5 drew `ui-journeys-delve-card`
+    -- there whenever the client named it, and that atlas is not a picture of a
+    -- delve: it is `RewardCardBG`, the background of Blizzard's reward card
+    -- (Blizzard_Journeys.xml:272, under .luals/). So the answer is the same
+    -- whether the client has the atlas or not.
+    it("draws the Delves tile's four best drops as the mosaic, whether or not the client has the card atlas", function()
+        local P = ns.UpgradeMapPanel
+        local frame = P.Create()
         local model = runModel()
         local delves = cardNamed(model, "Delves")
         assert.is_not_nil(delves)
 
-        -- The stub's atlas table is what a client has. This name is nowhere in
-        -- Blizzard's shipped files under .luals/ - atlases are client data - so
-        -- it is asked for at draw time and never assumed, and the fallback is
-        -- what a client without it draws.
         -- An export row is an itemID and an item level and nothing else, so its
         -- icon is the client's own answer to that ID. Four of them are put on
         -- the stub the way the client would answer them - a stub-shaped
         -- transcript, in C_Item.GetItemInfoInstant's own shape.
-        for index = 1, ns.UpgradeMapPanel.MOSAIC_COUNT do
+        for index = 1, P.MOSAIC_COUNT do
             local itemID = delves.upgrades[index].itemID
             world.items[itemID] = {
                 instant = { itemID, "Armor", "Cloth", "INVTYPE_LEGS", 5000 + itemID, 4, 8, n = 7 },
             }
         end
 
-        local tile = drawTile(frame, model, delves)
-        assert.is_nil(ns.UI.ItemLine.AtlasInfo(ns.UpgradeMapPanel.DELVE_ATLAS))
-        assert.is_false(tile.art:IsShown())
-        local icons = ns.UpgradeMapPanel.TileMosaic(delves)
-        assert.equal(ns.UpgradeMapPanel.MOSAIC_COUNT, #icons)
-        for index, icon in ipairs(icons) do
-            assert.equal(icon, tile.mosaic[index]:GetTexture())
-            assert.is_true(tile.mosaic[index]:IsShown())
-        end
-        -- The four icons are the four BEST rated rows' own, in the model's
-        -- order, and nothing is re-sorted to get them.
-        for index = 1, ns.UpgradeMapPanel.MOSAIC_COUNT do
-            assert.equal(5000 + delves.upgrades[index].itemID, icons[index])
+        local crop = P.MosaicTexCoord(86, 47)
+        local function assertMosaic(tile)
+            assert.is_false(tile.art:IsShown())
+            assert.is_nil(tile.art:GetAtlas())
+            local icons = P.TileMosaic(delves)
+            assert.equal(P.MOSAIC_COUNT, #icons)
+            for index, cell in ipairs(tile.mosaic) do
+                -- The four BEST rated rows' own icons, in the model's order.
+                assert.equal(5000 + delves.upgrades[index].itemID, cell:GetTexture())
+                assert.equal(icons[index], cell:GetTexture())
+                assert.is_true(cell:IsShown())
+                assert.same(crop, cell.texCoord)
+            end
+            assert.equal("Delves", tile.name:GetText())
         end
 
-        -- ...and on a client that does have the atlas, the card art is drawn
-        -- instead and the mosaic is put away.
-        world.atlases[ns.UpgradeMapPanel.DELVE_ATLAS] = { width = 200, height = 112 }
-        local withAtlas = drawTile(frame, model, delves)
-        assert.is_true(withAtlas.art:IsShown())
-        assert.equal(ns.UpgradeMapPanel.DELVE_ATLAS, withAtlas.art:GetAtlas())
-        for _, cell in ipairs(withAtlas.mosaic) do
+        -- A client without the atlas.
+        world.atlases["ui-journeys-delve-card"] = nil
+        assertMosaic(drawTile(frame, model, delves))
+
+        -- A client with it draws the same tile: the card background is never
+        -- asked for.
+        world.atlases["ui-journeys-delve-card"] = true
+        assertMosaic(drawTile(frame, model, delves))
+        assert.is_nil(P.DELVE_ATLAS)
+    end)
+
+    it("draws a delve with nothing rated as the flat back and its name", function()
+        local P = ns.UpgradeMapPanel
+        local frame = P.Create()
+        local model = runModel()
+        local delves = cardNamed(model, "Delves")
+        assert.is_not_nil(delves)
+        world.atlases["ui-journeys-delve-card"] = true
+
+        local empty = {}
+        for key, value in pairs(delves) do
+            empty[key] = value
+        end
+        empty.upgrades = {}
+        empty.rated = 0
+
+        local tile = drawTile(frame, model, delves)
+        P.InitTile(frame, tile, empty, false)
+        assert.is_false(tile.art:IsShown())
+        assert.is_nil(tile.art:GetAtlas())
+        for _, cell in ipairs(tile.mosaic) do
             assert.is_false(cell:IsShown())
         end
+        assert.is_not_nil(tile.back:GetTexture())
+        assert.equal("Delves", tile.name:GetText())
+        assert.equal(P.TILE_DIM_ALPHA, tile:GetAlpha())
     end)
 
     -- UX-5a (WKE-634): the shade under a tile's name is ONE texture, a vertical
