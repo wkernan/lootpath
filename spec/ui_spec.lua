@@ -3380,7 +3380,9 @@ describe("the strip and the Refresh button through the wait's phases (R-6c)", fu
         waiting(100)
         ns.UI.RefreshStrip(frame)
         assert.equal("Load rating", frame.refreshButton:GetText())
-        assert.equal(_G.GameFontNormalOutline, frame.refreshButton.normalFontObject)
+        -- R-6d (WKE-630): the button's own font, read at creation - not the
+        -- name the annotations give the template's NormalFont
+        assert.equal(frame.refreshFont, frame.refreshButton.normalFontObject)
         assert.is_true(frame.refreshButton.highlightLocked)
 
         -- the load lands and the wait ends: the button is `Refresh` again
@@ -3388,7 +3390,7 @@ describe("the strip and the Refresh button through the wait's phases (R-6c)", fu
         ns.companionStatus = { state = "failed", stage = "qe live", finishedAt = "2026-09-14T23:10:20Z" }
         ns.UI.RefreshStrip(frame)
         assert.equal("Refresh", frame.refreshButton:GetText())
-        assert.equal(_G.GameFontNormalOutline, frame.refreshButton.normalFontObject)
+        assert.equal(frame.refreshFont, frame.refreshButton.normalFontObject)
         assert.is_false(frame.refreshButton.highlightLocked)
     end)
 
@@ -3433,6 +3435,120 @@ describe("the strip and the Refresh button through the wait's phases (R-6c)", fu
         world.tooltip:ClearLines()
         button:GetScript("OnEnter")(button)
         assert.is_truthy(world.tooltip.stub:Text():find("your rating is probably ready", 1, true))
+    end)
+end)
+
+-- R-6d (WKE-630): the Refresh button keeps the font the client gave it. The
+-- owner, 2026-09-23: "The Refresh button is different font than the others."
+-- R-6c put back `GameFontNormalOutline` - the NormalFont the annotations name
+-- for the template - after the rating phase; `Import...` and `Options` are never
+-- set and looked right, so the client's answer is not that object. The stub
+-- hands every UIPanelButtonTemplate button a sentinel of its own, distinct from
+-- `_G.GameFontNormalOutline`, so these tests can tell the two apart.
+describe("the Refresh button keeps the font the client gave it (R-6d)", function()
+    local ns, world
+
+    local function waiting(elapsed)
+        ns.db.global.drift = ns.db.global.drift or {}
+        ns.db.global.drift.refreshStartedAt = date("!%Y-%m-%dT%H:%M:%SZ", math.floor(time() - (elapsed or 0)))
+    end
+
+    -- rating, then ready, then after the load: the three phases R-6c draws
+    local function throughThePhases(frame)
+        waiting(20)
+        ns.UI.RefreshStrip(frame)
+        assert.equal(_G.GameFontDisable, frame.refreshButton.normalFontObject)
+        waiting(100)
+        ns.UI.RefreshStrip(frame)
+        local ready = frame.refreshButton.normalFontObject
+        ns.db.global.drift.refreshStartedAt = "2026-09-14T23:10:00Z"
+        ns.companionStatus = { state = "failed", stage = "qe live", finishedAt = "2026-09-14T23:10:20Z" }
+        ns.UI.RefreshStrip(frame)
+        assert.equal("Refresh", frame.refreshButton:GetText())
+        return ready, frame.refreshButton.normalFontObject
+    end
+
+    -- Builds the window with every UIPanelButtonTemplate button's font getter
+    -- replaced by `getter` (nil removes the method, as a client without it).
+    local function frameWhoseButtons(getter)
+        local create = _G.CreateFrame
+        _G.CreateFrame = function(kind, name, parent, template)
+            local f = create(kind, name, parent, template)
+            if type(template) == "string" and template:find("UIPanelButtonTemplate", 1, true) then
+                f.GetNormalFontObject = getter
+            end
+            return f
+        end
+        local ok, frame = pcall(ns.UI.Frame)
+        _G.CreateFrame = create
+        assert(ok, frame)
+        frame:Show()
+        return frame
+    end
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        ns.companionStatus = { state = "idle", startedAt = "2026-09-14T22:48:00Z", finishedAt = "2026-09-14T22:48:41Z" }
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- Proven red twice: by R-6c's own line back in `UI.ApplyRefreshPhase`
+    -- (`GameFontNormalOutline` in every phase but rating), and by dropping the
+    -- read at the button's creation (`frame.refreshFont` nil, so the fallback
+    -- is all there is).
+    it("puts back the object it had, the one Import... and Options still wear", function()
+        local frame = ns.UI.Frame()
+        frame:Show()
+        local given = frame.openImportButton:GetNormalFontObject()
+        assert.is_table(given)
+        assert.are_not.equal(_G.GameFontNormalOutline, given)
+        assert.equal(given, frame.optionsButton:GetNormalFontObject())
+        assert.equal(given, frame.refreshFont)
+
+        local ready, after = throughThePhases(frame)
+        assert.equal(given, ready)
+        assert.equal(given, after)
+        assert.are_not.equal(_G.GameFontNormalOutline, after)
+        -- and the two it sits beside were never touched
+        assert.equal(given, frame.openImportButton.normalFontObject)
+        assert.equal(given, frame.optionsButton.normalFontObject)
+    end)
+
+    -- Proven red by dropping `or _G.GameFontNormalOutline` from the fallback:
+    -- the button keeps `GameFontDisable` after the rating phase, dimmed for good.
+    it("falls back to the template's named font when the client answers nil", function()
+        local frame = frameWhoseButtons(function()
+            return nil
+        end)
+        assert.is_nil(frame.refreshFont)
+        local ready, after = throughThePhases(frame)
+        assert.equal(_G.GameFontNormalOutline, ready)
+        assert.equal(_G.GameFontNormalOutline, after)
+    end)
+
+    -- Proven red by dropping the `type(...) == "function"` guard at creation:
+    -- building the window throws.
+    it("builds the button and falls back on a client without GetNormalFontObject", function()
+        local frame = frameWhoseButtons(nil)
+        assert.is_nil(frame.refreshFont)
+        local _, after = throughThePhases(frame)
+        assert.equal(_G.GameFontNormalOutline, after)
+    end)
+
+    -- Every value read from the client passes `ns.Safe`. Proven red by storing
+    -- the raw answer: the secret table is kept and handed back to the button.
+    it("never keeps, or restores, a secret the client answered with", function()
+        local secret = world.secretTable("font")
+        local frame = frameWhoseButtons(function()
+            return secret
+        end)
+        assert.is_nil(frame.refreshFont)
+        local _, after = throughThePhases(frame)
+        assert.equal(_G.GameFontNormalOutline, after)
     end)
 end)
 
