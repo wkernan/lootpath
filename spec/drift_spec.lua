@@ -601,6 +601,35 @@ describe("ns.Drift, a status older than the refresh click (R-6b)", function()
         assert.is_truthy(ns.Drift.Model(at(NOW)).text:find("started 25 seconds ago", 1, true))
     end)
 
+    -- Which clock an ENDED run is dated by, and the case that tells the two
+    -- apart: a run that was already going when the click landed and finished
+    -- after it. It is dated by its END, so it is this click's answer - the
+    -- companion re-reads the SavedVariables the reload wrote before it writes,
+    -- and a `finishedAt` after the click is the only thing the file says about
+    -- what it saw. Proven red by dating an ended run from its `startedAt`: the
+    -- wait holds over an answer that is already on disk.
+    it("dates an ended run by its end, not by its start", function()
+        ns.companionStatus = {
+            state = "failed",
+            stage = "qe live",
+            startedAt = "2026-09-14T23:09:50Z",
+            finishedAt = "2026-09-14T23:10:20Z",
+        }
+        assert.equal("failed", ns.Drift.Decide(at(NOW)))
+        assert.is_nil(ns.Drift.Model(at(NOW)))
+        assert.is_nil(ns.db.global.drift.refreshStartedAt)
+    end)
+
+    -- And a run that wrote no end at all is dated by its start, which is all
+    -- the file says. Proven red by dropping the `or status.startedAt` fallback:
+    -- the clock is nil, nothing is compared, and the wait ends on the previous
+    -- run's failure again.
+    it("falls back to the start when the companion wrote no end", function()
+        ns.companionStatus = { state = "failed", stage = "qe live", startedAt = "2026-09-14T23:09:40Z" }
+        assert.equal("waiting", ns.Drift.Decide(at(NOW)))
+        assert.equal(STARTED, ns.db.global.drift.refreshStartedAt)
+    end)
+
     -- A status file with no clock in it at all cannot be placed either side of
     -- the click, so it keeps exactly the behaviour it had before R-6b - which
     -- is what docs/ARCHITECTURE.md §11 records as left for the owner's word.
