@@ -321,6 +321,16 @@ local function attachTextureSurface(r)
     function r:GetMask()
         return self.mask
     end
+    -- `TextureBase:SetGradient(orientation, minColor, maxColor)` (Core/Widget/
+    -- Base/TextureBase.lua:130-134): the two colours are `colorRGBA`s, which is
+    -- what the stub's `CreateColor` hands back. Recorded under a name of the
+    -- stub's own - the real widget has no getter - so a test can read which way
+    -- the gradient runs and from what to what (UX-5a, WKE-634). A client
+    -- without it is `world.textureGradient = false`, which strips the method
+    -- from every texture made after it is set.
+    function r:SetGradient(orientation, minColor, maxColor)
+        self.gradient = { orientation = orientation, minColor = minColor, maxColor = maxColor }
+    end
     -- The layer a texture was created in, as Frame:CreateTexture's second
     -- argument names it. The real client returns the sub-level too; nothing
     -- here sets one, so it answers the default 0.
@@ -956,6 +966,9 @@ function newFrame(kind, world, parent, template)
         local tex = newRegion("Texture", self)
         tex.frameName = name
         tex.drawLayer = drawLayer
+        if world and world.textureGradient == false then
+            tex.SetGradient = nil
+        end
         self.regions[#self.regions + 1] = tex
         return tex
     end
@@ -1274,6 +1287,9 @@ function Stub.install()
         -- GET_ITEM_INFO_RECEIVED) itself, which is how "the client answered
         -- late" and "the client never answered" are both drivable (M3-12).
         itemDataRequests = {},
+        -- Whether a texture has `SetGradient` (UX-5a, WKE-634). A test that
+        -- wants a client without it sets this false before the frame is built.
+        textureGradient = true,
         -- What C_Texture.GetAtlasInfo answers for. Both entries were read from
         -- Blizzard's own shipped XML under .luals/ on 2026-09-09 -
         -- `common-icon-checkmark` in Blizzard_ChromieTimeUI.xml and the
@@ -2371,6 +2387,21 @@ function Stub.install()
             return world.qualityColors[quality]
         end,
     })
+
+    -- CreateColor(r, g, b, a) -> colorRGBA (Blizzard_SharedXML/Color.lua:19-25,
+    -- under .luals/). The four fields ColorRGBData and ColorRGBAData name (:3-10)
+    -- and ColorMixin:GetRGBA (:44-49), and nothing else of the mixin (UX-5a).
+    define("CreateColor", function(red, green, blue, alpha)
+        return {
+            r = red,
+            g = green,
+            b = blue,
+            a = alpha,
+            GetRGBA = function(self)
+                return self.r, self.g, self.b, self.a
+            end,
+        }
+    end)
 
     -- C_Texture.GetAtlasInfo(atlas) -> AtlasInfo, or nil for an atlas this
     -- client does not have. Two halves matter since V-5a (WKE-607): whether the

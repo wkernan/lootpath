@@ -3016,6 +3016,77 @@ describe("UpgradeMapPanel tiles on the frames", function()
         end
     end)
 
+    -- UX-5a (WKE-634): the shade under a tile's name is ONE texture, a vertical
+    -- gradient from TILE_SHADE_ALPHA black at the bottom edge to clear at the
+    -- top of the fraction. It was two flat bands, and their two hard edges were
+    -- the lighter stripe the owner saw across every tile with art.
+    local function artworkTextures(tile)
+        local found = {}
+        for _, region in ipairs(tile.regions) do
+            if region.kind == "Texture" and region:GetDrawLayer() == "ARTWORK" then
+                found[#found + 1] = region
+            end
+        end
+        return found
+    end
+
+    local function assertShadeSpan(tile)
+        local P = ns.UpgradeMapPanel
+        assert.equal(math.max(1, math.floor(tile:GetHeight() * P.TILE_SHADE_FRACTION)), tile.shade:GetHeight())
+        assert.same({ "BOTTOMLEFT", tile, "BOTTOMLEFT", 0, 0 }, tile.shade.points[1])
+        assert.same({ "BOTTOMRIGHT", tile, "BOTTOMRIGHT", 0, 0 }, tile.shade.points[2])
+    end
+
+    it("shades a tile with one vertical gradient, opaque at the bottom and clear at the top", function()
+        local P = ns.UpgradeMapPanel
+        local frame = P.Create()
+        local model = runModel()
+        local tile = drawTile(frame, model, model.runs[1])
+        assert.is_not_nil(tile)
+
+        local gradient = tile.shade.gradient
+        assert.is_not_nil(gradient)
+        assert.equal("VERTICAL", gradient.orientation)
+        -- minColor is the bottom (Blizzard_NamePlates.lua:517-520).
+        assert.same({ 0, 0, 0, P.TILE_SHADE_ALPHA }, { gradient.minColor:GetRGBA() })
+        assert.same({ 0, 0, 0, 0 }, { gradient.maxColor:GetRGBA() })
+        -- No flat colour laid over the gradient: a vertex colour would replace it.
+        assert.is_nil(tile.shade.vertexColor)
+        assertShadeSpan(tile)
+        assert.equal(95, tile:GetHeight())
+        assert.equal(47, tile.shade:GetHeight())
+
+        -- No second band: the only ARTWORK on a tile is the shade and the
+        -- badge's plate, and the fade band and its two figures are gone.
+        local artwork = artworkTextures(tile)
+        assert.equal(2, #artwork)
+        assert.is_nil(tile.shadeFade)
+        assert.is_nil(P.TILE_SHADE_FADE_ALPHA)
+        assert.is_nil(P.TILE_SHADE_FADE_FRACTION)
+    end)
+
+    it("keeps the flat band at the same alpha on a client that cannot draw a gradient", function()
+        local P = ns.UpgradeMapPanel
+        local model = runModel()
+
+        -- A texture without SetGradient.
+        world.textureGradient = false
+        local tile = drawTile(P.Create(), model, model.runs[1])
+        assert.is_nil(tile.shade.SetGradient)
+        assert.is_nil(tile.shade.gradient)
+        assert.same({ 0, 0, 0, P.TILE_SHADE_ALPHA }, tile.shade.vertexColor)
+        assertShadeSpan(tile)
+        assert.equal(2, #artworkTextures(tile))
+
+        -- A client with SetGradient and no CreateColor to give it colours.
+        world.textureGradient = true
+        rawset(_G, "CreateColor", nil)
+        local bare = drawTile(P.Create(), model, model.runs[1])
+        assert.is_nil(bare.shade.gradient)
+        assert.same({ 0, 0, 0, P.TILE_SHADE_ALPHA }, bare.shade.vertexColor)
+        assertShadeSpan(bare)
+    end)
+
     it("dims a tile with nothing rated, and gives it no badge at all", function()
         local frame = ns.UpgradeMapPanel.Create()
         local model = runModel()
