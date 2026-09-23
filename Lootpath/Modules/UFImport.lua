@@ -678,18 +678,58 @@ end
 -- question is what he says about the item at that level, not which of his
 -- listings happened to be parsed first.
 function UFImport.IsDropAtLevel(entry)
-    if type(entry) ~= "table" then
+    return UFImport.HasDropType(entry, UFImport.DROP_TYPE_DROP)
+end
+
+-- QE Live's own word for the listing at the track's cap: the same item with
+-- the crests spent (UpgradeFinderEngine.js:260-261, `raidStates`; the level is
+-- `itemLevels.raid[difficulty + 4]`, :152). Read from the exports, never
+-- chosen here.
+UFImport.DROP_TYPE_MAX = "max"
+
+-- Does any of his listings of this entry carry `dropType`? The entry keeps the
+-- first listing's type and every listing as a source, so both are read.
+function UFImport.HasDropType(entry, dropType)
+    if type(entry) ~= "table" or dropType == nil then
         return false
     end
-    if entry.dropType == UFImport.DROP_TYPE_DROP then
+    if entry.dropType == dropType then
         return true
     end
     for _, source in ipairs(entry.sources or {}) do
-        if source.dropType == UFImport.DROP_TYPE_DROP then
+        if source.dropType == dropType then
             return true
         end
     end
     return false
+end
+
+-- A drop the journal lists at a level no document carries, rated at ANOTHER
+-- level (UX-6b, WKE-639): the entry his own `dropType` calls `dropType`, at the
+-- LOWEST level any of these documents carries it, from the first document that
+-- does - the documents arrive lowest key level first, the tie-break
+-- LookupAcrossLevels already uses. Returns entry, level, keyLevel and the
+-- document it came from, or nil.
+--
+-- Nothing is scaled or chosen between: it is one of his rows, whole, and the
+-- surface that shows it says at which level he rated it. The Upgrade Finder
+-- rates a raid item at ONE difficulty and a dungeon item at ONE key level per
+-- run (UpgradeFinderEngine.js:143-177 and :256-288, `playerSettings.raid[0]` and
+-- `playerSettings.dungeon`), which is why a Heroic drop can have a Mythic row
+-- and no Heroic one.
+function UFImport.OtherLevelEntry(documents, itemID, dropType)
+    for _, level in ipairs(UFImport.LevelsAcrossLevels(documents, itemID) or {}) do
+        local key = UFImport.Key(itemID, level)
+        for _, document in ipairs(documents) do
+            local verdict = type(document) == "table" and document.verdict or nil
+            local entry = key and type(verdict) == "table" and type(verdict.items) == "table" and verdict.items[key]
+                or nil
+            if entry and UFImport.HasDropType(entry, dropType) then
+                return entry, level, document.keyLevel, document
+            end
+        end
+    end
+    return nil
 end
 
 -- The entry any of these documents carries for `itemID` AT `level`, or nil.

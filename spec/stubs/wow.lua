@@ -1287,6 +1287,10 @@ function Stub.install()
         -- GET_ITEM_INFO_RECEIVED) itself, which is how "the client answered
         -- late" and "the client never answered" are both drivable (M3-12).
         itemDataRequests = {},
+        -- [itemInfo] = { specID, ... }, for C_Item.GetItemSpecInfo. Nothing is
+        -- answered unless a test says so, which is the client that names no
+        -- spec list at all (UX-6b).
+        itemSpecs = {},
         -- Whether a texture has `SetGradient` (UX-5a, WKE-634). A test that
         -- wants a client without it sets this false before the frame is built.
         textureGradient = true,
@@ -2364,6 +2368,20 @@ function Stub.install()
         -- (itemID, success). Recorded, never answered here.
         RequestLoadItemDataByID = function(itemID)
             world.itemDataRequests[#world.itemDataRequests + 1] = itemID
+        end,
+        -- Blizzard's exported C_Item.GetItemSpecInfo(itemInfo) -> specTable
+        -- (number[], MayReturnNothing; ItemDocumentation.lua:346-349). The
+        -- list is world.itemSpecs' own, handed over as a fresh table.
+        GetItemSpecInfo = function(itemInfo)
+            local specs = world.itemSpecs and world.itemSpecs[itemInfo]
+            if specs == nil then
+                return nil
+            end
+            local copy = {}
+            for index, id in ipairs(specs) do
+                copy[index] = id
+            end
+            return copy
         end,
         -- Blizzard's exported C_Item.GetItemQualityColor(quality) -> r, g, b,
         -- hex. The values are world.qualityColors' placeholders.

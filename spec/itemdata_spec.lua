@@ -231,3 +231,52 @@ describe("ns.ItemData.Request", function()
         assert.equal(0, ns.ItemData.EpisodeCount())
     end)
 end)
+
+-- UX-6b (WKE-639): whether the client says an item is for this spec. Spec IDs
+-- are the stub's own (105, its player) and 999, any spec that is not.
+describe("ns.ItemData.SpecFit", function()
+    local ns, world
+
+    before_each(function()
+        ns, world = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("answers false only when the client's own list names specs and not this one", function()
+        registerLoaded(world, ITEM_ID, "Placeholder Helm", 4, 1, ICON)
+        world.itemSpecs[ITEM_ID] = { 999 }
+        assert.is_false(ns.ItemData.SpecFit(ITEM_ID, 105))
+        world.itemSpecs[ITEM_ID] = { 999, 105 }
+        assert.is_true(ns.ItemData.SpecFit(ITEM_ID, 105))
+    end)
+
+    it("answers nil for every case it cannot tell", function()
+        -- Data not arrived: Blizzard asks only once GetItemInfo names it.
+        registerStatic(world, ITEM_ID, ICON)
+        world.itemSpecs[ITEM_ID] = { 999 }
+        assert.is_nil(ns.ItemData.SpecFit(ITEM_ID, 105))
+        registerLoaded(world, ITEM_ID, "Placeholder Helm", 4, 1, ICON)
+        -- An empty list, no list, a list that is not numbers, no spec to ask about.
+        world.itemSpecs[ITEM_ID] = {}
+        assert.is_nil(ns.ItemData.SpecFit(ITEM_ID, 105))
+        world.itemSpecs[ITEM_ID] = nil
+        assert.is_nil(ns.ItemData.SpecFit(ITEM_ID, 105))
+        world.itemSpecs[ITEM_ID] = { "Restoration" }
+        assert.is_nil(ns.ItemData.SpecFit(ITEM_ID, 105))
+        world.itemSpecs[ITEM_ID] = { 999 }
+        assert.is_nil(ns.ItemData.SpecFit(ITEM_ID, nil))
+        assert.is_nil(ns.ItemData.SpecFit(nil, 105))
+        -- A client without the call.
+        _G.C_Item.GetItemSpecInfo = nil
+        assert.is_nil(ns.ItemData.SpecFit(ITEM_ID, 105))
+    end)
+
+    it("reads the spec the client says you are in", function()
+        assert.equal(105, ns.Companion.CurrentSpecID())
+        world.spec = nil
+        assert.is_nil(ns.Companion.CurrentSpecID())
+    end)
+end)
