@@ -1030,3 +1030,54 @@ describe("UFImport Delves and Crafted rows", function()
         assert.equal(1, verdict.skippedItems)
     end)
 end)
+
+-- UX-6b (WKE-639): a drop's row at ANOTHER level, by his own dropType.
+describe("UFImport.OtherLevelEntry", function()
+    local ns
+
+    before_each(function()
+        ns = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function document(keyLevel, rows)
+        local items, levels = {}, {}
+        for _, spec in ipairs(rows) do
+            local key = ns.UFImport.Key(1001, spec[1])
+            items[key] = {
+                key = key,
+                itemID = 1001,
+                level = spec[1],
+                dropType = spec[2],
+                upgradePercent = spec[3],
+                sources = { { dropType = spec[2] }, spec[4] and { dropType = spec[4] } or nil },
+            }
+            levels[#levels + 1] = spec[1]
+        end
+        table.sort(levels)
+        return { keyLevel = keyLevel, verdict = { items = items, levelsByItemID = { [1001] = levels } } }
+    end
+
+    it("takes the lowest level carrying the type, from the lowest key level that does", function()
+        local plus2 = document(2, { { 298, "bonus", 0.4 }, { 308, "drop", 0.3, "max" } })
+        local plus4 = document(4, { { 298, "drop", 0.2 }, { 311, "drop", 0.1 } })
+        local entry, level, keyLevel, from = ns.UFImport.OtherLevelEntry({ plus2, plus4 }, 1001, "drop")
+        assert.equal(298, level)
+        assert.equal(4, keyLevel)
+        assert.equal(plus4, from)
+        assert.equal(0.2, entry.upgradePercent)
+        -- A type carried only as a later listing still counts.
+        local maxEntry, maxLevel = ns.UFImport.OtherLevelEntry({ plus2, plus4 }, 1001, "max")
+        assert.equal(308, maxLevel)
+        assert.is_true(ns.UFImport.HasDropType(maxEntry, "max"))
+        assert.is_true(ns.UFImport.IsDropAtLevel(maxEntry))
+        -- Nothing of that type, and nothing at all.
+        assert.is_nil(ns.UFImport.OtherLevelEntry({ plus4 }, 1001, "max"))
+        assert.is_nil(ns.UFImport.OtherLevelEntry({ plus2 }, 2002, "drop"))
+        assert.is_false(ns.UFImport.HasDropType(nil, "drop"))
+        assert.is_false(ns.UFImport.HasDropType(maxEntry, nil))
+    end)
+end)

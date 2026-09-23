@@ -246,6 +246,9 @@ describe("ns.Vault guards", function()
             "C_Item.GetItemInfo",
             "C_Item.GetDetailedItemLevelInfo",
             "C_Item.RequestLoadItemDataByID",
+            -- UX-6b (WKE-639): whether a drop is for this spec, the client's
+            -- own list (ns.ItemData.SpecFit).
+            "C_Item.GetItemSpecInfo",
         }, ns.ItemData.FUNCTION_NAMES)
         -- Every name resolves on the stub; the literal call sites are the only
         -- callers, and nothing in either file is reached through these lists.

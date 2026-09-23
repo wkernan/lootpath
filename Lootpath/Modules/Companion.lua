@@ -1428,6 +1428,21 @@ local function specReaders()
     return index, info
 end
 
+-- The specID the client says you are in right now - `GetSpecializationInfo`'s
+-- first return (Ketho's annotations) - or nil when it names none. What a
+-- drop's own spec list is checked against (UX-6b, ns.ItemData.SpecFit).
+function Companion.CurrentSpecID()
+    local index, info = specReaders()
+    if index == nil or type(info) ~= "function" then
+        return nil
+    end
+    local id = tonumber((ns.Safe(ns.Probe(info, index)[1])))
+    if not id or id <= 0 then
+        return nil
+    end
+    return id
+end
+
 -- The spec the client says you are in right now, or nil.
 function Companion.CurrentSpec()
     local index, info = specReaders()

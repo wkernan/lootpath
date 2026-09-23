@@ -977,25 +977,43 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
 
         local width, height = Panel.CardSize(nil)
         local expected, drawn = {}, {}
-        for _, group in ipairs(section(m, "Shoulder").roadGroups) do
-            local rows = {}
-            for _, row in ipairs(group.rows) do
-                if row.kind ~= ns.Roads.KIND_KEEP then
-                    rows[#rows + 1] = row
+        local function addCards(rows)
+            for index, row in ipairs(rows) do
+                if (index - 1) % Panel.TILES_PER_ROW == 0 then
+                    expected[#expected + 1] = "cards"
                 end
+                expected[#expected + 1] = row
             end
-            if #rows > 0 then
-                expected[#expected + 1] = "eyebrow:" .. Panel.GROUP_EYEBROW[group.group]
-                for index, row in ipairs(rows) do
-                    if (index - 1) % Panel.TILES_PER_ROW == 0 then
-                        expected[#expected + 1] = "cards"
+        end
+        -- Since UX-6b (WKE-639) the no-rating group is sorted: the roads rated
+        -- at another level follow the rated group's own, and the rest are
+        -- behind the fold, shut.
+        local sorted = section(m, "Shoulder").noRating
+        assert.is_true(#sorted.otherLevel > 0)
+        assert.is_true(#sorted.unknown > 0)
+        for _, group in ipairs(section(m, "Shoulder").roadGroups) do
+            if group.group == ns.Roads.GROUP_NONE then
+                expected[#expected + 1] = "fold:" .. Panel.NoRatingFoldText(sorted.unknown, false)
+            else
+                local rows = {}
+                for _, row in ipairs(group.rows) do
+                    if row.kind ~= ns.Roads.KIND_KEEP then
+                        rows[#rows + 1] = row
                     end
-                    expected[#expected + 1] = row
+                end
+                if #rows > 0 then
+                    expected[#expected + 1] = "eyebrow:" .. Panel.GROUP_EYEBROW[group.group]
+                    addCards(rows)
+                    if group.group == ns.Roads.GROUP_ITEM then
+                        addCards(sorted.otherLevel)
+                    end
                 end
             end
         end
         for _, element in ipairs(under(list, "Shoulder")) do
-            if element.kind == Panel.ELEMENT_GROUP then
+            if element.kind == Panel.ELEMENT_FOLD then
+                drawn[#drawn + 1] = "fold:" .. element.text
+            elseif element.kind == Panel.ELEMENT_GROUP then
                 drawn[#drawn + 1] = "eyebrow:" .. element.text
             elseif element.kind == Panel.ELEMENT_CARD_ROW then
                 drawn[#drawn + 1] = "cards"
@@ -1008,7 +1026,10 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
                     drawn[#drawn + 1] = card.row
                 end
             else
-                error("under the slot, an element that is not an eyebrow or a card row: " .. tostring(element.kind))
+                error(
+                    "under the slot, an element that is not an eyebrow, a fold or a card row: "
+                        .. tostring(element.kind)
+                )
             end
         end
         assert.is_true(#drawn > 6)
@@ -1179,6 +1200,370 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
         end)
         assert.is_nil(table.concat(Panel.CardTooltipLines(craft), "\n"):find("click:", 1, true))
     end)
+
+    -- -----------------------------------------------------------------------
+    -- UX-6b (WKE-639): the `No rating` flood, sorted before it is folded. On
+    -- this week Head opens onto 35 cards and 26 of them had no rating; every
+    -- figure below is one of the committed documents' own rows.
+
+    local function noRatingRow(m, slot, name)
+        for _, group in ipairs(section(m, slot).roadGroups) do
+            if group.group == ns.Roads.GROUP_NONE then
+                for _, row in ipairs(group.rows) do
+                    if row.name == name then
+                        return row
+                    end
+                end
+            end
+        end
+        return nil
+    end
+
+    local function otherLevelRow(m, slot, name)
+        for _, row in ipairs(section(m, slot).noRating.otherLevel) do
+            if row.name == name then
+                return row
+            end
+        end
+        return nil
+    end
+
+    -- Hand-built documents over one item, in the shape UFImport.Parse gives.
+    local function document(keyLevel, rows)
+        local items, levels = {}, {}
+        for _, spec in ipairs(rows) do
+            local key = ns.UFImport.Key(1001, spec[1])
+            items[key] = {
+                key = key,
+                itemID = 1001,
+                level = spec[1],
+                dropType = spec[2],
+                upgradePercent = spec[3],
+                sources = { { dropType = spec[2] } },
+            }
+            levels[#levels + 1] = spec[1]
+        end
+        table.sort(levels)
+        return { keyLevel = keyLevel, verdict = { items = items, levelsByItemID = { [1001] = levels } } }
+    end
+
+    it("sorts every no-rating road: rated at another level, not for this spec, or unknown (UX-6b)", function()
+        local Panel = ns.UpgradeMapPanel
+        local m = model()
+        local documents = m.upgradeDocuments
+        local warmask = noRatingRow(m, "Head", "Shadow Hunter's Warmask")
+        assert.equal(308, warmask.itemLevel)
+        -- His documents carry it, never at the level it drops at.
+        assert.is_nil(ns.UFImport.LookupAcrossLevels(documents, warmask.itemID, 308))
+        assert.is_table(ns.UFImport.LevelsAcrossLevels(documents, warmask.itemID))
+        assert.equal(Panel.NO_RATING_OTHER_LEVEL, Panel.NoRatingKind(warmask.road, documents))
+        -- A document row is asked first: an item he rated was viable to him.
+        assert.equal(
+            Panel.NO_RATING_OTHER_LEVEL,
+            Panel.NoRatingKind(warmask.road, documents, function()
+                return false
+            end)
+        )
+
+        local unknown = section(m, "Head").noRating.unknown[1]
+        assert.is_nil(ns.UFImport.LevelsAcrossLevels(documents, unknown.itemID))
+        assert.equal(Panel.NO_RATING_UNKNOWN, Panel.NoRatingKind(unknown.road, documents))
+        -- The client's own answer decides offspec, and "cannot tell" is not it.
+        local calls = {}
+        assert.equal(
+            Panel.NO_RATING_OFFSPEC,
+            Panel.NoRatingKind(unknown.road, documents, function(road)
+                calls[#calls + 1] = road
+                return false
+            end)
+        )
+        assert.same({ unknown.road }, calls)
+        for _, answer in ipairs({ true, "nil" }) do
+            local said = answer ~= "nil" and answer or nil
+            assert.equal(
+                Panel.NO_RATING_UNKNOWN,
+                Panel.NoRatingKind(unknown.road, documents, function()
+                    return said
+                end)
+            )
+        end
+        -- Only a drop: a piece you own is yours whatever spec it names.
+        local crest = rowWhere(m, "Shoulder", function(row)
+            return row.group == ns.Roads.GROUP_NONE and row.kind == ns.Roads.KIND_CREST
+        end)
+        assert.equal(
+            Panel.NO_RATING_UNKNOWN,
+            Panel.NoRatingKind(crest.road, documents, function()
+                return false
+            end)
+        )
+        -- A road with a rating is none of the three.
+        local rated = rowWhere(m, "Head", function(row)
+            return row.group == ns.Roads.GROUP_ITEM
+        end)
+        assert.is_nil(Panel.NoRatingKind(rated.road, documents))
+        assert.is_nil(Panel.NoRatingKind(nil, documents))
+
+        -- The counts, read off the committed week: other level, offspec, unknown.
+        local counts = {}
+        for _, entry in ipairs(m.slots) do
+            local sorted = entry.noRating
+            counts[entry.slot] = { #sorted.otherLevel, #sorted.offspec, #sorted.unknown }
+        end
+        assert.same({ 10, 0, 16 }, counts.Head)
+        assert.same({ 9, 0, 18 }, counts.Chest)
+        assert.same({ 23, 0, 30 }, counts.Trinket)
+        assert.same({ 10, 0, 0 }, counts.Back)
+    end)
+
+    it("carries the document's own row onto a drop rated at another level, and says the level (UX-6b)", function()
+        local Panel = ns.UpgradeMapPanel
+        local m = model()
+        local documents = m.upgradeDocuments
+        -- A Heroic raid drop at 308 that his run rated at 321 as a drop and at
+        -- 334 with its crests spent: the card carries the drop figure, the
+        -- hover the other.
+        local warmask = otherLevelRow(m, "Head", "Shadow Hunter's Warmask")
+        assert.equal(ns.Roads.GROUP_ITEM, warmask.group)
+        assert.same({ text = "+0.17%", tone = "better" }, Panel.CardBadge(warmask))
+        assert.equal("rated at 321", Panel.CardLine(warmask))
+        assert.equal(warmask.second, Panel.CardSecond(warmask))
+        assert.is_not_nil(Panel.CardSecond(warmask):find("Heroic raid", 1, true))
+        local hover = Panel.CardTooltipLines(warmask)
+        assert.equal("+0.17% · rated at 321, drops at 308", hover[1])
+        assert.equal("crested to 334 · +0.75%", hover[2])
+        -- Both figures are his rows, whole, and out of one document.
+        local rating = warmask.otherLevel
+        assert.equal(321, rating.drop.level)
+        assert.equal(334, rating.max.level)
+        assert.is_true(ns.UFImport.HasDropType(rating.drop.entry, ns.UFImport.DROP_TYPE_DROP))
+        assert.is_true(ns.UFImport.HasDropType(rating.max.entry, ns.UFImport.DROP_TYPE_MAX))
+        assert.equal(rating.drop.entry.upgradePercent, rating.drop.percent)
+        assert.equal(rating.max.entry.upgradePercent, rating.max.percent)
+        assert.equal(rating.drop.keyLevel, rating.max.keyLevel)
+        assert.equal(ns.UFImport.LookupAcrossLevels(documents, warmask.itemID, 321).upgradePercent, rating.drop.percent)
+
+        -- Drop and max at ONE level: the card carries it and the hover has no
+        -- second figure to add.
+        local gaze = otherLevelRow(m, "Head", "Gaze of the Coiled Watcher")
+        assert.equal(315, gaze.itemLevel)
+        assert.equal("rated at 344", Panel.CardLine(gaze))
+        assert.same({ text = "+2.99%", tone = "better" }, Panel.CardBadge(gaze))
+        local gazeHover = table.concat(Panel.CardTooltipLines(gaze), "\n")
+        assert.equal("+2.99% · rated at 344, drops at 315", Panel.CardTooltipLines(gaze)[1])
+        assert.is_nil(gazeHover:find("crested to", 1, true))
+
+        -- A figure at or below zero keeps the model's own word for it.
+        local crown = otherLevelRow(m, "Head", "Crown of Roaring Storms")
+        assert.same({ text = ns.Roads.PHRASE_NOT_IN_BEST_SET, tone = "none" }, Panel.CardBadge(crown))
+        assert.equal("rated at 295", Panel.CardLine(crown))
+
+        -- The road is untouched: no rating in the model and in the printed lines.
+        assert.equal(ns.Roads.GROUP_NONE, warmask.road.group)
+        assert.equal(ns.Roads.PHRASE_NO_RATING, warmask.road.phrase)
+        local printed
+        for _, line in ipairs(Panel.Lines(m)) do
+            if line:find("Shadow Hunter's Warmask (308)", 1, true) then
+                printed = line
+            end
+        end
+        assert.is_string(printed)
+        assert.is_not_nil(printed:find(ns.Roads.PHRASE_NO_RATING, 1, true), printed)
+        assert.is_nil(printed:find("rated at", 1, true), printed)
+        -- The slot's badge is still the best AT-LEVEL road's.
+        assert.same({ text = "+2.99%", tone = "better" }, Panel.SlotBadge(section(m, "Head")))
+
+        -- Drawn in the rated group after its own roads, and not in the fold.
+        local drawn, rated = {}, 0
+        for _, element in ipairs(under(elements(m, shutAllBut(m, "Head")), "Head")) do
+            if element.group == ns.Roads.GROUP_ITEM then
+                for _, card in ipairs(element.cards or {}) do
+                    drawn[#drawn + 1] = card.row
+                    if not card.row.otherLevel then
+                        rated = rated + 1
+                    end
+                end
+            end
+            for _, card in ipairs(element.cards or {}) do
+                assert.are_not.equal(ns.Roads.GROUP_NONE, card.row.group)
+            end
+        end
+        assert.equal(rated + 10, #drawn)
+        for index = rated + 1, #drawn do
+            assert.is_table(drawn[index].otherLevel, "position " .. index)
+        end
+        -- Best figure first among them, his number's order.
+        assert.equal(gaze, drawn[rated + 1])
+        assert.equal(warmask, drawn[rated + 2])
+    end)
+
+    it("reads a max-only row as `crested to`, and a drop's cap out of the drop's own document (UX-6b)", function()
+        local Panel = ns.UpgradeMapPanel
+        local maxOnly = Panel.OtherLevelRating({ document(nil, { { 334, "max", 0.5 } }) }, 1001)
+        assert.is_nil(maxOnly.drop)
+        assert.equal(334, maxOnly.max.level)
+        local row = Panel.OtherLevelRow({ itemLevel = 308, kind = ns.Roads.KIND_DROP }, maxOnly)
+        assert.equal("crested to 334", row.levelLine)
+        assert.same({ text = "+0.50%", tone = "better" }, row.badge)
+        assert.same({ "+0.50% · crested to 334, drops at 308" }, row.otherLevelHover)
+        -- The +4 run carries a lower cap, but the card's drop row is the +2
+        -- run's, so its cap is too.
+        local both = Panel.OtherLevelRating({
+            document(2, { { 295, "drop", -0.1 }, { 308, "max", 0.2 } }),
+            document(4, { { 300, "max", 0.9 } }),
+        }, 1001)
+        assert.equal(295, both.drop.level)
+        assert.equal(2, both.drop.keyLevel)
+        assert.equal(308, both.max.level)
+        assert.equal(2, both.max.keyLevel)
+        assert.same(
+            { "-0.10% · rated at 295, drops at 276", "crested to 308 · +0.20%" },
+            Panel.OtherLevelRow({ itemLevel = 276 }, both).otherLevelHover
+        )
+        -- A bonus-roll row alone is no figure this card carries.
+        assert.is_nil(Panel.OtherLevelRating({ document(nil, { { 321, "bonus", 1 } }) }, 1001))
+        assert.is_nil(Panel.OtherLevelRating(nil, 1001))
+    end)
+
+    it("draws no card for a drop the client says is not for this spec, and prints it (UX-6b)", function()
+        local Panel = ns.UpgradeMapPanel
+        local target = section(model(), "Head").noRating.unknown[1]
+        assert.is_table(target)
+        local m = model({
+            specFit = function(road)
+                if road.item and road.item.itemID == target.itemID then
+                    return false
+                end
+                return nil
+            end,
+        })
+        local head = section(m, "Head")
+        assert.equal(1, #head.noRating.offspec)
+        assert.equal(target.itemID, head.noRating.offspec[1].itemID)
+        assert.equal(15, #head.noRating.unknown)
+        local every = allOpen(m)
+        every.noRating = {}
+        for _, entry in ipairs(m.slots) do
+            every.noRating[entry.slot] = true
+        end
+        for _, element in ipairs(elements(m, every)) do
+            for _, card in ipairs(element.cards or {}) do
+                assert.are_not.equal(target.itemID, card.row.itemID)
+            end
+            if element.kind == Panel.ELEMENT_FOLD and element.slot == "Head" then
+                assert.equal("- No rating · 15 drops", element.text)
+            end
+        end
+        local printed = false
+        for _, line in ipairs(Panel.Lines(m)) do
+            if line:find(target.name .. " (" .. tostring(target.itemLevel) .. ")", 1, true) then
+                printed = printed or line:find(ns.Roads.PHRASE_NO_RATING, 1, true) ~= nil
+            end
+        end
+        assert.is_true(printed)
+    end)
+
+    it("folds the rest behind one line per slot, shut by default, building none of its cards (UX-6b)", function()
+        local Panel = ns.UpgradeMapPanel
+        local m = model()
+        local unknown = section(m, "Head").noRating.unknown
+        assert.equal(16, #unknown)
+        local function drawnUnder(state)
+            local fold, cards = nil, {}
+            for _, element in ipairs(under(elements(m, state), "Head")) do
+                if element.kind == Panel.ELEMENT_FOLD then
+                    fold = element
+                end
+                for _, card in ipairs(element.cards or {}) do
+                    cards[#cards + 1] = card.row
+                end
+            end
+            return fold, cards
+        end
+        -- Shut, the default: the line and its count, and none of its cards.
+        local fold, cards = drawnUnder(shutAllBut(m, "Head"))
+        assert.equal("+ No rating · 16 drops", fold.text)
+        assert.is_false(fold.open)
+        assert.equal(16, fold.count)
+        assert.equal("Head", fold.slot)
+        assert.equal(19, #cards)
+        for _, row in ipairs(cards) do
+            assert.are_not.equal(ns.Roads.GROUP_NONE, row.group)
+        end
+        -- Open: every one of them, in the model's order, after the line.
+        local state = shutAllBut(m, "Head")
+        state.noRating = { Head = true }
+        fold, cards = drawnUnder(state)
+        assert.equal("- No rating · 16 drops", fold.text)
+        assert.is_true(fold.open)
+        assert.equal(35, #cards)
+        for index, row in ipairs(unknown) do
+            assert.equal(row, cards[19 + index])
+        end
+        -- A slot with no unknown road draws no line at all.
+        local back = shutAllBut(m, "Back")
+        for _, element in ipairs(under(elements(m, back), "Back")) do
+            assert.are_not.equal(Panel.ELEMENT_FOLD, element.kind)
+        end
+        -- The noun is the rows' own: a crest road is not a drop.
+        assert.equal("+ No rating · 13 items", Panel.NoRatingFoldText(section(m, "Shoulder").noRating.unknown))
+        assert.equal("+ No rating · 1 drop", Panel.NoRatingFoldText({ { kind = ns.Roads.KIND_DROP } }, false))
+
+        -- Per character, nil the default and nil again when it shuts.
+        assert.is_nil(
+            ns.db.char.upgradeMap and ns.db.char.upgradeMap.noRatingOpen and ns.db.char.upgradeMap.noRatingOpen.Head
+        )
+        assert.is_true(Panel.ToggleNoRating(ns.db, "Head"))
+        assert.is_true(ns.db.char.upgradeMap.noRatingOpen.Head)
+        assert.is_true(Panel.CollapseState(ns.db).noRating.Head)
+        assert.is_false(Panel.ToggleNoRating(ns.db, "Head"))
+        assert.is_nil(ns.db.char.upgradeMap.noRatingOpen.Head)
+    end)
+
+    it("says a vault reward not rated yet once, beside the bags, never on a card (UX-6b)", function()
+        local Panel = ns.UpgradeMapPanel
+        local vault = { kind = ns.Roads.KIND_VAULT, phrase = ns.Roads.PHRASE_NOT_RATED_NEW }
+        local function slotWith(roads, stale)
+            return { staleBags = stale, roads = { groups = { [ns.Roads.GROUP_NONE] = roads } } }
+        end
+        local m = {
+            slots = {
+                slotWith({ vault }),
+                slotWith({ vault, { kind = ns.Roads.KIND_DROP, phrase = ns.Roads.PHRASE_NO_RATING } }, true),
+            },
+        }
+        assert.equal(
+            "your bags changed since this rating · 2 vault rewards not rated yet · Refresh",
+            Panel.StaleNudge(m)
+        )
+        m.slots[2].staleBags = false
+        assert.equal("2 vault rewards not rated yet · Refresh", Panel.StaleNudge(m))
+        m.slots[2] = slotWith({}, false)
+        assert.equal("1 vault reward not rated yet · Refresh", Panel.StaleNudge(m))
+        m.slots[1] = slotWith({ { kind = ns.Roads.KIND_DROP, phrase = ns.Roads.PHRASE_NOT_RATED_NEW } })
+        assert.equal("1 item not rated yet · Refresh", Panel.StaleNudge(m))
+        m.slots[1] = slotWith({}, false)
+        assert.is_nil(Panel.StaleNudge(m))
+        -- The committed week has no such road: the nudge is UX-6's, byte for byte.
+        local week = model()
+        assert.is_nil(Panel.NotRatedYetText(week))
+        assert.equal(Panel.STALE_NUDGE, Panel.StaleNudge(week))
+    end)
+
+    it("keeps the `show no value` note off the cards that now show one, and in the printed lines (UX-6b)", function()
+        local Panel = ns.UpgradeMapPanel
+        local m = model()
+        assert.is_string(m.levelMismatchNote)
+        local every = allOpen(m)
+        for _, element in ipairs(elements(m, every)) do
+            assert.are_not.equal(m.levelMismatchNote, element.text)
+        end
+        local printed = false
+        for _, line in ipairs(Panel.Lines(m)) do
+            printed = printed or line == m.levelMismatchNote
+        end
+        assert.is_true(printed)
+    end)
 end)
 
 -- ---------------------------------------------------------------------------
@@ -1248,8 +1633,8 @@ describe("Roads on the window, over the owner's week of 2026-09-08", function()
 
     -- One card row of one open slot, bound to a fresh element frame the way
     -- the scroll box binds one.
-    local function boundCardRow(panel, model, slot, nth)
-        local state = { slots = {} }
+    local function boundCardRow(panel, model, slot, nth, foldOpen)
+        local state = { slots = {}, noRating = { [slot] = foldOpen or nil } }
         for _, entry in ipairs(model.slots) do
             state.slots[entry.slot] = entry.slot ~= slot
         end
@@ -1334,7 +1719,8 @@ describe("Roads on the window, over the owner's week of 2026-09-08", function()
         local panel = frame.upgradeMapPanel
         local element, data
         for nth = 1, 20 do
-            element, data = boundCardRow(panel, panel.model, "Head", nth)
+            -- Behind the fold since UX-6b: opened, as a click would.
+            element, data = boundCardRow(panel, panel.model, "Head", nth, true)
             if data and data.group == ns.Roads.GROUP_NONE then
                 break
             end
@@ -1438,10 +1824,12 @@ describe("Roads on the window, over the owner's week of 2026-09-08", function()
     it("puts roads on the tab the window opens, under the one slot worth taking", function()
         local panel = frame.upgradeMapPanel
         assert.is_true(panel.model.hasRoads)
-        local groups, cards, open = 0, 0, {}
+        local groups, folds, cards, open = 0, 0, 0, {}
         for _, element in ipairs(panel.elements) do
             if element.kind == ns.UpgradeMapPanel.ELEMENT_GROUP then
                 groups = groups + 1
+            elseif element.kind == ns.UpgradeMapPanel.ELEMENT_FOLD then
+                folds = folds + 1
             elseif element.kind == ns.UpgradeMapPanel.ELEMENT_CARD_ROW then
                 cards = cards + #element.cards
             elseif element.kind == ns.UpgradeMapPanel.ELEMENT_SECTION and not element.collapsed then
@@ -1451,8 +1839,11 @@ describe("Roads on the window, over the owner's week of 2026-09-08", function()
         -- Since UX-6 (WKE-637) one slot opens by itself - the first worth
         -- taking - and every card under it is one of its roads.
         assert.same({ "Head" }, open)
-        assert.equal(3, groups)
-        assert.is_true(cards > 30)
+        -- Head's rated group and the fold over its unknown drops (UX-6b): 35
+        -- roads, 16 of them behind the fold, shut by default.
+        assert.equal(2, groups)
+        assert.equal(1, folds)
+        assert.equal(19, cards)
     end)
 
     it("draws a card with its item, its second line and its step, on screen", function()
@@ -1617,5 +2008,90 @@ describe("Roads on the window, over the owner's week of 2026-09-08", function()
         -- Three lines for the sentence and two for the footnote, over this week.
         assert.equal(54 + 28, needed)
         assert.is_true(frame.vaultPanel.headline:GetHeight() >= 32 + needed)
+    end)
+
+    -- -----------------------------------------------------------------------
+    -- UX-6b (WKE-639): the fold, clicked, and the client's own spec answer.
+
+    local function foldFor(panel, slot)
+        for _, data in ipairs(panel.elements) do
+            if data.kind == ns.UpgradeMapPanel.ELEMENT_FOLD and data.slot == slot then
+                return data
+            end
+        end
+        return nil
+    end
+
+    local function cardsUnder(panel, slot)
+        local count, inside = 0, false
+        for _, data in ipairs(panel.elements) do
+            if data.kind == ns.UpgradeMapPanel.ELEMENT_SECTION then
+                inside = data.slot == slot
+            elseif inside then
+                count = count + #(data.cards or {})
+            end
+        end
+        return count
+    end
+
+    it("opens and shuts a slot's `No rating` fold on a click, per character (UX-6b)", function()
+        local Panel = ns.UpgradeMapPanel
+        local panel = frame.upgradeMapPanel
+        local data = foldFor(panel, "Head")
+        assert.equal("+ No rating · 16 drops", data.text)
+        assert.equal(19, cardsUnder(panel, "Head"))
+        local element = CreateFrame("Frame", nil, panel)
+        Panel.InitElement(panel, element, data)
+        assert.equal("+ No rating · 16 drops", element.foldText:GetText())
+        assert.is_true(element.foldButton:IsShown())
+        element.foldButton:Click()
+        assert.is_true(ns.db.char.upgradeMap.noRatingOpen.Head)
+        assert.equal("- No rating · 16 drops", foldFor(panel, "Head").text)
+        assert.equal(35, cardsUnder(panel, "Head"))
+        -- Bound again, as the scroll box would, and shut.
+        Panel.InitElement(panel, element, foldFor(panel, "Head"))
+        element.foldButton:Click()
+        assert.is_nil(ns.db.char.upgradeMap.noRatingOpen.Head)
+        assert.equal(19, cardsUnder(panel, "Head"))
+        -- A frame pooled into another kind hides the fold.
+        Panel.InitElement(panel, element, { kind = Panel.ELEMENT_GROUP, text = "In your best set" })
+        assert.is_false(element.foldButton:IsShown())
+    end)
+
+    it("takes a drop off the list when the client's own spec list leaves this spec out (UX-6b)", function()
+        local Panel = ns.UpgradeMapPanel
+        local panel = frame.upgradeMapPanel
+        local head
+        for _, entry in ipairs(panel.model.slots) do
+            if entry.slot == "Head" then
+                head = entry
+            end
+        end
+        local unknown = head.noRating.unknown
+        local other, fits, silent = unknown[1], unknown[2], unknown[3]
+        -- Each is asked by the link the walk kept, once its data has arrived.
+        for _, row in ipairs({ other, fits, silent }) do
+            assert.is_string(row.link)
+            world.items[row.link] = world.items[row.link] or {}
+            world.items[row.link].info = { row.name, row.link, 4, n = 3 }
+        end
+        -- Spec IDs in the stub's own terms: 105 is the stub's player
+        -- (spec/stubs/wow.lua), 999 is any spec that is not.
+        world.itemSpecs[other.link] = { 999 }
+        world.itemSpecs[fits.link] = { 999, 105 }
+        world.itemSpecs[silent.link] = {}
+        Panel.Refresh(panel)
+        for _, entry in ipairs(panel.model.slots) do
+            if entry.slot == "Head" then
+                head = entry
+            end
+        end
+        assert.equal(1, #head.noRating.offspec)
+        assert.equal(other.itemID, head.noRating.offspec[1].itemID)
+        assert.equal(15, #head.noRating.unknown)
+        assert.equal("+ No rating · 15 drops", foldFor(panel, "Head").text)
+        -- Printed still, with its phrase (`/lootpath status` reads these lines).
+        local printed = table.concat(panel.lines, "\n")
+        assert.is_not_nil(printed:find(other.name .. " (" .. tostring(other.itemLevel) .. ")", 1, true))
     end)
 end)

@@ -910,6 +910,9 @@ function Panel.Model(opts)
             -- Whether this slot's bags are ahead of the document (R-3b).
             section.staleBags = section.roads.staleBags == true
             section.roadGroups = Panel.RoadGroups(section.roads, previewLevel)
+            -- Why each no-rating road has none (UX-6b): what the cards draw.
+            -- roadGroups is untouched, so the printed lines are too.
+            section.noRating = Panel.SortNoRating(section, documents, opts.specFit)
         end
     end
     return model
@@ -1614,6 +1617,8 @@ end
 -- printed lines carry - `/lootpath status` - is unchanged: SectionHeaderText,
 -- GroupHeaderText and RoadLineText still say exactly what they said.
 Panel.ELEMENT_CARD_ROW = "cardRow"
+-- The `No rating` fold line (UX-6b): one per slot, the count on it.
+Panel.ELEMENT_FOLD = "noRatingFold"
 
 -- The divider over a group of cards: an eyebrow, not a sentence. The two
 -- scales still never sort together (docs/ROADS-UX.md principle 2); the long
@@ -1629,7 +1634,8 @@ Panel.GROUP_EYEBROW = {
 -- in the strip's shape, under the header and drawn once - where SECTION_REFRESH
 -- used to ride on every stale slot's line. `Refresh` names the button on the
 -- strip; nothing here says `click` about a line with no edges (R-8b).
-Panel.STALE_NUDGE = "your bags changed since this rating" .. Panel.ROAD_SEPARATOR .. "Refresh"
+Panel.STALE_BAGS_TEXT = "your bags changed since this rating"
+Panel.STALE_NUDGE = Panel.STALE_BAGS_TEXT .. Panel.ROAD_SEPARATOR .. "Refresh"
 -- The strip's own amber for an age that has gone stale (UI/MainFrame.lua,
 -- `ffd43b`), so the two surfaces say "behind" in one colour.
 Panel.STALE_HEX = "ffd43b"
@@ -1751,6 +1757,9 @@ function Panel.CardLine(row)
     if type(row) ~= "table" then
         return nil
     end
+    if row.levelLine then
+        return row.levelLine
+    end
     local todo = row.todo
     if type(todo) == "string" and todo ~= "" then
         local prefix = ns.Roads.TODO_PREFIX
@@ -1770,7 +1779,11 @@ function Panel.CardTooltipLines(row)
         return lines
     end
     local badge = Panel.CardBadge(row)
-    if badge and badge.text then
+    if row.otherLevelHover then
+        for _, line in ipairs(row.otherLevelHover) do
+            lines[#lines + 1] = line
+        end
+    elseif badge and badge.text then
         if row.group == ns.Roads.GROUP_ITEM then
             lines[#lines + 1] = badge.text .. Panel.ROAD_SEPARATOR .. ns.Roads.ITEM_SCALE_TEXT
         else
@@ -1851,14 +1864,255 @@ function Panel.SlotTooltipLines(section)
     return lines
 end
 
--- The nudge, when any slot's bags are ahead of the rating; nil when none is.
-function Panel.StaleNudge(model)
-    for _, section in ipairs(type(model) == "table" and model.slots or {}) do
-        if section.staleBags == true then
-            return Panel.STALE_NUDGE
+-- ---------------------------------------------------------------------------
+-- The `No rating` flood, sorted before it is folded (UX-6b, WKE-639). The owner
+-- (WKE-592, 2026-09-23 night): "We should look at capping no-rating cards" and
+-- "Is there any way of us knowing if these no rating items are even worth the
+-- player trying to get?"
+--
+-- What "no rating" means is the source's own: the Upgrade Finder rates every
+-- item it builds and keeps every result, whatever its sign
+-- (UpgradeFinderEngine.js:105-135, UpgradeFinderResult.js:1-13,
+-- UpgradeFinderFront.js:157, UpgradeFinderJSONExport.ts:16-31), so a drop with
+-- no row was never rated - it is never "rated and not worth it". Why it was
+-- not is one of three things, and each is drawn differently:
+--
+--   * otherLevel - his documents DO carry the item, at another level: a raid
+--     item is rated at ONE difficulty and a dungeon item at ONE key level per
+--     run (UpgradeFinderEngine.js:143-177, :256-288). The card carries that row
+--     whole, and says at which level (Panel.OtherLevelRating).
+--   * offspec - the client says the item is not for this spec
+--     (ns.ItemData.SpecFit): what his `checkItemViable` throws out before
+--     rating (:381-404). Not drawn; `/lootpath status` still prints it.
+--   * unknown - neither. Folded behind one line per slot, shut by default.
+Panel.NO_RATING_OTHER_LEVEL = "otherLevel"
+Panel.NO_RATING_OFFSPEC = "offspec"
+Panel.NO_RATING_UNKNOWN = "unknown"
+
+-- The row his documents carry for a drop at another level, or nil: the `drop`
+-- row at the lowest level any document carries one, and the `max` row - the
+-- item with its crests spent - OUT OF THE SAME DOCUMENT, because a card's
+-- figures all come from one run (ns.Roads' `otherLevels`, docs/ROADS-UX.md
+-- surface 2). With no drop row, the lowest `max` row any document carries.
+-- Each is his entry and its level, unchanged (ns.UFImport.OtherLevelEntry);
+-- nothing is scaled toward the level the drop arrives at.
+function Panel.OtherLevelRating(documents, itemID)
+    if type(documents) ~= "table" or itemID == nil then
+        return nil
+    end
+    local function row(list, dropType)
+        local entry, level, keyLevel, document = ns.UFImport.OtherLevelEntry(list, itemID, dropType)
+        if not entry then
+            return nil
+        end
+        return { entry = entry, level = level, keyLevel = keyLevel, percent = entry.upgradePercent }, document
+    end
+    local drop, document = row(documents, ns.UFImport.DROP_TYPE_DROP)
+    local max = row(drop and { document } or documents, ns.UFImport.DROP_TYPE_MAX)
+    if not drop and not max then
+        return nil
+    end
+    return { drop = drop, max = max }
+end
+
+-- Which of the three a no-rating road is. Pure: `specFit(road)` is the
+-- caller's client answer (true, false, or nil for "cannot tell"). Only a
+-- journal drop can be either of the first two - the documents rate drops, and
+-- a vault reward or a piece you own is yours whatever spec it names. A drop
+-- his documents carry was viable to him by construction, so otherLevel is
+-- asked first.
+function Panel.NoRatingKind(road, documents, specFit)
+    if type(road) ~= "table" or road.group ~= ns.Roads.GROUP_NONE then
+        return nil
+    end
+    if road.kind == ns.Roads.KIND_DROP then
+        local itemID = road.item and road.item.itemID or nil
+        if Panel.OtherLevelRating(documents, itemID) then
+            return Panel.NO_RATING_OTHER_LEVEL
+        end
+        if type(specFit) == "function" and specFit(road) == false then
+            return Panel.NO_RATING_OFFSPEC
         end
     end
-    return nil
+    return Panel.NO_RATING_UNKNOWN
+end
+
+-- What an other-level card says. `rated at` for his drop row, `crested to` for
+-- the row with the crests spent; the hover adds where the drop arrives.
+Panel.OTHER_LEVEL_DROP = "rated at %d"
+Panel.OTHER_LEVEL_MAX = "crested to %d"
+Panel.OTHER_LEVEL_HOVER = "%s · %s, drops at %d"
+Panel.OTHER_LEVEL_ALSO = "%s · %s"
+
+-- A no-rating row as the card its other-level rating draws: the same row, in
+-- the rated group, its badge the figure of the row it carries - the drop row
+-- when there is one, else the max row - and the level on its own line. When
+-- both exist the max row rides on the hover: the rule a rated row's own
+-- `at its cap 334 +0.72%` follows (ns.Roads' `otherLevels`,
+-- Panel.RoadFactEntries), where the drop figure is the badge and the cap is
+-- the muted second figure.
+function Panel.OtherLevelRow(row, rating)
+    if type(row) ~= "table" or type(rating) ~= "table" then
+        return nil
+    end
+    local shown = rating.drop or rating.max
+    local shape = rating.drop and Panel.OTHER_LEVEL_DROP or Panel.OTHER_LEVEL_MAX
+    local copy = {}
+    for key, value in pairs(row) do
+        copy[key] = value
+    end
+    copy.group = ns.Roads.GROUP_ITEM
+    copy.otherLevel = rating
+    local badge = ns.Roads.ItemBadge(shown.percent)
+    local percent = tonumber(shown.percent)
+    local tone = "none"
+    if percent and percent ~= 0 then
+        tone = percent > 0 and "better" or "worse"
+    end
+    copy.badge = badge and { text = badge, tone = tone } or nil
+    copy.levelLine = string.format(shape, shown.level)
+    local hover = {}
+    if badge then
+        hover[#hover + 1] = string.format(Panel.OTHER_LEVEL_HOVER, badge, copy.levelLine, tonumber(row.itemLevel) or 0)
+    end
+    local max = rating.drop and rating.max or nil
+    if max and max.level ~= rating.drop.level then
+        local maxBadge = ns.Roads.ItemBadge(max.percent)
+        if maxBadge then
+            hover[#hover + 1] =
+                string.format(Panel.OTHER_LEVEL_ALSO, string.format(Panel.OTHER_LEVEL_MAX, max.level), maxBadge)
+        end
+    end
+    copy.otherLevelHover = hover
+    return copy
+end
+
+-- Every no-rating row of a slot, sorted into the three (Panel.NoRatingKind).
+-- The other-level rows come back as their cards (Panel.OtherLevelRow), best
+-- figure first - his number's order, the rated group's own rule - and the
+-- model's order behind it; the other two keep the model's order.
+function Panel.SortNoRating(section, documents, specFit)
+    local sorted = { otherLevel = {}, offspec = {}, unknown = {} }
+    for _, group in ipairs(type(section) == "table" and section.roadGroups or {}) do
+        if group.group == ns.Roads.GROUP_NONE then
+            for _, row in ipairs(Panel.CardRows(group)) do
+                local kind = Panel.NoRatingKind(row.road, documents, specFit)
+                if kind == Panel.NO_RATING_OTHER_LEVEL then
+                    local itemID = row.road.item and row.road.item.itemID or nil
+                    sorted.otherLevel[#sorted.otherLevel + 1] =
+                        Panel.OtherLevelRow(row, Panel.OtherLevelRating(documents, itemID))
+                elseif kind == Panel.NO_RATING_OFFSPEC then
+                    sorted.offspec[#sorted.offspec + 1] = row
+                else
+                    sorted.unknown[#sorted.unknown + 1] = row
+                end
+            end
+        end
+    end
+    local position = {}
+    for index, row in ipairs(sorted.otherLevel) do
+        position[row] = index
+    end
+    local function figure(row)
+        local shown = row.otherLevel.drop or row.otherLevel.max
+        return tonumber(shown.percent) or 0
+    end
+    table.sort(sorted.otherLevel, function(left, right)
+        local a, b = figure(left), figure(right)
+        if a ~= b then
+            return a > b
+        end
+        return position[left] < position[right]
+    end)
+    return sorted
+end
+
+-- The fold over what is left: Equip Now's pattern (M5-1b) - the mark, then the
+-- line with its count - per slot, shut by default.
+Panel.NO_RATING_FOLD = "%s · %d %s"
+Panel.NO_RATING_NOUN = { drop = { "drop", "drops" }, item = { "item", "items" } }
+
+function Panel.NoRatingFoldText(rows, open)
+    local count, allDrops = 0, true
+    for _, row in ipairs(rows or {}) do
+        count = count + 1
+        if row.kind ~= ns.Roads.KIND_DROP then
+            allDrops = false
+        end
+    end
+    local noun = Panel.NO_RATING_NOUN[allDrops and "drop" or "item"]
+    local mark = open and Panel.SECTION_OPEN_MARK or Panel.SECTION_SHUT_MARK
+    return mark
+        .. " "
+        .. string.format(
+            Panel.NO_RATING_FOLD,
+            Panel.GROUP_EYEBROW[ns.Roads.GROUP_NONE],
+            count,
+            noun[count == 1 and 1 or 2]
+        )
+end
+
+-- Whether a slot's fold is open: true is opened by a click, and nil - no
+-- click - is the default, shut. Kept per character beside collapsedSlots
+-- (`db.char.upgradeMap.noRatingOpen`).
+function Panel.NoRatingOpen(saved)
+    return saved == true
+end
+
+function Panel.ToggleNoRating(db, slot)
+    local state = Panel.CollapseState(db)
+    -- `nil` rather than `false` when it shuts again, as Equip Now's fold does:
+    -- the default leaves nothing behind in the saved variables.
+    state.noRating[slot] = (state.noRating[slot] ~= true) or nil
+    return state.noRating[slot] == true
+end
+
+-- The nudge. The one no-rating road a player can act on is one a refresh would
+-- rate: a vault reward the run never saw (`not rated · new since the last
+-- refresh`, the only phrase ns.Roads.ForSlot gives that tail). It is counted
+-- once for the tab, beside the stale-bags words, and never said on a card.
+Panel.NOT_RATED_YET = "%d %s not rated yet"
+Panel.NOT_RATED_NOUN = { vault = { "vault reward", "vault rewards" }, item = { "item", "items" } }
+
+function Panel.NotRatedYetText(model)
+    local count, allVault = 0, true
+    for _, section in ipairs(type(model) == "table" and model.slots or {}) do
+        local groups = type(section.roads) == "table" and section.roads.groups or {}
+        for _, group in ipairs(ns.Roads.GROUP_ORDER) do
+            for _, road in ipairs(groups[group] or {}) do
+                if road.phrase == ns.Roads.PHRASE_NOT_RATED_NEW then
+                    count = count + 1
+                    if road.kind ~= ns.Roads.KIND_VAULT then
+                        allVault = false
+                    end
+                end
+            end
+        end
+    end
+    if count == 0 then
+        return nil
+    end
+    local noun = Panel.NOT_RATED_NOUN[allVault and "vault" or "item"]
+    return string.format(Panel.NOT_RATED_YET, count, noun[count == 1 and 1 or 2])
+end
+
+-- The nudge, when any slot's bags are ahead of the rating or any road is new
+-- since it; nil when neither. The stale-bags line alone is byte-identical to
+-- UX-6's.
+function Panel.StaleNudge(model)
+    local parts = {}
+    for _, section in ipairs(type(model) == "table" and model.slots or {}) do
+        if section.staleBags == true then
+            parts[1] = Panel.STALE_BAGS_TEXT
+            break
+        end
+    end
+    parts[#parts + 1] = Panel.NotRatedYetText(model)
+    if #parts == 0 then
+        return nil
+    end
+    parts[#parts + 1] = ns.Roads.VERB_REFRESH
+    return table.concat(parts, Panel.ROAD_SEPARATOR)
 end
 
 -- The muted second figures a rated row carries, in his own words for them:
@@ -2559,12 +2813,19 @@ function Panel.CollapseState(db)
     db = db or ns.db
     local char = db and db.char
     if type(char) ~= "table" then
-        return { slots = {}, runs = {} }
+        return { slots = {}, runs = {}, noRating = {} }
     end
     char.upgradeMap = char.upgradeMap or {}
     char.upgradeMap.collapsedSlots = char.upgradeMap.collapsedSlots or {}
     char.upgradeMap.expandedRuns = char.upgradeMap.expandedRuns or {}
-    return { slots = char.upgradeMap.collapsedSlots, runs = char.upgradeMap.expandedRuns }
+    -- Which slots' `No rating` fold the character opened (UX-6b): true is
+    -- opened, nil the default, shut (Panel.NoRatingOpen).
+    char.upgradeMap.noRatingOpen = char.upgradeMap.noRatingOpen or {}
+    return {
+        slots = char.upgradeMap.collapsedSlots,
+        runs = char.upgradeMap.expandedRuns,
+        noRating = char.upgradeMap.noRatingOpen,
+    }
 end
 
 -- The by-slot list. A slot is one line whether or not it is open; what it
@@ -2576,6 +2837,7 @@ end
 function Panel.Elements(model, state)
     state = state or {}
     local collapsed = state.slots or {}
+    local noRating = state.noRating or {}
     local elements = {}
     local function add(element)
         elements[#elements + 1] = element
@@ -2643,37 +2905,73 @@ function Panel.Elements(model, state)
             section = section,
         })
         if open and section.roadGroups then
+            -- Up to four cards a row, filled across in the group's own order:
+            -- the order is the model's and is not re-sorted.
+            local function cards(rows, group)
+                local cardRow
+                for _, row in ipairs(rows) do
+                    if not cardRow or #cardRow.cards >= Panel.TILES_PER_ROW then
+                        cardRow = add({
+                            kind = Panel.ELEMENT_CARD_ROW,
+                            height = cardHeight + Panel.TILE_ROW_PADDING,
+                            tileWidth = cardWidth,
+                            tileHeight = cardHeight,
+                            gap = Panel.TILE_GAP,
+                            indent = Panel.CARD_INDENT,
+                            group = group,
+                            cards = {},
+                        })
+                    end
+                    cardRow.cards[#cardRow.cards + 1] = { row = row, art = Panel.CardArt(row, model.instanceImages) }
+                    local badge = Panel.CardBadge(row)
+                    explain(Panel.CardSecond(row), badge and badge.text or nil, Panel.CardLine(row))
+                end
+            end
+            local function eyebrow(group)
+                local text = Panel.GROUP_EYEBROW[group]
+                add({ kind = Panel.ELEMENT_GROUP, height = Panel.GroupHeight(text), group = group, text = text })
+                explain(text)
+            end
+            -- The no-rating roads, sorted (UX-6b): the ones rated at another
+            -- level join the rated group after its own roads, the ones the
+            -- client says are not for this spec are not drawn, and the rest
+            -- sit behind the fold.
+            local sorted = section.noRating or Panel.SortNoRating(section, model.upgradeDocuments)
+            local otherLevel = sorted.otherLevel
+            local placedOther = false
             for _, group in ipairs(section.roadGroups) do
-                local rows = Panel.CardRows(group)
-                if #rows > 0 then
-                    local eyebrow = Panel.GROUP_EYEBROW[group.group] or group.header
-                    add({
-                        kind = Panel.ELEMENT_GROUP,
-                        height = Panel.GroupHeight(eyebrow),
-                        group = group.group,
-                        text = eyebrow,
-                    })
-                    explain(eyebrow)
-                    -- Up to four cards a row, filled across in the group's own
-                    -- order: the order is the model's and is not re-sorted.
-                    local cardRow
-                    for _, row in ipairs(rows) do
-                        if not cardRow or #cardRow.cards >= Panel.TILES_PER_ROW then
-                            cardRow = add({
-                                kind = Panel.ELEMENT_CARD_ROW,
-                                height = cardHeight + Panel.TILE_ROW_PADDING,
-                                tileWidth = cardWidth,
-                                tileHeight = cardHeight,
-                                gap = Panel.TILE_GAP,
-                                indent = Panel.CARD_INDENT,
-                                group = group.group,
-                                cards = {},
-                            })
+                if group.group == ns.Roads.GROUP_NONE then
+                    if not placedOther and #otherLevel > 0 then
+                        eyebrow(ns.Roads.GROUP_ITEM)
+                        cards(otherLevel, ns.Roads.GROUP_ITEM)
+                        placedOther = true
+                    end
+                    if #sorted.unknown > 0 then
+                        local foldOpen = Panel.NoRatingOpen(noRating[section.slot])
+                        local text = Panel.NoRatingFoldText(sorted.unknown, foldOpen)
+                        add({
+                            kind = Panel.ELEMENT_FOLD,
+                            height = Panel.GroupHeight(text),
+                            group = group.group,
+                            slot = section.slot,
+                            open = foldOpen,
+                            count = #sorted.unknown,
+                            text = text,
+                        })
+                        explain(text)
+                        if foldOpen then
+                            cards(sorted.unknown, group.group)
                         end
-                        cardRow.cards[#cardRow.cards + 1] =
-                            { row = row, art = Panel.CardArt(row, model.instanceImages) }
-                        local badge = Panel.CardBadge(row)
-                        explain(Panel.CardSecond(row), badge and badge.text or nil, Panel.CardLine(row))
+                    end
+                else
+                    local rows = Panel.CardRows(group)
+                    if #rows > 0 then
+                        eyebrow(group.group)
+                        cards(rows, group.group)
+                        if group.group == ns.Roads.GROUP_ITEM and #otherLevel > 0 then
+                            cards(otherLevel, group.group)
+                            placedOther = true
+                        end
                     end
                 end
             end
@@ -2684,7 +2982,12 @@ function Panel.Elements(model, state)
             note(section.hiddenNote)
         end
     end
-    note(model.levelMismatchNote)
+    -- It says a drop rated at another level shows no value, which the road
+    -- cards stopped being true of (UX-6b); the candidate list and the printed
+    -- lines keep it.
+    if not model.hasRoads then
+        note(model.levelMismatchNote)
+    end
 
     if model.pending.count > 0 then
         local open = Panel.SlotOpen(collapsed[Panel.PENDING_SECTION], {}, firstWorth)
@@ -2927,8 +3230,22 @@ function Panel.Gather(opts)
         vault = vault.ok and vault or nil,
         currencies = currencies.ok and currencies or nil,
         upgradeRows = upgradeRows,
+        specFit = Panel.ClientSpecFit(ns.Companion.CurrentSpecID()),
         inCombat = inventory.ok ~= true and inventory.reason == "combat" or nil,
     }
+end
+
+-- What the client says about a drop's spec, as Panel.NoRatingKind asks it: the
+-- journal's own link when the walk kept one, else the itemID
+-- (ns.ItemData.SpecFit). nil for every drop when the client names no spec.
+function Panel.ClientSpecFit(specID)
+    return function(road)
+        local item = type(road) == "table" and road.item or nil
+        if type(item) ~= "table" then
+            return nil
+        end
+        return ns.ItemData.SpecFit(item.link or item.itemID, specID)
+    end
 end
 
 -- The controls. Two toggles and one dropdown, on two rows, none of which
@@ -3678,6 +3995,23 @@ local function ensureGroup(element)
     return element.groupText
 end
 
+-- The `No rating` fold line (UX-6b): Equip Now's fold, in the eyebrow's place
+-- and font, the whole line the click target.
+local function ensureFold(element)
+    if not element.foldButton then
+        local button = CreateFrame("Button", nil, element)
+        button:SetPoint("TOPLEFT", element, "TOPLEFT", 0, 0)
+        button:SetPoint("BOTTOMRIGHT", element, "BOTTOMRIGHT", 0, 0)
+        element.foldButton = button
+        element.foldText = button:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        element.foldText:SetPoint("TOPLEFT", button, "TOPLEFT", 4, -4)
+        element.foldText:SetPoint("RIGHT", button, "RIGHT", -4, 0)
+        element.foldText:SetJustifyH("LEFT")
+        element.foldText:SetWordWrap(false)
+    end
+    return element.foldButton
+end
+
 local function hideKinds(element, keep)
     if element.noteText and keep ~= Panel.ELEMENT_NOTE then
         element.noteText:SetText("")
@@ -3701,6 +4035,10 @@ local function hideKinds(element, keep)
     if element.groupText and keep ~= Panel.ELEMENT_GROUP then
         element.groupText:SetText("")
         element.groupText:Hide()
+    end
+    if element.foldButton and keep ~= Panel.ELEMENT_FOLD then
+        element.foldText:SetText("")
+        element.foldButton:Hide()
     end
     if element.cardRow and keep ~= Panel.ELEMENT_CARD_ROW then
         for _, tile in ipairs(element.cards) do
@@ -3796,6 +4134,16 @@ function Panel.InitElement(panel, element, data)
         local text = ensureGroup(element)
         text:SetText(data.text or "")
         text:Show()
+    elseif data.kind == Panel.ELEMENT_FOLD then
+        local button = ensureFold(element)
+        element.foldText:SetText(data.text or "")
+        -- A click saves which way the reader left it, per character (nil is
+        -- the default, shut), and draws the list again.
+        button:SetScript("OnClick", function()
+            Panel.ToggleNoRating(panel.db, data.slot)
+            Panel.Refresh(panel)
+        end)
+        button:Show()
     elseif data.kind == Panel.ELEMENT_CARD_ROW then
         Panel.InitCardRow(panel, element, data)
     elseif data.kind == Panel.ELEMENT_RUN_ROW then

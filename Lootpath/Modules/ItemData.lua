@@ -48,6 +48,7 @@ ItemData.FUNCTION_NAMES = {
     "C_Item.GetItemInfo",
     "C_Item.GetDetailedItemLevelInfo",
     "C_Item.RequestLoadItemDataByID",
+    "C_Item.GetItemSpecInfo",
 }
 
 -- The bound, the journal's shape (Adapter.ITEM_DATA_WAIT_SECONDS x
@@ -120,6 +121,45 @@ function ItemData.Instant(itemInfo)
         classID = tonumber((ns.Safe(f))),
         subclassID = tonumber((ns.Safe(g))),
     }
+end
+
+-- Whether the client says an item is for this spec (UX-6b, WKE-639): false
+-- when its own spec list names specs and this one is not among them, true when
+-- the list names it, and nil - no answer - in every other case.
+--
+-- `C_Item.GetItemSpecInfo(itemInfo) -> specTable` (number[], MayReturnNothing,
+-- Blizzard's exported ItemDocumentation under .luals/). How the list is read
+-- is Blizzard's own: MerchantFrame_GetProductInfo asks for it only once
+-- GetItemInfo has named the item, and MerchantFrame reads each entry as a
+-- specID (`GetSpecializationInfoByID(specs[i])`) and only when `#specs > 0`
+-- (MerchantFrame.lua:799-831 under .luals/). So an item whose data has not
+-- arrived, an empty list, a list that is not numbers, a secret, or no spec to
+-- compare with, all answer nil: not knowing is never "not for you".
+function ItemData.SpecFit(itemInfo, specID)
+    specID = tonumber(specID)
+    if itemInfo == nil or not specID or not (C_Item and C_Item.GetItemSpecInfo) then
+        return nil
+    end
+    if not ItemData.Cached(itemInfo) then
+        return nil
+    end
+    local ok, specs = pcall(C_Item.GetItemSpecInfo, itemInfo)
+    if not ok then
+        return nil
+    end
+    local copy = ns.CopyRaw(specs)
+    if type(copy) ~= "table" or #copy == 0 then
+        return nil
+    end
+    for _, id in ipairs(copy) do
+        if type(id) ~= "number" then
+            return nil
+        end
+        if id == specID then
+            return true
+        end
+    end
+    return false
 end
 
 -- What the client knows once the item's data has arrived: name, link, quality
