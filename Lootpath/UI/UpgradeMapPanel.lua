@@ -2118,13 +2118,16 @@ Panel.TILE_PIP_MAX = 12
 -- How far a run with nothing rated is drawn down. The same half weight a
 -- settled row is dimmed to on Equip Now (ns.UI.ItemLine.DIM_ALPHA).
 Panel.TILE_DIM_ALPHA = 0.5
--- The shade the words sit on: a flat band up the bottom of the tile, so a name
--- in white is legible over whatever the art happens to be there. Lootpath's one
--- drawn element, and it says nothing about any item.
+-- The shade the words sit on: ONE texture up the bottom TILE_SHADE_FRACTION of
+-- the tile, a vertical gradient from TILE_SHADE_ALPHA black at the bottom edge
+-- to clear at its top (UX-5a, WKE-634), so a name in white is legible over
+-- whatever the art happens to be there and no edge crosses the picture. It was
+-- two flat bands until UX-5a, and their two hard edges were the lighter stripe
+-- the owner saw across every tile with art. Lootpath's one drawn element, and
+-- it says nothing about any item.
 Panel.TILE_SHADE_ALPHA = 0.75
 Panel.TILE_SHADE_FRACTION = 0.5
-Panel.TILE_SHADE_FADE_ALPHA = 0.35
-Panel.TILE_SHADE_FADE_FRACTION = 0.2
+Panel.TILE_SHADE_ORIENTATION = "VERTICAL"
 Panel.TILE_INSET = 4
 Panel.TILE_NAME_HEIGHT = 14
 Panel.TILE_SECOND_HEIGHT = 12
@@ -3065,6 +3068,29 @@ local function ensureItem(element)
     return element.line
 end
 
+-- The shade's paint (UX-5a, WKE-634). `TextureBase:SetGradient(orientation,
+-- minColor, maxColor)` takes two `colorRGBA`s from `CreateColor` (Ketho,
+-- Core/Widget/Base/TextureBase.lua:130-134 and Blizzard_SharedXML/Color.lua:25).
+-- Which end is which is Blizzard's own to say: its nameplate border draws its
+-- Bottom edge solid and its Top clear, and paints the two sides between them
+-- `SetGradient("VERTICAL", CreateColor(r, g, b, a), CreateColor(r, g, b, 0))`
+-- (Blizzard_NamePlates.lua:517-520, under .luals/) - so minColor is the BOTTOM.
+-- A client without either function keeps the flat band at the same alpha, which
+-- is what every tile drew before. Answers whether the gradient was drawn.
+local function paintShade(texture)
+    texture:SetTexture(WHITE_TEXTURE)
+    if type(texture.SetGradient) == "function" and type(CreateColor) == "function" then
+        texture:SetGradient(
+            Panel.TILE_SHADE_ORIENTATION,
+            CreateColor(0, 0, 0, Panel.TILE_SHADE_ALPHA),
+            CreateColor(0, 0, 0, 0)
+        )
+        return true
+    end
+    texture:SetVertexColor(0, 0, 0, Panel.TILE_SHADE_ALPHA)
+    return false
+end
+
 -- One tile (UX-5, WKE-614): the instance's own art filling it under a shade,
 -- the run's name and its difficulty on the shade, the badge top right and the
 -- pips top left. Built once per tile position on the row's element frame and
@@ -3095,15 +3121,12 @@ local function createTile(parent)
         tile.mosaic[index] = cell
     end
 
-    -- The shade: two flat bands up the bottom of the tile, the lower one
-    -- heavier. Lootpath's one drawn element - it is what makes a white name
-    -- legible over art nobody chose, and it says nothing about any run.
-    tile.shadeFade = tile:CreateTexture(nil, "ARTWORK")
-    tile.shadeFade:SetTexture(WHITE_TEXTURE)
-    tile.shadeFade:SetVertexColor(0, 0, 0, Panel.TILE_SHADE_FADE_ALPHA)
+    -- The shade: one gradient up the bottom of the tile, darkest at the bottom
+    -- edge and clear where it ends (UX-5a). Lootpath's one drawn element - it
+    -- is what makes a white name legible over art nobody chose, and it says
+    -- nothing about any run.
     tile.shade = tile:CreateTexture(nil, "ARTWORK", nil, 1)
-    tile.shade:SetTexture(WHITE_TEXTURE)
-    tile.shade:SetVertexColor(0, 0, 0, Panel.TILE_SHADE_ALPHA)
+    paintShade(tile.shade)
 
     tile.name = tile:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     tile.name:SetJustifyH("LEFT")
@@ -3158,15 +3181,10 @@ end
 local function sizeTile(tile, width, height)
     tile:SetSize(width, height)
     local shade = math.max(1, math.floor(height * Panel.TILE_SHADE_FRACTION))
-    local fade = math.max(1, math.floor(height * Panel.TILE_SHADE_FADE_FRACTION))
     tile.shade:ClearAllPoints()
     tile.shade:SetPoint("BOTTOMLEFT", tile, "BOTTOMLEFT", 0, 0)
     tile.shade:SetPoint("BOTTOMRIGHT", tile, "BOTTOMRIGHT", 0, 0)
     tile.shade:SetHeight(shade)
-    tile.shadeFade:ClearAllPoints()
-    tile.shadeFade:SetPoint("BOTTOMLEFT", tile.shade, "TOPLEFT", 0, 0)
-    tile.shadeFade:SetPoint("BOTTOMRIGHT", tile.shade, "TOPRIGHT", 0, 0)
-    tile.shadeFade:SetHeight(fade)
 
     tile.second:ClearAllPoints()
     tile.second:SetPoint("BOTTOMLEFT", tile, "BOTTOMLEFT", Panel.TILE_INSET, Panel.TILE_INSET)

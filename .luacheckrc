@@ -63,6 +63,9 @@ read_globals = {
     "Enum",
     -- Blizzard API, globals
     "CreateFrame",
+    -- UX-5a (WKE-634): the Run Tile's shade is a gradient, and its two colours
+    -- are colorRGBAs (Blizzard_SharedXML/Color.lua:25, read under .luals/).
+    "CreateColor",
     -- The 11.0 ScrollBox, from Blizzard_SharedXML/Shared/Scroll/ and
     -- Blizzard_SharedXML/DataProvider.lua (both read under .luals/): the data
     -- provider, the linear list view, and the helper that registers a box with
