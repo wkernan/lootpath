@@ -57,6 +57,21 @@ UI.MINIMAP_BUTTON_NAME = "LootpathMinimapButton"
 -- R-6 (WKE-578): the badge on the launcher, in points. Small enough to be a
 -- mark on a 31-point button and not a second icon.
 UI.MINIMAP_DOT_SIZE = 9
+-- R-6c (WKE-629): the one green this addon owns, and the only colour the
+-- `probably ready` phase adds. It is `EquipPanel.STATUS_HEX.equipped_is_best` -
+-- the green a row already wears when there is nothing to do about it - and not
+-- a second green invented for this surface; `spec/ui_spec.lua` asserts the two
+-- are the same string, the way `UI.MARK_EDGE_COLOR`'s copies are asserted
+-- equal. It is carried as a hex so one value can reach a font string, a texture
+-- tint and a test without any of them holding a colour code of its own: the
+-- MODEL returns the tone by name (`tone = "ready"`) and only the drawers below
+-- turn a name into numbers.
+UI.STRIP_READY_HEX = "40c057"
+-- What the strip's line is toned back to when the phase is anything else: the
+-- colour of the font object it is drawn in (`GameFontHighlightSmall`), which is
+-- the client's own `HIGHLIGHT_FONT_COLOR`, 1/1/1/1 - read in Blizzard's
+-- exported globals under `.luals/` (Core/Type/GlobalColors.lua:115).
+UI.STRIP_PLAIN_COLOR = { 1, 1, 1, 1 }
 -- UX-4b (WKE-611): the name-mark on the window's title. The ratio is the
 -- texture's own - 256 x 64 - and drawing it at anything else would stretch the
 -- word. The ink inside that texture measures 240 x 36 (read off the file's own
@@ -497,6 +512,22 @@ end
 -- content type. Nothing is lost and the wait cannot be scrolled off the end.
 -- It is the row the mouse already takes, so it is also the row that carries the
 -- click while the wait is on (`UI.StripClick`).
+--
+-- R-6c (WKE-629): and the wait has two phases, so the model carries which one
+-- (`waitPhase`) and the tone that goes with it (`tone`).
+
+-- The tone the strip's line is drawn in, by NAME. `"ready"` is the one phase
+-- that is coloured - the moment the usual time has passed and the row is worth
+-- acting on - and every other state is the row's own colour. The model owes the
+-- drawers a name and never a colour code, so a test can hold the window to the
+-- decision without reading pixels, the way `stale` has since V-2.
+local function waitTone(wait)
+    if wait and wait.phase == "ready" then
+        return "ready"
+    end
+    return nil
+end
+
 function UI.StatusStripModel(now)
     -- The wait, and only the wait: the `behind` nudge stays on its own row,
     -- where a player who has not acted yet reads it. One model for both, so the
@@ -610,6 +641,8 @@ function UI.StatusStripModel(now)
             parts = emptyParts,
             companion = companion,
             wait = wait,
+            waitPhase = wait and wait.phase or nil,
+            tone = waitTone(wait),
             specClause = specClause,
             gearClause = gearClause,
             tooltip = tooltip,
@@ -658,6 +691,8 @@ function UI.StatusStripModel(now)
         fellBack = fellBack,
         companion = companion,
         wait = wait,
+        waitPhase = wait and wait.phase or nil,
+        tone = waitTone(wait),
         specClause = specClause,
         gearClause = gearClause,
         tooltip = tooltip,
@@ -1388,6 +1423,61 @@ local function stripFitter(text)
         end
 end
 
+-- R-6c (WKE-629): the Refresh button, in the wait's phase.
+--
+-- Three looks, all of them the client's own and none of them drawn here:
+--
+--   rating   Blizzard's `GameFontDisable` - the very font object
+--            `UIPanelButtonTemplate` sets as its DisabledFont
+--            (`.luals/.../Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.xml:306`)
+--            - so the label reads as a button that is not being offered, while
+--            the button stays ENABLED and the press still works. `SetEnabled`
+--            is deliberately not used: a player who clicks early must still get
+--            his reload, and R-6a's `still rating` line is what answers him.
+--   ready    the template's OWN highlight texture, the one it already draws
+--            under the pointer (`UIPanelButtonHighlightTexture`, ibid.:3 and
+--            :307, `Interface\Buttons\UI-Panel-Button-Highlight`), held on with
+--            Blizzard's `LockHighlight` (`.luals/.../Frame/Frame.lua:339`) and
+--            tinted with one `SetVertexColor`. Nothing is drawn from scratch,
+--            no atlas is invented, and the glow is a thing the player has
+--            already seen on this button.
+--   neither  the template's normal font back (`GameFontNormalOutline`,
+--            ibid.:303), the highlight unlocked and its tint returned to white.
+--
+-- Every call is guarded: a client that does not carry a font object, a
+-- highlight texture or `LockHighlight` loses the look, never the button.
+function UI.ApplyRefreshPhase(frame, phase)
+    local button = frame and frame.refreshButton
+    if not button then
+        return nil
+    end
+    if type(button.SetText) == "function" then
+        button:SetText(phase == "ready" and ns.Drift.REFRESH_LABEL_READY or ns.Drift.REFRESH_LABEL)
+    end
+    if type(button.SetNormalFontObject) == "function" then
+        local font = phase == "rating" and _G.GameFontDisable or _G.GameFontNormalOutline
+        if font then
+            button:SetNormalFontObject(font)
+        end
+    end
+    local highlight = type(button.GetHighlightTexture) == "function" and button:GetHighlightTexture() or nil
+    if highlight and type(highlight.SetVertexColor) == "function" then
+        if phase == "ready" then
+            highlight:SetVertexColor(ns.UI.ItemLine.RGB(UI.STRIP_READY_HEX))
+        else
+            highlight:SetVertexColor(1, 1, 1)
+        end
+    end
+    if phase == "ready" then
+        if type(button.LockHighlight) == "function" then
+            button:LockHighlight()
+        end
+    elseif type(button.UnlockHighlight) == "function" then
+        button:UnlockHighlight()
+    end
+    return phase
+end
+
 -- Redraws the strip from the facts as they are now. Its own function because
 -- UI.Refresh calls it on every redraw and the launcher's toggle does not.
 function UI.RefreshStrip(frame)
@@ -1403,6 +1493,11 @@ function UI.RefreshStrip(frame)
     if frame.refreshButton and type(frame.refreshButton.SetEnabled) == "function" then
         frame.refreshButton:SetEnabled(not (type(InCombatLockdown) == "function" and InCombatLockdown()))
     end
+    -- R-6c (WKE-629): and its phase, here for the same reason - the button is
+    -- on the row in every state the strip can be in, the gated one included.
+    -- `Drift.RefreshPhase` only READS (it asks `Decide`, never `Waiting`), so a
+    -- redraw cannot end a wait the strip is about to draw.
+    UI.ApplyRefreshPhase(frame, ns.Drift.RefreshPhase and ns.Drift.RefreshPhase() or nil)
     -- H-1a (WKE-606): while the Coming soon screen is up the strip is not.
     -- H-1 left its four facts on the row over a screen that has just said the
     -- one fact a player who is not healing is owed - the age of the rating - and
@@ -1435,6 +1530,18 @@ function UI.RefreshStrip(frame)
         table.insert(model.tooltip, 1, model.text)
     end
     frame.stripText:SetText(text)
+    -- R-6c (WKE-629): the tone, by the name the model returned. While the wait
+    -- is on, the whole strip line IS the wait clause (M3-16b), so toning the
+    -- font string tones exactly the clause the page drew green and nothing
+    -- else - and no colour escape goes into the text, where it would be
+    -- measured by the fitter above and read back by the voice guard.
+    if type(frame.stripText.SetTextColor) == "function" then
+        if model.tone == "ready" then
+            frame.stripText:SetTextColor(ns.UI.ItemLine.RGB(UI.STRIP_READY_HEX))
+        else
+            frame.stripText:SetTextColor(unpack(UI.STRIP_PLAIN_COLOR))
+        end
+    end
     UI.RefreshNudge(frame)
     return model
 end
@@ -1902,6 +2009,15 @@ function UI.RefreshMinimapDot()
     end
     local model = ns.Drift.Model()
     if model then
+        -- R-6c (WKE-629): the same badge, the same two layers, one tint
+        -- changed. While the rating is being made it is the brand mark R-6
+        -- draws; past the usual time it is the `ready` green the strip's clause
+        -- has just turned, so a player with the window SHUT - which is where he
+        -- is, because he reloaded and went back to playing - reads the same
+        -- news off the launcher. No new texture, no new shape, no second badge:
+        -- the keyline layer is untouched and only the fill is retinted.
+        local hex = (model.kind == "wait" and model.phase == "ready") and UI.STRIP_READY_HEX or UI.BRAND_HEX
+        button.driftDotAccent:SetVertexColor(ns.UI.ItemLine.RGB(hex))
         button.driftDot:Show()
         button.driftDotAccent:Show()
     else

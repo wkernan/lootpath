@@ -310,28 +310,36 @@ describe("ns.Drift, the wait after the first reload", function()
         waiting()
         local model = ns.Drift.Model(at("2026-09-14T23:10:30Z"))
         assert.equal("wait", model.kind)
-        assert.equal(
-            "rating your gear, started 30 seconds ago, usually about a minute "
-                .. "\194\183 Refresh loads it when it's ready",
-            model.text
-        )
+        assert.equal("rating", model.phase)
+        assert.equal("rating your gear \194\183 started 30 seconds ago, usually about a minute", model.text)
     end)
 
-    -- R-8b (WKE-623): the clause names the button on its own row. The owner,
-    -- 2026-09-21: "I don't like this copy that just says 'click to load it'...
-    -- click what?" Proven red by putting M3-16b's `click to load it` back into
-    -- `Drift.WAIT_LINE`: `Refresh` is nowhere in the line and `click` is in it.
-    it("names the Refresh button instead of telling the player to click something", function()
+    -- R-8b (WKE-623): the clause points at a thing the reader can SEE. The
+    -- owner, 2026-09-21: "I don't like this copy that just says 'click to load
+    -- it'... click what?"
+    --
+    -- R-6c (WKE-629) keeps that rule and moves the offer off the line: the
+    -- clause is now the news and the clock, and the button beside it is what
+    -- makes the offer. So the LINE tells nobody to click anything - the word is
+    -- not on it in either phase - and where `click` is said at all, on the two
+    -- hovers, a named button is said with it. Proven red by putting M3-16b's
+    -- `click to load it` back into `Drift.WAIT_LINE`: the line carries `click`
+    -- and names no button.
+    it("never tells the player to click something he cannot see", function()
         waiting()
-        local model = ns.Drift.Model(at("2026-09-14T23:10:30Z"))
-        assert.is_truthy(model.text:find("Refresh loads it when it's ready", 1, true))
-        for _, text in ipairs({ ns.Drift.WAIT_LINE, ns.Drift.WAIT_TOOLTIP, model.text, model.tooltip }) do
-            assert.is_truthy(text:find("Refresh", 1, true), text)
-            assert.is_nil(text:lower():find("click", 1, true), text)
+        for _, phaseAt in ipairs({ "2026-09-14T23:10:30Z", "2026-09-14T23:11:30Z" }) do
+            local model = ns.Drift.Model(at(phaseAt))
+            assert.is_nil(model.text:lower():find("click", 1, true), model.text)
+            -- the hover names the button in the same breath as the word
+            local named = model.phase == "ready" and "Load rating" or "Refresh"
+            assert.is_truthy(model.tooltip:find(named, 1, true), model.tooltip)
         end
-        -- the button the words point at carries the same promise on its hover
-        local ready = ns.Drift.RefreshTooltip(at("2026-09-14T23:10:30Z"))
-        assert.equal("load the rating that's ready - takes a reload", ready)
+        assert.is_nil(ns.Drift.WAIT_LINE:lower():find("click", 1, true))
+        -- the button the words point at says the same thing on its own hover
+        assert.equal(
+            ns.Drift.Model(at("2026-09-14T23:10:30Z")).tooltip,
+            ns.Drift.RefreshTooltip(at("2026-09-14T23:10:30Z"))
+        )
         -- and the chat line, read where no button is, is untouched
         assert.equal("your gear is sent; the rating %s. The window says when it's ready.", ns.Drift.WAIT_CHAT_LINE)
     end)
@@ -351,11 +359,7 @@ describe("ns.Drift, the wait after the first reload", function()
         waiting()
         local model = ns.Drift.Model(1789427400 + 30)
         assert.equal("wait", model.kind)
-        assert.equal(
-            "rating your gear, started 30 seconds ago, usually about a minute "
-                .. "\194\183 Refresh loads it when it's ready",
-            model.text
-        )
+        assert.equal("rating your gear \194\183 started 30 seconds ago, usually about a minute", model.text)
         assert.equal(STARTED, ns.db.global.drift.refreshStartedAt)
     end)
 
@@ -369,8 +373,7 @@ describe("ns.Drift, the wait after the first reload", function()
         assert.equal(41, ns.Drift.RecordRun())
         waiting()
         assert.equal(
-            "rating your gear, started 30 seconds ago, usually ready in about 45 seconds "
-                .. "\194\183 Refresh loads it when it's ready",
+            "rating your gear \194\183 started 30 seconds ago, usually ready in about 45 seconds",
             ns.Drift.Model(at("2026-09-14T23:10:30Z")).text
         )
         -- a run over a minute reads in minutes, and 15 s is the whole precision
@@ -407,11 +410,7 @@ describe("ns.Drift, the wait after the first reload", function()
         waiting()
         local model = ns.Drift.Model(at("2026-09-14T23:10:30Z"))
         -- the elapsed time is the RUN's clock now, not the click's
-        assert.equal(
-            "rating your gear, started 25 seconds ago, usually about a minute "
-                .. "\194\183 Refresh loads it when it's ready",
-            model.text
-        )
+        assert.equal("rating your gear \194\183 started 25 seconds ago, usually about a minute", model.text)
     end)
 
     it("stops the moment a plan written since the click is loaded", function()
@@ -504,8 +503,7 @@ describe("ns.Drift, a status older than the refresh click (R-6b)", function()
     local ns
     local STARTED = "2026-09-14T23:10:00Z"
     local NOW = "2026-09-14T23:10:30Z"
-    local WAIT_TEXT = "rating your gear, started 30 seconds ago, usually about a minute "
-        .. "\194\183 Refresh loads it when it's ready"
+    local WAIT_TEXT = "rating your gear \194\183 started 30 seconds ago, usually about a minute"
     local WAIT_CHAT = "your gear is sent; the rating usually takes about a minute. The window says when it's ready."
 
     before_each(function()
@@ -705,7 +703,15 @@ describe("the owner's 2026-09-23 00:53 refresh on the Druid (R-6b)", function()
         local decision, _, since = ns.Drift.Decide(at("2026-09-23T05:55:00Z"))
         assert.equal("waiting", decision)
         assert.equal("2026-09-23T05:53:34Z", since)
-        assert.is_truthy(ns.Drift.Model(at("2026-09-23T05:55:00Z")).text:find("rating your gear", 1, true))
+        -- R-6c (WKE-629): 86 seconds in, and nothing measured on this machine,
+        -- so the usual minute has gone by and the row says so. This is the
+        -- state the owner had no way to reach on 2026-09-23 - the run was four
+        -- minutes long and the window said `rating your gear` for all of it.
+        local model = ns.Drift.Model(at("2026-09-23T05:55:00Z"))
+        assert.equal("ready", model.phase)
+        assert.equal(1, model.text:find("your rating is probably ready", 1, true))
+        -- and a minute earlier it was still the rating clause
+        assert.equal("rating", ns.Drift.Model(at("2026-09-23T05:54:00Z")).phase)
         assert.equal(CLICK, ns.db.global.drift.refreshStartedAt)
 
         -- 05:57:37Z - `qe live: 36 documents` and the write. He reloads, the
@@ -740,6 +746,144 @@ describe("the owner's 2026-09-23 00:53 refresh on the Druid (R-6b)", function()
         local clause = ns.Companion.StatusText(ns.companionStatus, at("2026-09-23T05:53:33Z"))
         assert.is_truthy(clause:find("FAILED", 1, true))
         assert.equal("waiting", ns.Drift.Decide(at("2026-09-23T05:53:33Z")))
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- R-6c (WKE-629): the wait's third answer.
+--
+-- The owner walked his own window on 2026-09-23 (WKE-592): "I hit the refresh
+-- button and see that the companion run was started, but I have no idea when it
+-- is finished unless I'm looking at my other screen ... Other players won't have
+-- this set up and will need to know when the refresh has finished." The client
+-- reads the companion's file only at load, so `done` cannot arrive on its own;
+-- what the window CAN know is the clock against the last run's measured
+-- duration, and past that mark it says so.
+describe("ns.Drift.WaitPhase, the one place `probably ready` is decided", function()
+    local ns
+    local STARTED = "2026-09-14T23:10:00Z"
+
+    before_each(function()
+        ns = loadToday()
+        -- A wait stands only where a companion has been seen (R-6a).
+        ns.companionStatus = { state = "idle", startedAt = "2026-09-14T22:48:00Z", finishedAt = "2026-09-14T22:48:41Z" }
+        ns.db.global.drift.refreshStartedAt = STARTED
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function at(iso)
+        return ns.EpochFromISO(iso)
+    end
+
+    -- Proven red by making the comparison `>` instead of `>=`: the mark itself
+    -- reads as still rating, which is the one second the whole line is about.
+    it("turns at the usual time, and at it rather than after it", function()
+        -- nothing measured: the mark is the minute both lines already promise
+        assert.equal(60, ns.Drift.WAIT_USUAL_DEFAULT_SECONDS)
+        assert.equal("rating", ns.Drift.WaitPhase(0, nil))
+        assert.equal("rating", ns.Drift.WaitPhase(59, nil))
+        assert.equal("ready", ns.Drift.WaitPhase(60, nil))
+        assert.equal("ready", ns.Drift.WaitPhase(600, nil))
+    end)
+
+    -- The mark is the number the WORDS say, not the raw measurement: the strip
+    -- reads `usually ready in about 45 seconds` off a 41-second run, so 41 is
+    -- not the moment it may claim the rating is probably done. Proven red by
+    -- comparing against `runSeconds` unrounded: the row turns green four
+    -- seconds before the figure beside it comes due.
+    it("measures against the rounded figure the line quotes", function()
+        assert.equal("usually ready in about 45 seconds", ns.Drift.ReadyText(41))
+        assert.equal("rating", ns.Drift.WaitPhase(41, 41))
+        assert.equal("rating", ns.Drift.WaitPhase(44, 41))
+        assert.equal("ready", ns.Drift.WaitPhase(45, 41))
+        -- a long run pushes the mark out with it
+        assert.equal("usually ready in about 3 minutes", ns.Drift.ReadyText(178))
+        assert.equal("rating", ns.Drift.WaitPhase(120, 178))
+        assert.equal("ready", ns.Drift.WaitPhase(180, 178))
+        -- and a figure that is no measurement at all falls back to the minute
+        for _, bad in ipairs({ 0, -5, "soon" }) do
+            assert.equal("ready", ns.Drift.WaitPhase(60, bad))
+            assert.equal("rating", ns.Drift.WaitPhase(59, bad))
+        end
+    end)
+
+    -- Proven red by returning `WAIT_HEAD_RATING` unconditionally from
+    -- `Drift.Model`: the line still counts and never changes what it says.
+    it("says the two clauses, and the two tooltips, one per phase", function()
+        local rating = ns.Drift.Model(at("2026-09-14T23:10:20Z"))
+        assert.equal("rating", rating.phase)
+        assert.equal("rating your gear \194\183 started 20 seconds ago, usually about a minute", rating.text)
+        assert.equal("still rating - usually about a minute; Refresh loads it when you click", rating.tooltip)
+
+        local ready = ns.Drift.Model(at("2026-09-14T23:11:40Z"))
+        assert.equal("ready", ready.phase)
+        assert.equal("your rating is probably ready \194\183 started 2 minutes ago, usually about a minute", ready.text)
+        assert.equal("probably written by now - click Load rating; too early and this line comes back", ready.tooltip)
+        -- one wait, one kind: this is not a seventh decision
+        assert.equal("wait", rating.kind)
+        assert.equal("wait", ready.kind)
+    end)
+
+    -- Proven red by returning `REFRESH_LABEL` unconditionally: the button goes
+    -- on saying `Refresh` over a row that has just said the rating is there.
+    it("relabels the button past the mark, and puts it back after the load", function()
+        assert.equal("Refresh", ns.Drift.RefreshLabel(at("2026-09-14T23:10:20Z")))
+        assert.equal("Load rating", ns.Drift.RefreshLabel(at("2026-09-14T23:11:40Z")))
+        -- asking is not acting: the wait the label just read is still there
+        assert.equal(STARTED, ns.db.global.drift.refreshStartedAt)
+        -- and the load ends it, so the button is `Refresh` again
+        ns.db.char.qeImports = {
+            Dungeon = {
+                spec = "Restoration Druid",
+                exportedAt = "2026-09-14T23:11:00Z",
+                companionWrittenAt = "2026-09-14T23:11:30Z",
+                items = {},
+                scenario = ns.QEImport.DEFAULT_SCENARIO,
+            },
+        }
+        assert.equal("done", ns.Drift.Decide(at("2026-09-14T23:11:40Z")))
+        assert.equal("Refresh", ns.Drift.RefreshLabel(at("2026-09-14T23:11:40Z")))
+        assert.is_nil(ns.Drift.RefreshPhase(at("2026-09-14T23:11:40Z")))
+    end)
+end)
+
+-- The click is the same click in both phases, which is what makes `probably`
+-- safe to say: too early costs a reload and nothing else (R-6a says `still
+-- rating`, and R-6b keeps the stamp so the count comes back where it was).
+describe("ns.Drift.Click while the rating is probably ready (R-6c)", function()
+    local ns, world
+    local STARTED = "2026-09-14T23:10:00Z"
+
+    before_each(function()
+        ns, world = loadToday()
+        ns.companionStatus = { state = "idle", startedAt = "2026-09-14T22:48:00Z", finishedAt = "2026-09-14T22:48:41Z" }
+        ns.db.global.drift.refreshStartedAt = STARTED
+        ns.db.global.captures = {}
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function at(iso)
+        return ns.EpochFromISO(iso)
+    end
+
+    -- Proven red by refusing the click while the phase is `rating`
+    -- (`if Drift.RefreshPhase(now) == "rating" then return nil end`): the early
+    -- press does nothing and the player is held at a line he cannot act on.
+    it("is a plain reload in EITHER phase, and captures nothing", function()
+        for _, when in ipairs({ "2026-09-14T23:10:20Z", "2026-09-14T23:11:40Z" }) do
+            world.reloads = 0
+            assert.equal("reloaded", ns.Drift.Click(at(when)))
+            assert.equal(1, world.reloads)
+            assert.same({}, ns.db.global.captures)
+            -- the click stamp is kept, so the clock comes back where it was
+            assert.equal(STARTED, ns.db.global.drift.refreshStartedAt)
+        end
     end)
 end)
 
@@ -1042,7 +1186,15 @@ describe("ns.Drift.Click", function()
         ns.companionStatus = { state = "idle", startedAt = "2026-09-14T22:48:00Z", finishedAt = "2026-09-14T22:48:41Z" }
         ns.db.global.drift.refreshStartedAt = "2026-09-14T23:10:00Z"
         local at = ns.EpochFromISO("2026-09-14T23:10:30Z")
-        assert.equal(ns.Drift.REFRESH_TOOLTIP_WAIT, ns.Drift.RefreshTooltip(at))
+        -- R-6c (WKE-629): which of the two, AND which phase of the wait.
+        assert.equal(
+            "still rating - usually about a minute; Refresh loads it when you click",
+            ns.Drift.RefreshTooltip(at)
+        )
+        assert.equal(
+            "probably written by now - click Load rating; too early and this line comes back",
+            ns.Drift.RefreshTooltip(ns.EpochFromISO("2026-09-14T23:11:30Z"))
+        )
         -- a hover is not an act: the wait it just read is still there
         assert.equal("2026-09-14T23:10:00Z", ns.db.global.drift.refreshStartedAt)
         world.inCombat = true

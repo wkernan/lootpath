@@ -792,6 +792,17 @@ local function attachTemplate(f, world, template)
     if type(template) ~= "string" then
         return
     end
+    -- UIPanelButtonTemplate -> UIPanelButtonNoTooltipTemplate carries a
+    -- HighlightTexture of its own, `UIPanelButtonHighlightTexture`, which is
+    -- `Interface\Buttons\UI-Panel-Button-Highlight` in ADD blend mode
+    -- (Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.xml:3 and :307). The
+    -- addon never creates that texture - it asks the template's own back with
+    -- `GetHighlightTexture` and tints it (R-6c, WKE-629) - so the stub hands
+    -- over the one the template would have made, or the code under test finds
+    -- nothing where the client has art.
+    if template:find("UIPanelButtonTemplate", 1, true) and f.SetHighlightTexture then
+        f:SetHighlightTexture([[Interface\Buttons\UI-Panel-Button-Highlight]], "ADD")
+    end
     -- BasicFrameTemplate -> BaseBasicFrameTemplate carries TitleText and
     -- CloseButton (Blizzard_UIPanelTemplates/UIPanelTemplates.xml).
     if template:find("BasicFrameTemplate", 1, true) then
@@ -1053,9 +1064,29 @@ function newFrame(kind, world, parent, template)
         function f:GetHighlightTexture()
             return self.highlightTexture
         end
-        f.SetNormalFontObject = function() end
+        -- `Button:SetNormalFontObject` (Button.lua:178) is not appearance-only
+        -- any more: since R-6c (WKE-629) the Refresh button wears Blizzard's
+        -- own `GameFontDisable` while the rating is being made and its
+        -- template's `GameFontNormalOutline` otherwise, which is a decision the
+        -- addon makes and a test can hold it to. The object it was given is
+        -- recorded under a name of the stub's own (`normalFontObject`); the two
+        -- siblings stay no-ops, because nothing sets them.
+        function f:SetNormalFontObject(font)
+            self.normalFontObject = font
+        end
         f.SetDisabledFontObject = function() end
         f.SetHighlightFontObject = function() end
+        -- `Frame:LockHighlight` / `Frame:UnlockHighlight` (Frame.lua:339, :547):
+        -- the client draws the button's highlight texture as if the pointer
+        -- were over it until it is unlocked. Recorded as stub state
+        -- (`highlightLocked`), because whether a button is glowing is a
+        -- decision and not a pixel.
+        function f:LockHighlight()
+            self.highlightLocked = true
+        end
+        function f:UnlockHighlight()
+            self.highlightLocked = false
+        end
         f.RegisterForClicks = function() end
         -- A disabled button swallows the click, exactly as the client does; its
         -- OnEnter still fires, which is how the combat tooltip is reachable.
@@ -1801,6 +1832,15 @@ function Stub.install()
     })
 
     define("SlashCmdList", {})
+    -- The two font objects `UIPanelButtonTemplate` itself names - its NormalFont
+    -- and its DisabledFont (Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.xml
+    -- :303 and :306) - which R-6c (WKE-629) swaps to dim the Refresh button's
+    -- label while the rating is being made. The client's are real Font objects
+    -- (`CreateFont`, Core/Widget/UIType/Font.lua:545 and :477); nothing headless
+    -- can render a glyph, so each is an identity a test can compare against and
+    -- nothing more.
+    define("GameFontNormalOutline", { fontName = "GameFontNormalOutline" })
+    define("GameFontDisable", { fontName = "GameFontDisable" })
     define("UIParent", newFrame("Frame", world))
     define("UISpecialFrames", {})
     -- The minimap, for the launcher to hang off (M5-2). 140 points across at
