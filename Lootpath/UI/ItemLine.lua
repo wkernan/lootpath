@@ -535,6 +535,48 @@ function ItemLine.Height(size)
     return math.max(size, text) + ItemLine.LINE_PAD
 end
 
+-- The name's hover target, fitted to the name (M5-1d, WKE-632). The owner on
+-- 2026-09-23, on Equip Now: "I don't like how if my cursor is in the negative
+-- space in line with a piece of gear, I see the gear stats." The button used
+-- to be the whole name box, which on Equip Now runs to the far side of the row.
+--
+-- Its width is min(the text's width, the box's width): the text's is the
+-- client's own FontString:GetStringWidth (Ketho, Font/FontString.lua:115), the
+-- unwrapped width of what the line wrote; the box's is the name font string's
+-- own resolved GetWidth, which is the room the anchors above give it and so
+-- the cap - a name truncated at the box keeps today's target, never a wider
+-- one. Pinned at the box's left, top and bottom: the target is the box's
+-- height, and the name is left-justified, so it covers the drawn text.
+--
+-- Anything the client cannot answer - no GetStringWidth, a 0, a throw, a
+-- secret, a line not laid out yet (a 0 box), a name still pending - keeps the
+-- full box, exactly the target before M5-1d: the guarded fallback, so nothing
+-- is lost. Returns the fitted width, or nil for the full box.
+function ItemLine.FitName(line)
+    local button, name = line.nameButton, line.name
+    if not (button and name) then
+        return nil
+    end
+    local width = nil
+    local resolved = line.resolved
+    if type(resolved) == "table" and not resolved.pending then
+        local text = tonumber((probe(name.GetStringWidth, name)))
+        local room = tonumber((probe(name.GetWidth, name)))
+        if text and room and text > 0 and room > 0 then
+            width = math.min(math.ceil(text), room)
+        end
+    end
+    button:ClearAllPoints()
+    if width then
+        button:SetPoint("TOPLEFT", name, "TOPLEFT", 0, 0)
+        button:SetPoint("BOTTOMLEFT", name, "BOTTOMLEFT", 0, 0)
+        button:SetWidth(width)
+    else
+        button:SetAllPoints(name)
+    end
+    return width
+end
+
 -- Create(parent, opts) -> line
 --   opts.size       icon edge, default ICON_SIZE
 --   opts.badgeWidth the column the badge and the tags share
@@ -570,22 +612,33 @@ function ItemLine.Create(parent, opts)
     line.level:SetPoint("BOTTOMRIGHT", iconButton, "BOTTOMRIGHT", -1, 1)
     line.level:SetJustifyH("RIGHT")
 
-    local nameButton = CreateFrame("Button", nil, line)
-    nameButton:SetHeight(ItemLine.NAME_HEIGHT)
-    nameButton:SetPoint("TOPLEFT", iconButton, "TOPRIGHT", ItemLine.ICON_GAP, 0)
-    nameButton:SetPoint("RIGHT", line, "RIGHT", -badgeWidth - ItemLine.ICON_GAP, 0)
-    line.nameButton = hoverTarget(line, nameButton)
-
-    line.name = nameButton:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    line.name:SetAllPoints()
+    -- The name's box: the room from the icon to the badge column, exactly the
+    -- anchors the name button carried until M5-1d. The name is drawn and
+    -- truncated inside it, and the second line hangs off it, so neither moves
+    -- when the button is fitted to the text.
+    line.name = line:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    line.name:SetHeight(ItemLine.NAME_HEIGHT)
+    line.name:SetPoint("TOPLEFT", iconButton, "TOPRIGHT", ItemLine.ICON_GAP, 0)
+    line.name:SetPoint("RIGHT", line, "RIGHT", -badgeWidth - ItemLine.ICON_GAP, 0)
     line.name:SetJustifyH("LEFT")
     -- One line, always: the whole item is one hover away, so a name that does
     -- not fit is truncated rather than allowed to push the row taller.
     line.name:SetWordWrap(false)
 
+    -- The name's hover target, as wide as the name it holds (M5-1d, WKE-632):
+    -- the empty run to the right of a name is not the item. ItemLine.FitName
+    -- sizes it every time the name or the line's size changes; until the client
+    -- can say how wide the name is, it covers the whole box, as it always did.
+    local nameButton = CreateFrame("Button", nil, line)
+    line.nameButton = hoverTarget(line, nameButton)
+    ItemLine.FitName(line)
+    line:SetScript("OnSizeChanged", function()
+        ItemLine.FitName(line)
+    end)
+
     line.second = line:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-    line.second:SetPoint("TOPLEFT", nameButton, "BOTTOMLEFT", 0, -ItemLine.SECOND_GAP)
-    line.second:SetPoint("RIGHT", nameButton, "RIGHT", 0, 0)
+    line.second:SetPoint("TOPLEFT", line.name, "BOTTOMLEFT", 0, -ItemLine.SECOND_GAP)
+    line.second:SetPoint("RIGHT", line.name, "RIGHT", 0, 0)
     line.second:SetHeight(ItemLine.SECOND_HEIGHT)
     line.second:SetJustifyH("LEFT")
     line.second:SetWordWrap(false)
@@ -656,6 +709,8 @@ function ItemLine.Set(line, item)
         line.border:Hide()
         line.name:SetText(resolved.name)
     end
+    -- The hover ends where the name just written ends (M5-1d).
+    ItemLine.FitName(line)
 
     line.level:SetText(resolved.itemLevel and tostring(resolved.itemLevel) or "")
 
