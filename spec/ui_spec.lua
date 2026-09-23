@@ -3499,7 +3499,9 @@ describe("the Refresh button keeps the font the client gave it (R-6d)", function
     -- Proven red twice: by R-6c's own line back in `UI.ApplyRefreshPhase`
     -- (`GameFontNormalOutline` in every phase but rating), and by dropping the
     -- read at the button's creation (`frame.refreshFont` nil, so the fallback
-    -- is all there is).
+    -- is all there is). And red a third time by the stub handing out
+    -- `_G.GameFontNormalOutline` as the template's font: the test cannot tell
+    -- the two apart then, and says so.
     it("puts back the object it had, the one Import... and Options still wear", function()
         local frame = ns.UI.Frame()
         frame:Show()
