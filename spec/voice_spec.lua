@@ -335,17 +335,20 @@ describe("the source-free voice (V-1, WKE-569)", function()
         -- card's hover, every slot line's hover and badge, and the nudge.
         local Panel = ns.UpgradeMapPanel
         c.check("UpgradeMap.answer", map.answer:GetText())
-        -- And since UX-6b (WKE-639) every slot's `No rating` fold open too.
-        local everyOpen = { slots = {}, noRating = {} }
+        -- And since UX-6b (WKE-639) every slot's fold open too - since UX-6c
+        -- (WKE-640) the one fold over everything a slot does not draw - and
+        -- every fold's hover.
+        local everyOpen = { slots = {}, fold = {} }
         for _, section in ipairs(map.model.slots or {}) do
             everyOpen.slots[section.slot] = false
-            everyOpen.noRating[section.slot] = true
+            everyOpen.fold[section.slot] = true
             for _, line in ipairs(Panel.SlotTooltipLines(section)) do
                 c.check("UpgradeMap.slotHover", line)
             end
         end
         for _, element in ipairs(Panel.Elements(map.model, everyOpen)) do
             c.check("UpgradeMap.open.text", element.text)
+            c.check("UpgradeMap.open.hover", element.hover)
             c.check("UpgradeMap.open.header", element.header)
             c.check("UpgradeMap.open.badge", element.badge and element.badge.text)
             for _, card in ipairs(element.cards or {}) do

@@ -1617,8 +1617,8 @@ end
 -- printed lines carry - `/lootpath status` - is unchanged: SectionHeaderText,
 -- GroupHeaderText and RoadLineText still say exactly what they said.
 Panel.ELEMENT_CARD_ROW = "cardRow"
--- The `No rating` fold line (UX-6b): one per slot, the count on it.
-Panel.ELEMENT_FOLD = "noRatingFold"
+-- The fold line (UX-6b, widened by UX-6c): one per slot, the count on it.
+Panel.ELEMENT_FOLD = "fold"
 
 -- The divider over a group of cards: an eyebrow, not a sentence. The two
 -- scales still never sort together (docs/ROADS-UX.md principle 2); the long
@@ -1701,6 +1701,73 @@ function Panel.CardRows(group)
         end
     end
     return rows
+end
+
+-- Whether a road is drawn as a card at all (UX-6c, WKE-640). The owner: "a
+-- player only ever wants to see items that would be an upgrade or a
+-- sidegrade, but never a downgrade." The source's own line for an upgrade is a
+-- score above zero - his Upgrade Finder counts a slot's upgrades as
+-- `filter((item) => item.score > 0)` (PanelSlots.js:102) - and the export
+-- carries that score's sign as `upgradePercent`, which ns.UFImport.IsUpgrade
+-- reads. "Sidegrade" has no figure behind it: a band around zero would be a
+-- threshold he never set, so there is none. Drawn:
+--   * a road with an imperative the answer goes forward on - the pick, a vault
+--     take, a Catalyst, a crest - because the answer sentence names it
+--     (ns.Roads.GateImperatives has already taken the imperative off every
+--     road that is not forward);
+--   * the set group's pick, and a whole-set verdict that puts the road IN the
+--     best set (a later pass's `rated · better than what you wear` too);
+--   * a per-item road whose carried document row - the drop row, or the
+--     crested row - IsUpgrade calls an upgrade.
+-- Not drawn: a tie, a downgrade, `not in your best set`, and every road with
+-- no figure. They are not dropped: the slot's one fold counts them.
+-- A figure off a road, read the way IsUpgrade reads an entry's: the road
+-- carries his `upgradePercent` unchanged, so it is handed back in the entry's
+-- own shape (one table, reused, because this runs for every road of every open
+-- slot on every draw).
+local percentEntry = {}
+local function isUpgradePercent(percent)
+    if percent == nil then
+        return false
+    end
+    percentEntry.upgradePercent = percent
+    return ns.UFImport.IsUpgrade(percentEntry) == true
+end
+
+function Panel.CardWorthDrawing(row)
+    if type(row) ~= "table" then
+        return false
+    end
+    if Panel.IsImperative(row.todo) or row.planPick == true then
+        return true
+    end
+    local road = type(row.road) == "table" and row.road or {}
+    if road.phrase == ns.Roads.PHRASE_RATED_LATER then
+        return true
+    end
+    -- A drop rated at another level (UX-6b) carries his rows whole.
+    local other = row.otherLevel
+    if type(other) == "table" then
+        return (other.drop ~= nil and ns.UFImport.IsUpgrade(other.drop.entry) == true)
+            or (other.max ~= nil and ns.UFImport.IsUpgrade(other.max.entry) == true)
+    end
+    local rating = type(road.rating) == "table" and road.rating or {}
+    if rating.kind == ns.Roads.RATING_SET then
+        return rating.inTopSet == true
+    end
+    if rating.kind == ns.Roads.RATING_ITEM then
+        if isUpgradePercent(rating.percent) then
+            return true
+        end
+        -- The same drop with its crests spent, out of the same document
+        -- (`at its cap 334 +0.72%`): a reason to run it.
+        for _, also in ipairs(rating.alsoAt or {}) do
+            if also.dropType == ns.UFImport.DROP_TYPE_MAX and isUpgradePercent(also.percent) then
+                return true
+            end
+        end
+    end
+    return false
 end
 
 -- The slot line's badge: the best road's own badge, in that road's tone. A
@@ -2027,44 +2094,79 @@ function Panel.SortNoRating(section, documents, specFit)
     return sorted
 end
 
--- The fold over what is left: Equip Now's pattern (M5-1b) - the mark, then the
--- line with its count - per slot, shut by default.
-Panel.NO_RATING_FOLD = "%s · %d %s"
-Panel.NO_RATING_NOUN = { drop = { "drop", "drops" }, item = { "item", "items" } }
+-- The fold over everything a slot does not draw (UX-6c, WKE-640; it absorbs
+-- UX-6b's `No rating` fold): Equip Now's pattern (M5-1b) - the mark, then the
+-- line with its count - one per slot, shut by default. The count is how much
+-- was left out, so nothing leaves the screen silently (docs/ROADS-UX.md
+-- principle 3); the hover splits it into the two reasons, each counted once:
+-- rated, and not above what you wear; and never rated at all.
+Panel.FOLD_TEXT = "%d more %s"
+Panel.FOLD_NOUN = { drop = { "drop", "drops" }, item = { "item", "items" } }
+Panel.FOLD_RATED = "%d rated below what you wear"
+Panel.FOLD_UNRATED = "%d not rated"
 
-function Panel.NoRatingFoldText(rows, open)
-    local count, allDrops = 0, true
+-- Whether a folded road was rated: a document row carried whole (UX-6b's
+-- other-level cards) or any rating ns.Roads.IsRated counts, which includes
+-- `not in your best set`.
+function Panel.FoldIsRated(row)
+    return type(row) == "table" and (row.otherLevel ~= nil or ns.Roads.IsRated(row.road))
+end
+
+-- The fold's counts: every row, the rated ones, the unrated ones, and whether
+-- every one of them is a drop (the noun is the rows' own).
+function Panel.FoldCounts(rows)
+    local count, rated, allDrops = 0, 0, true
     for _, row in ipairs(rows or {}) do
         count = count + 1
+        if Panel.FoldIsRated(row) then
+            rated = rated + 1
+        end
         if row.kind ~= ns.Roads.KIND_DROP then
             allDrops = false
         end
     end
-    local noun = Panel.NO_RATING_NOUN[allDrops and "drop" or "item"]
+    return count, rated, count - rated, allDrops
+end
+
+function Panel.FoldText(rows, open)
+    return Panel.FoldTextOf(open, Panel.FoldCounts(rows))
+end
+
+function Panel.FoldTextOf(open, count, _, _, allDrops)
+    local noun = Panel.FOLD_NOUN[allDrops and "drop" or "item"]
     local mark = open and Panel.SECTION_OPEN_MARK or Panel.SECTION_SHUT_MARK
-    return mark
-        .. " "
-        .. string.format(
-            Panel.NO_RATING_FOLD,
-            Panel.GROUP_EYEBROW[ns.Roads.GROUP_NONE],
-            count,
-            noun[count == 1 and 1 or 2]
-        )
+    return mark .. " " .. string.format(Panel.FOLD_TEXT, count, noun[count == 1 and 1 or 2])
+end
+
+-- The fold's hover: the two counts, a zero one not printed.
+function Panel.FoldHover(rows)
+    return Panel.FoldHoverOf(Panel.FoldCounts(rows))
+end
+
+function Panel.FoldHoverOf(_, rated, unrated)
+    local parts = {}
+    if rated > 0 then
+        parts[#parts + 1] = string.format(Panel.FOLD_RATED, rated)
+    end
+    if unrated > 0 then
+        parts[#parts + 1] = string.format(Panel.FOLD_UNRATED, unrated)
+    end
+    return #parts > 0 and table.concat(parts, Panel.ROAD_SEPARATOR) or nil
 end
 
 -- Whether a slot's fold is open: true is opened by a click, and nil - no
 -- click - is the default, shut. Kept per character beside collapsedSlots
--- (`db.char.upgradeMap.noRatingOpen`).
-function Panel.NoRatingOpen(saved)
+-- (`db.char.upgradeMap.foldOpen`).
+function Panel.FoldOpen(saved)
     return saved == true
 end
 
-function Panel.ToggleNoRating(db, slot)
+function Panel.ToggleFold(db, slot)
     local state = Panel.CollapseState(db)
     -- `nil` rather than `false` when it shuts again, as Equip Now's fold does:
     -- the default leaves nothing behind in the saved variables.
-    state.noRating[slot] = (state.noRating[slot] ~= true) or nil
-    return state.noRating[slot] == true
+    state.fold[slot] = (state.fold[slot] ~= true) or nil
+    return state.fold[slot] == true
 end
 
 -- The nudge. The one no-rating road a player can act on is one a refresh would
@@ -2813,18 +2915,20 @@ function Panel.CollapseState(db)
     db = db or ns.db
     local char = db and db.char
     if type(char) ~= "table" then
-        return { slots = {}, runs = {}, noRating = {} }
+        return { slots = {}, runs = {}, fold = {} }
     end
     char.upgradeMap = char.upgradeMap or {}
     char.upgradeMap.collapsedSlots = char.upgradeMap.collapsedSlots or {}
     char.upgradeMap.expandedRuns = char.upgradeMap.expandedRuns or {}
-    -- Which slots' `No rating` fold the character opened (UX-6b): true is
-    -- opened, nil the default, shut (Panel.NoRatingOpen).
-    char.upgradeMap.noRatingOpen = char.upgradeMap.noRatingOpen or {}
+    -- Which slots' fold the character opened (UX-6c; UX-6b kept the narrower
+    -- `No rating` fold under `noRatingOpen`, which nothing reads any more and
+    -- nothing migrates - a nil reads as shut): true is opened, nil the
+    -- default, shut (Panel.FoldOpen).
+    char.upgradeMap.foldOpen = char.upgradeMap.foldOpen or {}
     return {
         slots = char.upgradeMap.collapsedSlots,
         runs = char.upgradeMap.expandedRuns,
-        noRating = char.upgradeMap.noRatingOpen,
+        fold = char.upgradeMap.foldOpen,
     }
 end
 
@@ -2837,7 +2941,7 @@ end
 function Panel.Elements(model, state)
     state = state or {}
     local collapsed = state.slots or {}
-    local noRating = state.noRating or {}
+    local foldState = state.fold or {}
     local elements = {}
     local function add(element)
         elements[#elements + 1] = element
@@ -2933,44 +3037,66 @@ function Panel.Elements(model, state)
                 explain(text)
             end
             -- The no-rating roads, sorted (UX-6b): the ones rated at another
-            -- level join the rated group after its own roads, the ones the
-            -- client says are not for this spec are not drawn, and the rest
-            -- sit behind the fold.
+            -- level join the rated group after its own roads, and the ones the
+            -- client says are not for this spec are not drawn. Then only what
+            -- is worth drawing is drawn (UX-6c, Panel.CardWorthDrawing), in
+            -- each group's own order and under its own eyebrow, so the two
+            -- scales still never share a row; everything else is behind the
+            -- slot's one fold, counted.
             local sorted = section.noRating or Panel.SortNoRating(section, model.upgradeDocuments)
-            local otherLevel = sorted.otherLevel
-            local placedOther = false
+            local drawn, folded, foldRows = {}, {}, {}
+            for _, group in ipairs(ns.Roads.GROUP_ORDER) do
+                drawn[group], folded[group] = {}, {}
+            end
+            local function sortInto(row, group)
+                local into = Panel.CardWorthDrawing(row) and drawn or folded
+                into[group][#into[group] + 1] = row
+            end
             for _, group in ipairs(section.roadGroups) do
-                if group.group == ns.Roads.GROUP_NONE then
-                    if not placedOther and #otherLevel > 0 then
-                        eyebrow(ns.Roads.GROUP_ITEM)
-                        cards(otherLevel, ns.Roads.GROUP_ITEM)
-                        placedOther = true
+                if group.group ~= ns.Roads.GROUP_NONE then
+                    for _, row in ipairs(Panel.CardRows(group)) do
+                        sortInto(row, group.group)
                     end
-                    if #sorted.unknown > 0 then
-                        local foldOpen = Panel.NoRatingOpen(noRating[section.slot])
-                        local text = Panel.NoRatingFoldText(sorted.unknown, foldOpen)
-                        add({
-                            kind = Panel.ELEMENT_FOLD,
-                            height = Panel.GroupHeight(text),
-                            group = group.group,
-                            slot = section.slot,
-                            open = foldOpen,
-                            count = #sorted.unknown,
-                            text = text,
-                        })
-                        explain(text)
-                        if foldOpen then
-                            cards(sorted.unknown, group.group)
-                        end
-                    end
-                else
-                    local rows = Panel.CardRows(group)
-                    if #rows > 0 then
-                        eyebrow(group.group)
-                        cards(rows, group.group)
-                        if group.group == ns.Roads.GROUP_ITEM and #otherLevel > 0 then
-                            cards(otherLevel, group.group)
-                            placedOther = true
+                end
+            end
+            for _, row in ipairs(sorted.otherLevel) do
+                sortInto(row, ns.Roads.GROUP_ITEM)
+            end
+            for _, row in ipairs(sorted.unknown) do
+                sortInto(row, ns.Roads.GROUP_NONE)
+            end
+            for _, group in ipairs(ns.Roads.GROUP_ORDER) do
+                if #drawn[group] > 0 then
+                    eyebrow(group)
+                    cards(drawn[group], group)
+                end
+                for _, row in ipairs(folded[group]) do
+                    foldRows[#foldRows + 1] = row
+                end
+            end
+            if #foldRows > 0 then
+                local foldOpen = Panel.FoldOpen(foldState[section.slot])
+                local count, rated, unrated, allDrops = Panel.FoldCounts(foldRows)
+                local text = Panel.FoldTextOf(foldOpen, count, rated, unrated, allDrops)
+                add({
+                    kind = Panel.ELEMENT_FOLD,
+                    height = Panel.GroupHeight(text),
+                    slot = section.slot,
+                    open = foldOpen,
+                    count = count,
+                    rated = rated,
+                    unrated = unrated,
+                    text = text,
+                    hover = Panel.FoldHoverOf(count, rated, unrated),
+                })
+                explain(text)
+                -- Open, the folded cards draw as they always have, each group
+                -- under its own eyebrow; shut, none of them is built.
+                if foldOpen then
+                    for _, group in ipairs(ns.Roads.GROUP_ORDER) do
+                        if #folded[group] > 0 then
+                            eyebrow(group)
+                            cards(folded[group], group)
                         end
                     end
                 end
@@ -4140,9 +4266,27 @@ function Panel.InitElement(panel, element, data)
         -- A click saves which way the reader left it, per character (nil is
         -- the default, shut), and draws the list again.
         button:SetScript("OnClick", function()
-            Panel.ToggleNoRating(panel.db, data.slot)
+            Panel.ToggleFold(panel.db, data.slot)
             Panel.Refresh(panel)
         end)
+        -- The hover splits the count into its two reasons (UX-6c).
+        if data.hover then
+            button:SetScript("OnEnter", function(self)
+                if GameTooltip then
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    GameTooltip:SetText(data.hover, 1, 1, 1, 1, true)
+                    GameTooltip:Show()
+                end
+            end)
+            button:SetScript("OnLeave", function()
+                if GameTooltip then
+                    GameTooltip:Hide()
+                end
+            end)
+        else
+            button:SetScript("OnEnter", nil)
+            button:SetScript("OnLeave", nil)
+        end
         button:Show()
     elseif data.kind == Panel.ELEMENT_CARD_ROW then
         Panel.InitCardRow(panel, element, data)
