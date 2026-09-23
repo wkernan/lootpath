@@ -1681,8 +1681,11 @@ describe("UpgradeMapPanel view toggle on the frames", function()
         assert.equal(ns.UpgradeMapPanel.MODE_SLOT, frame.mode)
         assert.equal("By slot", frame.modeButtons[1]:GetText())
         assert.equal("By run", frame.modeButtons[2]:GetText())
-        assert.is_false(frame.modeButtons[1]:IsEnabled())
+        -- UX-6a (WKE-638): the view you are on is lit, not greyed.
+        assert.is_true(frame.modeButtons[1]:IsEnabled())
         assert.is_true(frame.modeButtons[2]:IsEnabled())
+        assert.is_true(frame.modeButtons[1].highlightLocked)
+        assert.is_not_true(frame.modeButtons[2].highlightLocked)
         -- Since UX-5 the order is one dropdown, and it belongs to the by-run
         -- view alone: there is nothing to order in this one.
         assert.is_false(frame.sortDropdown:IsShown())
@@ -1690,6 +1693,52 @@ describe("UpgradeMapPanel view toggle on the frames", function()
         assert.is_nil(frame.sortLabel)
         -- ...and the answer sentence is the by-run view's own too.
         assert.is_false(frame.answer:IsShown())
+    end)
+
+    -- UX-6a (WKE-638): a segmented control lights the segment you are on.
+    -- Both buttons stay enabled; the current one wears the template's own
+    -- highlight locked on (Frame:LockHighlight, Frame.lua:339), the other is
+    -- plain, and a click on the current one does nothing at all.
+    it("lights the view you are on and leaves the other plain, in both views (UX-6a)", function()
+        local frame = ns.UpgradeMapPanel.Create()
+        frame:Refresh()
+        local slotButton, runButton = frame.modeButtons[1], frame.modeButtons[2]
+        assert.is_true(slotButton:IsEnabled())
+        assert.is_true(runButton:IsEnabled())
+        assert.is_true(slotButton.highlightLocked)
+        assert.is_not_true(runButton.highlightLocked)
+
+        runButton:Click()
+        assert.equal(ns.UpgradeMapPanel.MODE_RUN, frame.mode)
+        assert.is_true(slotButton:IsEnabled())
+        assert.is_true(runButton:IsEnabled())
+        assert.is_true(runButton.highlightLocked)
+        assert.is_not_true(slotButton.highlightLocked)
+
+        slotButton:Click()
+        assert.equal(ns.UpgradeMapPanel.MODE_SLOT, frame.mode)
+        assert.is_true(slotButton.highlightLocked)
+        assert.is_not_true(runButton.highlightLocked)
+    end)
+
+    it("does nothing on a click on the view you are already on (UX-6a)", function()
+        local frame = ns.UpgradeMapPanel.Create()
+        frame:Refresh()
+        local model, elements = frame.model, frame.elements
+        assert.is_true(frame.modeButtons[1]:Click() ~= false)
+        -- No redraw: the same model and the same element list, not rebuilt.
+        assert.equal(ns.UpgradeMapPanel.MODE_SLOT, frame.mode)
+        assert.equal(model, frame.model)
+        assert.equal(elements, frame.elements)
+        assert.is_true(frame.modeButtons[1].highlightLocked)
+
+        frame.modeButtons[2]:Click()
+        model, elements = frame.model, frame.elements
+        frame.modeButtons[2]:Click()
+        assert.equal(ns.UpgradeMapPanel.MODE_RUN, frame.mode)
+        assert.equal(model, frame.model)
+        assert.equal(elements, frame.elements)
+        assert.is_true(frame.modeButtons[2].highlightLocked)
     end)
 
     it("switches to the by-run view on a click and back again byte for byte", function()

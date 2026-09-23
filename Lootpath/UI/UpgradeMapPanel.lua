@@ -2972,8 +2972,23 @@ end
 -- The header row (UX-5, WKE-614). Two buttons naming the two views, packed
 -- against each other as one segment, then the sort control and the difficulty
 -- control, each Panel.HEADER_GAP apart and the last one flush with the panel's
--- right edge. The button for what is on screen now is disabled, so the segment
--- says where you are as well as where you can go.
+-- right edge. Both buttons stay enabled and the one for the view on screen now
+-- is LIT (UX-6a, WKE-638): the template's own highlight texture held on with
+-- Blizzard's `LockHighlight` (`.luals/.../Widget/Frame/Frame.lua:339`), the
+-- lock R-6c put on `Load rating`, while the other wears none - so the segment
+-- lights where you are, as every segmented control in Blizzard's UI does, and
+-- the view you can go to is the plain one. A click on the lit one is a no-op.
+-- Guarded like R-6c: a client without the lock loses the look, never the row.
+local function markCurrentView(button, current)
+    if current then
+        if type(button.LockHighlight) == "function" then
+            button:LockHighlight()
+        end
+    elseif type(button.UnlockHighlight) == "function" then
+        button:UnlockHighlight()
+    end
+end
+
 local function viewButton(list, frame, index)
     local button = list[index]
     if not button then
@@ -3006,8 +3021,12 @@ local function placeHeaderRow(frame, mode, runSort)
         button:ClearAllPoints()
         button:SetPoint("TOPRIGHT", anchor, "TOPLEFT", index == #Panel.MODES and -Panel.HEADER_GAP or 0, 0)
         button:SetShown(true)
-        button:SetEnabled(mode ~= name)
+        button:SetEnabled(true)
+        markCurrentView(button, mode == name)
         button:SetScript("OnClick", function()
+            if frame.mode == name then
+                return
+            end
             frame.mode = name
             Panel.Refresh(frame)
         end)
