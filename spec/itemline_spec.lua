@@ -524,9 +524,11 @@ describe("the Equip Now tab drawn as item lines", function()
         H.unload()
     end)
 
-    -- Every row frame that is actually on screen. Since the fold, the drawn
-    -- order is "everything that needs something, then the settled rows", so a
-    -- row frame's index is no longer its index in the match.
+    -- Every item that is actually on screen. Since the fold, the drawn order
+    -- is "everything that needs something, then the settled rows", so a row
+    -- frame's index is no longer its index in the match; and since M5-1e
+    -- (WKE-633) the settled rows are cells two across, not row frames, so they
+    -- are read off the panel's pairs, left then right.
     local function drawnRows()
         local out = {}
         for _, frameRow in ipairs(panel.rows) do
@@ -534,13 +536,22 @@ describe("the Equip Now tab drawn as item lines", function()
                 out[#out + 1] = frameRow
             end
         end
+        for _, pair in ipairs(panel.pairs) do
+            if pair.shown then
+                for _, cell in ipairs({ pair.left, pair.right }) do
+                    if cell.shown and cell.matchRow then
+                        out[#out + 1] = cell
+                    end
+                end
+            end
+        end
         return out
     end
 
     local function rowsByStatus(status)
         local out = {}
-        for index, frameRow in ipairs(panel.rows) do
-            if frameRow.shown and frameRow.matchRow and frameRow.matchRow.status == status then
+        for index, frameRow in ipairs(drawnRows()) do
+            if frameRow.matchRow.status == status then
                 out[#out + 1] = { row = frameRow, index = index }
             end
         end
@@ -614,8 +625,10 @@ describe("the Equip Now tab drawn as item lines", function()
         local best = rowsByStatus("equipped_is_best")
         assert.is_true(#best > 0)
         for _, entry in ipairs(best) do
-            assert.is_false(entry.row.worn:IsShown())
-            assert.is_false(entry.row.arrow:IsShown())
+            -- One icon: a settled cell (M5-1e) has no worn icon and no arrow
+            -- to hide - it was never given either.
+            assert.is_nil(entry.row.worn)
+            assert.is_nil(entry.row.arrow)
             -- The tick, in the mark column, and no word anywhere on the row:
             -- no `already best` badge and no `already equipped` second line.
             assert.is_true(entry.row.line.mark:IsShown())
@@ -688,6 +701,16 @@ describe("the Equip Now tab drawn as item lines", function()
             assert.is_false(panel.rows[index]:IsShown())
             assert.is_nil(panel.rows[index].line.request)
             assert.is_nil(panel.rows[index].worn.request)
+        end
+        -- and the settled cells (M5-1e): the one row left is drawn in the first
+        -- pair's left cell, and every other cell waits for nothing
+        for index, pair in ipairs(panel.pairs) do
+            for side, cell in ipairs({ pair.left, pair.right }) do
+                if not (index == 1 and side == 1) then
+                    assert.is_false(cell:IsShown())
+                    assert.is_nil(cell.line.request)
+                end
+            end
         end
     end)
 
