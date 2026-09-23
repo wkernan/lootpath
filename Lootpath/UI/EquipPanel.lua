@@ -101,6 +101,22 @@ EquipPanel.ARROW_SIZE = 16
 -- row's top either way, so the arrow layout can no longer push the line down
 -- past where the note begins.
 EquipPanel.PAIR_INSET = EquipPanel.WORN_ICON_SIZE + EquipPanel.ARROW_GAP + EquipPanel.ARROW_SIZE + EquipPanel.LINE_GAP
+-- The settled slots, behind the fold, two across (M5-1e, WKE-633). The owner on
+-- 2026-09-23: "There is a lot of negative space where the gear is." A settled
+-- slot is the same item line at a smaller icon, with nothing beside it - no
+-- button, no worn icon, no arrow - because there is nothing to do there. The
+-- 26 and the 24 are the figures on the direction page he chose (shape A).
+--
+-- What 26 buys, read off `ItemLine.Height`: a line is as tall as its taller
+-- column, and the text column (name, hair, second line) is 16 + 1 + 14 = 31,
+-- so below 31 the TEXT sets the height and the settled line is 31 + 2 = 33
+-- tall at 26 exactly as it would be at 31. The icon is smaller because the
+-- slot is quieter; the room comes from the second column, not from the icon.
+EquipPanel.SETTLED_ICON_SIZE = 26
+EquipPanel.COLUMN_GAP = 24
+-- The word the second line of a swap uses for what comes off (M5-1e): the owner
+-- approved `replaces <worn name> <worn level>` exactly.
+EquipPanel.REPLACES_WORD = "replaces"
 -- Blizzard's own arrow, from Blizzard_TransformManipulator's RotateControlFrame
 -- (`common-icon-forwardarrow`), and its own tick, from Blizzard_ChromieTimeUI
 -- and the Housing dashboard (`common-icon-checkmark`) - both read under
@@ -514,6 +530,19 @@ end
 --           is, the second line carries the level the rating used, and the
 --           verb goes to the tab that shows it - so the sentence said nothing
 --           the row did not already say in three places.
+-- What comes off, on the second line of a row that would put something on
+-- (M5-1e, WKE-633): the worn item's name and its level, both already on the
+-- row as data - it is `Describe`'s `worn`, the same `ItemFromRecord` of the
+-- same record - so nothing is computed. Only when BOTH are known: a worn item
+-- still waiting for its name draws the line it drew before.
+function EquipPanel.ReplacesText(record)
+    local worn = EquipPanel.ItemFromRecord(record)
+    if not (worn and worn.name and worn.itemLevel ~= nil) then
+        return nil
+    end
+    return string.format("%s %s %s", EquipPanel.REPLACES_WORD, worn.name, tostring(worn.itemLevel))
+end
+
 function EquipPanel.Drawn(row, match)
     if type(row) ~= "table" then
         return { second = nil, dim = false }
@@ -521,17 +550,19 @@ function EquipPanel.Drawn(row, match)
     local status = row.status
     local slot = type(row.slot) == "string" and row.slot or ""
     local drawn = { status = status, mark = EquipPanel.MARK[status], dim = false }
-    local tail
+    local tail, replaces
     if status == "equipped_is_best" then
         drawn.dim = true
     elseif status == "swap" then
         tail = row.best and whereText(row.best) or nil
+        replaces = EquipPanel.ReplacesText(row.equipped)
     elseif status == "best_in_vault" then
         local level = type(row.verdictItem) == "table" and row.verdictItem.level or nil
         tail = level and string.format("rated at %s", tostring(level)) or nil
         drawn.verb = EquipPanel.VAULT_VERB
     elseif status == "best_not_owned" then
         tail = EquipPanel.NOT_OWNED_PHRASE
+        replaces = EquipPanel.ReplacesText(row.equipped)
         drawn.ghost = true
         drawn.note = row.reason and colored(status, tostring(row.reason)) or nil
     else
@@ -541,6 +572,9 @@ function EquipPanel.Drawn(row, match)
         drawn.second = slot .. EquipPanel.SECOND_SEPARATOR .. tail
     else
         drawn.second = tail or (slot ~= "" and slot or nil)
+    end
+    if replaces then
+        drawn.second = drawn.second and (drawn.second .. EquipPanel.SECOND_SEPARATOR .. replaces) or replaces
     end
     if row.matchedBy == ns.Match.MATCHED_BY_ID_LEVEL and drawn.second then
         drawn.second = drawn.second .. " " .. EquipPanel.NOTE_COLOR .. "[matched by itemID and item level]|r"
@@ -825,6 +859,48 @@ function EquipPanel.Layout(match, open)
         end
     end
     return elements
+end
+
+-- Which settled slot sits where (M5-1e, WKE-633): the ONE function that
+-- decides it. Layout above is untouched and still says what is drawn and in
+-- which order; this takes its elements and puts the settled rows two across,
+-- left then right, row by row - ACROSS first, so reading the pairs left to
+-- right and top to bottom is the match's own order. Everything that is not a
+-- settled row (the rows that need something, the fold) comes back as it was,
+-- the same table, in the same place.
+--
+-- Columns(elements) -> the same list with each run of settled rows grouped as
+-- { kind = "pair", left = element, right = element or nil }
+EquipPanel.ELEMENT_PAIR = "pair"
+
+local function isSettled(element)
+    return element.kind == EquipPanel.ELEMENT_ROW
+        and type(element.row) == "table"
+        and element.row.status == "equipped_is_best"
+end
+
+function EquipPanel.Columns(elements)
+    local placed, open_ = {}, nil
+    for _, element in ipairs(elements or {}) do
+        if isSettled(element) then
+            if open_ then
+                open_.right = element
+                open_ = nil
+            else
+                open_ = { kind = EquipPanel.ELEMENT_PAIR, left = element }
+                placed[#placed + 1] = open_
+            end
+        else
+            open_ = nil
+            placed[#placed + 1] = element
+        end
+    end
+    return placed
+end
+
+-- How wide one column is: the row's width less the gap, shared by two.
+function EquipPanel.ColumnWidth(rowWidth)
+    return ((tonumber(rowWidth) or 0) - EquipPanel.COLUMN_GAP) / 2
 end
 
 -- The sentence a row says when the bag slot it was built from no longer holds
@@ -1247,8 +1323,11 @@ end
 -- - when the row has one - the gap and the note under it. Nothing here reads
 -- ROW_HEIGHT: a row that ends where its line ends is the whole point, and the
 -- note used to be drawn at a constant that the arrow layout had already passed.
-function EquipPanel.RowHeight(hasNote)
-    local height = EquipPanel.LINE_TOP + UI.ItemLine.Height()
+--
+-- `size` is the line's icon edge; a settled cell passes SETTLED_ICON_SIZE
+-- (M5-1e) and every full row passes nothing, which is ItemLine's default.
+function EquipPanel.RowHeight(hasNote, size)
+    local height = EquipPanel.LINE_TOP + UI.ItemLine.Height(size)
     if hasNote then
         height = height + EquipPanel.NOTE_GAP + EquipPanel.NOTE_HEIGHT
     end
@@ -1352,6 +1431,49 @@ local function createRow(panel, index)
     return row
 end
 
+-- One settled slot in a column (M5-1e, WKE-633): the item line at the settled
+-- icon and its note, and nothing else - no Equip, no worn icon, no arrow, so
+-- there is nothing on it to click but the item itself. The line hangs off the
+-- cell's top at the same clearance a full row's does, and ends at the cell's
+-- right; the cell's width is the column's, set at refresh.
+local function createCell(pair)
+    local cell = CreateFrame("Frame", nil, pair)
+    cell:SetHeight(EquipPanel.RowHeight(false, EquipPanel.SETTLED_ICON_SIZE))
+    cell.line = UI.ItemLine.Create(cell, {
+        size = EquipPanel.SETTLED_ICON_SIZE,
+        badgeWidth = EquipPanel.MARK_COLUMN,
+    })
+    cell.line:SetPoint("TOPLEFT", cell, "TOPLEFT", 0, -EquipPanel.LINE_TOP)
+    cell.line:SetPoint("RIGHT", cell, "RIGHT", 0, 0)
+    cell.note = cell:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    cell.note:SetPoint("TOPLEFT", cell.line, "BOTTOMLEFT", 0, -EquipPanel.NOTE_GAP)
+    cell.note:SetPoint("RIGHT", cell, "RIGHT", 0, 0)
+    cell.note:SetJustifyH("LEFT")
+    cell.note:SetWordWrap(true)
+    cell.note:Hide()
+    cell:Hide()
+    return cell
+end
+
+-- Two settled slots side by side: one frame across the list's full width, so
+-- it is placed in the list exactly the way a full row is and whatever comes
+-- after it hangs off its bottom; the two cells sit inside it.
+local function createPair(panel)
+    local pair = CreateFrame("Frame", nil, panel.list)
+    pair.left = createCell(pair)
+    pair.right = createCell(pair)
+    pair:Hide()
+    return pair
+end
+
+local function clearCell(cell)
+    cell:Hide()
+    cell.matchRow = nil
+    cell.described = nil
+    cell.drawn = nil
+    UI.ItemLine.Clear(cell.line)
+end
+
 -- Where the item line starts: after the worn icon and the arrow on a pair, and
 -- at the row's own left edge on a row that is about one item (M5-1b: there is
 -- no slot column to start after).
@@ -1400,6 +1522,10 @@ function EquipPanel.Create(parent)
     panel:SetWidth(ns.UI.PANEL_WIDTH)
     panel.rowWidth = ns.UI.PANEL_WIDTH - EquipPanel.SCROLL_INSET_RIGHT
     panel.rows = {}
+    -- The settled slots' own frames (M5-1e): a pair of cells per line, kept
+    -- apart from the full rows so a frame is never a full row one refresh and
+    -- a settled cell the next.
+    panel.pairs = {}
 
     panel.header = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     panel.header:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, 0)
@@ -1584,7 +1710,7 @@ function EquipPanel.Refresh(panel, match)
     -- The header block is set: the list's top can be placed now.
     EquipPanel.AnchorScroll(panel)
 
-    local elements = EquipPanel.Layout(match, EquipPanel.FoldOpen(panel.db))
+    local elements = EquipPanel.Columns(EquipPanel.Layout(match, EquipPanel.FoldOpen(panel.db)))
     local rows = (type(match) == "table" and match.ok and match.rows) or {}
     local inCombat = InCombatLockdown() and true or false
     local used = 0
@@ -1593,6 +1719,8 @@ function EquipPanel.Refresh(panel, match)
     -- so a row's top is no longer always the row above it.
     local previous = nil
     local drawn, folded = 0, 0
+    local pairsDrawn = 0
+    local column = EquipPanel.ColumnWidth(panel.rowWidth)
 
     local function place(frame, height)
         frame:ClearAllPoints()
@@ -1619,6 +1747,40 @@ function EquipPanel.Refresh(panel, match)
             place(panel.fold, EquipPanel.FOLD_HEIGHT)
             panel.fold:SetHeight(EquipPanel.FOLD_HEIGHT)
             panel.fold:Show()
+        elseif element.kind == EquipPanel.ELEMENT_PAIR then
+            -- Two settled slots on one line (M5-1e). Each cell is still one
+            -- drawn row against MAX_ROWS; the line is as tall as the taller.
+            if drawn < EquipPanel.MAX_ROWS then
+                pairsDrawn = pairsDrawn + 1
+                local pair = panel.pairs[pairsDrawn]
+                if not pair then
+                    pair = createPair(panel)
+                    panel.pairs[pairsDrawn] = pair
+                end
+                local height = 0
+                for side, cellElement in ipairs({ element.left, element.right or false }) do
+                    local cell = side == 1 and pair.left or pair.right
+                    cell:ClearAllPoints()
+                    cell:SetPoint("TOPLEFT", pair, "TOPLEFT", (side - 1) * (column + EquipPanel.COLUMN_GAP), 0)
+                    cell:SetWidth(column)
+                    if cellElement and drawn < EquipPanel.MAX_ROWS then
+                        drawn = drawn + 1
+                        local matchRow = cellElement.row
+                        local described = EquipPanel.Describe(matchRow)
+                        local shownRow = EquipPanel.Drawn(matchRow, match)
+                        cell.matchRow = matchRow
+                        cell.described = described
+                        cell.drawn = shownRow
+                        height = math.max(height, EquipPanel.DrawCell(cell, described, shownRow))
+                        cell:Show()
+                    else
+                        clearCell(cell)
+                    end
+                end
+                pair:SetHeight(height)
+                place(pair, height)
+                pair:Show()
+            end
         elseif drawn < EquipPanel.MAX_ROWS then
             drawn = drawn + 1
             local i = drawn
@@ -1650,6 +1812,11 @@ function EquipPanel.Refresh(panel, match)
         -- answer never redraws an item that is no longer on screen.
         UI.ItemLine.ClearIcon(panel.rows[i].worn)
         UI.ItemLine.Clear(panel.rows[i].line)
+    end
+    for i = pairsDrawn + 1, #panel.pairs do
+        panel.pairs[i]:Hide()
+        clearCell(panel.pairs[i].left)
+        clearCell(panel.pairs[i].right)
     end
 
     if #rows > shown + folded then
@@ -1718,6 +1885,45 @@ function EquipPanel.DrawBar(panel, match)
     panel.barKey:SetText(EquipPanel.BarKeyText(match))
 end
 
+-- What an item line binds for one row, full or settled: the same fields either
+-- way, so a settled cell says exactly what the full row it replaces said.
+local function lineItem(described, shownRow)
+    local item = described.item
+    return {
+        itemID = item and item.itemID or nil,
+        link = item and item.link or nil,
+        name = item and item.name or nil,
+        quality = item and item.quality or nil,
+        itemLevel = item and item.itemLevel or nil,
+        icon = item and item.icon or nil,
+        -- What the canvas kept and what it took away: the second line is the
+        -- slot word plus the fact the mark cannot carry, the mark is the state,
+        -- and no badge word is bound at all.
+        second = shownRow.second,
+        mark = shownRow.mark,
+        dim = shownRow.dim,
+        ghost = shownRow.ghost,
+        ghostAtlas = EquipPanel.GHOST_ICON_ATLAS,
+        tags = described.tags,
+    }
+end
+
+-- One settled slot, drawn into its cell (M5-1e): the line and the note, sized
+-- by the same rule a full row is, at the settled icon. Returns its height.
+function EquipPanel.DrawCell(cell, described, shownRow)
+    UI.ItemLine.Set(cell.line, lineItem(described, shownRow))
+    local height = EquipPanel.RowHeight(shownRow.note ~= nil, EquipPanel.SETTLED_ICON_SIZE)
+    if shownRow.note then
+        cell.note:SetText(shownRow.note)
+        cell.note:Show()
+    else
+        cell.note:SetText("")
+        cell.note:Hide()
+    end
+    cell:SetHeight(height)
+    return height
+end
+
 -- One row, drawn. Split out of Refresh because Refresh now walks a layout
 -- rather than a list, and the two jobs - where a row goes, and what it says -
 -- read better apart.
@@ -1768,23 +1974,7 @@ function EquipPanel.DrawRow(frameRow, described, shownRow, inCombat)
 
     anchorLine(frameRow, described.worn ~= nil, button)
 
-    UI.ItemLine.Set(frameRow.line, {
-        itemID = described.item and described.item.itemID or nil,
-        link = described.item and described.item.link or nil,
-        name = described.item and described.item.name or nil,
-        quality = described.item and described.item.quality or nil,
-        itemLevel = described.item and described.item.itemLevel or nil,
-        icon = described.item and described.item.icon or nil,
-        -- What the canvas kept and what it took away: the second line is the
-        -- slot word plus the fact the mark cannot carry, the mark is the state,
-        -- and no badge word is bound at all.
-        second = shownRow.second,
-        mark = shownRow.mark,
-        dim = shownRow.dim,
-        ghost = shownRow.ghost,
-        ghostAtlas = EquipPanel.GHOST_ICON_ATLAS,
-        tags = described.tags,
-    })
+    UI.ItemLine.Set(frameRow.line, lineItem(described, shownRow))
 
     -- Measured off the line rather than off ROW_HEIGHT (M5-1c, WKE-617): the
     -- row ends where its note ends, and the note starts where the line ends.

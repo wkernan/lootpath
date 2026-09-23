@@ -30,6 +30,28 @@ local function withInventory(world)
     world.bankOpen = true
 end
 
+-- Every item drawn on Equip Now, in the order it is drawn: the full rows, then
+-- the settled slots, which since M5-1e (WKE-633) are cells two across rather
+-- than row frames - read left, right, left, right, which is the match's order.
+local function drawnItems(panel)
+    local out = {}
+    for _, row in ipairs(panel.rows) do
+        if row.shown and row.matchRow then
+            out[#out + 1] = row
+        end
+    end
+    for _, pair in ipairs(panel.pairs or {}) do
+        if pair.shown then
+            for _, cell in ipairs({ pair.left, pair.right }) do
+                if cell.shown and cell.matchRow then
+                    out[#out + 1] = cell
+                end
+            end
+        end
+    end
+    return out
+end
+
 local function firstSwapRow(panel)
     for _, row in ipairs(panel.rows) do
         if row.shown and row.matchRow and row.matchRow.status == "swap" then
@@ -313,8 +335,10 @@ describe("the Equip Now panel", function()
 
         assert.is_true(panel.fold:Click())
         assert.is_truthy(panel.fold.text:GetText():find(ns.UI.EquipPanel.FOLD_OPEN_MARK, 1, true))
+        local items = drawnItems(panel)
+        assert.equal(#needs + #best, #items)
         for i, matchRow in ipairs(best) do
-            local frameRow = panel.rows[#needs + i]
+            local frameRow = items[#needs + i]
             assert.is_true(frameRow.shown)
             assert.equal(matchRow, frameRow.matchRow)
             -- Nothing but the slot word: the tick has said the rest.
@@ -342,14 +366,19 @@ describe("the Equip Now panel", function()
         ns.UI.EquipPanel.ToggleFold(ns.db)
         ns.UI.EquipPanel.Refresh(panel, panel.match)
         local swapButtons, otherButtons = 0, 0
-        for i = 1, #panel.match.rows do
-            local frameRow = panel.rows[i]
+        local items = drawnItems(panel)
+        assert.equal(#panel.match.rows, #items)
+        for _, frameRow in ipairs(items) do
             if frameRow.matchRow.status == "swap" then
                 assert.is_true(frameRow.equip:IsShown())
                 assert.is_true(frameRow.equip:IsEnabled())
                 swapButtons = swapButtons + 1
-            else
+            elseif frameRow.equip then
                 assert.is_false(frameRow.equip:IsShown())
+                otherButtons = otherButtons + 1
+            else
+                -- A settled cell (M5-1e) was never given a button at all.
+                assert.equal("equipped_is_best", frameRow.matchRow.status)
                 otherButtons = otherButtons + 1
             end
         end
@@ -612,15 +641,14 @@ describe("the Equip Now panel", function()
 
     it("takes a row back to one line when its note goes away", function()
         local feet, head
-        -- The already-best rows are behind the fold by default (M5-1b), and
-        -- this is about a frame that is RECYCLED from one row to another, so
-        -- both kinds have to be drawn.
-        ns.UI.EquipPanel.ToggleFold(ns.db)
-        ns.UI.EquipPanel.Refresh(panel, panel.match)
+        -- This is about a frame that is RECYCLED from one row to another, so
+        -- it takes a full row with a note and a full row without one. Since
+        -- M5-1e (WKE-633) a settled row is a cell, never a row frame, so the
+        -- row without a note is a swap.
         for _, frameRow in ipairs(panel.rows) do
             if frameRow.matchRow and frameRow.matchRow.status == "best_not_owned" then
                 feet = feet or frameRow
-            elseif frameRow.matchRow and frameRow.matchRow.status == "equipped_is_best" then
+            elseif frameRow.matchRow and frameRow.matchRow.status == "swap" then
                 head = head or frameRow
             end
         end
@@ -715,8 +743,27 @@ describe("an Equip Now row's note and its real height (M5-1c)", function()
         return bottom + point[5], bottom
     end
 
+    -- A FULL row about one item, with no pair. Until M5-1e (WKE-633) the
+    -- settled rows were this fixture's plain rows; they are cells two across
+    -- now, and every row on this character's set that needs something is a
+    -- pair. A row that is not rated is the plain full row that is left, so
+    -- the head slot is drawn as one - the same record, only its status told
+    -- differently - and the guards below read the frame that draws it.
+    local function drawPlainRow()
+        local rows = {}
+        for _, row in ipairs(panel.match.rows) do
+            if row.slot == "Head" then
+                rows[#rows + 1] = { slot = row.slot, status = "no_verdict", equipped = row.equipped }
+            else
+                rows[#rows + 1] = row
+            end
+        end
+        ns.UI.EquipPanel.Refresh(panel, { ok = true, rows = rows, counts = panel.match.counts })
+    end
+
     local function rowsByShape()
         local paired, plain, noted
+        drawPlainRow()
         for _, row in ipairs(panel.rows) do
             if row.shown then
                 if row.worn:IsShown() then
@@ -813,6 +860,12 @@ describe("an Equip Now row's note and its real height (M5-1c)", function()
                 sum = sum + row:GetHeight() + ns.UI.EquipPanel.ROW_GAP
             end
         end
+        -- and the settled slots, two to a line (M5-1e, WKE-633)
+        for _, pair in ipairs(panel.pairs) do
+            if pair.shown then
+                sum = sum + pair:GetHeight() + ns.UI.EquipPanel.ROW_GAP
+            end
+        end
         if panel.fold:IsShown() then
             sum = sum + panel.fold:GetHeight() + ns.UI.EquipPanel.ROW_GAP
         end
@@ -820,9 +873,10 @@ describe("an Equip Now row's note and its real height (M5-1c)", function()
             sum = sum + ns.UI.EquipPanel.OVERFLOW_GAP + ns.UI.EquipPanel.NOTE_HEIGHT
         end
         assert.equal(sum, panel.list:GetHeight())
-        -- The two notes on this character's set are what the list gained over
-        -- a set of fifteen plain rows and the fold line.
-        assert.equal(656, panel.list:GetHeight())
+        -- Eight full rows (six at 38, the two with a note at 56), the fold
+        -- line, and the seven settled slots as four lines of two at 35: 524.
+        -- One column of fifteen full rows was 656 (M5-1c).
+        assert.equal(524, panel.list:GetHeight())
     end)
 end)
 
@@ -1124,8 +1178,8 @@ describe("Equip Now redrawn (M5-1b)", function()
         ns.UI.EquipPanel.ToggleFold(ns.db)
         ns.UI.EquipPanel.Refresh(panel, panel.match)
         local seen = {}
-        for _, frameRow in ipairs(panel.rows) do
-            if frameRow.shown and frameRow.matchRow then
+        for _, frameRow in ipairs(drawnItems(panel)) do
+            if frameRow.matchRow then
                 local status = frameRow.matchRow.status
                 seen[status] = true
                 local mark = ns.UI.EquipPanel.MARK[status]
@@ -1154,18 +1208,26 @@ describe("Equip Now redrawn (M5-1b)", function()
     it("puts the slot on the row's second line, because there is no slot column", function()
         ns.UI.EquipPanel.ToggleFold(ns.db)
         ns.UI.EquipPanel.Refresh(panel, panel.match)
-        for _, frameRow in ipairs(panel.rows) do
-            if frameRow.shown and frameRow.matchRow then
-                assert.is_truthy(frameRow.line.second:GetText():find(frameRow.matchRow.slot, 1, true))
-                assert.is_nil(frameRow.slotText)
-            end
+        local items = drawnItems(panel)
+        assert.equal(#panel.match.rows, #items)
+        for _, frameRow in ipairs(items) do
+            assert.is_truthy(frameRow.line.second:GetText():find(frameRow.matchRow.slot, 1, true))
+            assert.is_nil(frameRow.slotText)
         end
-        -- A swap says where the piece is, after the slot; an already-best row
-        -- says the slot and stops.
+        -- A swap says where the piece is, after the slot, and then what comes
+        -- off (M5-1e); an already-best row says the slot and stops.
         local swap = rowFor("swap")
         assert.is_table(swap)
+        local worn = swap.matchRow.equipped
         assert.equal(
-            swap.matchRow.slot .. ns.UI.EquipPanel.SECOND_SEPARATOR .. "in your bags",
+            swap.matchRow.slot
+                .. ns.UI.EquipPanel.SECOND_SEPARATOR
+                .. "in your bags"
+                .. ns.UI.EquipPanel.SECOND_SEPARATOR
+                .. "replaces "
+                .. worn.name
+                .. " "
+                .. tostring(worn.itemLevel),
             swap.line.second:GetText()
         )
     end)
@@ -1256,8 +1318,8 @@ describe("Equip Now redrawn (M5-1b)", function()
         panel.fold:Click()
         assert.is_true(ns.UI.EquipPanel.FoldOpen(ns.db))
         drawn = 0
-        for _, frameRow in ipairs(panel.rows) do
-            if frameRow.shown and frameRow.matchRow then
+        for _, frameRow in ipairs(drawnItems(panel)) do
+            if frameRow.matchRow then
                 drawn = drawn + 1
                 if frameRow.matchRow.status == "equipped_is_best" then
                     assert.equal(ns.UI.ItemLine.DIM_ALPHA, frameRow.line:GetAlpha())
@@ -1299,65 +1361,65 @@ end)
 -- These resolve the horizontal edges from the anchors the stub recorded - the
 -- panel's left is 0 and its right is its own width - rather than from any
 -- figure the panel keeps, so a width that only agrees with itself cannot pass.
-describe("Equip Now's rows end where the scroll frame ends (M5-2d)", function()
-    local ns, world, panel
-
-    -- A region's left and right edges in the panel's own coordinates, from its
-    -- recorded anchors: a LEFT/RIGHT point sets that edge, anything else sets
-    -- the centre, and a region anchored on one side takes its other edge from
-    -- its own width. A scroll child has no anchors of its own - the client lays
-    -- it out from the scroll frame's top-left - so its left is the frame's.
-    local function edges(region, root, depth)
-        depth = (depth or 0) + 1
-        assert(depth < 32, "anchor chain too deep")
-        if region == root then
-            return 0, root:GetWidth()
-        end
-        local left, right, centre
-        local points = region.points or {}
-        if #points == 0 then
-            local parent = region:GetParent()
-            assert(parent and parent.scrollChild == region, "a region with no anchors that is not a scroll child")
-            left = edges(parent, root, depth)
-        end
-        for _, p in ipairs(points) do
-            local point, rel, relPoint, x = p[1], p[2], p[3], p[4]
-            if point == "ALL" then
-                left, right = edges(rel or region:GetParent(), root, depth)
+-- A region's left and right edges in the panel's own coordinates, from its
+-- recorded anchors: a LEFT/RIGHT point sets that edge, anything else sets
+-- the centre, and a region anchored on one side takes its other edge from
+-- its own width. A scroll child has no anchors of its own - the client lays
+-- it out from the scroll frame's top-left - so its left is the frame's.
+local function edges(region, root, depth)
+    depth = (depth or 0) + 1
+    assert(depth < 32, "anchor chain too deep")
+    if region == root then
+        return 0, root:GetWidth()
+    end
+    local left, right, centre
+    local points = region.points or {}
+    if #points == 0 then
+        local parent = region:GetParent()
+        assert(parent and parent.scrollChild == region, "a region with no anchors that is not a scroll child")
+        left = edges(parent, root, depth)
+    end
+    for _, p in ipairs(points) do
+        local point, rel, relPoint, x = p[1], p[2], p[3], p[4]
+        if point == "ALL" then
+            left, right = edges(rel or region:GetParent(), root, depth)
+        else
+            if type(rel) ~= "table" then
+                rel, relPoint, x = region:GetParent(), point, rel
+            end
+            relPoint = relPoint or point
+            local rl, rr = edges(rel, root, depth)
+            local at
+            if relPoint:find("LEFT", 1, true) then
+                at = rl
+            elseif relPoint:find("RIGHT", 1, true) then
+                at = rr
             else
-                if type(rel) ~= "table" then
-                    rel, relPoint, x = region:GetParent(), point, rel
-                end
-                relPoint = relPoint or point
-                local rl, rr = edges(rel, root, depth)
-                local at
-                if relPoint:find("LEFT", 1, true) then
-                    at = rl
-                elseif relPoint:find("RIGHT", 1, true) then
-                    at = rr
-                else
-                    at = (rl + rr) / 2
-                end
-                at = at + (x or 0)
-                if point:find("LEFT", 1, true) then
-                    left = at
-                elseif point:find("RIGHT", 1, true) then
-                    right = at
-                else
-                    centre = at
-                end
+                at = (rl + rr) / 2
+            end
+            at = at + (x or 0)
+            if point:find("LEFT", 1, true) then
+                left = at
+            elseif point:find("RIGHT", 1, true) then
+                right = at
+            else
+                centre = at
             end
         end
-        local width = region:GetWidth()
-        if centre and width and not left and not right then
-            left, right = centre - width / 2, centre + width / 2
-        elseif left and not right and width then
-            right = left + width
-        elseif right and not left and width then
-            left = right - width
-        end
-        return left, right
     end
+    local width = region:GetWidth()
+    if centre and width and not left and not right then
+        left, right = centre - width / 2, centre + width / 2
+    elseif left and not right and width then
+        right = left + width
+    elseif right and not left and width then
+        left = right - width
+    end
+    return left, right
+end
+
+describe("Equip Now's rows end where the scroll frame ends (M5-2d)", function()
+    local ns, world, panel
 
     before_each(function()
         ns, world = H.load()
@@ -1411,6 +1473,267 @@ describe("Equip Now's rows end where the scroll frame ends (M5-2d)", function()
     end)
 end)
 
+-- M5-1e (WKE-633). The owner on WKE-592, 2026-09-23: "There is a lot of
+-- negative space where the gear is, perhaps there is a better way to utilize
+-- that." His answer to the page: the rows that need something stay full rows;
+-- the settled slots, behind the fold, go two across at a smaller icon; and a
+-- swap row's second line says what comes off.
+describe("Equip Now's settled slots in two columns (M5-1e)", function()
+    local ns, world, panel
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        ns.UI.Frame()
+        ns.UI.frame.pasteBox:SetText(readFile(REAL_EXPORT))
+        ns.UI.frame.importButton:Click()
+        panel = ns.UI.frame.equipPanel
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function settledRows(match)
+        local out = {}
+        for _, row in ipairs(match.rows) do
+            if row.status == "equipped_is_best" then
+                out[#out + 1] = row
+            end
+        end
+        return out
+    end
+
+    -- A layout of `needs` rows that need something, the fold, and `settled`
+    -- settled rows behind it - built by Layout itself, so Columns is handed
+    -- exactly what the panel hands it.
+    local function syntheticLayout(needs, settled)
+        local rows = {}
+        for i = 1, needs do
+            rows[#rows + 1] = { slot = "Need" .. i, status = "swap" }
+        end
+        for i = 1, settled do
+            rows[#rows + 1] = { slot = "Settled" .. i, status = "equipped_is_best" }
+        end
+        return ns.UI.EquipPanel.Layout({ ok = true, rows = rows }, true), rows
+    end
+
+    it("leaves Layout as it was: every settled row is still one row element", function()
+        local elements = syntheticLayout(2, 13)
+        assert.equal(2 + 1 + 13, #elements)
+        assert.equal(ns.UI.EquipPanel.ELEMENT_FOLD, elements[3].kind)
+        for i = 4, #elements do
+            assert.equal(ns.UI.EquipPanel.ELEMENT_ROW, elements[i].kind)
+        end
+    end)
+
+    it("puts thirteen settled rows seven on the left and six on the right, across first", function()
+        local elements, rows = syntheticLayout(2, 13)
+        local placed = ns.UI.EquipPanel.Columns(elements)
+        -- The rows that need something and the fold are exactly where they were.
+        assert.equal(elements[1], placed[1])
+        assert.equal(elements[2], placed[2])
+        assert.equal(elements[3], placed[3])
+        local lefts, rights, order = 0, 0, {}
+        for i = 4, #placed do
+            local pair = placed[i]
+            assert.equal(ns.UI.EquipPanel.ELEMENT_PAIR, pair.kind)
+            lefts = lefts + 1
+            order[#order + 1] = pair.left.row
+            if pair.right then
+                rights = rights + 1
+                order[#order + 1] = pair.right.row
+            end
+        end
+        assert.equal(7, lefts)
+        assert.equal(6, rights)
+        assert.equal(3 + 7, #placed)
+        -- Read left, right, left, right... it is the match's own order: the
+        -- second settled row sits BESIDE the first, not under it.
+        for i = 1, 13 do
+            assert.equal(rows[2 + i], order[i])
+        end
+        assert.equal(rows[4], placed[4].right.row)
+        assert.is_nil(placed[#placed].right)
+    end)
+
+    it("puts one settled row alone on the left, and leaves a list with none as it was", function()
+        local elements, rows = syntheticLayout(1, 1)
+        local placed = ns.UI.EquipPanel.Columns(elements)
+        assert.equal(3, #placed)
+        assert.equal(ns.UI.EquipPanel.ELEMENT_PAIR, placed[3].kind)
+        assert.equal(rows[2], placed[3].left.row)
+        assert.is_nil(placed[3].right)
+
+        local none = syntheticLayout(3, 0)
+        local same = ns.UI.EquipPanel.Columns(none)
+        assert.equal(#none, #same)
+        for i = 1, #none do
+            assert.equal(none[i], same[i])
+        end
+        assert.same({}, ns.UI.EquipPanel.Columns({}))
+    end)
+
+    it("draws the settled slots two across at the smaller icon, with nothing but the line", function()
+        local settled = settledRows(panel.match)
+        assert.is_true(#settled > 1)
+        ns.UI.EquipPanel.ToggleFold(ns.db)
+        ns.UI.EquipPanel.Refresh(panel, panel.match)
+
+        local order, shownPairs = {}, 0
+        for _, pair in ipairs(panel.pairs) do
+            if pair.shown then
+                shownPairs = shownPairs + 1
+                for _, cell in ipairs({ pair.left, pair.right }) do
+                    if cell.shown then
+                        order[#order + 1] = cell.matchRow
+                        assert.equal(ns.UI.EquipPanel.SETTLED_ICON_SIZE, cell.line.iconSize)
+                        assert.equal(ns.UI.EquipPanel.SETTLED_ICON_SIZE, cell.line.iconButton:GetWidth())
+                        -- no button, no worn icon, no arrow
+                        assert.is_nil(cell.equip)
+                        assert.is_nil(cell.vault)
+                        assert.is_nil(cell.worn)
+                        assert.is_nil(cell.arrow)
+                        -- and the second line is today's: the slot word alone
+                        assert.equal(cell.matchRow.slot, cell.line.second:GetText())
+                    end
+                end
+            end
+        end
+        assert.equal(math.ceil(#settled / 2), shownPairs)
+        assert.equal(#settled, #order)
+        for i, row in ipairs(settled) do
+            assert.equal(row, order[i])
+        end
+        -- None of them is a full row any more.
+        for _, frameRow in ipairs(panel.rows) do
+            if frameRow.shown then
+                assert.are_not.equal("equipped_is_best", frameRow.matchRow.status)
+            end
+        end
+    end)
+
+    it("makes each column (row width - the gap) / 2 wide, the right one ending at the row's edge", function()
+        ns.UI.EquipPanel.ToggleFold(ns.db)
+        ns.UI.EquipPanel.Refresh(panel, panel.match)
+        local listLeft, listRight = edges(panel.list, panel)
+        local column = (panel.list:GetWidth() - ns.UI.EquipPanel.COLUMN_GAP) / 2
+        local checked = 0
+        for _, pair in ipairs(panel.pairs) do
+            if pair.shown and pair.right.shown then
+                local ll, lr = edges(pair.left, panel)
+                local rl, rr = edges(pair.right, panel)
+                assert.equal(listLeft, ll)
+                assert.equal(column, lr - ll)
+                assert.equal(ns.UI.EquipPanel.COLUMN_GAP, rl - lr)
+                assert.equal(column, rr - rl)
+                assert.equal(listRight, rr, ("the right column ends at %s, the list at %s"):format(rr, listRight))
+                checked = checked + 1
+            end
+        end
+        assert.is_true(checked > 0)
+    end)
+
+    it("makes the scroll child as tall as the full rows, the fold and the pairs", function()
+        local settled = settledRows(panel.match)
+        ns.UI.EquipPanel.ToggleFold(ns.db)
+        ns.UI.EquipPanel.Refresh(panel, panel.match)
+        local gap = ns.UI.EquipPanel.ROW_GAP
+        local expected = 0
+        for _, frameRow in ipairs(panel.rows) do
+            if frameRow.shown then
+                expected = expected + ns.UI.EquipPanel.RowHeight(frameRow.note:IsShown()) + gap
+            end
+        end
+        expected = expected + ns.UI.EquipPanel.FOLD_HEIGHT + gap
+        -- A pair is worth ONE settled line, however many cells it holds: the
+        -- line's own height rule at the settled icon, plus the clearance above.
+        local settledLine = ns.UI.EquipPanel.LINE_TOP + ns.UI.ItemLine.Height(ns.UI.EquipPanel.SETTLED_ICON_SIZE)
+        expected = expected + math.ceil(#settled / 2) * (settledLine + gap)
+        assert.equal(expected, panel.list:GetHeight())
+        local checked = 0
+        for _, pair in ipairs(panel.pairs) do
+            if pair.shown then
+                assert.equal(settledLine, pair:GetHeight())
+                checked = checked + 1
+            end
+        end
+        assert.is_true(checked > 0)
+        assert.is_false(panel.overflow:IsShown())
+    end)
+
+    it("takes the pairs down again when the fold shuts", function()
+        ns.UI.EquipPanel.ToggleFold(ns.db)
+        ns.UI.EquipPanel.Refresh(panel, panel.match)
+        assert.is_true(#panel.pairs > 0)
+        assert.is_true(panel.fold:Click())
+        for _, pair in ipairs(panel.pairs) do
+            assert.is_false(pair.shown)
+            assert.is_nil(pair.left.line.item)
+            assert.is_nil(pair.right.line.item)
+        end
+    end)
+
+    it("says what comes off on a swap row's second line", function()
+        local row = {
+            slot = "Shoulder",
+            status = "swap",
+            best = { itemID = 1, location = "bag", name = "Something Better", itemLevel = 289 },
+            equipped = { itemID = 2, name = "Preyhunter's Mantle", itemLevel = 276 },
+        }
+        assert.equal(
+            "Shoulder · in your bags · replaces Preyhunter's Mantle 276",
+            ns.UI.EquipPanel.Drawn(row, nil).second
+        )
+        -- A worn item still pending a name draws today's line, and so does one
+        -- with no level, and a row with nothing worn.
+        row.equipped = { itemID = 2, itemLevel = 276 }
+        assert.equal("Shoulder · in your bags", ns.UI.EquipPanel.Drawn(row, nil).second)
+        row.equipped = { itemID = 2, name = "Preyhunter's Mantle" }
+        assert.equal("Shoulder · in your bags", ns.UI.EquipPanel.Drawn(row, nil).second)
+        row.equipped = nil
+        assert.equal("Shoulder · in your bags", ns.UI.EquipPanel.Drawn(row, nil).second)
+    end)
+
+    it("says what comes off on a not-owned row too, and nothing on a settled one", function()
+        local notOwned = {
+            slot = "Feet",
+            status = "best_not_owned",
+            verdictItem = { itemID = 3, level = 285 },
+            reason = "not in your bags",
+            equipped = { itemID = 4, name = "Old Boots", itemLevel = 250 },
+        }
+        assert.equal(
+            "Feet · " .. ns.UI.EquipPanel.NOT_OWNED_PHRASE .. " · replaces Old Boots 250",
+            ns.UI.EquipPanel.Drawn(notOwned, nil).second
+        )
+        local settled = {
+            slot = "Head",
+            status = "equipped_is_best",
+            best = { itemID = 5, name = "Crown", itemLevel = 280 },
+            equipped = { itemID = 5, name = "Crown", itemLevel = 280 },
+        }
+        assert.equal("Head", ns.UI.EquipPanel.Drawn(settled, nil).second)
+    end)
+
+    it("draws the clause on the real swap rows, off the worn item the row already carries", function()
+        local checked = 0
+        for _, frameRow in ipairs(panel.rows) do
+            if frameRow.shown and frameRow.matchRow and frameRow.matchRow.status == "swap" then
+                local worn = frameRow.described.worn
+                assert.is_table(worn)
+                assert.is_string(worn.name)
+                local clause = ("replaces %s %s"):format(worn.name, tostring(worn.itemLevel))
+                local second = frameRow.line.second:GetText()
+                assert.is_truthy(second:find(clause, 1, true), second)
+                checked = checked + 1
+            end
+        end
+        assert.equal(panel.match.counts.swap, checked)
+        assert.is_true(checked > 0)
+    end)
+end)
+
 describe("the Equip Now panel in combat", function()
     local ns, world, panel
 
@@ -1442,8 +1765,15 @@ describe("the Equip Now panel in combat", function()
         assert.is_false(panel.equipAll:IsEnabled())
         ns.UI.EquipPanel.ToggleFold(ns.db)
         ns.UI.EquipPanel.Refresh(panel, panel.match)
-        for i = 1, #panel.match.rows do
-            assert.is_false(panel.rows[i].equip:IsEnabled())
+        local items = drawnItems(panel)
+        assert.equal(#panel.match.rows, #items)
+        for _, frameRow in ipairs(items) do
+            if frameRow.equip then
+                assert.is_false(frameRow.equip:IsEnabled())
+            else
+                -- a settled cell (M5-1e): no button to enable in the first place
+                assert.equal("equipped_is_best", frameRow.matchRow.status)
+            end
         end
     end)
 
