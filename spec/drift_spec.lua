@@ -486,6 +486,264 @@ describe("ns.Drift, the wait after the first reload", function()
 end)
 
 -- ---------------------------------------------------------------------------
+-- R-6b (WKE-628): a status older than the click is not this run's answer.
+--
+-- The owner's screen, 2026-09-23 00:53 local: he clicked `Refresh` on his
+-- Druid, reloaded, and read the ordinary facts line instead of the wait. The
+-- file on disk at that load was the 00:52 FAILED status of the SHAMAN's run -
+-- the watcher reacts to the SavedVariables the reload writes, so it answers
+-- after the load, never before it - and `refreshDecision` read `state` alone,
+-- said `failed` about a run that was not his, cleared the stamp, and left him
+-- with, in his own words, "no idea when it is finished unless I'm looking at my
+-- other screen."
+--
+-- Proven red by taking the clock comparison back out of `refreshDecision`:
+-- every "before the click" case below decides `failed` / `skipped` / the older
+-- run's clock, and the stamp is gone.
+describe("ns.Drift, a status older than the refresh click (R-6b)", function()
+    local ns
+    local STARTED = "2026-09-14T23:10:00Z"
+    local NOW = "2026-09-14T23:10:30Z"
+    local WAIT_TEXT = "rating your gear, started 30 seconds ago, usually about a minute "
+        .. "\194\183 Refresh loads it when it's ready"
+    local WAIT_CHAT = "your gear is sent; the rating usually takes about a minute. The window says when it's ready."
+
+    before_each(function()
+        ns = loadToday()
+        ns.db.global.drift.refreshStartedAt = STARTED
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function at(iso)
+        return ns.EpochFromISO(iso)
+    end
+
+    -- The previous run's death, sitting on disk at the load this click caused.
+    it("keeps waiting through a FAILED status that ended before the click", function()
+        ns.companionStatus = {
+            state = "failed",
+            stage = "qe live",
+            startedAt = "2026-09-14T23:09:40Z",
+            finishedAt = "2026-09-14T23:09:45Z",
+        }
+        assert.equal("waiting", ns.Drift.Decide(at(NOW)))
+        local model = ns.Drift.Model(at(NOW))
+        assert.equal("wait", model.kind)
+        assert.equal(WAIT_TEXT, model.text)
+        -- and the stamp SURVIVES, which is the whole of it: the strip goes on
+        -- counting until an answer to THIS click arrives
+        assert.equal(STARTED, ns.db.global.drift.refreshStartedAt)
+        assert.equal(WAIT_CHAT, ns.Drift.LoadLine(at(NOW)))
+    end)
+
+    -- The same failure, dated after the click: this one IS his answer, and
+    -- nothing about it changes.
+    it("still says FAILED for a status that ended after the click", function()
+        ns.companionStatus = {
+            state = "failed",
+            stage = "qe live",
+            startedAt = "2026-09-14T23:10:05Z",
+            finishedAt = "2026-09-14T23:10:20Z",
+        }
+        assert.equal("failed", ns.Drift.Decide(at(NOW)))
+        assert.equal("the rating failed at qe live; see companion.log.", ns.Drift.LoadLine(at(NOW)))
+        assert.is_nil(ns.Drift.Model(at(NOW)))
+        assert.is_nil(ns.db.global.drift.refreshStartedAt)
+    end)
+
+    it("keeps waiting through a SKIPPED status that ended before the click", function()
+        ns.companionStatus = {
+            state = "skipped",
+            startedAt = "2026-09-14T23:09:40Z",
+            finishedAt = "2026-09-14T23:09:41Z",
+            message = "profile unchanged since 2026-09-14T23:00:00Z; the rating is current",
+        }
+        assert.equal("waiting", ns.Drift.Decide(at(NOW)))
+        assert.equal("wait", ns.Drift.Model(at(NOW)).kind)
+        assert.equal(STARTED, ns.db.global.drift.refreshStartedAt)
+        assert.equal(WAIT_CHAT, ns.Drift.LoadLine(at(NOW)))
+    end)
+
+    it("still says SKIPPED for a status that ended after the click", function()
+        ns.companionStatus = {
+            state = "skipped",
+            startedAt = "2026-09-14T23:10:05Z",
+            finishedAt = "2026-09-14T23:10:06Z",
+        }
+        assert.equal("skipped", ns.Drift.Decide(at(NOW)))
+        assert.equal(ns.Drift.LOAD_SKIPPED, ns.Drift.LoadLine(at(NOW)))
+        assert.is_nil(ns.db.global.drift.refreshStartedAt)
+    end)
+
+    -- A `running` status the click overtook is the run BEFORE it, still going
+    -- when the gear was sent. The count is the click's, not that run's: telling
+    -- the player his rating started 90 seconds ago would date it from somebody
+    -- else's work.
+    it("counts from the click, not from a run that started before it", function()
+        ns.companionStatus = { state = "running", startedAt = "2026-09-14T23:09:00Z" }
+        local decision, _, since = ns.Drift.Decide(at(NOW))
+        assert.equal("waiting", decision)
+        assert.equal(STARTED, since)
+        assert.equal(WAIT_TEXT, ns.Drift.Model(at(NOW)).text)
+        assert.equal(STARTED, ns.db.global.drift.refreshStartedAt)
+    end)
+
+    -- And a run that started after the click is this one: R-6's rule that the
+    -- elapsed time is ITS clock stands untouched.
+    it("counts from the run once the run is this click's", function()
+        ns.companionStatus = { state = "running", startedAt = "2026-09-14T23:10:05Z" }
+        local decision, _, since = ns.Drift.Decide(at(NOW))
+        assert.equal("waiting", decision)
+        assert.equal("2026-09-14T23:10:05Z", since)
+        assert.is_truthy(ns.Drift.Model(at(NOW)).text:find("started 25 seconds ago", 1, true))
+    end)
+
+    -- Which clock an ENDED run is dated by, and the case that tells the two
+    -- apart: a run that was already going when the click landed and finished
+    -- after it. It is dated by its END, so it is this click's answer - the
+    -- companion re-reads the SavedVariables the reload wrote before it writes,
+    -- and a `finishedAt` after the click is the only thing the file says about
+    -- what it saw. Proven red by dating an ended run from its `startedAt`: the
+    -- wait holds over an answer that is already on disk.
+    it("dates an ended run by its end, not by its start", function()
+        ns.companionStatus = {
+            state = "failed",
+            stage = "qe live",
+            startedAt = "2026-09-14T23:09:50Z",
+            finishedAt = "2026-09-14T23:10:20Z",
+        }
+        assert.equal("failed", ns.Drift.Decide(at(NOW)))
+        assert.is_nil(ns.Drift.Model(at(NOW)))
+        assert.is_nil(ns.db.global.drift.refreshStartedAt)
+    end)
+
+    -- And a run that wrote no end at all is dated by its start, which is all
+    -- the file says. Proven red by dropping the `or status.startedAt` fallback:
+    -- the clock is nil, nothing is compared, and the wait ends on the previous
+    -- run's failure again.
+    it("falls back to the start when the companion wrote no end", function()
+        ns.companionStatus = { state = "failed", stage = "qe live", startedAt = "2026-09-14T23:09:40Z" }
+        assert.equal("waiting", ns.Drift.Decide(at(NOW)))
+        assert.equal(STARTED, ns.db.global.drift.refreshStartedAt)
+    end)
+
+    -- A status file with no clock in it at all cannot be placed either side of
+    -- the click, so it keeps exactly the behaviour it had before R-6b - which
+    -- is what docs/ARCHITECTURE.md §11 records as left for the owner's word.
+    it("leaves a status with no readable clock exactly where R-6a left it", function()
+        ns.companionStatus = { state = "failed", stage = "profile" }
+        assert.equal("failed", ns.Drift.Decide(at(NOW)))
+        assert.equal("the rating failed at profile; see companion.log.", ns.Drift.LoadLine(at(NOW)))
+        assert.is_nil(ns.db.global.drift.refreshStartedAt)
+    end)
+
+    -- The bound is untouched: a companion that never answers still hands the
+    -- strip back to C-9 rather than counting for the rest of the session.
+    it("still gives up after WAIT_GIVE_UP_SECONDS on an older status", function()
+        ns.companionStatus = {
+            state = "failed",
+            stage = "qe live",
+            finishedAt = "2026-09-14T23:09:45Z",
+        }
+        assert.equal("waiting", ns.Drift.Decide(at("2026-09-14T23:19:00Z")))
+        assert.is_nil(ns.Drift.Decide(at("2026-09-14T23:30:00Z")))
+        assert.is_nil(ns.Drift.Model(at("2026-09-14T23:30:00Z")))
+        assert.is_nil(ns.db.global.drift.refreshStartedAt)
+    end)
+end)
+
+-- The owner's own 2026-09-23 sequence, replayed step by step through the one
+-- decision. Every stamp below is read from his machine: `Data/companion.log`
+-- lines 865-911 (the Shaman's run at 05:52:40Z, its `FAILED: QE Live's Go!
+-- button is disabled for this pool` at 05:52:45Z, the SavedVariables the
+-- Druid's reload wrote arriving at 05:53:34Z) and the verdict that run wrote at
+-- 05:57:37Z, which `Data/CompanionStatus.lua` on his machine still quotes.
+describe("the owner's 2026-09-23 00:53 refresh on the Druid (R-6b)", function()
+    local ns
+    -- His click, as `Companion.Refresh` stamped it: the log's own
+    -- `spec from the 00:53:31 refresh read`.
+    local CLICK = "2026-09-23T05:53:31Z"
+    -- The Shaman's run, which is what the file on disk said at his load.
+    local SHAMAN_FAILED = {
+        state = "failed",
+        stage = "qe live",
+        startedAt = "2026-09-23T05:52:40Z",
+        finishedAt = "2026-09-23T05:52:45Z",
+        exitCode = 5,
+    }
+
+    before_each(function()
+        ns = loadToday()
+        ns.db.global.drift.refreshStartedAt = CLICK
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function at(iso)
+        return ns.EpochFromISO(iso)
+    end
+
+    it("waits at the load, through the run, and stops when the plan lands", function()
+        -- 05:53:33Z - back in game. The watcher has not read his
+        -- SavedVariables yet; the status file is the Shaman's 05:52 failure.
+        ns.companionStatus = SHAMAN_FAILED
+        assert.equal("waiting", ns.Drift.Decide(at("2026-09-23T05:53:33Z")))
+        assert.equal(
+            "your gear is sent; the rating usually takes about a minute. The window says when it's ready.",
+            ns.Drift.LoadLine(at("2026-09-23T05:53:33Z"))
+        )
+        assert.equal(CLICK, ns.db.global.drift.refreshStartedAt)
+
+        -- 05:53:34Z - the watcher reads what the reload wrote and starts his
+        -- run. From here the count is the run's own clock, as R-6 has it.
+        ns.companionStatus = { state = "running", startedAt = "2026-09-23T05:53:34Z" }
+        local decision, _, since = ns.Drift.Decide(at("2026-09-23T05:55:00Z"))
+        assert.equal("waiting", decision)
+        assert.equal("2026-09-23T05:53:34Z", since)
+        assert.is_truthy(ns.Drift.Model(at("2026-09-23T05:55:00Z")).text:find("rating your gear", 1, true))
+        assert.equal(CLICK, ns.db.global.drift.refreshStartedAt)
+
+        -- 05:57:37Z - `qe live: 36 documents` and the write. He reloads, the
+        -- plan is there, and the wait ends the way it was always meant to.
+        ns.companionStatus = {
+            state = "idle",
+            startedAt = "2026-09-23T05:53:34Z",
+            finishedAt = "2026-09-23T05:57:37Z",
+            verdictWrittenAt = "2026-09-23T05:57:37Z",
+        }
+        ns.db.char.qeImports = {
+            Dungeon = {
+                spec = "Restoration Druid",
+                exportedAt = "2026-09-23T05:57:30Z",
+                companionWrittenAt = "2026-09-23T05:57:37Z",
+                items = {},
+                scenario = ns.QEImport.DEFAULT_SCENARIO,
+            },
+        }
+        assert.equal("done", ns.Drift.Decide(at("2026-09-23T05:57:50Z")))
+        assert.equal("rated just now; you're up to date.", ns.Drift.LoadLine(at("2026-09-23T05:57:50Z")))
+        assert.is_nil(ns.Drift.Model(at("2026-09-23T05:57:50Z")))
+        assert.is_nil(ns.db.global.drift.refreshStartedAt)
+    end)
+
+    -- What he actually saw, and the one line of it that was false. Before R-6b
+    -- the load said the Shaman's failure; the strip's companion clause said the
+    -- same thing, and still does - it reports the file as it is, and only the
+    -- DECISION about the refresh changed.
+    it("leaves the strip's companion clause reporting the file as it is", function()
+        ns.companionStatus = SHAMAN_FAILED
+        local clause = ns.Companion.StatusText(ns.companionStatus, at("2026-09-23T05:53:33Z"))
+        assert.is_truthy(clause:find("FAILED", 1, true))
+        assert.equal("waiting", ns.Drift.Decide(at("2026-09-23T05:53:33Z")))
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
 -- R-6a (WKE-590): the load after a refresh always says something.
 --
 -- The owner's screen, 2026-09-15 17:22 local: he reloaded, ran
