@@ -3143,11 +3143,29 @@ describe("UpgradeMapPanel tiles on the frames", function()
             assert.equal(86, cell:GetWidth())
             assert.equal(47, cell:GetHeight())
             assert.same(crop, cell.texCoord)
+            -- Cropped, not whole: the middle 47/86 of the icon's height.
+            assert.is_true(math.abs(cell.texCoord[3] - (1 - 47 / 86) / 2) < 1e-9)
+            assert.is_true(math.abs(cell.texCoord[4] - (1 + 47 / 86) / 2) < 1e-9)
             -- The same four icons as before, the four best rated rows' own.
             assert.equal(5000 + crafting.upgrades[index].itemID, cell:GetTexture())
             assert.equal(icons[index], cell:GetTexture())
             assert.is_true(cell:IsShown())
             assert.equal(P.MOSAIC_ALPHA, cell:GetAlpha())
+        end
+
+        -- Whether the client keeps tex coords across a new SetTexture is not
+        -- something .luals/ can say, so InitTile puts the crop back after it. A
+        -- client that clears them on SetTexture still draws the crop.
+        for _, cell in ipairs(tile.mosaic) do
+            local setTexture = cell.SetTexture
+            cell.SetTexture = function(self, value)
+                setTexture(self, value)
+                self.texCoord = nil
+            end
+        end
+        P.InitTile(frame, tile, crafting, false)
+        for _, cell in ipairs(tile.mosaic) do
+            assert.same(crop, cell.texCoord)
         end
     end)
 
