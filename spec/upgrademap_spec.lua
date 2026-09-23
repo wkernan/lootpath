@@ -3035,7 +3035,18 @@ describe("UpgradeMapPanel tiles on the frames", function()
         empty.upgrades = {}
         empty.rated = 0
 
+        -- The same tile first drawn with the delve's own four icons, so a cell
+        -- left showing from that draw would be caught.
+        for index = 1, P.MOSAIC_COUNT do
+            local itemID = delves.upgrades[index].itemID
+            world.items[itemID] = {
+                instant = { itemID, "Armor", "Cloth", "INVTYPE_LEGS", 5000 + itemID, 4, 8, n = 7 },
+            }
+        end
         local tile = drawTile(frame, model, delves)
+        for _, cell in ipairs(tile.mosaic) do
+            assert.is_true(cell:IsShown())
+        end
         P.InitTile(frame, tile, empty, false)
         assert.is_false(tile.art:IsShown())
         assert.is_nil(tile.art:GetAtlas())
