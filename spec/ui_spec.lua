@@ -2111,12 +2111,15 @@ describe("the Upgrade Map tab", function()
         assert.equal(1, #setGroup.rows)
         assert.equal(251153, setGroup.rows[1].itemID)
         assert.equal("in your best set", setGroup.rows[1].badge.text)
-        -- ...and the same row is drawn, through the element list.
+        -- ...and the same row is drawn, through the element list: since UX-6
+        -- (WKE-637) as a card under the Feet line, once that line is open.
         local badged = 0
-        for _, element in ipairs(panel.elements) do
-            local badge = element.row and element.row.badge
-            if badge and badge.text == "in your best set" then
-                badged = badged + 1
+        for _, element in ipairs(ns.UpgradeMapPanel.Elements(panel.model, { slots = { Feet = false } })) do
+            for _, card in ipairs(element.cards or {}) do
+                local badge = ns.UpgradeMapPanel.CardBadge(card.row)
+                if badge and badge.text == "in your best set" then
+                    badged = badged + 1
+                end
             end
         end
         assert.is_true(badged >= 1)

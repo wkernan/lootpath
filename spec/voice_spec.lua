@@ -329,6 +329,33 @@ describe("the source-free voice (V-1, WKE-569)", function()
                 c.check("UpgradeMap.element.row.note", element.row.badge and element.row.badge.note)
             end
         end
+        -- Since UX-6 (WKE-637) one slot opens by itself and the words that left
+        -- the list are on hovers, so the list is read the way a reader can
+        -- open it - every slot open - with every card's drawn words, every
+        -- card's hover, every slot line's hover and badge, and the nudge.
+        local Panel = ns.UpgradeMapPanel
+        c.check("UpgradeMap.answer", map.answer:GetText())
+        local everyOpen = { slots = {} }
+        for _, section in ipairs(map.model.slots or {}) do
+            everyOpen.slots[section.slot] = false
+            for _, line in ipairs(Panel.SlotTooltipLines(section)) do
+                c.check("UpgradeMap.slotHover", line)
+            end
+        end
+        for _, element in ipairs(Panel.Elements(map.model, everyOpen)) do
+            c.check("UpgradeMap.open.text", element.text)
+            c.check("UpgradeMap.open.header", element.header)
+            c.check("UpgradeMap.open.badge", element.badge and element.badge.text)
+            for _, card in ipairs(element.cards or {}) do
+                local badge = Panel.CardBadge(card.row)
+                c.check("UpgradeMap.card.second", Panel.CardSecond(card.row))
+                c.check("UpgradeMap.card.line", Panel.CardLine(card.row))
+                c.check("UpgradeMap.card.badge", badge and badge.text)
+                for _, line in ipairs(Panel.CardTooltipLines(card.row)) do
+                    c.check("UpgradeMap.cardHover", line)
+                end
+            end
+        end
         -- The other view of the same map, under both of its sorts.
         for _, sort in ipairs(ns.UpgradeMapPanel.SORTS) do
             ns.UpgradeMapPanel.Refresh(map, { mode = ns.UpgradeMapPanel.MODE_RUN, runSort = sort })

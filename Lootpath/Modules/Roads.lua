@@ -52,10 +52,13 @@ Roads.GROUP_ORDER = { Roads.GROUP_SET, Roads.GROUP_ITEM, Roads.GROUP_NONE }
 
 -- The header each group carries. The middle one names its scale once, so no row
 -- inside it has to (docs/ROADS-UX.md, surface 2).
+-- The middle group's scale, said once. Its own constant since UX-6 (WKE-637):
+-- the Upgrade Map's card hover names it beside a percent, and the header below
+-- is built from it, so the two can never say it differently.
+Roads.ITEM_SCALE_TEXT = "percents are against what you wear · at your key's preview level, per the client"
 Roads.GROUP_HEADER = {
     [Roads.GROUP_SET] = "Your best set",
-    [Roads.GROUP_ITEM] = "Other rated sources · percents are against what you wear"
-        .. " · at your key's preview level, per the client",
+    [Roads.GROUP_ITEM] = "Other rated sources · " .. Roads.ITEM_SCALE_TEXT,
     [Roads.GROUP_NONE] = "No rating",
 }
 

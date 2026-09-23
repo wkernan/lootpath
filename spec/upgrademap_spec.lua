@@ -2419,10 +2419,10 @@ describe("UpgradeMapPanel elements, over the committed walk and QE Live's own ex
         assert.is_true(#shut < #open)
         assert.is_false(sectionFor(open, head.slot).collapsed)
         -- The section itself stays on screen either way: it is how the reader
-        -- opens it again, and it still says how much is inside.
+        -- opens it again. Since UX-6 (WKE-637) its line carries no drop count.
         local closed = sectionFor(shut, head.slot)
         assert.is_true(closed.collapsed)
-        assert.equal(#head.candidates, closed.count)
+        assert.is_nil(closed.count)
         -- ...and every other slot is still headed exactly as it was.
         local sections = 0
         for _, element in ipairs(shut) do
@@ -3430,7 +3430,9 @@ describe("UpgradeMapPanel through the scroll box", function()
                 element.sectionButton:Click()
             end
         end
-        assert.is_nil(ns.db.char.upgradeMap.collapsedSlots[slot])
+        -- Since UX-6 (WKE-637) the click is kept either way: false is "opened
+        -- by the reader", so a default can never override it.
+        assert.is_false(ns.db.char.upgradeMap.collapsedSlots[slot])
         assert.equal(before, #frame.elements)
     end)
 
