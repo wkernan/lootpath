@@ -256,6 +256,148 @@ describe("UI.ItemLine over a cached item", function()
     end)
 end)
 
+-- M5-1d (WKE-632). The owner, 2026-09-23, on Equip Now: "I don't like how if
+-- my cursor is in the negative space in line with a piece of gear, I see the
+-- gear stats." The name's hover target used to run from the icon to the
+-- badge column, which on Equip Now is the far side of the row; it now ends
+-- where the name the client drew ends.
+--
+-- The stub lays nothing out, so the room the client would give the name (its
+-- own resolved width between the icon and the badge column) is set by hand,
+-- and the text's width is whatever the stub's FontString:GetStringWidth
+-- answers for the text the line actually wrote - read back, never written
+-- down here.
+describe("UI.ItemLine's name hover", function()
+    local ns, world, line, IL
+    local ROOM = 300
+
+    local function point(region, name)
+        for _, p in ipairs(region.points) do
+            if p[1] == name then
+                return p
+            end
+        end
+        return nil
+    end
+
+    -- The button spans the whole name box: today's target, the fallback.
+    local function isFullWidth(button)
+        local all = point(button, "ALL")
+        return all ~= nil and all[2] == line.name
+    end
+
+    before_each(function()
+        ns, world = H.load()
+        IL = ns.UI.ItemLine
+        registerLoaded(world, ITEM_ID, "Placeholder Hood", 4, 308, ICON)
+        line = IL.Create(CreateFrame("Frame"), {})
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("ends where the name ends, and the hover is still the item", function()
+        line.name:SetWidth(ROOM)
+        IL.Set(line, {
+            itemID = ITEM_ID,
+            link = "|Hitem:271528|h[Placeholder Hood]|h",
+            name = "Placeholder Hood",
+            quality = 4,
+        })
+        assert.is_truthy(line.name:GetText():find("Placeholder Hood", 1, true))
+        local measured = line.name:GetStringWidth()
+        assert.is_true(measured > 0 and measured < ROOM, "the stub's name width was " .. tostring(measured))
+        assert.equal(measured, line.nameButton:GetWidth())
+        -- Pinned at the name's left, the height of the name's box, and tied to
+        -- nothing on the right: a width, not a stretch to the line's edge.
+        assert.same({ "TOPLEFT", line.name, "TOPLEFT", 0, 0 }, point(line.nameButton, "TOPLEFT"))
+        assert.same({ "BOTTOMLEFT", line.name, "BOTTOMLEFT", 0, 0 }, point(line.nameButton, "BOTTOMLEFT"))
+        for _, edge in ipairs({ "ALL", "RIGHT", "TOPRIGHT", "BOTTOMRIGHT" }) do
+            assert.is_nil(point(line.nameButton, edge), "the name button is still tied on " .. edge)
+        end
+
+        -- Hovering the name is hovering the item.
+        line.nameButton.stub:Enter()
+        assert.equal("|Hitem:271528|h[Placeholder Hood]|h", world.tooltip.hyperlink)
+        assert.equal(1, #world.compareCalls)
+        line.nameButton.stub:Leave()
+
+        -- A point past the name, still inside the room the name had: the line
+        -- wires two hover targets - the icon, left of the name box, and the
+        -- name button, which now covers [0, measured] from the name box's left
+        -- - and the line itself answers no hover. So nothing is under it.
+        local past = measured + 1
+        assert.is_true(past < ROOM)
+        assert.is_true(past > line.nameButton:GetWidth())
+        assert.is_nil(line:GetScript("OnEnter"))
+        assert.same({ "TOPLEFT", line, "TOPLEFT", 0, 0 }, point(line.iconButton, "TOPLEFT"))
+    end)
+
+    it("never runs past the room the name had", function()
+        line.name:SetWidth(ROOM)
+        IL.Set(line, { itemID = ITEM_ID, name = string.rep("Very Long Name ", 10), quality = 4 })
+        assert.is_true(line.name:GetStringWidth() > ROOM)
+        assert.equal(ROOM, line.nameButton:GetWidth())
+    end)
+
+    it("moves nothing else: the name's box and the second line keep today's anchors", function()
+        line.name:SetWidth(ROOM)
+        IL.Set(line, { itemID = ITEM_ID, second = "Shoulder · in your bags" })
+        assert.same({ "TOPLEFT", line.iconButton, "TOPRIGHT", IL.ICON_GAP, 0 }, point(line.name, "TOPLEFT"))
+        assert.same({ "RIGHT", line, "RIGHT", -IL.BADGE_WIDTH - IL.ICON_GAP, 0 }, point(line.name, "RIGHT"))
+        assert.equal(IL.NAME_HEIGHT, line.name:GetHeight())
+        -- The second line hangs off the name's box, not off the button, so
+        -- fitting the button to the name cannot narrow it.
+        assert.same({ "TOPLEFT", line.name, "BOTTOMLEFT", 0, -IL.SECOND_GAP }, point(line.second, "TOPLEFT"))
+        assert.same({ "RIGHT", line.name, "RIGHT", 0, 0 }, point(line.second, "RIGHT"))
+        assert.equal("Shoulder · in your bags", line.second:GetText())
+    end)
+
+    it("keeps the full-width target when the client cannot measure the name", function()
+        -- No answer at all.
+        line.name:SetWidth(ROOM)
+        line.name.GetStringWidth = nil
+        IL.Set(line, { itemID = ITEM_ID })
+        assert.is_true(isFullWidth(line.nameButton))
+        -- An answer of 0.
+        line.name.GetStringWidth = function()
+            return 0
+        end
+        IL.Set(line, { itemID = ITEM_ID })
+        assert.is_true(isFullWidth(line.nameButton))
+        -- An answer that throws.
+        line.name.GetStringWidth = function()
+            error("no")
+        end
+        IL.Set(line, { itemID = ITEM_ID })
+        assert.is_true(isFullWidth(line.nameButton))
+        -- And the hover still works from there.
+        line.nameButton.stub:Enter()
+        assert.equal(ITEM_ID, world.tooltip.itemID)
+    end)
+
+    it("keeps the full-width target while the name is still pending", function()
+        line.name:SetWidth(ROOM)
+        IL.Set(line, { itemID = 999999 })
+        assert.equal(RETRIEVING_ITEM_INFO, line.name:GetText())
+        assert.is_true(isFullWidth(line.nameButton))
+    end)
+
+    it("keeps the full-width target until the client has laid the name out, then fits", function()
+        -- No room yet: nothing to cap at, so never narrower than the text.
+        IL.Set(line, { itemID = ITEM_ID })
+        assert.is_true(isFullWidth(line.nameButton))
+        -- The client lays the line out and says its size changed.
+        line.name:SetWidth(ROOM)
+        local onSize = line:GetScript("OnSizeChanged")
+        assert.is_function(onSize)
+        onSize(line, 500, IL.Height())
+        assert.is_false(isFullWidth(line.nameButton))
+        assert.equal(line.name:GetStringWidth(), line.nameButton:GetWidth())
+    end)
+end)
+
 describe("UI.ItemLine over an item the client has not loaded", function()
     local ns, world, line
 
