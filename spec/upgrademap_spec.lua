@@ -3087,6 +3087,88 @@ describe("UpgradeMapPanel tiles on the frames", function()
         assertShadeSpan(bare)
     end)
 
+    -- UX-5b (WKE-635): a mosaic cell is half the tile each way, and an item icon
+    -- is square, so drawn whole it was stretched - "the Crafting box is
+    -- smooshed". The cell crops the icon to its own proportion instead.
+    it("crops a mosaic icon to its cell's proportion, never stretching it", function()
+        local P = ns.UpgradeMapPanel
+        local function near(expected, actual)
+            assert.is_true(math.abs(expected - actual) < 1e-9, tostring(expected) .. " vs " .. tostring(actual))
+        end
+
+        -- A wide cell, the one the 172 x 95 tile makes: the full width and the
+        -- middle 47/86 of the height, centred.
+        local wide = P.MosaicTexCoord(86, 47)
+        assert.equal(4, #wide)
+        assert.equal(0, wide[1])
+        assert.equal(1, wide[2])
+        near((1 - 47 / 86) / 2, wide[3])
+        near((1 + 47 / 86) / 2, wide[4])
+        -- What is shown is the cell's own proportion, so nothing is stretched.
+        near(47 / 86, (wide[4] - wide[3]) / (wide[2] - wide[1]))
+
+        -- A tall cell, the same crop the other way.
+        local tall = P.MosaicTexCoord(47, 86)
+        near((1 - 47 / 86) / 2, tall[1])
+        near((1 + 47 / 86) / 2, tall[2])
+        assert.equal(0, tall[3])
+        assert.equal(1, tall[4])
+
+        -- A square cell, or one with no size yet: the whole icon.
+        assert.same({ 0, 1, 0, 1 }, P.MosaicTexCoord(40, 40))
+        assert.same({ 0, 1, 0, 1 }, P.MosaicTexCoord(0, 47))
+        assert.same({ 0, 1, 0, 1 }, P.MosaicTexCoord(nil, nil))
+    end)
+
+    it("draws the Crafting tile's four icons each cropped to its cell", function()
+        local P = ns.UpgradeMapPanel
+        local frame = P.Create()
+        local model = runModel()
+        local crafting = cardNamed(model, "Crafting")
+        assert.is_not_nil(crafting)
+        for index = 1, P.MOSAIC_COUNT do
+            local itemID = crafting.upgrades[index].itemID
+            world.items[itemID] = {
+                instant = { itemID, "Armor", "Cloth", "INVTYPE_LEGS", 5000 + itemID, 4, 8, n = 7 },
+            }
+        end
+
+        local tile = drawTile(frame, model, crafting)
+        assert.equal(172, tile:GetWidth())
+        assert.equal(95, tile:GetHeight())
+        local icons = P.TileMosaic(crafting)
+        assert.equal(P.MOSAIC_COUNT, #icons)
+        local crop = P.MosaicTexCoord(86, 47)
+        for index, cell in ipairs(tile.mosaic) do
+            assert.equal(86, cell:GetWidth())
+            assert.equal(47, cell:GetHeight())
+            assert.same(crop, cell.texCoord)
+            -- Cropped, not whole: the middle 47/86 of the icon's height.
+            assert.is_true(math.abs(cell.texCoord[3] - (1 - 47 / 86) / 2) < 1e-9)
+            assert.is_true(math.abs(cell.texCoord[4] - (1 + 47 / 86) / 2) < 1e-9)
+            -- The same four icons as before, the four best rated rows' own.
+            assert.equal(5000 + crafting.upgrades[index].itemID, cell:GetTexture())
+            assert.equal(icons[index], cell:GetTexture())
+            assert.is_true(cell:IsShown())
+            assert.equal(P.MOSAIC_ALPHA, cell:GetAlpha())
+        end
+
+        -- Whether the client keeps tex coords across a new SetTexture is not
+        -- something .luals/ can say, so InitTile puts the crop back after it. A
+        -- client that clears them on SetTexture still draws the crop.
+        for _, cell in ipairs(tile.mosaic) do
+            local setTexture = cell.SetTexture
+            cell.SetTexture = function(self, value)
+                setTexture(self, value)
+                self.texCoord = nil
+            end
+        end
+        P.InitTile(frame, tile, crafting, false)
+        for _, cell in ipairs(tile.mosaic) do
+            assert.same(crop, cell.texCoord)
+        end
+    end)
+
     it("dims a tile with nothing rated, and gives it no badge at all", function()
         local frame = ns.UpgradeMapPanel.Create()
         local model = runModel()

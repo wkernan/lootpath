@@ -2255,6 +2255,28 @@ function Panel.TileMosaic(run)
     return icons
 end
 
+-- The part of a square item icon one mosaic cell shows (UX-5b, WKE-635), as
+-- `{ left, right, top, bottom }` tex coords. A cell is half the tile each way -
+-- 86 x 47 on the 172 x 95 tile - and an item icon is square, so drawn whole it
+-- was stretched to nearly twice as wide as tall: the owner's "the Crafting box
+-- is smooshed". V-5a's rule (§7, 2026-09-16) is that art is drawn at its own
+-- proportion or cropped, never stretched, so the cell crops: a wide cell keeps
+-- the icon's full width and the middle `height / width` of its height, centred;
+-- a tall cell the same the other way; a square cell, or one with no size yet,
+-- the whole icon. Pure: nothing here reads a frame.
+function Panel.MosaicTexCoord(cellWidth, cellHeight)
+    local width, height = tonumber(cellWidth) or 0, tonumber(cellHeight) or 0
+    if width <= 0 or height <= 0 or width == height then
+        return { 0, 1, 0, 1 }
+    end
+    if width > height then
+        local keep = height / width
+        return { 0, 1, (1 - keep) / 2, (1 + keep) / 2 }
+    end
+    local keep = width / height
+    return { (1 - keep) / 2, (1 + keep) / 2, 0, 1 }
+end
+
 -- How tall the drawer under an open tile is: its header, then one item line per
 -- rated drop, or one note line when there are none.
 function Panel.DrawerHeight(run)
@@ -3203,8 +3225,15 @@ local function sizeTile(tile, width, height)
 
     local mosaicWidth = math.max(1, math.floor(width / 2))
     local mosaicHeight = math.max(1, math.floor(height / 2))
+    -- Each cell shows its icon cropped to the cell's own proportion, never
+    -- stretched into it (UX-5b). The crop is kept on the cell so InitTile puts
+    -- it back after SetTexture: nothing under .luals/ says whether the client
+    -- keeps tex coords across a new texture, and this is right either way.
+    local crop = Panel.MosaicTexCoord(mosaicWidth, mosaicHeight)
     for index, cell in ipairs(tile.mosaic) do
         cell:SetSize(mosaicWidth, mosaicHeight)
+        cell.mosaicTexCoord = crop
+        cell:SetTexCoord(unpack(crop))
         cell:ClearAllPoints()
         local left = (index == 1 or index == 3)
         local top = index <= 2
@@ -3530,6 +3559,9 @@ function Panel.InitTile(panel, tile, run, open)
         local icon = mosaic and mosaic[index] or nil
         if icon then
             cell:SetTexture(icon)
+            if cell.mosaicTexCoord then
+                cell:SetTexCoord(unpack(cell.mosaicTexCoord))
+            end
             cell:Show()
         else
             cell:Hide()
