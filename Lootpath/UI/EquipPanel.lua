@@ -66,12 +66,18 @@ EquipPanel.MAX_ROWS = 20
 -- the list nor move its top.
 EquipPanel.TOP_GAP = 8
 
--- How far a row sits inside the panel: the scroll frame's own left edge plus
--- the room the scrollbar wants on the right. A margin, not a width - the width
--- itself is ns.UI.PANEL_WIDTH less this (M5-2c, WKE-609). Before that this
--- panel's rows were "UI.WIDTH - 32", a number the window handed in that only
--- happened to equal the same thing at 620.
-EquipPanel.ROW_INSET = 6
+-- The room the scroll bar takes on the right, and the ONE figure both sides of
+-- the list read (M5-2d, WKE-631): the scroll frame's right edge is this far in
+-- from the panel's, and the scroll child - the rows - is the panel's width less
+-- this, so the child is exactly as wide as the frame that clips it. The bar is
+-- UIPanelScrollFrameTemplate's own: `UIPanelScrollBarTemplate` is 16 wide
+-- (Blizzard_SharedXML/SecureScrollTemplates.xml:8 in Ketho's annotations) and
+-- hangs 6 to the right of the frame's right edge (:48-49), so it needs 22 of
+-- these 26 and the other 4 are the gap to the panel's edge. A margin, not a
+-- width. Before M5-2d the rows were the panel's width less 6, which was never
+-- this room: they ran 20 points past the frame's edge and the Equip button on
+-- each row's right lost its last 20 points (the owner's Druid, 2026-09-23).
+EquipPanel.SCROLL_INSET_RIGHT = 26
 
 -- The slot bar (M5-1b, WKE-610). Its height and the hair between its segments
 -- are the only figures here; how WIDE a segment is is worked out at refresh
@@ -1222,7 +1228,7 @@ function EquipPanel.AnchorScroll(panel)
     end
     panel.scroll:ClearAllPoints()
     panel.scroll:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -EquipPanel.TOP_GAP)
-    panel.scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -26, floor)
+    panel.scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -EquipPanel.SCROLL_INSET_RIGHT, floor)
     panel.scrollAnchor = anchor
     return anchor
 end
@@ -1392,7 +1398,7 @@ function EquipPanel.Create(parent)
     -- anchors produce, so a panel built on its own - which is what the render
     -- tests do - is the size the window would have made it (M5-2c, WKE-609).
     panel:SetWidth(ns.UI.PANEL_WIDTH)
-    panel.rowWidth = ns.UI.PANEL_WIDTH - EquipPanel.ROW_INSET
+    panel.rowWidth = ns.UI.PANEL_WIDTH - EquipPanel.SCROLL_INSET_RIGHT
     panel.rows = {}
 
     panel.header = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
@@ -1533,7 +1539,7 @@ function EquipPanel.Refresh(panel, match)
     -- it does, the default Create derived from ns.UI.PANEL_WIDTH stands.
     local width = panel:GetWidth()
     if width and width > 0 then
-        panel.rowWidth = width - EquipPanel.ROW_INSET
+        panel.rowWidth = width - EquipPanel.SCROLL_INSET_RIGHT
     end
     panel.list:SetWidth(panel.rowWidth)
 

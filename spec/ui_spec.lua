@@ -1293,6 +1293,124 @@ describe("Equip Now redrawn (M5-1b)", function()
     end)
 end)
 
+-- M5-2d (WKE-631). The owner's Druid, 2026-09-23: "The Equip buttons are
+-- slightly cut off." The scroll child was 20 points wider than the scroll frame
+-- that clips it, so a button on the row's right edge lost its last 20 points.
+-- These resolve the horizontal edges from the anchors the stub recorded - the
+-- panel's left is 0 and its right is its own width - rather than from any
+-- figure the panel keeps, so a width that only agrees with itself cannot pass.
+describe("Equip Now's rows end where the scroll frame ends (M5-2d)", function()
+    local ns, world, panel
+
+    -- A region's left and right edges in the panel's own coordinates, from its
+    -- recorded anchors: a LEFT/RIGHT point sets that edge, anything else sets
+    -- the centre, and a region anchored on one side takes its other edge from
+    -- its own width. A scroll child has no anchors of its own - the client lays
+    -- it out from the scroll frame's top-left - so its left is the frame's.
+    local function edges(region, root, depth)
+        depth = (depth or 0) + 1
+        assert(depth < 32, "anchor chain too deep")
+        if region == root then
+            return 0, root:GetWidth()
+        end
+        local left, right, centre
+        local points = region.points or {}
+        if #points == 0 then
+            local parent = region:GetParent()
+            assert(parent and parent.scrollChild == region, "a region with no anchors that is not a scroll child")
+            left = edges(parent, root, depth)
+        end
+        for _, p in ipairs(points) do
+            local point, rel, relPoint, x = p[1], p[2], p[3], p[4]
+            if point == "ALL" then
+                left, right = edges(rel or region:GetParent(), root, depth)
+            else
+                if type(rel) ~= "table" then
+                    rel, relPoint, x = region:GetParent(), point, rel
+                end
+                relPoint = relPoint or point
+                local rl, rr = edges(rel, root, depth)
+                local at
+                if relPoint:find("LEFT", 1, true) then
+                    at = rl
+                elseif relPoint:find("RIGHT", 1, true) then
+                    at = rr
+                else
+                    at = (rl + rr) / 2
+                end
+                at = at + (x or 0)
+                if point:find("LEFT", 1, true) then
+                    left = at
+                elseif point:find("RIGHT", 1, true) then
+                    right = at
+                else
+                    centre = at
+                end
+            end
+        end
+        local width = region:GetWidth()
+        if centre and width and not left and not right then
+            left, right = centre - width / 2, centre + width / 2
+        elseif left and not right and width then
+            right = left + width
+        elseif right and not left and width then
+            left = right - width
+        end
+        return left, right
+    end
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        ns.UI.Frame()
+        ns.UI.frame.pasteBox:SetText(readFile(REAL_EXPORT))
+        ns.UI.frame.importButton:Click()
+        panel = ns.UI.frame.equipPanel
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("makes the scroll child exactly as wide as the scroll frame that clips it", function()
+        assert.equal(ns.UI.PANEL_WIDTH, panel:GetWidth())
+        local left, right = edges(panel.scroll, panel)
+        assert.equal(0, left)
+        assert.equal(right - left, panel.list:GetWidth())
+        -- and both come off the panel's width by the one figure
+        assert.equal(panel:GetWidth() - ns.UI.EquipPanel.SCROLL_INSET_RIGHT, right)
+        -- and they stay together when the panel is some other width
+        panel:SetWidth(400)
+        ns.UI.EquipPanel.Refresh(panel, panel.match)
+        left, right = edges(panel.scroll, panel)
+        assert.equal(400 - ns.UI.EquipPanel.SCROLL_INSET_RIGHT, right)
+        assert.equal(right - left, panel.list:GetWidth())
+    end)
+
+    it("keeps every swap row's Equip button inside the scroll frame, whole", function()
+        local scrollLeft, scrollRight = edges(panel.scroll, panel)
+        local checked = 0
+        for _, frameRow in ipairs(panel.rows) do
+            if frameRow.shown and frameRow.matchRow and frameRow.matchRow.status == "swap" then
+                assert.is_true(frameRow.equip:IsShown())
+                local left, right = edges(frameRow.equip, panel)
+                assert.is_true(
+                    right <= scrollRight,
+                    ("Equip ends at %s, the scroll frame at %s"):format(right, scrollRight)
+                )
+                assert.is_true(left >= scrollLeft)
+                -- and it is still the 64-point button at the row's right edge
+                assert.equal(64, right - left)
+                local _, rowRight = edges(frameRow, panel)
+                assert.equal(rowRight, right)
+                checked = checked + 1
+            end
+        end
+        assert.equal(panel.match.counts.swap, checked)
+        assert.is_true(checked > 0)
+    end)
+end)
+
 describe("the Equip Now panel in combat", function()
     local ns, world, panel
 
@@ -2379,13 +2497,13 @@ describe("the window's width (M5-2c)", function()
     it("derives the Equip Now rows from the panel rather than from a number", function()
         local panel = frame.equipPanel
         ns.UI.RefreshEquip(frame)
-        assert.equal(panel:GetWidth() - ns.UI.EquipPanel.ROW_INSET, panel.rowWidth)
+        assert.equal(panel:GetWidth() - ns.UI.EquipPanel.SCROLL_INSET_RIGHT, panel.rowWidth)
         assert.equal(panel.rowWidth, panel.list:GetWidth())
         -- and it follows the panel, rather than the width Create happened to
         -- start it at
         panel:SetWidth(400)
         ns.UI.RefreshEquip(frame)
-        assert.equal(400 - ns.UI.EquipPanel.ROW_INSET, panel.rowWidth)
+        assert.equal(400 - ns.UI.EquipPanel.SCROLL_INSET_RIGHT, panel.rowWidth)
         assert.equal(panel.rowWidth, panel.list:GetWidth())
     end)
 end)
