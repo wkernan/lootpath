@@ -2141,14 +2141,15 @@ Panel.TILE_HIGHLIGHT_BLEND = "ADD"
 -- (Panel.ROAD_PICK_COLOR), never the brand pink - the brand is the addon's own
 -- mark and says nothing about a run.
 Panel.TILE_OPEN_EDGE = 2
--- The art of a Delves tile, asked of the client at draw time and never assumed
--- (ns.UI.ItemLine.AtlasInfo, V-5a). A client that does not name it draws the
--- mosaic instead, and a client with neither draws nothing behind the shade: the
--- tile still reads by its name.
-Panel.DELVE_ATLAS = "ui-journeys-delve-card"
 -- The mosaic: the four best rated rows' own item icons, two by two, under the
--- shade. Their icons, at reduced alpha, because they are a backdrop and not a
--- list - the rows themselves are in the drawer.
+-- shade, behind the two tiles that have no instance - Crafting and Delves. A
+-- Delves tile drew the `ui-journeys-delve-card` atlas until UX-5c (WKE-636),
+-- and that atlas is not a picture: it is `RewardCardBG`, the background of
+-- Blizzard's 317 x 106 reward card, hollow in the middle for an icon and a name
+-- (`Blizzard_Journeys.xml:268-300`, under .luals/). The client names no scenic
+-- art for a delve, and nothing draws a texture the client did not name. The
+-- icons are at reduced alpha because they are a backdrop and not a list - the
+-- rows themselves are in the drawer.
 Panel.MOSAIC_COUNT = 4
 Panel.MOSAIC_ALPHA = 0.55
 
@@ -2234,9 +2235,9 @@ function Panel.TileDetailText(run)
     return table.concat(parts, Panel.TILE_SEPARATOR)
 end
 
--- The four best rated rows' own icons, for the mosaic behind a Crafting tile
--- (and behind a Delves tile on a client that does not have the atlas). The rows
--- are already best first, so this is the top of the list and no re-sorting.
+-- The four best rated rows' own icons, for the mosaic behind a Crafting or a
+-- Delves tile. The rows are already best first, so this is the top of the list
+-- and no re-sorting.
 function Panel.TileMosaic(run)
     local icons = {}
     for _, row in ipairs((type(run) == "table" and run.upgrades) or {}) do
@@ -3133,8 +3134,8 @@ local function createTile(parent)
     tile.art:SetAllPoints()
     tile.art:Hide()
 
-    -- The Crafting mosaic (and the Delves fallback): four item icons, two by
-    -- two, at reduced alpha under the shade.
+    -- The Crafting and Delves mosaic: four item icons, two by two, at reduced
+    -- alpha under the shade.
     tile.mosaic = {}
     for index = 1, Panel.MOSAIC_COUNT do
         local cell = tile:CreateTexture(nil, "BACKGROUND", nil, 2)
@@ -3531,9 +3532,10 @@ function Panel.InitTile(panel, tile, run, open)
     local rated = (tonumber(run.rated) or 0) > 0
 
     -- The art. A walked run draws the instance's own file, cropped exactly as
-    -- the Adventure Guide crops it; Delves draws its card atlas when the client
-    -- has one and the mosaic when it does not; Crafting always draws the mosaic.
-    -- Nothing draws a texture the client did not name.
+    -- the Adventure Guide crops it; Crafting and Delves, which have no
+    -- instance, draw the mosaic of their own four best drops (UX-5c). A run
+    -- with no rated rows draws the flat back and its name. Nothing draws a
+    -- texture the client did not name.
     local mosaic = nil
     if run.instanceImage then
         tile.art:SetTexture(run.instanceImage)
@@ -3541,17 +3543,7 @@ function Panel.InitTile(panel, tile, run, open)
         tile.art:Show()
     else
         tile.art:Hide()
-        if run.sourceKind == ns.UFImport.SOURCE_KIND_DELVE then
-            local atlas = UI.ItemLine.AtlasInfo(Panel.DELVE_ATLAS)
-            if atlas then
-                tile.art:SetTexture(nil)
-                tile.art:SetAtlas(atlas.name)
-                tile.art:SetTexCoord(0, 1, 0, 1)
-                tile.art:Show()
-            else
-                mosaic = Panel.TileMosaic(run)
-            end
-        elseif run.sourceKind then
+        if run.sourceKind then
             mosaic = Panel.TileMosaic(run)
         end
     end
