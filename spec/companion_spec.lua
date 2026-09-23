@@ -3018,7 +3018,12 @@ describe("the spec you are in against the spec the plan is for", function()
         world.spec = nil
         ns.db.global.captures.env = envNaming(GUARDIAN)
         ns.db.global.drift = { refreshStartedAt = date("!%Y-%m-%dT%H:%M:%SZ", time() - 60) }
-        ns.companionStatus = { state = "skipped", finishedAt = "2026-09-13T22:06:00Z" }
+        -- R-6b (WKE-628): the skip has to be THIS click's answer, so its clock
+        -- is dated from the same `now` the click is rather than from a fixed
+        -- 2026-09-13 stamp that every later click is newer than. What this test
+        -- is about - the spec clause said under the rating's own news - is
+        -- untouched.
+        ns.companionStatus = { state = "skipped", finishedAt = date("!%Y-%m-%dT%H:%M:%SZ", time() - 5) }
         local line = ns.Drift.LoadLine()
         assert.equal(ns.Drift.LOAD_SKIPPED, line)
         assert.is_truthy(world.output():find("this rating is for Restoration", 1, true))

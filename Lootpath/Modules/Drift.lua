@@ -619,6 +619,10 @@ end
 --   "unseen"   no status file at all: nothing has ever run
 --   "waiting"  the rating is being made; `since` is the clock to count from
 --
+-- R-6b (WKE-628): only a status whose OWN clock is newer than the click can be
+-- one of the three answers above ("failed", "skipped", "running"). An older one
+-- is the previous run's and is still "waiting".
+--
 -- Every state but "waiting" ENDS the wait, which is what keeps the two surfaces
 -- together: the strip stops saying `rating your gear` in exactly the cases the
 -- chat line answers with something else.
@@ -626,6 +630,23 @@ end
 -- No side effects: the caller clears. `Drift.LoadLine` runs before anything can
 -- have cleared the stamp out from under it (see `ns.onReady` at the foot of
 -- this file), and the strip clears from then on.
+
+-- R-6b (WKE-628): the clock a status keeps about ITSELF, so the decision below
+-- can ask whether the file on disk is this run's answer or the last one's. A
+-- run still going has only a start; one that has ended is dated by its end, and
+-- by its start when the companion wrote no end. nil when the file carries
+-- neither a state this can place nor a readable stamp, which is what leaves
+-- such a file on the behaviour it had before this (docs/ARCHITECTURE.md §11).
+local function statusClock(status)
+    if not (status and status.ok) then
+        return nil
+    end
+    if status.state == "running" then
+        return status.startedAt
+    end
+    return status.finishedAt or status.startedAt
+end
+
 local function refreshDecision(now)
     local db = store()
     local startedAt = db and db.refreshStartedAt
@@ -644,6 +665,21 @@ local function refreshDecision(now)
     local status = ns.Companion.Status(ns.companionStatus)
     if status.absent then
         return "unseen", status
+    end
+    -- R-6b (WKE-628): a status older than the click is not this run's answer.
+    -- The owner, 2026-09-23 00:53, clicked Refresh on his Druid and read the
+    -- FAILED line about the Shaman's 00:52 run: the watcher reacts to the
+    -- SavedVariables the reload WRITES, so at the load the file on disk is
+    -- still the previous run's, and reading its state alone answered the wrong
+    -- question with somebody else's answer. The wait holds until a status newer
+    -- than the click ends it - bounded, as before, by `WAIT_GIVE_UP_SECONDS`,
+    -- so a companion that never answers still hands the strip back to C-9 - and
+    -- the elapsed time is counted from the click, because a run whose own clock
+    -- predates the click is not the run being waited for.
+    local clock = statusClock(status)
+    local clockEpoch = clock and ns.EpochFromISO(clock, now) or nil
+    if clockEpoch and clockEpoch < startedEpoch then
+        return "waiting", status, startedAt
     end
     if status.ok and status.state == "failed" then
         return "failed", status
