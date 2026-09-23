@@ -180,12 +180,13 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
         return ns.UpgradeMapPanel.Elements(m, state)
     end
 
+    -- Every other slot shut and this one OPEN by a saved click: since UX-6
+    -- (WKE-637) a slot with no saved click follows the first-worth-taking rule,
+    -- so a test that wants one slot open says so (`false` is "opened").
     local function shutAllBut(m, slot)
         local shut = {}
         for _, entry in ipairs(m.slots) do
-            if entry.slot ~= slot then
-                shut[entry.slot] = true
-            end
+            shut[entry.slot] = entry.slot ~= slot
         end
         return { slots = shut }
     end
@@ -376,13 +377,21 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
                 assert.is_true(row.itemLevel ~= ns.UpgradeMapPanel.HIDDEN_ITEM_LEVEL)
             end
         end
-        -- ...and the note is drawn under the open section, where it always was.
+        -- ...and since UX-6 (WKE-637) the note is on the slot line's hover, not
+        -- under the open slot: it explains the list, it is not part of it.
         local state = shutAllBut(m, "Head")
         local said = false
         for _, element in ipairs(ns.UpgradeMapPanel.Elements(m, state)) do
             said = said or element.text == head.hiddenNote
         end
-        assert.is_true(said)
+        assert.is_false(said)
+        local hovered = 0
+        for _, line in ipairs(ns.UpgradeMapPanel.SlotTooltipLines(head)) do
+            if line == head.hiddenNote then
+                hovered = hovered + 1
+            end
+        end
+        assert.equal(1, hovered)
         -- The printed list says it too, and exactly once.
         local printed = 0
         for _, line in ipairs(ns.UpgradeMapPanel.Lines(m)) do
@@ -524,38 +533,45 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
     -- -----------------------------------------------------------------------
     -- The element list: what is DRAWN, and the Explain sentences.
 
-    it("draws a group header and a row per road, in the model's own order", function()
+    it("draws a group eyebrow and a card per road, in the model's own order", function()
         local m = model()
         local state = shutAllBut(m, "Shoulder")
         local drawn = {}
         for _, element in ipairs(elements(m, state)) do
             if element.kind == ns.UpgradeMapPanel.ELEMENT_GROUP then
                 drawn[#drawn + 1] = "group:" .. element.group
-            elseif element.kind == ns.UpgradeMapPanel.ELEMENT_ROAD then
-                drawn[#drawn + 1] = "road:" .. element.row.kind
+            elseif element.kind == ns.UpgradeMapPanel.ELEMENT_CARD_ROW then
+                for _, card in ipairs(element.cards) do
+                    drawn[#drawn + 1] = "card:" .. card.row.kind
+                end
             end
         end
         assert.same({
             "group:set",
-            "road:catalyst",
-            "road:vault",
+            "card:catalyst",
+            "card:vault",
             "group:item",
-            "road:craft",
-            "road:delve",
-            "road:drop",
-            "road:drop",
-            "road:drop",
-            "road:drop",
+            "card:craft",
+            "card:delve",
+            "card:drop",
+            "card:drop",
+            "card:drop",
+            "card:drop",
         }, { unpack(drawn, 1, 10) })
-        -- The section element carries the slot's sentence, and only while open.
+        -- The slot's sentence is off the line since UX-6 (WKE-637) and on its
+        -- hover, word for word; the line is one fixed height, open or shut.
         local header
         for _, element in ipairs(elements(m, state)) do
             if element.kind == ns.UpgradeMapPanel.ELEMENT_SECTION and element.slot == "Shoulder" then
                 header = element
             end
         end
-        assert.equal("Catalyst your Lynx shoulders, skip the vault ones, no crests here.", header.plan)
-        assert.is_true(header.height > ns.UpgradeMapPanel.SECTION_HEIGHT)
+        assert.is_nil(header.plan)
+        assert.equal(ns.UpgradeMapPanel.SLOT_LINE_HEIGHT, header.height)
+        assert.equal(
+            "Catalyst your Lynx shoulders, skip the vault ones, no crests here.",
+            ns.UpgradeMapPanel.SlotTooltipLines(header.section)[2]
+        )
     end)
 
     -- R-4 (WKE-565): what the Upgrade Finder export knows about its two
@@ -622,14 +638,19 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
         assert.is_nil(craft.name)
         assert.equal(237849, craft.itemID)
 
+        -- Since UX-6 (WKE-637) the road is a card, and the card asks.
         local panel = ns.UpgradeMapPanel.Create()
         local element = CreateFrame("Frame", nil, panel)
+        local width, height = ns.UpgradeMapPanel.CardSize(nil)
         ns.UpgradeMapPanel.InitElement(panel, element, {
-            kind = ns.UpgradeMapPanel.ELEMENT_ROAD,
-            height = ns.UpgradeMapPanel.RoadHeight(craft),
-            row = craft,
+            kind = ns.UpgradeMapPanel.ELEMENT_CARD_ROW,
+            height = height + ns.UpgradeMapPanel.TILE_ROW_PADDING,
+            tileWidth = width,
+            tileHeight = height,
+            cards = { { row = craft } },
         })
-        assert.equal(RETRIEVING_ITEM_INFO, element.roadLine.name:GetText())
+        local card = element.cards[1]
+        assert.equal(RETRIEVING_ITEM_INFO, card.name:GetText())
         local asked = false
         for _, itemID in ipairs(world.itemDataRequests) do
             asked = asked or itemID == craft.itemID
@@ -646,7 +667,9 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
             level = craft.itemLevel,
         }
         world.fireEvent("ITEM_DATA_LOAD_RESULT", craft.itemID, true)
-        assert.is_truthy(element.roadLine.name:GetText():find("Placeholder Valediction", 1, true))
+        assert.is_truthy(card.name:GetText():find("Placeholder Valediction", 1, true))
+        -- ...and its icon art followed: the card is re-drawn, not only its icon.
+        assert.equal(card.cardIcon.resolved.icon, card.art:GetTexture())
     end)
 
     it("says nothing under a shut section", function()
@@ -657,7 +680,7 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
         end
         for _, element in ipairs(elements(m, state)) do
             assert.is_nil(element.plan)
-            assert.is_true(element.kind ~= ns.UpgradeMapPanel.ELEMENT_ROAD)
+            assert.is_true(element.kind ~= ns.UpgradeMapPanel.ELEMENT_CARD_ROW)
             assert.is_true(element.kind ~= ns.UpgradeMapPanel.ELEMENT_GROUP)
         end
     end)
@@ -677,21 +700,46 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
         for text, count in pairs(seen) do
             assert.equal(1, count, text)
         end
-        -- The FIRST VISIBLE use decides, and on this slot that is the sentence
-        -- in the section header: "Catalyst your Lynx shoulders" uses the word
-        -- before any group header or row does. "picks" is first used by the set
-        -- group's header - it is the scenario's own name since UX-3 (WKE-599)
-        -- swept "plan" off every screen - and "crest" by the vault road's facts
-        -- under it.
-        assert.is_true(at.Catalyst < at.picks)
-        assert.is_true(at.picks < at.crest)
-        assert.equal(ns.UpgradeMapPanel.ELEMENT_SECTION, list[at.Catalyst - 1].kind)
-        assert.equal(ns.UpgradeMapPanel.ELEMENT_GROUP, list[at.picks - 1].kind)
-        assert.equal(ns.UpgradeMapPanel.ELEMENT_ROAD, list[at.crest - 1].kind)
-        -- "no crests here" is not a use of "crest": the sentence in the header
-        -- did not earn the crest line, the row that says what is not readable
-        -- did.
-        assert.is_true(at.crest > at.Catalyst + 1)
+        -- The FIRST VISIBLE use decides. Since UX-6 (WKE-637) what is visible
+        -- under a slot is its eyebrows and its cards - the slot's sentence and
+        -- the long group headers are on the hover - so each sentence sits under
+        -- the eyebrow or the card row whose drawn words first use the word, and
+        -- nothing drawn above it used the word first.
+        local Panel = ns.UpgradeMapPanel
+        local function drawnWords(element)
+            local words = {}
+            if element.kind == Panel.ELEMENT_GROUP then
+                words[#words + 1] = element.text
+            end
+            for _, card in ipairs(element.cards or {}) do
+                local badge = Panel.CardBadge(card.row)
+                words[#words + 1] = Panel.CardSecond(card.row)
+                words[#words + 1] = badge and badge.text or nil
+                words[#words + 1] = Panel.CardLine(card.row)
+            end
+            return words
+        end
+        local function uses(element, word)
+            for _, text in pairs(drawnWords(element)) do
+                if Panel.UsesWord(text, word) then
+                    return true
+                end
+            end
+            return false
+        end
+        assert.is_number(at.Catalyst)
+        for word, index in pairs(at) do
+            local owner = index - 1
+            while list[owner].tone == Panel.EXPLAIN_TONE do
+                owner = owner - 1
+            end
+            assert.is_true(uses(list[owner], word), word)
+            for earlier = 1, owner - 1 do
+                assert.is_false(uses(list[earlier], word), word .. " used earlier")
+            end
+        end
+        -- The Catalyst card's own step names it: "Catalyst it · charge ...".
+        assert.equal(Panel.ELEMENT_CARD_ROW, list[at.Catalyst - 1].kind)
         -- The one figure an Explain sentence carries is the client's own.
         assert.equal(
             "Catalyst: converts one piece into your tier set and spends one charge."
@@ -795,7 +843,8 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
         -- this week's sixteen, Neck, Back, Chest and Hands are the four whose
         -- bags the rating covers completely.
         assert.equal("Chest", ns.UpgradeMapPanel.SectionHeaderText(section(m, "Chest")))
-        -- The drawn header is the same string as the printed one.
+        -- The PRINTED header keeps it. Since UX-6 (WKE-637) the DRAWN line is
+        -- the slot's name alone, and the remedy is the tab's one nudge.
         local element
         for _, entry in ipairs(elements(m, shutAllBut(m, "2H Weapon"))) do
             if entry.kind == ns.UpgradeMapPanel.ELEMENT_SECTION and entry.slot == "2H Weapon" then
@@ -803,7 +852,8 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
             end
         end
         assert.is_table(element)
-        assert.equal("2H Weapon · /lootpath refresh", element.header)
+        assert.equal("2H Weapon", element.header)
+        assert.equal(ns.UpgradeMapPanel.STALE_NUDGE, ns.UpgradeMapPanel.StaleNudge(m))
     end)
 
     -- -----------------------------------------------------------------------
@@ -867,6 +917,268 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
         assert.is_nil(usesForbidden("this week's picks"))
         assert.is_nil(usesForbidden("the Hoardmonger"))
     end)
+    -- -----------------------------------------------------------------------
+    -- UX-6 (WKE-637): Roads at a glance. A slot is one line, a road is a card,
+    -- and the explanations come off the screen onto the hovers.
+
+    local function sectionElement(list, slot)
+        for _, element in ipairs(list) do
+            if element.kind == ns.UpgradeMapPanel.ELEMENT_SECTION and element.slot == slot then
+                return element
+            end
+        end
+        return nil
+    end
+
+    -- Everything drawn under one slot's line, up to the next slot's.
+    local function under(list, slot)
+        local out, inside = {}, false
+        for _, element in ipairs(list) do
+            if element.kind == ns.UpgradeMapPanel.ELEMENT_SECTION then
+                inside = element.slot == slot
+            elseif inside then
+                out[#out + 1] = element
+            end
+        end
+        return out
+    end
+
+    local function allOpen(m)
+        local open = {}
+        for _, entry in ipairs(m.slots) do
+            open[entry.slot] = false
+        end
+        return { slots = open }
+    end
+
+    local function rowWhere(m, slot, test)
+        for _, group in ipairs(section(m, slot).roadGroups) do
+            for _, row in ipairs(group.rows) do
+                if test(row) then
+                    return row
+                end
+            end
+        end
+        return nil
+    end
+
+    it("draws a slot as one line and its roads as eyebrows over rows of cards, across first (UX-6)", function()
+        local Panel = ns.UpgradeMapPanel
+        local m = model()
+        local list = elements(m, shutAllBut(m, "Shoulder"))
+        local line = sectionElement(list, "Shoulder")
+        -- The line: the slot's name alone, the worn item, and no sentence.
+        assert.equal("Shoulder", line.header)
+        assert.equal(Panel.SLOT_LINE_HEIGHT, line.height)
+        assert.is_nil(line.plan)
+        assert.is_nil(line.count)
+        assert.is_table(line.worn)
+        assert.is_false(line.collapsed)
+
+        local width, height = Panel.CardSize(nil)
+        local expected, drawn = {}, {}
+        for _, group in ipairs(section(m, "Shoulder").roadGroups) do
+            local rows = {}
+            for _, row in ipairs(group.rows) do
+                if row.kind ~= ns.Roads.KIND_KEEP then
+                    rows[#rows + 1] = row
+                end
+            end
+            if #rows > 0 then
+                expected[#expected + 1] = "eyebrow:" .. Panel.GROUP_EYEBROW[group.group]
+                for index, row in ipairs(rows) do
+                    if (index - 1) % Panel.TILES_PER_ROW == 0 then
+                        expected[#expected + 1] = "cards"
+                    end
+                    expected[#expected + 1] = row
+                end
+            end
+        end
+        for _, element in ipairs(under(list, "Shoulder")) do
+            if element.kind == Panel.ELEMENT_GROUP then
+                drawn[#drawn + 1] = "eyebrow:" .. element.text
+            elseif element.kind == Panel.ELEMENT_CARD_ROW then
+                drawn[#drawn + 1] = "cards"
+                assert.is_true(#element.cards <= Panel.TILES_PER_ROW)
+                assert.equal(width, element.tileWidth)
+                assert.equal(height, element.tileHeight)
+                assert.equal(height + Panel.TILE_ROW_PADDING, element.height)
+                assert.equal(Panel.CARD_INDENT, element.indent)
+                for _, card in ipairs(element.cards) do
+                    drawn[#drawn + 1] = card.row
+                end
+            else
+                error("under the slot, an element that is not an eyebrow or a card row: " .. tostring(element.kind))
+            end
+        end
+        assert.is_true(#drawn > 6)
+        assert.equal(#expected, #drawn)
+        for index = 1, #expected do
+            assert.equal(expected[index], drawn[index], "position " .. index)
+        end
+        -- The eyebrows are the short forms, two to four words each.
+        assert.equal("eyebrow:In your best set", drawn[1])
+        assert.equal("In your best set", Panel.GROUP_EYEBROW[ns.Roads.GROUP_SET])
+        assert.equal("Rated against what you wear", Panel.GROUP_EYEBROW[ns.Roads.GROUP_ITEM])
+        assert.equal("No rating", Panel.GROUP_EYEBROW[ns.Roads.GROUP_NONE])
+        -- Four across, derived the way the by-run tiles are, over the list
+        -- less the indent past the slot's icon column.
+        assert.equal(Panel.TileSize(Panel.ListWidth(nil) - Panel.CARD_INDENT), width)
+        assert.equal(Panel.SLOT_ICON_X + Panel.SLOT_ICON_SIZE + Panel.TILE_GAP, Panel.CARD_INDENT)
+    end)
+
+    it("puts the best road's badge on the slot line, and none when no road beats what is worn (UX-6)", function()
+        local Panel = ns.UpgradeMapPanel
+        local m = model()
+        local list = elements(m, { slots = {} })
+        -- Head keeps what it wears; the best per-item percent is the raid drop's.
+        assert.same({ text = "+2.99%", tone = "better" }, sectionElement(list, "Head").badge)
+        -- Shoulder's answer is a whole-set pick, the Catalyst, and that wins.
+        assert.same({ text = "in your best set", tone = "neutral" }, sectionElement(list, "Shoulder").badge)
+        -- The 1H Weapon slot has nothing rated forward: no badge at all.
+        assert.is_nil(sectionElement(list, "1H Weapon").badge)
+        assert.same(Panel.SlotBadge(section(m, "Head")), sectionElement(list, "Head").badge)
+        assert.is_nil(Panel.SlotBadge(nil))
+    end)
+
+    it("opens the first slot worth taking and shuts the rest, a saved click winning (UX-6)", function()
+        local Panel = ns.UpgradeMapPanel
+        local m = model()
+        assert.equal("Head", Panel.FirstWorthTaking(m))
+        local sections = 0
+        for _, element in ipairs(elements(m, { slots = {} })) do
+            if element.kind == Panel.ELEMENT_SECTION then
+                sections = sections + 1
+                assert.equal(element.slot ~= "Head", element.collapsed, element.slot)
+            end
+        end
+        assert.equal(#m.slots, sections)
+        local list = elements(m, { slots = { Head = true, Neck = false } })
+        assert.is_true(sectionElement(list, "Head").collapsed)
+        assert.is_false(sectionElement(list, "Neck").collapsed)
+        assert.is_true(sectionElement(list, "Shoulder").collapsed)
+
+        -- A first slot that only keeps what it wears is not worth taking, nor
+        -- is one whose only step is a refresh, nor one that says to keep.
+        local function slotOf(name, group, row)
+            return { slot = name, roadGroups = { { group = group, rows = { row } } } }
+        end
+        local handBuilt = {
+            slots = {
+                slotOf("Head", ns.Roads.GROUP_SET, { kind = ns.Roads.KIND_KEEP, todo = ns.Roads.TODO_NOTHING }),
+                slotOf("Neck", ns.Roads.GROUP_ITEM, { kind = ns.Roads.KIND_DROP, todo = ns.Roads.TODO_REFRESH }),
+                slotOf("Shoulder", ns.Roads.GROUP_ITEM, { kind = ns.Roads.KIND_DROP, todo = ns.Roads.TODO_KEEP_WORN }),
+                slotOf("Back", ns.Roads.GROUP_ITEM, { kind = ns.Roads.KIND_DROP, todo = ns.Roads.TODO_RAID }),
+            },
+        }
+        assert.equal("Back", Panel.FirstWorthTaking(handBuilt))
+        handBuilt.slots[4] = nil
+        assert.is_nil(Panel.FirstWorthTaking(handBuilt))
+        assert.is_nil(Panel.FirstWorthTaking(nil))
+    end)
+
+    it("says the bags changed once for the tab, never on a slot line (UX-6)", function()
+        local Panel = ns.UpgradeMapPanel
+        local m = model()
+        assert.equal(Panel.STALE_NUDGE, Panel.StaleNudge(m))
+        assert.equal("your bags changed since this rating · Refresh", Panel.STALE_NUDGE)
+        for _, element in ipairs(elements(m, allOpen(m))) do
+            for _, text in pairs({ element.text or false, element.header or false }) do
+                if text then
+                    assert.is_nil(text:find(Panel.SECTION_REFRESH, 1, true), text)
+                    assert.is_nil(text:find(Panel.STALE_NUDGE, 1, true), text)
+                end
+            end
+        end
+        for _, entry in ipairs(m.slots) do
+            entry.staleBags = false
+        end
+        assert.is_nil(Panel.StaleNudge(m))
+        assert.is_nil(Panel.StaleNudge(nil))
+    end)
+
+    it("puts nothing on screen from the sentences it dropped, and keeps them on the hover (UX-6)", function()
+        local Panel = ns.UpgradeMapPanel
+        local m = model()
+        local dropped = { Panel.GROUP_SET_TAIL, ns.Roads.ITEM_SCALE_TEXT, Panel.SECTION_REFRESH, Panel.NOTE }
+        if m.upgradeDocumentsNote then
+            dropped[#dropped + 1] = m.upgradeDocumentsNote
+        end
+        for _, entry in ipairs(m.slots) do
+            dropped[#dropped + 1] = entry.plan
+            dropped[#dropped + 1] = entry.hiddenNote
+        end
+        local shown, cards = {}, 0
+        for _, element in ipairs(elements(m, allOpen(m))) do
+            assert.is_true(element.kind ~= "road", "a road row is still drawn")
+            shown[#shown + 1] = element.text
+            shown[#shown + 1] = element.header
+            for _, card in ipairs(element.cards or {}) do
+                cards = cards + 1
+                assert.is_true(card.row.kind ~= ns.Roads.KIND_KEEP, "the Keep row is drawn")
+                shown[#shown + 1] = Panel.CardSecond(card.row)
+                shown[#shown + 1] = Panel.CardLine(card.row)
+                local badge = Panel.CardBadge(card.row)
+                shown[#shown + 1] = badge and badge.text or nil
+            end
+        end
+        assert.is_true(cards > 100)
+        for _, text in pairs(shown) do
+            for _, sentence in pairs(dropped) do
+                assert.is_nil(text:find(sentence, 1, true), text)
+            end
+        end
+        -- ...and each one is still one hover away, on the slot line.
+        local shoulder = section(m, "Shoulder")
+        local tooltip = table.concat(Panel.SlotTooltipLines(shoulder), "\n")
+        assert.is_not_nil(tooltip:find(shoulder.plan, 1, true))
+        assert.is_not_nil(tooltip:find(Panel.GROUP_SET_TAIL, 1, true))
+        assert.is_not_nil(tooltip:find(ns.Roads.ITEM_SCALE_TEXT, 1, true))
+        -- Head's answer keeps what it wears, so its hover carries the Keep row.
+        local head = section(m, "Head")
+        local headTip = table.concat(Panel.SlotTooltipLines(head), "\n")
+        assert.is_not_nil(headTip:find(ns.Roads.TAG_KEEP, 1, true))
+        assert.is_not_nil(headTip:find(head.hiddenNote, 1, true))
+        -- The long group header is the same string it always was.
+        assert.equal(
+            "Other rated sources · percents are against what you wear · at your key's preview level, per the client",
+            ns.Roads.GROUP_HEADER[ns.Roads.GROUP_ITEM]
+        )
+    end)
+
+    it("draws a card's lines from the road's own strings (UX-6)", function()
+        local Panel = ns.UpgradeMapPanel
+        local m = model()
+        local raid = rowWhere(m, "Head", function(row)
+            return row.badge and row.badge.text == "+2.99%"
+        end)
+        assert.equal("do: raid it · tick when it drops", raid.todo)
+        assert.equal("raid it · tick when it drops", Panel.CardLine(raid))
+        assert.equal(raid.second, Panel.CardSecond(raid))
+        assert.equal(raid.badge, Panel.CardBadge(raid))
+        -- No step: the first fact, which on this row is the level it upgrades to.
+        local noStep = rowWhere(m, "1H Weapon", function(row)
+            return row.todo == nil and row.facts[1] ~= nil
+        end)
+        assert.equal(noStep.facts[1], Panel.CardLine(noStep))
+        -- A no-rating road: no badge, and its phrase on the second line.
+        local none = rowWhere(m, "Head", function(row)
+            return row.group == ns.Roads.GROUP_NONE
+        end)
+        assert.is_nil(Panel.CardBadge(none))
+        assert.equal(ns.Roads.PHRASE_NO_RATING, Panel.CardSecond(none))
+        -- The hover's own lines: the badge against its scale, the facts a
+        -- tooltip may carry, the cost, and where a click goes.
+        local lines = Panel.CardTooltipLines(raid)
+        assert.equal("+2.99%" .. Panel.ROAD_SEPARATOR .. ns.Roads.ITEM_SCALE_TEXT, lines[1])
+        assert.equal(Panel.CARD_CLICK_TEXT[ns.Roads.VERB_SHOW_RUN], lines[#lines])
+        assert.equal("click: show the run", lines[#lines])
+        assert.is_not_nil(table.concat(lines, "\n"):find(raid.costText, 1, true))
+        local craft = rowWhere(m, "Head", function(row)
+            return row.kind == ns.Roads.KIND_CRAFT
+        end)
+        assert.is_nil(table.concat(Panel.CardTooltipLines(craft), "\n"):find("click:", 1, true))
+    end)
 end)
 
 -- ---------------------------------------------------------------------------
@@ -919,72 +1231,276 @@ describe("Roads on the window, over the owner's week of 2026-09-08", function()
         H.unload()
     end)
 
-    -- The only two slots whose sections are open by default are every slot, so
-    -- the row is found by walking the model rather than by scrolling.
+    -- Since UX-6 (WKE-637) only the first slot worth taking starts open, so
+    -- the row is found by walking the model rather than the drawn list.
     local function rowWith(verb)
-        for _, element in ipairs(frame.upgradeMapPanel.elements) do
-            if element.kind == ns.UpgradeMapPanel.ELEMENT_ROAD and element.row.verb == verb then
-                return element.row
+        for _, section in ipairs(frame.upgradeMapPanel.model.slots) do
+            for _, group in ipairs(section.roadGroups or {}) do
+                for _, row in ipairs(group.rows) do
+                    if row.verb == verb then
+                        return row
+                    end
+                end
             end
         end
         return nil
     end
 
-    it("puts roads on the tab the window opens", function()
+    -- One card row of one open slot, bound to a fresh element frame the way
+    -- the scroll box binds one.
+    local function boundCardRow(panel, model, slot, nth)
+        local state = { slots = {} }
+        for _, entry in ipairs(model.slots) do
+            state.slots[entry.slot] = entry.slot ~= slot
+        end
+        local seen, inside = 0, false
+        for _, data in ipairs(ns.UpgradeMapPanel.Elements(model, state)) do
+            if data.kind == ns.UpgradeMapPanel.ELEMENT_SECTION then
+                inside = data.slot == slot
+            elseif inside and data.kind == ns.UpgradeMapPanel.ELEMENT_CARD_ROW then
+                seen = seen + 1
+                if seen == nth then
+                    local element = CreateFrame("Frame", nil, panel)
+                    ns.UpgradeMapPanel.InitElement(panel, element, data)
+                    return element, data
+                end
+            end
+        end
+        return nil
+    end
+
+    -- The walk with the art a post-M5-3 walk records put on it, the way the
+    -- by-run tests do: a stub-shaped value, never a real instance's file.
+    local function modelWithArt()
+        local gathered = ns.UpgradeMapPanel.Gather({ db = ns.db })
+        local withArt = {}
+        for itemID, list in pairs(gathered.sources) do
+            local copies = {}
+            for index, entry in ipairs(list) do
+                local copy = {}
+                for k, v in pairs(entry) do
+                    copy[k] = v
+                end
+                copy.instanceImage = 4000 + (entry.instanceID or 0)
+                copies[index] = copy
+            end
+            withArt[itemID] = copies
+        end
+        gathered.sources = withArt
+        return ns.UpgradeMapPanel.Model(gathered)
+    end
+
+    it("draws a card over the instance's own art, and over the item's icon when the walk has none (UX-6)", function()
+        local Panel = ns.UpgradeMapPanel
+        local panel = frame.upgradeMapPanel
+        -- Head's second card row is its rated drops: a raid drop, then a craft.
+        local element, data = boundCardRow(panel, modelWithArt(), "Head", 2)
+        assert.is_table(element)
+        local drop, craft = element.cards[1], element.cards[2]
+        assert.equal(ns.Roads.KIND_DROP, data.cards[1].row.kind)
+        assert.equal(ns.Roads.KIND_CRAFT, data.cards[2].row.kind)
+        local source = data.cards[1].row.road.source
+        assert.equal(4000 + source.instanceID, data.cards[1].art)
+        assert.equal(4000 + source.instanceID, drop.art:GetTexture())
+        assert.same(Panel.TILE_ART_TEX_COORD, drop.art.texCoord)
+        assert.equal(1, drop.art:GetAlpha())
+        -- The craft has no instance: its own icon, cropped to the card.
+        assert.is_nil(data.cards[2].art)
+        assert.equal(craft.cardIcon.resolved.icon, craft.art:GetTexture())
+        assert.same(Panel.MosaicTexCoord(data.tileWidth, data.tileHeight), craft.art.texCoord)
+        assert.equal(Panel.MOSAIC_ALPHA, craft.art:GetAlpha())
+        -- The card's own strings, the badge on its plate, the icon at 28.
+        local row = data.cards[1].row
+        assert.equal(Panel.CardSecond(row), drop.second:GetText())
+        assert.equal(Panel.CardLine(row), drop.cardLine:GetText())
+        assert.equal(ns.UI.ItemLine.BadgeText(row.badge), drop.badge:GetText())
+        assert.is_true(drop.badgePlate:IsShown())
+        assert.equal(Panel.CARD_ICON_SIZE, drop.cardIcon:GetWidth())
+        assert.equal(data.tileWidth, drop:GetWidth())
+        assert.equal(1, drop:GetAlpha())
+        -- ...placed across, past the icon column.
+        assert.equal(Panel.CARD_INDENT, drop.points[1][4])
+        assert.equal(Panel.CARD_INDENT + data.tileWidth + Panel.TILE_GAP, craft.points[1][4])
+
+        -- The committed walk predates the art: every drop card then draws its
+        -- item's own icon, and nothing is borrowed from another instance.
+        local plain = boundCardRow(panel, Panel.Model(Panel.Gather({ db = ns.db })), "Head", 2)
+        assert.equal(plain.cards[1].cardIcon.resolved.icon, plain.cards[1].art:GetTexture())
+        assert.equal(Panel.MOSAIC_ALPHA, plain.cards[1].art:GetAlpha())
+    end)
+
+    it("dims a no-rating card and puts its phrase on the second line (UX-6)", function()
+        local Panel = ns.UpgradeMapPanel
+        local panel = frame.upgradeMapPanel
+        local element, data
+        for nth = 1, 20 do
+            element, data = boundCardRow(panel, panel.model, "Head", nth)
+            if data and data.group == ns.Roads.GROUP_NONE then
+                break
+            end
+        end
+        assert.equal(ns.Roads.GROUP_NONE, data.group)
+        local tile = element.cards[1]
+        assert.equal(Panel.TILE_DIM_ALPHA, tile:GetAlpha())
+        assert.equal(ns.Roads.PHRASE_NO_RATING, tile.second:GetText())
+        assert.is_false(tile.badgePlate:IsShown())
+    end)
+
+    it("follows a card click to the run, and a vault card to the vault (UX-6)", function()
+        local panel = frame.upgradeMapPanel
+        local element, data = boundCardRow(panel, panel.model, "Head", 2)
+        local row = data.cards[1].row
+        assert.is_string(row.runKey)
+        assert.equal(ns.UpgradeMapPanel.MODE_SLOT, panel.mode)
+        -- A craft card goes nowhere: a click on it changes nothing.
+        element.cards[2]:Click()
+        assert.equal(ns.UpgradeMapPanel.MODE_SLOT, panel.mode)
+        element.cards[1]:Click()
+        assert.equal(ns.UpgradeMapPanel.MODE_RUN, panel.mode)
+        assert.is_true(ns.db.char.upgradeMap.expandedRuns[row.runKey])
+        assert.equal(ns.UpgradeMapPanel.ELEMENT_RUN_ROW, panel.scrollBox.scrolledTo.kind)
+
+        panel.modeButtons[1]:Click()
+        local vault = boundCardRow(panel, panel.model, "Neck", 1)
+        local vaultCard
+        for _, card in ipairs(vault.cards) do
+            if card:IsShown() and card.card and card.card.row.verb == ns.Roads.VERB_SHOW_IN_VAULT then
+                vaultCard = vaultCard or card
+            end
+        end
+        assert.is_table(vaultCard)
+        vaultCard:Click()
+        assert.equal(ns.UI.VAULT_TAB, frame.selectedTab)
+        assert.equal(vaultCard.card.row.vaultKey, ns.VaultPanel.pointedAt)
+    end)
+
+    it("hovers a card as the item's own tooltip, then its badge, facts and click (UX-6)", function()
+        local Panel = ns.UpgradeMapPanel
+        local panel = frame.upgradeMapPanel
+        local element, data = boundCardRow(panel, panel.model, "Head", 2)
+        local row = data.cards[1].row
+        element.cards[1].stub.Enter()
+        local text = GameTooltip.stub.Text()
+        assert.is_true(GameTooltip.hyperlink == row.link or GameTooltip.itemID == row.itemID)
+        for _, line in ipairs(Panel.CardTooltipLines(row)) do
+            assert.is_not_nil(text:find(line, 1, true), line)
+        end
+        assert.is_not_nil(text:find("click: show the run", 1, true))
+    end)
+
+    it("says the bags changed once, under the header, in the slot view only (UX-6)", function()
+        local Panel = ns.UpgradeMapPanel
+        local panel = frame.upgradeMapPanel
+        assert.equal(Panel.MODE_SLOT, panel.mode)
+        assert.is_true(panel.answer:IsShown())
+        local text = panel.answer:GetText()
+        local _, count = text:gsub((Panel.STALE_NUDGE:gsub("%p", "%%%0")), "")
+        assert.equal(1, count)
+        assert.is_not_nil(text:find("|cff" .. Panel.STALE_HEX, 1, true))
+        panel.modeButtons[2]:Click()
+        assert.is_nil((panel.answer:GetText() or ""):find(Panel.STALE_NUDGE, 1, true))
+    end)
+
+    it("toggles a slot line on a click and keeps it per character (UX-6)", function()
+        local Panel = ns.UpgradeMapPanel
+        local panel = frame.upgradeMapPanel
+        -- Bound the way the scroll box binds a frame, from the list the panel
+        -- drew: a slot below the fold has no frame of its own in the stub.
+        local function lineFor(slot)
+            for _, data in ipairs(panel.elements) do
+                if data.kind == Panel.ELEMENT_SECTION and data.slot == slot then
+                    local element = CreateFrame("Frame", nil, panel)
+                    Panel.InitElement(panel, element, data)
+                    return element, data
+                end
+            end
+            return nil
+        end
+        local head, data = lineFor("Head")
+        assert.is_false(data.collapsed)
+        assert.equal("Head", head.sectionName:GetText())
+        assert.equal(ns.UI.ItemLine.BadgeText(data.badge), head.sectionBadge:GetText())
+        head.sectionButton:Click()
+        assert.is_true(ns.db.char.upgradeMap.collapsedSlots.Head)
+        head = lineFor("Head")
+        head.sectionButton:Click()
+        assert.is_false(ns.db.char.upgradeMap.collapsedSlots.Head)
+        local neck, neckData = lineFor("Neck")
+        assert.is_true(neckData.collapsed)
+        neck.sectionButton:Click()
+        assert.is_false(ns.db.char.upgradeMap.collapsedSlots.Neck)
+        -- Its hover is the slot's own sentence and the long headers.
+        head = lineFor("Head")
+        head.sectionButton.stub.Enter()
+        assert.is_not_nil(GameTooltip.stub.Text():find(panel.model.slots[1].plan, 1, true))
+    end)
+
+    it("puts roads on the tab the window opens, under the one slot worth taking", function()
         local panel = frame.upgradeMapPanel
         assert.is_true(panel.model.hasRoads)
-        local groups, roads = 0, 0
+        local groups, cards, open = 0, 0, {}
         for _, element in ipairs(panel.elements) do
             if element.kind == ns.UpgradeMapPanel.ELEMENT_GROUP then
                 groups = groups + 1
-            elseif element.kind == ns.UpgradeMapPanel.ELEMENT_ROAD then
-                roads = roads + 1
+            elseif element.kind == ns.UpgradeMapPanel.ELEMENT_CARD_ROW then
+                cards = cards + #element.cards
+            elseif element.kind == ns.UpgradeMapPanel.ELEMENT_SECTION and not element.collapsed then
+                open[#open + 1] = element.slot
             end
         end
-        assert.is_true(groups > 3)
-        assert.is_true(roads > 100)
+        -- Since UX-6 (WKE-637) one slot opens by itself - the first worth
+        -- taking - and every card under it is one of its roads.
+        assert.same({ "Head" }, open)
+        assert.equal(3, groups)
+        assert.is_true(cards > 30)
     end)
 
-    it("draws a road row with its tag, its item, its facts, its step and its button", function()
+    it("draws a card with its item, its second line and its step, on screen", function()
         local panel = frame.upgradeMapPanel
         local element
         for _, candidate in ipairs(panel.scrollBox:GetFrames()) do
             local data = candidate:GetElementData()
-            if data.kind == ns.UpgradeMapPanel.ELEMENT_ROAD and element == nil then
+            if data.kind == ns.UpgradeMapPanel.ELEMENT_CARD_ROW and element == nil then
                 element = candidate
             end
         end
         assert.is_not_nil(element)
-        local row = element:GetElementData().row
-        assert.equal(row.tag, element.roadTag:GetText())
-        assert.equal(row.name, element.roadLine.resolved.name)
-        assert.equal(row.second or "", element.roadLine.second:GetText())
-        assert.equal(row.factsText or "", element.roadFacts:GetText())
-        assert.equal(row.todo or "", element.roadTodo:GetText())
-        assert.equal(row.verb ~= nil, element.roadVerb:IsShown())
+        local data = element:GetElementData()
+        for index, card in ipairs(data.cards) do
+            local tile = element.cards[index]
+            assert.is_true(tile:IsShown())
+            assert.equal(card.row.name or tile.cardIcon.resolved.name, tile.name:GetText())
+            assert.equal(ns.UpgradeMapPanel.CardSecond(card.row) or "", tile.second:GetText())
+            assert.equal(ns.UpgradeMapPanel.CardLine(card.row) or "", tile.cardLine:GetText())
+        end
+        for index = #data.cards + 1, ns.UpgradeMapPanel.TILES_PER_ROW do
+            assert.is_false(element.cards[index]:IsShown())
+        end
     end)
 
-    -- The gold edge is the plan's own pick and nothing else, which needs a row
-    -- of each to say: the first slot section holds a pick and the rows under it
-    -- are not one, and a pooled frame that drew a pick must lose the edge when
-    -- it comes back as something else.
+    -- The gold edge is the answer's own pick and nothing else, which needs a
+    -- card of each to say: Shoulder's first card is its Catalyst pick and the
+    -- vault card beside it is not, and a pooled card that drew a pick must lose
+    -- the edge when it comes back as something else.
     it("puts the gold edge on the pick and takes it off everything else", function()
         local panel = frame.upgradeMapPanel
-        local picks, others = 0, 0
-        for _, element in ipairs(panel.scrollBox:GetFrames()) do
-            local data = element:GetElementData()
-            if data.kind == ns.UpgradeMapPanel.ELEMENT_ROAD then
-                if data.row.planPick then
-                    picks = picks + 1
-                    assert.is_true(element.roadEdge:IsShown())
-                else
-                    others = others + 1
-                    assert.is_false(element.roadEdge:IsShown())
-                end
+        local element, data = boundCardRow(panel, panel.model, "Shoulder", 1)
+        assert.is_true(data.cards[1].row.planPick)
+        assert.is_false(data.cards[2].row.planPick)
+        for _, edge in ipairs(element.cards[1].edges) do
+            assert.is_true(edge:IsShown())
+        end
+        for _, edge in ipairs(element.cards[2].edges) do
+            assert.is_false(edge:IsShown())
+        end
+        -- The same frames re-bound to Head's rated drops: no edge anywhere.
+        local _, headData = boundCardRow(panel, panel.model, "Head", 2)
+        ns.UpgradeMapPanel.InitElement(panel, element, headData)
+        for _, tile in ipairs(element.cards) do
+            for _, edge in ipairs(tile.edges) do
+                assert.is_false(edge:IsShown())
             end
         end
-        assert.is_true(picks > 0)
-        assert.is_true(others > 0)
     end)
 
     it("scrolls the by-run view to the run when Show run is clicked", function()

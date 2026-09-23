@@ -897,6 +897,10 @@ function Panel.Model(opts)
         })
         model.hasRoads = true
         model.roadInputs = inputs
+        -- Which picture the walk recorded for each instance, so a road card can
+        -- draw its instance's art (UX-6). Read off the whole walk: the picture
+        -- is the instance's, whatever difficulty filter is on.
+        model.instanceImages = Panel.InstanceImages(sources)
         model.chargeText = ns.Roads.ChargeText(ns.Roads.Charge(opts.currencies))
         for _, section in ipairs(model.slots) do
             section.roads = ns.Roads.ForSlot(section.slot, inputs)
@@ -1569,7 +1573,6 @@ end
 -- issue adds says the rating, its plan and what to do, and names nobody.
 
 Panel.ELEMENT_GROUP = "group"
-Panel.ELEMENT_ROAD = "road"
 
 -- The one part of a group header that belongs to THIS surface: the middle
 -- group's header already names its scale (ns.Roads.GROUP_HEADER), and the set
@@ -1598,6 +1601,264 @@ function Panel.SectionHeaderText(section)
         return slot .. Panel.ROAD_SEPARATOR .. Panel.SECTION_REFRESH
     end
     return slot
+end
+
+-- ---------------------------------------------------------------------------
+-- Roads at a glance (UX-6, WKE-637). The owner, on the by-slot list: "this also
+-- seems to be looking very messy ... simple, visual, warm, easy to understand".
+-- His answers off the direction page: roads as CARDS - the Run Tile, which is
+-- what a card is, so nothing new is drawn; the slot line carries the slot's
+-- name alone; the first slot worth taking starts open and the rest shut; the
+-- explanations come off the screen. Every sentence that left is one hover
+-- away (Panel.SlotTooltipLines, Panel.CardTooltipLines), and every string the
+-- printed lines carry - `/lootpath status` - is unchanged: SectionHeaderText,
+-- GroupHeaderText and RoadLineText still say exactly what they said.
+Panel.ELEMENT_CARD_ROW = "cardRow"
+
+-- The divider over a group of cards: an eyebrow, not a sentence. The two
+-- scales still never sort together (docs/ROADS-UX.md principle 2); the long
+-- forms (ns.Roads.GROUP_HEADER, GroupHeaderText) stay for the printed lines
+-- and the slot line's hover.
+Panel.GROUP_EYEBROW = {
+    [ns.Roads.GROUP_SET] = "In your best set",
+    [ns.Roads.GROUP_ITEM] = "Rated against what you wear",
+    [ns.Roads.GROUP_NONE] = "No rating",
+}
+
+-- The one line the tab says when any slot's bags have moved past the rating,
+-- in the strip's shape, under the header and drawn once - where SECTION_REFRESH
+-- used to ride on every stale slot's line. `Refresh` names the button on the
+-- strip; nothing here says `click` about a line with no edges (R-8b).
+Panel.STALE_NUDGE = "your bags changed since this rating" .. Panel.ROAD_SEPARATOR .. "Refresh"
+-- The strip's own amber for an age that has gone stale (UI/MainFrame.lua,
+-- `ffd43b`), so the two surfaces say "behind" in one colour.
+Panel.STALE_HEX = "ffd43b"
+
+-- Where a card's click goes, said on its hover. Only the two verbs a card can
+-- follow: a whole card that reloads the interface on a stray click would be a
+-- trap, so the Refresh verb stays with the strip's button and the nudge above.
+Panel.CARD_CLICK_TEXT = {
+    [ns.Roads.VERB_SHOW_RUN] = "click: show the run",
+    [ns.Roads.VERB_SHOW_IN_VAULT] = "click: show in vault",
+}
+
+-- Whether a step is one the answer goes forward on: a `do:` line that survived
+-- ns.Roads.GateImperatives (R-3a's bound), other than the refresh, which is a
+-- step for the rating rather than for the player.
+function Panel.IsImperative(todo)
+    return type(todo) == "string"
+        and todo ~= ns.Roads.TODO_REFRESH
+        and todo:sub(1, #ns.Roads.TODO_PREFIX) == ns.Roads.TODO_PREFIX
+end
+
+-- The first slot, in the model's own order, with a road worth taking: one that
+-- carries an imperative. The one slot that starts open. nil when none does.
+function Panel.FirstWorthTaking(model)
+    for _, section in ipairs(type(model) == "table" and model.slots or {}) do
+        for _, group in ipairs(section.roadGroups or {}) do
+            for _, row in ipairs(group.rows or {}) do
+                if row.kind ~= ns.Roads.KIND_KEEP and Panel.IsImperative(row.todo) then
+                    return section.slot
+                end
+            end
+        end
+    end
+    return nil
+end
+
+-- Whether a slot is open. `saved` is the character's own click
+-- (`db.char.upgradeMap.collapsedSlots[slot]`): true is shut, false is opened,
+-- and nil - no click - is the default, the pattern Equip Now's fold uses
+-- (M5-1b). The default for a slot with roads is the first-worth-taking rule; a
+-- slot with none is the M5-3 candidate list, open as it always was. A save from
+-- before UX-6 only ever held `true`, so it still reads as shut.
+function Panel.SlotOpen(saved, section, firstWorth)
+    if saved == true then
+        return false
+    end
+    if saved == false then
+        return true
+    end
+    if type(section) == "table" and section.roadGroups then
+        return section.slot ~= nil and section.slot == firstWorth
+    end
+    return true
+end
+
+-- The roads a group draws as cards: all of them but the Keep row, whose item
+-- is the slot line's own icon.
+function Panel.CardRows(group)
+    local rows = {}
+    for _, row in ipairs(type(group) == "table" and group.rows or {}) do
+        if row.kind ~= ns.Roads.KIND_KEEP then
+            rows[#rows + 1] = row
+        end
+    end
+    return rows
+end
+
+-- The slot line's badge: the best road's own badge, in that road's tone. A
+-- whole-set pick that is not what you wear is the answer and wins; otherwise
+-- the highest per-item percent that is forward; otherwise nothing, because no
+-- road beats what is worn. Nothing is computed - it is one road's badge, chosen
+-- by ns.Roads.IsForward, and two scales are never compared: the set group is
+-- asked first because it comes first in the fixed order.
+function Panel.SlotBadge(section)
+    local groups = type(section) == "table" and section.roadGroups or nil
+    if type(groups) ~= "table" then
+        return nil
+    end
+    local best, bestPercent
+    for _, group in ipairs(groups) do
+        for _, row in ipairs(Panel.CardRows(group)) do
+            if row.badge and ns.Roads.IsForward(row.road) then
+                if group.group == ns.Roads.GROUP_SET then
+                    return row.badge
+                end
+                local percent = tonumber(row.road.rating.percent)
+                if group.group == ns.Roads.GROUP_ITEM and percent and (not bestPercent or percent > bestPercent) then
+                    best, bestPercent = row.badge, percent
+                end
+            end
+        end
+    end
+    return best
+end
+
+-- The badge on a card's plate. A no-rating road has none: its phrase is its
+-- second line instead, and a plate of grey words over art reads as a verdict.
+function Panel.CardBadge(row)
+    if type(row) ~= "table" or row.group == ns.Roads.GROUP_NONE then
+        return nil
+    end
+    return row.badge
+end
+
+-- A card's second line: where it comes from, or for a no-rating road its phrase.
+function Panel.CardSecond(row)
+    if type(row) ~= "table" then
+        return nil
+    end
+    if row.group == ns.Roads.GROUP_NONE then
+        return row.badge and row.badge.text or nil
+    end
+    return row.second
+end
+
+-- A card's last line: the step without its `do: ` (the card is the imperative),
+-- or with no step, the road's first fact.
+function Panel.CardLine(row)
+    if type(row) ~= "table" then
+        return nil
+    end
+    local todo = row.todo
+    if type(todo) == "string" and todo ~= "" then
+        local prefix = ns.Roads.TODO_PREFIX
+        if todo:sub(1, #prefix) == prefix then
+            return todo:sub(#prefix + 1)
+        end
+        return todo
+    end
+    return row.facts and row.facts[1] or nil
+end
+
+-- What a card's hover says under the item's own tooltip: the badge against its
+-- scale, the facts a tooltip may carry, the cost, and where a click goes.
+function Panel.CardTooltipLines(row)
+    local lines = {}
+    if type(row) ~= "table" then
+        return lines
+    end
+    local badge = Panel.CardBadge(row)
+    if badge and badge.text then
+        if row.group == ns.Roads.GROUP_ITEM then
+            lines[#lines + 1] = badge.text .. Panel.ROAD_SEPARATOR .. ns.Roads.ITEM_SCALE_TEXT
+        else
+            lines[#lines + 1] = badge.text
+        end
+    end
+    if row.tooltipFactsText then
+        lines[#lines + 1] = row.tooltipFactsText
+    end
+    if row.costText then
+        lines[#lines + 1] = row.costText
+    end
+    if Panel.CardClicks(row) then
+        lines[#lines + 1] = Panel.CARD_CLICK_TEXT[row.verb]
+    end
+    return lines
+end
+
+-- Whether a click on the card goes anywhere: the two verbs a card follows, and
+-- only where RoadRow found the destination.
+function Panel.CardClicks(row)
+    if type(row) ~= "table" then
+        return false
+    end
+    return (row.verb == ns.Roads.VERB_SHOW_RUN and row.runKey ~= nil)
+        or (row.verb == ns.Roads.VERB_SHOW_IN_VAULT and row.vaultKey ~= nil)
+end
+
+-- The one lookup a card's art needs: which picture the walk recorded for an
+-- instance. The walk's entries carry it (Modules/Journal.lua); no road does.
+-- A walk taken before the art was recorded answers an empty table.
+function Panel.InstanceImages(sources)
+    local images = {}
+    for _, list in pairs(type(sources) == "table" and sources or {}) do
+        for _, entry in ipairs(list) do
+            if entry.instanceID ~= nil and entry.instanceImage ~= nil and images[entry.instanceID] == nil then
+                images[entry.instanceID] = entry.instanceImage
+            end
+        end
+    end
+    return images
+end
+
+function Panel.CardArt(row, images)
+    local source = type(row) == "table" and type(row.road) == "table" and row.road.source or nil
+    if type(source) ~= "table" or source.instanceID == nil or type(images) ~= "table" then
+        return nil
+    end
+    return images[source.instanceID]
+end
+
+-- The slot line's hover: the slot, its sentence, the long group headers (the
+-- two scale clauses, the set group's arrangement), the Keep row as printed,
+-- and the count of hidden level-1 drops. Everything the line stopped saying.
+function Panel.SlotTooltipLines(section)
+    if type(section) ~= "table" or type(section.slot) ~= "string" then
+        return {}
+    end
+    local lines = { section.slot }
+    if section.plan then
+        lines[#lines + 1] = section.plan
+    end
+    for _, group in ipairs(section.roadGroups or {}) do
+        if group.header then
+            lines[#lines + 1] = group.header
+        end
+    end
+    for _, group in ipairs(section.roadGroups or {}) do
+        for _, row in ipairs(group.rows or {}) do
+            if row.kind == ns.Roads.KIND_KEEP then
+                lines[#lines + 1] = Panel.RoadLineText(row)
+            end
+        end
+    end
+    if section.hiddenNote then
+        lines[#lines + 1] = section.hiddenNote
+    end
+    return lines
+end
+
+-- The nudge, when any slot's bags are ahead of the rating; nil when none is.
+function Panel.StaleNudge(model)
+    for _, section in ipairs(type(model) == "table" and model.slots or {}) do
+        if section.staleBags == true then
+            return Panel.STALE_NUDGE
+        end
+    end
+    return nil
 end
 
 -- The muted second figures a rated row carries, in his own words for them:
@@ -1969,15 +2230,6 @@ function Panel.RoadGroups(roads, previewMythicPlusLevel)
     return groups
 end
 
--- How many roads a slot opens onto, over all three groups.
-function Panel.RoadCount(groups)
-    local count = 0
-    for _, group in ipairs(groups or {}) do
-        count = count + #group.rows
-    end
-    return count
-end
-
 -- Everything `ns.Roads.ForSlot` and `ns.Roads.PlanSentence` need, gathered from
 -- what this panel was already handed. Pure and separate so the Vault tab and
 -- the tooltip can be given the same table and cannot end up reading a different
@@ -2053,16 +2305,13 @@ Panel.ELEMENT_NOTE = "note"
 Panel.ELEMENT_RUN_ROW = "runRow"
 Panel.ELEMENT_DRAWER = "drawer"
 
-Panel.SECTION_HEIGHT = 30
--- A road row is built out of its parts, because a row with a wrapping fact
--- line and a button is twice the height of one with neither and the scroll box
--- asks for the extent before it has a frame to measure.
+-- A slot is one line (UX-6, WKE-637): the worn item's icon at the item line's
+-- own size, three points clear above and below it, and nothing under it.
+Panel.SLOT_ICON_X = 4
+Panel.SLOT_ICON_SIZE = UI.ItemLine.ICON_SIZE
+Panel.SLOT_LINE_HEIGHT = Panel.SLOT_ICON_SIZE + 6
+-- The eyebrow over a group of cards.
 Panel.GROUP_HEIGHT = 20
-Panel.ROAD_TAG_HEIGHT = 14
-Panel.ROAD_ITEM_HEIGHT = 38
-Panel.ROAD_TODO_HEIGHT = 14
-Panel.ROAD_VERB_HEIGHT = 22
-Panel.ROAD_PADDING = 6
 -- The item line's own icon (M5-1) plus the gap under it.
 Panel.ITEM_HEIGHT = 42
 Panel.NOTE_LINE_HEIGHT = 14
@@ -2166,6 +2415,13 @@ Panel.DRAWER_HEADER_HEIGHT = 20
 Panel.DRAWER_PADDING = 6
 Panel.DRAWER_POINTER_SIZE = 8
 
+-- Road cards (UX-6, WKE-637): a road is a Run Tile. The item's own icon on the
+-- shade, smaller than the slot line's so the card stays the art's; and the
+-- cards start one TILE_GAP past the slot line's icon column, so they read as
+-- that slot's.
+Panel.CARD_ICON_SIZE = 28
+Panel.CARD_INDENT = Panel.SLOT_ICON_X + Panel.SLOT_ICON_SIZE + Panel.TILE_GAP
+
 -- How wide the list itself is. In the client the scroll box is sized by its two
 -- anchors and only answers once the client has laid it out; until it does - and
 -- headless, where nothing lays anything out - the panel's own width less the
@@ -2184,6 +2440,12 @@ function Panel.TileSize(listWidth)
     local width = math.max(1, math.floor(room / Panel.TILES_PER_ROW))
     local height = math.max(1, math.floor(width / Panel.TILE_ART_RATIO + 0.5))
     return width, height
+end
+
+-- One road card, in points: the tile's own derivation - four across at the
+-- art's proportion - over the list less the indent past the slot's icon.
+function Panel.CardSize(listWidth)
+    return Panel.TileSize(Panel.ListWidth(listWidth) - Panel.CARD_INDENT)
 end
 
 -- One pip per drop the journal lists for this run, true where the export rated
@@ -2286,31 +2548,8 @@ function Panel.DrawerHeight(run)
     return Panel.DRAWER_HEADER_HEIGHT + body + Panel.DRAWER_PADDING * 2
 end
 
--- A slot header is the worn item plus, since R-3, the slot's own plan sentence
--- under it. A slot with no sentence is the header M5-3 shipped, exactly.
-function Panel.SectionHeight(plan)
-    if type(plan) ~= "string" or plan == "" then
-        return Panel.SECTION_HEIGHT
-    end
-    return Panel.SECTION_HEIGHT + Panel.NoteHeight(plan)
-end
-
 function Panel.GroupHeight(text)
     return math.max(Panel.GROUP_HEIGHT, Panel.NoteHeight(text))
-end
-
-function Panel.RoadHeight(row)
-    local height = Panel.ROAD_TAG_HEIGHT + Panel.ROAD_ITEM_HEIGHT + Panel.ROAD_PADDING
-    if row.factsText then
-        height = height + Panel.NoteHeight(row.factsText)
-    end
-    if row.todo then
-        height = height + Panel.ROAD_TODO_HEIGHT
-    end
-    if row.verb then
-        height = height + Panel.ROAD_VERB_HEIGHT
-    end
-    return height
 end
 
 -- Which slot sections are collapsed and which runs are expanded. Kept per
@@ -2328,9 +2567,12 @@ function Panel.CollapseState(db)
     return { slots = char.upgradeMap.collapsedSlots, runs = char.upgradeMap.expandedRuns }
 end
 
--- The by-slot list. A section is drawn whether or not it is open; its
--- candidates are listed only when it is. Every note the printed lines carry
--- is here too, in the same order and with the same words.
+-- The by-slot list. A slot is one line whether or not it is open; what it
+-- opens onto is drawn only when it is. Since UX-6 (WKE-637) a slot with roads
+-- opens onto its roads as cards under a short eyebrow per group, and the notes
+-- that were conditions on the answer - the documents note, the slot's
+-- sentence, the refresh on its line, the count of hidden drops - are on the
+-- hovers instead. The printed lines (Panel.Lines) keep every one of them.
 function Panel.Elements(model, state)
     state = state or {}
     local collapsed = state.slots or {}
@@ -2352,7 +2594,9 @@ function Panel.Elements(model, state)
     if not model.hasVerdict then
         note("No import yet, so no drop carries a value. Paste a Top Gear export to change that.")
     end
-    note(model.upgradeDocumentsNote)
+    -- The documents note is on no surface of this view since UX-6: it names a
+    -- source's documents (the voice rule, 2026-09-11), and UX-5 already took it
+    -- off the by-run view for that reason. It stays in the printed lines.
 
     -- Explain (principle 11), when the reader has asked for it: one sentence
     -- under the first VISIBLE use of a system word in the expanded slot. "First
@@ -2382,38 +2626,58 @@ function Panel.Elements(model, state)
         end
     end
 
+    local firstWorth = Panel.FirstWorthTaking(model)
+    local cardWidth, cardHeight = Panel.CardSize(state.listWidth)
     for _, section in ipairs(model.slots) do
-        local shut = collapsed[section.slot] == true
+        local open = Panel.SlotOpen(collapsed[section.slot], section, firstWorth)
         add({
             kind = Panel.ELEMENT_SECTION,
-            height = Panel.SectionHeight(not shut and section.plan or nil),
+            height = Panel.SLOT_LINE_HEIGHT,
             slot = section.slot,
-            header = Panel.SectionHeaderText(section),
+            -- The slot's name alone (the owner's answer); the refresh that used
+            -- to ride on it is the tab's one nudge (Panel.StaleNudge).
+            header = section.slot,
             worn = section.worn,
-            -- The count names what the section opens onto: its roads once it
-            -- has them, the drops it listed before.
-            count = section.roadGroups and Panel.RoadCount(section.roadGroups) or #section.candidates,
-            plan = not shut and section.plan or nil,
-            collapsed = shut,
+            badge = Panel.SlotBadge(section),
+            collapsed = not open,
             section = section,
         })
-        if not shut and section.roadGroups then
-            explain(section.plan)
+        if open and section.roadGroups then
             for _, group in ipairs(section.roadGroups) do
-                add({
-                    kind = Panel.ELEMENT_GROUP,
-                    height = Panel.GroupHeight(group.header),
-                    group = group.group,
-                    text = group.header,
-                })
-                explain(group.header)
-                for _, row in ipairs(group.rows) do
-                    add({ kind = Panel.ELEMENT_ROAD, height = Panel.RoadHeight(row), row = row })
-                    explain(row.tag, row.second, row.badge and row.badge.text or nil, row.factsText, row.todo)
+                local rows = Panel.CardRows(group)
+                if #rows > 0 then
+                    local eyebrow = Panel.GROUP_EYEBROW[group.group] or group.header
+                    add({
+                        kind = Panel.ELEMENT_GROUP,
+                        height = Panel.GroupHeight(eyebrow),
+                        group = group.group,
+                        text = eyebrow,
+                    })
+                    explain(eyebrow)
+                    -- Up to four cards a row, filled across in the group's own
+                    -- order: the order is the model's and is not re-sorted.
+                    local cardRow
+                    for _, row in ipairs(rows) do
+                        if not cardRow or #cardRow.cards >= Panel.TILES_PER_ROW then
+                            cardRow = add({
+                                kind = Panel.ELEMENT_CARD_ROW,
+                                height = cardHeight + Panel.TILE_ROW_PADDING,
+                                tileWidth = cardWidth,
+                                tileHeight = cardHeight,
+                                gap = Panel.TILE_GAP,
+                                indent = Panel.CARD_INDENT,
+                                group = group.group,
+                                cards = {},
+                            })
+                        end
+                        cardRow.cards[#cardRow.cards + 1] =
+                            { row = row, art = Panel.CardArt(row, model.instanceImages) }
+                        local badge = Panel.CardBadge(row)
+                        explain(Panel.CardSecond(row), badge and badge.text or nil, Panel.CardLine(row))
+                    end
                 end
             end
-            note(section.hiddenNote)
-        elseif not shut then
+        elseif open then
             for _, row in ipairs(section.candidates) do
                 add({ kind = Panel.ELEMENT_ITEM, height = Panel.ITEM_HEIGHT, row = row })
             end
@@ -2423,16 +2687,15 @@ function Panel.Elements(model, state)
     note(model.levelMismatchNote)
 
     if model.pending.count > 0 then
-        local shut = collapsed[Panel.PENDING_SECTION] == true
+        local open = Panel.SlotOpen(collapsed[Panel.PENDING_SECTION], {}, firstWorth)
         add({
             kind = Panel.ELEMENT_SECTION,
-            height = Panel.SECTION_HEIGHT,
+            height = Panel.SLOT_LINE_HEIGHT,
             slot = Panel.PENDING_SECTION,
             header = Panel.PENDING_SECTION,
-            count = model.pending.count,
-            collapsed = shut,
+            collapsed = not open,
         })
-        if not shut then
+        if open then
             note(model.pending.note)
             for _, row in ipairs(model.pending.rows) do
                 add({ kind = Panel.ELEMENT_ITEM, height = Panel.ITEM_HEIGHT, row = row })
@@ -2706,7 +2969,6 @@ Panel.HINT_HEX = UI.ItemLine.GREY
 -- item line's own default because the sentence is his whole verdict - "QE
 -- Live: better by 1.83%" - and truncating a number is not an option.
 Panel.BADGE_WIDTH = 190
-Panel.SECTION_ICON_SIZE = 24
 Panel.ELEMENT_SPACING = 2
 
 -- What a collapsed and an open section are marked with. Text rather than an
@@ -2862,8 +3124,8 @@ function Panel.Create(parent)
     end)
 
     -- The answer, in one sentence, under the header row and above the list. It
-    -- belongs to the by-run view and is hidden in the other one, where the
-    -- answer is a slot's own line on each section (R-3).
+    -- belongs to the by-run view; in the other one the answer is each slot's
+    -- line, and this line is used only for the stale-bags nudge (UX-6).
     frame.answer = fontString(frame, "GameFontNormal")
     -- Under the whole header ROW, not under the title: the controls are taller
     -- than the words beside them, and the row is one row.
@@ -3065,6 +3327,10 @@ local function ensureNote(element)
     return element.noteText
 end
 
+-- The slot line (UX-6, WKE-637): the worn item's icon - its own hover is the
+-- worn item's tooltip - the slot's name in the panel's gold, the best road's
+-- badge at the right, and the open/shut mark at the far right. No sentence;
+-- the line's hover carries what the sentence said.
 local function ensureSection(element)
     if not element.sectionButton then
         local button = CreateFrame("Button", nil, element)
@@ -3072,31 +3338,22 @@ local function ensureSection(element)
         button:SetPoint("BOTTOMRIGHT", element, "BOTTOMRIGHT", 0, 0)
         element.sectionButton = button
 
-        -- Anchored to the TOP of the section rather than its middle, because
-        -- since R-3 the section is as tall as its plan sentence and the worn
-        -- item has to stay where it was above it.
-        element.sectionIcon = UI.ItemLine.CreateIcon(button, { size = Panel.SECTION_ICON_SIZE })
-        element.sectionIcon:SetPoint("TOPLEFT", button, "TOPLEFT", 16, -3)
+        element.sectionIcon = UI.ItemLine.CreateIcon(button, { size = Panel.SLOT_ICON_SIZE })
+        element.sectionIcon:SetPoint("TOPLEFT", button, "TOPLEFT", Panel.SLOT_ICON_X, -3)
+
+        element.sectionName = button:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+        element.sectionName:SetPoint("LEFT", element.sectionIcon, "RIGHT", 8, 0)
+        element.sectionName:SetJustifyH("LEFT")
 
         element.sectionMark = button:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-        element.sectionMark:SetPoint("RIGHT", element.sectionIcon, "LEFT", -4, 0)
+        element.sectionMark:SetPoint("RIGHT", button, "RIGHT", -4, 0)
         element.sectionMark:SetWidth(12)
         element.sectionMark:SetJustifyH("CENTER")
 
-        element.sectionName = button:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-        element.sectionName:SetPoint("LEFT", element.sectionIcon, "RIGHT", 6, 0)
-        element.sectionName:SetJustifyH("LEFT")
-
-        element.sectionCount = button:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-        element.sectionCount:SetPoint("TOPRIGHT", button, "TOPRIGHT", -4, -8)
-        element.sectionCount:SetJustifyH("RIGHT")
-
-        -- The slot's own part of this week's plan, in chat voice (principle 16).
-        element.sectionPlan = button:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-        element.sectionPlan:SetPoint("TOPLEFT", element.sectionIcon, "BOTTOMLEFT", 0, -2)
-        element.sectionPlan:SetPoint("RIGHT", button, "RIGHT", -4, 0)
-        element.sectionPlan:SetJustifyH("LEFT")
-        element.sectionPlan:SetWordWrap(true)
+        element.sectionBadge = button:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+        element.sectionBadge:SetPoint("RIGHT", element.sectionMark, "LEFT", -8, 0)
+        element.sectionBadge:SetJustifyH("RIGHT")
+        element.sectionBadge:SetWordWrap(false)
     end
     return element.sectionButton
 end
@@ -3286,6 +3543,55 @@ local function sizeTile(tile, width, height)
     right:SetWidth(thickness)
 end
 
+-- A card is a tile (UX-6): the same art, shade, badge plate, open edge and
+-- highlight, plus the road's own item icon and one more line on the shade.
+local function ensureCardRow(element)
+    if not element.cardRow then
+        local row = CreateFrame("Frame", nil, element)
+        row:SetPoint("TOPLEFT", element, "TOPLEFT", 0, 0)
+        row:SetPoint("BOTTOMRIGHT", element, "BOTTOMRIGHT", 0, 0)
+        element.cardRow = row
+        element.cards = {}
+        for index = 1, Panel.TILES_PER_ROW do
+            local tile = createTile(row)
+            -- The item's icon, a picture on the card and not a target of its
+            -- own: the card is one hover and one click.
+            tile.cardIcon = UI.ItemLine.CreateIcon(tile, { size = Panel.CARD_ICON_SIZE })
+            tile.cardIcon:EnableMouse(false)
+            tile.cardLine = tile:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            tile.cardLine:SetJustifyH("LEFT")
+            tile.cardLine:SetWordWrap(false)
+            element.cards[index] = tile
+        end
+    end
+    return element.cardRow
+end
+
+-- A card going back to the pool waits for nothing: its pending name request is
+-- cancelled, so a late answer never redraws a card that has moved on.
+local function clearCard(tile)
+    tile.card = nil
+    ns.ItemData.Cancel(tile.request)
+    tile.request = nil
+    UI.ItemLine.ClearIcon(tile.cardIcon)
+end
+
+-- The tile's own sizing, then the card's three lines stacked up the shade
+-- beside the icon: the step at the bottom, `second` above it, the name above.
+local function sizeCard(tile, width, height)
+    sizeTile(tile, width, height)
+    tile.cardIcon:ClearAllPoints()
+    tile.cardIcon:SetPoint("BOTTOMLEFT", tile, "BOTTOMLEFT", Panel.TILE_INSET, Panel.TILE_INSET)
+    tile.cardLine:ClearAllPoints()
+    tile.cardLine:SetPoint("BOTTOMLEFT", tile.cardIcon, "BOTTOMRIGHT", Panel.TILE_INSET, 0)
+    tile.cardLine:SetPoint("RIGHT", tile, "RIGHT", -Panel.TILE_INSET, 0)
+    tile.cardLine:SetHeight(Panel.TILE_SECOND_HEIGHT)
+    tile.second:ClearAllPoints()
+    tile.second:SetPoint("BOTTOMLEFT", tile.cardLine, "TOPLEFT", 0, 1)
+    tile.second:SetPoint("RIGHT", tile, "RIGHT", -Panel.TILE_INSET, 0)
+    tile.second:SetHeight(Panel.TILE_SECOND_HEIGHT)
+end
+
 local function ensureRunRow(element)
     if not element.runRow then
         local row = CreateFrame("Frame", nil, element)
@@ -3372,50 +3678,6 @@ local function ensureGroup(element)
     return element.groupText
 end
 
--- One road. The tag over an M5-1 item line, the muted facts under it, the
--- "do:" line under those, and - only where a verb goes somewhere - one button.
--- Every region is re-anchored on every bind, because which of them a road has
--- is what decides where the next one sits.
-local function ensureRoad(element)
-    if not element.roadFrame then
-        local frame = CreateFrame("Frame", nil, element)
-        frame:SetPoint("TOPLEFT", element, "TOPLEFT", 0, 0)
-        frame:SetPoint("BOTTOMRIGHT", element, "BOTTOMRIGHT", 0, 0)
-        element.roadFrame = frame
-
-        -- The plan's own pick, marked the way the Vault tab marks it: one edge
-        -- in the same gold, and never colour alone - the row also says "in your
-        -- best set" in its badge (principle 14).
-        element.roadEdge = frame:CreateTexture(nil, "OVERLAY")
-        element.roadEdge:SetTexture(WHITE_TEXTURE)
-        element.roadEdge:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
-        element.roadEdge:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
-        element.roadEdge:SetWidth(2)
-        element.roadEdge:SetVertexColor(unpack(Panel.ROAD_PICK_COLOR))
-        element.roadEdge:Hide()
-
-        element.roadTag = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-        element.roadTag:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -2)
-        element.roadTag:SetJustifyH("LEFT")
-        element.roadTag:SetWordWrap(false)
-
-        element.roadLine = UI.ItemLine.Create(frame, { badgeWidth = Panel.BADGE_WIDTH })
-
-        element.roadFacts = frame:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-        element.roadFacts:SetJustifyH("LEFT")
-        element.roadFacts:SetWordWrap(true)
-
-        element.roadTodo = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-        element.roadTodo:SetJustifyH("LEFT")
-        element.roadTodo:SetWordWrap(false)
-
-        element.roadVerb = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-        element.roadVerb:SetHeight(Panel.ROAD_VERB_HEIGHT - 4)
-        element.roadVerb:Hide()
-    end
-    return element.roadFrame
-end
-
 local function hideKinds(element, keep)
     if element.noteText and keep ~= Panel.ELEMENT_NOTE then
         element.noteText:SetText("")
@@ -3440,10 +3702,11 @@ local function hideKinds(element, keep)
         element.groupText:SetText("")
         element.groupText:Hide()
     end
-    if element.roadFrame and keep ~= Panel.ELEMENT_ROAD then
-        UI.ItemLine.Clear(element.roadLine)
-        element.roadVerb:Hide()
-        element.roadFrame:Hide()
+    if element.cardRow and keep ~= Panel.ELEMENT_CARD_ROW then
+        for _, tile in ipairs(element.cards) do
+            clearCard(tile)
+        end
+        element.cardRow:Hide()
     end
 end
 
@@ -3477,14 +3740,39 @@ function Panel.InitElement(panel, element, data)
             UI.ItemLine.ClearIcon(element.sectionIcon)
         end
         element.sectionName:SetText(data.header or data.slot)
-        element.sectionCount:SetText(string.format("%d drop(s)", data.count or 0))
-        element.sectionPlan:SetText(data.plan or "")
-        element.sectionPlan:SetShown(data.plan ~= nil)
+        element.sectionBadge:SetText(UI.ItemLine.BadgeText(data.badge))
+        -- A click saves which way the reader left it, per character: true is
+        -- shut, false is opened, so the first-worth-taking default (nil) never
+        -- overrides a choice he made (Panel.SlotOpen).
         button:SetScript("OnClick", function()
             local state = Panel.CollapseState(panel.db)
-            state.slots[data.slot] = (state.slots[data.slot] ~= true) or nil
+            state.slots[data.slot] = data.collapsed ~= true
             Panel.Refresh(panel)
         end)
+        local tooltip = Panel.SlotTooltipLines(data.section)
+        if #tooltip > 0 then
+            button:SetScript("OnEnter", function(self)
+                if GameTooltip then
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    for index, line in ipairs(tooltip) do
+                        if index == 1 then
+                            GameTooltip:SetText(line, 1, 1, 1, 1, true)
+                        else
+                            GameTooltip:AddLine(line, 1, 1, 1, true)
+                        end
+                    end
+                    GameTooltip:Show()
+                end
+            end)
+            button:SetScript("OnLeave", function()
+                if GameTooltip then
+                    GameTooltip:Hide()
+                end
+            end)
+        else
+            button:SetScript("OnEnter", nil)
+            button:SetScript("OnLeave", nil)
+        end
         button:Show()
     elseif data.kind == Panel.ELEMENT_ITEM then
         local row = data.row or {}
@@ -3508,8 +3796,8 @@ function Panel.InitElement(panel, element, data)
         local text = ensureGroup(element)
         text:SetText(data.text or "")
         text:Show()
-    elseif data.kind == Panel.ELEMENT_ROAD then
-        Panel.InitRoad(panel, element, data.row or {})
+    elseif data.kind == Panel.ELEMENT_CARD_ROW then
+        Panel.InitCardRow(panel, element, data)
     elseif data.kind == Panel.ELEMENT_RUN_ROW then
         Panel.InitRunRow(panel, element, data)
     elseif data.kind == Panel.ELEMENT_DRAWER then
@@ -3680,72 +3968,132 @@ function Panel.InitDrawer(element, data)
     return element
 end
 
--- One road on one pooled frame. Every region is anchored here rather than in
--- `ensureRoad` because which of them this road has decides where the next one
--- sits: a road with no facts closes the gap, a road with no verb has no button.
-function Panel.InitRoad(panel, element, row)
-    local frame = ensureRoad(element)
-    element.roadEdge:SetShown(row.planPick == true)
-    element.roadTag:SetText(row.tag or "")
+-- One row of up to four road cards (UX-6, WKE-637), placed exactly as the
+-- by-run tiles are, from the indent past the slot line's icon.
+function Panel.InitCardRow(panel, element, data)
+    local row = ensureCardRow(element)
+    local width = data.tileWidth or select(1, Panel.CardSize())
+    local height = data.tileHeight or select(2, Panel.CardSize())
+    local gap = data.gap or Panel.TILE_GAP
+    local indent = data.indent or Panel.CARD_INDENT
+    for index, tile in ipairs(element.cards) do
+        local card = data.cards and data.cards[index] or nil
+        if card then
+            sizeCard(tile, width, height)
+            tile:ClearAllPoints()
+            tile:SetPoint("TOPLEFT", row, "TOPLEFT", indent + (index - 1) * (width + gap), 0)
+            Panel.InitCard(panel, tile, card)
+            tile:Show()
+        else
+            clearCard(tile)
+            tile:Hide()
+        end
+    end
+    row:Show()
+    return element
+end
 
-    local anchor, gap = element.roadTag, -2
-    element.roadLine:ClearAllPoints()
-    element.roadLine:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, gap)
-    element.roadLine:SetPoint("RIGHT", frame, "RIGHT", -4, 0)
-    UI.ItemLine.Set(element.roadLine, {
+-- One road card. Every string on it is the road's own (RoadRow's), every number
+-- is the one the road carries, and nothing is drawn that a Run Tile does not
+-- draw but the item's icon and one more line.
+function Panel.InitCard(panel, tile, card)
+    local row = card.row or {}
+    tile.card = card
+    tile.run = nil
+
+    -- The item first, so the art can fall back to its icon.
+    UI.ItemLine.SetIcon(tile.cardIcon, {
         itemID = row.itemID,
         link = row.link,
         levelNote = row.levelNote,
-        -- Set on drop roads alone (M5-3b); a road named by a document arrives
-        -- at a level no walk previewed and has nothing to compare.
         dropLevel = row.dropLevel,
         keyLevel = row.keyLevel,
         name = row.name,
+        quality = row.quality,
         itemLevel = row.itemLevel,
         icon = row.icon,
-        quality = row.quality,
-        second = row.second,
-        badge = row.badge,
     })
-    anchor = element.roadLine
-
-    element.roadFacts:ClearAllPoints()
-    element.roadFacts:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -2)
-    element.roadFacts:SetPoint("RIGHT", frame, "RIGHT", -4, 0)
-    element.roadFacts:SetText(row.factsText or "")
-    element.roadFacts:SetShown(row.factsText ~= nil)
-    if row.factsText then
-        anchor = element.roadFacts
+    local resolved = tile.cardIcon.resolved or {}
+    -- A name the client has not sent yet: ask once, and re-draw the whole card
+    -- when it arrives, so its name and its icon art follow (the M3-12 pending
+    -- pattern the item line already uses). A card bound to another road since
+    -- then is left alone.
+    ns.ItemData.Cancel(tile.request)
+    tile.request = nil
+    if resolved.pending and resolved.itemID then
+        tile.request = ns.ItemData.Request(resolved.itemID, function()
+            if tile.card == card then
+                Panel.InitCard(panel, tile, card)
+            end
+        end)
     end
 
-    element.roadTodo:ClearAllPoints()
-    element.roadTodo:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -2)
-    element.roadTodo:SetPoint("RIGHT", frame, "RIGHT", -4, 0)
-    element.roadTodo:SetText(row.todo or "")
-    element.roadTodo:SetShown(row.todo ~= nil)
-    if row.todo then
-        anchor = element.roadTodo
+    -- The art: the instance's own picture, cropped as the tiles crop it, when
+    -- the walk recorded one; otherwise the item's own icon behind the shade,
+    -- cropped to the card's proportion as the mosaic crops (UX-5b) and at the
+    -- mosaic's alpha. Never a picture of somewhere else.
+    if card.art then
+        tile.art:SetTexture(card.art)
+        tile.art:SetTexCoord(unpack(Panel.TILE_ART_TEX_COORD))
+        tile.art:SetAlpha(1)
+    else
+        tile.art:SetTexture(resolved.icon)
+        tile.art:SetTexCoord(unpack(Panel.MosaicTexCoord(tile:GetWidth(), tile:GetHeight())))
+        tile.art:SetAlpha(Panel.MOSAIC_ALPHA)
+    end
+    tile.art:Show()
+    for _, cell in ipairs(tile.mosaic) do
+        cell:Hide()
+    end
+    for _, pip in ipairs(tile.pips) do
+        pip:Hide()
     end
 
-    -- One verb, and only where it goes somewhere (principle 9). A road whose
-    -- next step is the Catalyst, a craft, a delve or a vendor has no button at
-    -- all: the client offers no call for those and a dead button is worse.
-    local verb = element.roadVerb
-    verb:ClearAllPoints()
-    verb:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -2)
-    if row.verb then
-        verb:SetText(row.verb)
-        verb:SetWidth(math.max(Panel.CONTROL_MIN_WIDTH, math.ceil(labelWidth(verb, row.verb))))
-        verb:SetScript("OnClick", function()
+    tile.name:SetText(resolved.name or row.name or "")
+    tile.second:SetText(Panel.CardSecond(row) or "")
+    tile.cardLine:SetText(Panel.CardLine(row) or "")
+
+    local badgeText = UI.ItemLine.BadgeText(Panel.CardBadge(row))
+    tile.badge:SetText(badgeText)
+    tile.badgePlate:SetShown(badgeText ~= "")
+
+    -- The answer's own pick wears the gold edge, as it did on the row (R-3) and
+    -- as an open tile does; never colour alone - its badge says it too.
+    for _, edge in ipairs(tile.edges) do
+        edge:SetShown(row.planPick == true)
+    end
+    tile:SetAlpha(row.group == ns.Roads.GROUP_NONE and Panel.TILE_DIM_ALPHA or 1)
+
+    local lines = Panel.CardTooltipLines(row)
+    tile:SetScript("OnEnter", function(self)
+        if not GameTooltip then
+            return
+        end
+        if not UI.ItemLine.ShowTooltip(tile.cardIcon, self) then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(resolved.name or "", 1, 1, 1, 1, true)
+        end
+        for _, line in ipairs(lines) do
+            GameTooltip:AddLine(line, 1, 1, 1, true)
+        end
+        GameTooltip:Show()
+    end)
+    tile:SetScript("OnLeave", function()
+        if GameTooltip then
+            GameTooltip:Hide()
+        end
+    end)
+    -- The click does what the Show run / Show in vault button did; the button
+    -- is gone. A card whose step is not a screen - a craft, the Catalyst, a
+    -- delve - takes no click (principle 9: a dead button is worse than none).
+    if Panel.CardClicks(row) then
+        tile:SetScript("OnClick", function()
             Panel.FollowVerb(panel, row)
         end)
-        verb:Show()
     else
-        verb:SetScript("OnClick", nil)
-        verb:Hide()
+        tile:SetScript("OnClick", nil)
     end
-    frame:Show()
-    return element
+    return tile
 end
 
 -- Where a verb goes. Both destinations are Lootpath's own screens; neither
@@ -3809,8 +4157,8 @@ function Panel.ResetElement(element)
     if element.line then
         UI.ItemLine.Clear(element.line)
     end
-    if element.roadLine then
-        UI.ItemLine.Clear(element.roadLine)
+    for _, tile in ipairs(element.cards or {}) do
+        clearCard(tile)
     end
     if element.sectionIcon then
         UI.ItemLine.ClearIcon(element.sectionIcon)
@@ -3855,6 +4203,12 @@ function Panel.Refresh(self, opts)
     -- sentence, not a paragraph, and everything that was a condition on it is
     -- on the hint icon beside the title.
     local answer = mode == Panel.MODE_RUN and model.headline or nil
+    -- The slot view's one line up here is the stale-bags nudge (UX-6), in the
+    -- strip's amber, and only when a slot's bags are ahead of the rating.
+    if mode ~= Panel.MODE_RUN then
+        local nudge = Panel.StaleNudge(model)
+        answer = nudge and ("|cff" .. Panel.STALE_HEX .. nudge .. "|r") or nil
+    end
     self.answer:SetText(answer or "")
     self.answer:SetShown(answer ~= nil)
     self.hintText = Panel.HintText(model, mode)
