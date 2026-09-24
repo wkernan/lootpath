@@ -3811,27 +3811,63 @@ end
 -- The header row (UX-5, WKE-614). Two buttons naming the two views, packed
 -- against each other as one segment, then the sort control and the difficulty
 -- control, each Panel.HEADER_GAP apart and the last one flush with the panel's
--- right edge. Both buttons stay enabled and the one for the view on screen now
--- is LIT (UX-6a, WKE-638): the template's own highlight texture held on with
--- Blizzard's `LockHighlight` (`.luals/.../Widget/Frame/Frame.lua:339`), the
--- lock R-6c put on `Load rating`, while the other wears none - so the segment
--- lights where you are, as every segmented control in Blizzard's UI does, and
--- the view you can go to is the plain one. A click on the lit one is a no-op.
--- Guarded like R-6c: a client without the lock loses the look, never the row.
+-- right edge.
+--
+-- The row does not move between the views (UX-7b, WKE-643). The owner: "I
+-- also don't like how changing which option 'By slot' or 'By run' changes the
+-- location of these buttons ... let's keep them in the same spot no matter
+-- which is chosen." Until then the segment hung off whichever control was
+-- shown, so in the by-slot view, where the sort control is hidden, it slid
+-- right by the sort control's width and its gap. It now always hangs off the
+-- sort control: hidden, a frame keeps its size and its anchors, so its place
+-- on the row is kept, empty, and the segment sits where it sits in the by-run
+-- view in both. The difficulty control was never re-anchored and never moved.
+--
+-- The view on screen wears the template's PRESSED body (UX-7b). UX-6a lit it
+-- with the template's highlight held on (`LockHighlight`), and on the owner's
+-- screen both buttons read as the same red: that highlight is an additive
+-- glow (`UIPanelButtonHighlightTexture`, alphaMode ADD,
+-- Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.xml:3 and :307), which
+-- over the red body brightens red into red. Blizzard's own two-state controls
+-- change the BODY of the selected one instead - a tab's active art, a checked
+-- button's art. This template has no PushedTexture; its pressed look is its
+-- body's three pieces swapped to `UI-Panel-Button-Down`, what its own
+-- UIPanelButton_OnMouseDown does (SecureUIPanelTemplates.lua:174-180). The
+-- current view wears that body, held down; the other wears `-Up`, the
+-- template's own. Nothing is drawn from scratch and no font is changed (R-6d:
+-- the live client's font object on this template is not the one the
+-- annotations name). The template puts `-Up` back on a mouse up, on show and
+-- on enable (ibid.:182-209), so the mark is put back after each of those.
+-- Both buttons stay enabled; a click on the current one is a no-op. Guarded:
+-- a client without the three pieces loses the look, never the row.
+Panel.VIEW_BODY_UP = [[Interface\Buttons\UI-Panel-Button-Up]]
+Panel.VIEW_BODY_DOWN = [[Interface\Buttons\UI-Panel-Button-Down]]
+Panel.VIEW_BODY_PIECES = { "Left", "Middle", "Right" }
+
 local function markCurrentView(button, current)
-    if current then
-        if type(button.LockHighlight) == "function" then
-            button:LockHighlight()
+    button.currentView = current and true or false
+    local file = current and Panel.VIEW_BODY_DOWN or Panel.VIEW_BODY_UP
+    for _, key in ipairs(Panel.VIEW_BODY_PIECES) do
+        local piece = button[key]
+        if type(piece) == "table" and type(piece.SetTexture) == "function" then
+            piece:SetTexture(file)
         end
-    elseif type(button.UnlockHighlight) == "function" then
-        button:UnlockHighlight()
     end
+end
+
+local function remarkView(button)
+    markCurrentView(button, button.currentView)
 end
 
 local function viewButton(list, frame, index)
     local button = list[index]
     if not button then
         button = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+        if type(button.HookScript) == "function" then
+            for _, script in ipairs({ "OnMouseUp", "OnShow", "OnEnable" }) do
+                button:HookScript(script, remarkView)
+            end
+        end
         list[index] = button
     end
     return button
@@ -3843,13 +3879,14 @@ local function sizeViewButton(button, label)
 end
 
 local function placeHeaderRow(frame, mode, runSort)
-    -- The sort control belongs to the by-run view alone, so what the segment
-    -- anchors to is whichever control is actually on the row.
+    -- The sort control belongs to the by-run view alone; in the other it is
+    -- hidden and still holds its place (UX-7b), so the segment anchors to it
+    -- in both.
     frame.sortDropdown:SetShown(mode == Panel.MODE_RUN)
     frame.sortDropdown:SetDefaultText(Panel.SortText(Panel.SORT_BEST))
     frame.sortDropdown:SetText(Panel.SortText(runSort))
     frame.sortDropdown:GenerateMenu()
-    local anchor = mode == Panel.MODE_RUN and frame.sortDropdown or frame.difficultyDropdown
+    local anchor = frame.sortDropdown
 
     -- Placed from the right, so the two buttons read left to right as one
     -- segment: By slot | By run.
