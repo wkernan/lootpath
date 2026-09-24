@@ -1845,6 +1845,16 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
             end
         end
         assert.same({}, flat)
+        -- The other-level cards sort by the figure they wear, best first, so a
+        -- crested badge takes its place among the drop badges.
+        for _, entry in ipairs(m.slots) do
+            local last
+            for _, row in ipairs(entry.noRating and entry.noRating.otherLevel or {}) do
+                local worn = tonumber(Panel.WornRow(row.otherLevel.drop, row.otherLevel.max).percent) or 0
+                assert.is_true(last == nil or worn <= last, entry.slot .. " " .. tostring(row.name))
+                last = worn
+            end
+        end
         -- The 46 UX-6c counted wearing `not in your best set`, each slot's own.
         assert.same({
             Shoulder = 6,
