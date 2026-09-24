@@ -1794,6 +1794,14 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
         -- An imperative still opens its slot when nothing is drawn before it.
         earlier.slots[1] = slotOf("Head", { keep, drop(ns.Roads.TODO_KEEP_WORN, -1.2) })
         assert.equal("Neck", Panel.FirstWorthTaking(earlier))
+        -- A slot whose only drawn card is a drop rated at another level
+        -- (UX-6b: it joins the rated group) is worth taking too.
+        local otherLevelOnly = {
+            slot = "Wrist",
+            roadGroups = { { group = ns.Roads.GROUP_ITEM, rows = { keep } } },
+            noRating = { otherLevel = { { otherLevel = { drop = { percent = 0.52, level = 321 } } } }, unknown = {} },
+        }
+        assert.equal("Wrist", Panel.FirstWorthTaking({ slots = { slotOf("Head", { keep }), otherLevelOnly } }))
         -- Nothing drawn anywhere opens nothing.
         onlyKeeps.slots[3] = slotOf("Shoulder", { keep, drop(ns.Roads.TODO_REFRESH, 0) })
         assert.is_nil(Panel.FirstWorthTaking(onlyKeeps))
