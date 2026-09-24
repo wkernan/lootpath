@@ -828,6 +828,46 @@ local function attachTemplate(f, world, template)
     if template:find("UIPanelButtonTemplate", 1, true) and f.SetNormalFontObject then
         f.normalFontObject = UIPANEL_BUTTON_TEMPLATE_FONT
     end
+    -- And its BODY (UX-7b, WKE-643): UIPanelButtonNoTooltipTemplate draws the
+    -- button as three textures, parentKeys Left, Middle and Right, all
+    -- `Interface\Buttons\UI-Panel-Button-Up`
+    -- (Blizzard_SharedXML/SecureUIPanelTemplates.xml, the template's BACKGROUND
+    -- layer), and it has NO PushedTexture: its own scripts swap the three
+    -- files - `UI-Panel-Button-Down` on a mouse down, back to `-Up` on a mouse
+    -- up, on show and on enable, `-Disabled` on disable, each only while
+    -- enabled where the client's does (SecureUIPanelTemplates.lua:166-209,
+    -- UIPanelButton_OnLoad .. UIPanelButton_OnEnable). The stub carries the
+    -- same three pieces and the same five scripts, so a test can read which
+    -- body a button wears and fire what the template would do over it.
+    if template:find("UIPanelButtonTemplate", 1, true) and f.scripts then
+        local function body(button, file)
+            for _, key in ipairs({ "Left", "Middle", "Right" }) do
+                button[key]:SetTexture(file)
+            end
+        end
+        for _, key in ipairs({ "Left", "Middle", "Right" }) do
+            f[key] = newRegion("Texture", f)
+            f[key].drawLayer = "BACKGROUND"
+        end
+        body(f, [[Interface\Buttons\UI-Panel-Button-Up]])
+        f.scripts.OnMouseDown = function(button)
+            if button:IsEnabled() then
+                body(button, [[Interface\Buttons\UI-Panel-Button-Down]])
+            end
+        end
+        f.scripts.OnMouseUp = function(button)
+            if button:IsEnabled() then
+                body(button, [[Interface\Buttons\UI-Panel-Button-Up]])
+            end
+        end
+        f.scripts.OnShow = f.scripts.OnMouseUp
+        f.scripts.OnEnable = function(button)
+            body(button, [[Interface\Buttons\UI-Panel-Button-Up]])
+        end
+        f.scripts.OnDisable = function(button)
+            body(button, [[Interface\Buttons\UI-Panel-Button-Disabled]])
+        end
+    end
     -- BasicFrameTemplate -> BaseBasicFrameTemplate carries TitleText and
     -- CloseButton (Blizzard_UIPanelTemplates/UIPanelTemplates.xml).
     if template:find("BasicFrameTemplate", 1, true) then

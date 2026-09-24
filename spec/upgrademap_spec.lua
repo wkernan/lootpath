@@ -1663,6 +1663,22 @@ end)
 describe("UpgradeMapPanel view toggle on the frames", function()
     local ns, world, snapshot
 
+    -- UX-7b (WKE-643): which body a view button wears. Lit is the template's
+    -- own pressed body on all three pieces; plain is its own up body.
+    local function body(button)
+        local left, middle, right = button.Left:GetTexture(), button.Middle:GetTexture(), button.Right:GetTexture()
+        if left == middle and middle == right then
+            return middle
+        end
+        return "mixed"
+    end
+    local function lit(button)
+        return body(button) == ns.UpgradeMapPanel.VIEW_BODY_DOWN
+    end
+    local function plain(button)
+        return body(button) == ns.UpgradeMapPanel.VIEW_BODY_UP
+    end
+
     before_each(function()
         ns, world = H.load()
         snapshot = select(3, loadMap(ns))
@@ -1681,11 +1697,12 @@ describe("UpgradeMapPanel view toggle on the frames", function()
         assert.equal(ns.UpgradeMapPanel.MODE_SLOT, frame.mode)
         assert.equal("By slot", frame.modeButtons[1]:GetText())
         assert.equal("By run", frame.modeButtons[2]:GetText())
-        -- UX-6a (WKE-638): the view you are on is lit, not greyed.
+        -- UX-6a (WKE-638): the view you are on is lit, not greyed - since
+        -- UX-7b (WKE-643) by the template's pressed body.
         assert.is_true(frame.modeButtons[1]:IsEnabled())
         assert.is_true(frame.modeButtons[2]:IsEnabled())
-        assert.is_true(frame.modeButtons[1].highlightLocked)
-        assert.is_not_true(frame.modeButtons[2].highlightLocked)
+        assert.is_true(lit(frame.modeButtons[1]))
+        assert.is_true(plain(frame.modeButtons[2]))
         -- Since UX-5 the order is one dropdown, and it belongs to the by-run
         -- view alone: there is nothing to order in this one.
         assert.is_false(frame.sortDropdown:IsShown())
@@ -1696,29 +1713,54 @@ describe("UpgradeMapPanel view toggle on the frames", function()
     end)
 
     -- UX-6a (WKE-638): a segmented control lights the segment you are on.
-    -- Both buttons stay enabled; the current one wears the template's own
-    -- highlight locked on (Frame:LockHighlight, Frame.lua:339), the other is
-    -- plain, and a click on the current one does nothing at all.
-    it("lights the view you are on and leaves the other plain, in both views (UX-6a)", function()
+    -- Both buttons stay enabled and a click on the current one does nothing
+    -- at all. UX-7b (WKE-643): the light is the template's own PRESSED body
+    -- (`UI-Panel-Button-Down` on its three pieces, SecureUIPanelTemplates.lua:
+    -- 174-180), not its additive highlight glow, which read as the same red on
+    -- the owner's screen; neither button's highlight is held on.
+    it("lights the view you are on with the pressed body and leaves the other plain, in both views (UX-7b)", function()
         local frame = ns.UpgradeMapPanel.Create()
         frame:Refresh()
         local slotButton, runButton = frame.modeButtons[1], frame.modeButtons[2]
         assert.is_true(slotButton:IsEnabled())
         assert.is_true(runButton:IsEnabled())
-        assert.is_true(slotButton.highlightLocked)
+        assert.is_true(lit(slotButton))
+        assert.is_true(plain(runButton))
+        assert.is_not_true(slotButton.highlightLocked)
         assert.is_not_true(runButton.highlightLocked)
 
         runButton:Click()
         assert.equal(ns.UpgradeMapPanel.MODE_RUN, frame.mode)
         assert.is_true(slotButton:IsEnabled())
         assert.is_true(runButton:IsEnabled())
-        assert.is_true(runButton.highlightLocked)
+        assert.is_true(lit(runButton))
+        assert.is_true(plain(slotButton))
         assert.is_not_true(slotButton.highlightLocked)
+        assert.is_not_true(runButton.highlightLocked)
 
         slotButton:Click()
         assert.equal(ns.UpgradeMapPanel.MODE_SLOT, frame.mode)
-        assert.is_true(slotButton.highlightLocked)
-        assert.is_not_true(runButton.highlightLocked)
+        assert.is_true(lit(slotButton))
+        assert.is_true(plain(runButton))
+    end)
+
+    -- The template puts its up body back on a mouse up, on show and on enable
+    -- (SecureUIPanelTemplates.lua:182-209); the mark survives each of them, and
+    -- the other button's press still shows and then lets go.
+    it("keeps the current view pressed through the template's own resets (UX-7b)", function()
+        local frame = ns.UpgradeMapPanel.Create()
+        frame:Refresh()
+        local slotButton, runButton = frame.modeButtons[1], frame.modeButtons[2]
+        for _, script in ipairs({ "OnMouseDown", "OnMouseUp", "OnShow", "OnEnable" }) do
+            slotButton.scripts[script](slotButton)
+            assert.is_true(lit(slotButton), script)
+        end
+        runButton.scripts.OnMouseDown(runButton)
+        assert.is_true(lit(runButton))
+        runButton.scripts.OnMouseUp(runButton)
+        assert.is_true(plain(runButton))
+        runButton.scripts.OnShow(runButton)
+        assert.is_true(plain(runButton))
     end)
 
     it("does nothing on a click on the view you are already on (UX-6a)", function()
@@ -1730,7 +1772,8 @@ describe("UpgradeMapPanel view toggle on the frames", function()
         assert.equal(ns.UpgradeMapPanel.MODE_SLOT, frame.mode)
         assert.equal(model, frame.model)
         assert.equal(elements, frame.elements)
-        assert.is_true(frame.modeButtons[1].highlightLocked)
+        assert.is_true(lit(frame.modeButtons[1]))
+        assert.is_true(plain(frame.modeButtons[2]))
 
         frame.modeButtons[2]:Click()
         model, elements = frame.model, frame.elements
@@ -1738,7 +1781,8 @@ describe("UpgradeMapPanel view toggle on the frames", function()
         assert.equal(ns.UpgradeMapPanel.MODE_RUN, frame.mode)
         assert.equal(model, frame.model)
         assert.equal(elements, frame.elements)
-        assert.is_true(frame.modeButtons[2].highlightLocked)
+        assert.is_true(lit(frame.modeButtons[2]))
+        assert.is_true(plain(frame.modeButtons[1]))
     end)
 
     it("switches to the by-run view on a click and back again byte for byte", function()
@@ -2749,6 +2793,65 @@ describe("UpgradeMapPanel header row", function()
         assert.is_nil(frame.viewLabel)
         assert.is_nil(frame.sortLabel)
         assert.is_nil(frame.filterLabel)
+    end)
+
+    -- UX-7b (WKE-643): the owner - "let's keep them in the same spot no
+    -- matter which is chosen." The by-slot view hides the sort control and
+    -- keeps its place, so every control on the row carries the same anchors
+    -- in both views and sits the same distance from the panel's right edge.
+    it("keeps every control on the row in the same place in both views (UX-7b)", function()
+        local Panel = ns.UpgradeMapPanel
+        local frame = Panel.Create()
+        frame:Refresh()
+        local controls = {
+            slot = frame.modeButtons[1],
+            run = frame.modeButtons[2],
+            sort = frame.sortDropdown,
+            difficulty = frame.difficultyDropdown,
+        }
+        -- Each control's left edge, in points from the panel's right edge,
+        -- walked down the anchor chain: every point on the row is a TOPRIGHT
+        -- hung off a TOPLEFT, or the difficulty control's own TOPRIGHT.
+        local function leftOf(region)
+            local point = region.points[1]
+            local rightEdge
+            if point[2] == frame then
+                assert.equal("TOPRIGHT", point[3])
+                rightEdge = point[4]
+            else
+                assert.equal("TOPLEFT", point[3])
+                rightEdge = leftOf(point[2]) + point[4]
+            end
+            return rightEdge - region:GetWidth()
+        end
+        local function placed()
+            local out = {}
+            for key, region in pairs(controls) do
+                assert.equal(1, #region.points, key)
+                local point = region.points[1]
+                out[key] = { point[1], point[2], point[3], point[4], point[5], leftOf(region), region:GetWidth() }
+            end
+            return out
+        end
+        assert.equal(Panel.MODE_SLOT, frame.mode)
+        assert.is_false(frame.sortDropdown:IsShown())
+        local slotMode = placed()
+        controls.run:Click()
+        assert.equal(Panel.MODE_RUN, frame.mode)
+        assert.is_true(frame.sortDropdown:IsShown())
+        local runMode = placed()
+        assert.same(runMode, slotMode)
+        controls.slot:Click()
+        assert.same(runMode, placed())
+        -- The segment hangs off the sort control's place in both views, and
+        -- "By slot" is where it is in the by-run view.
+        assert.equal(frame.sortDropdown, slotMode.run[2])
+        assert.equal(
+            -(Panel.DROPDOWN_WIDTH + Panel.HEADER_GAP + Panel.SORT_DROPDOWN_WIDTH + Panel.HEADER_GAP)
+                - controls.run:GetWidth()
+                - controls.slot:GetWidth(),
+            slotMode.slot[6]
+        )
     end)
 
     it("carries the notes that were paragraphs on the hint, verbatim", function()
