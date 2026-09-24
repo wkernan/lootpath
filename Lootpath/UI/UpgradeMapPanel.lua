@@ -1657,16 +1657,22 @@ function Panel.IsImperative(todo)
         and todo:sub(1, #ns.Roads.TODO_PREFIX) == ns.Roads.TODO_PREFIX
 end
 
--- The first slot, in the model's own order, with a road worth taking: one that
--- carries an imperative. The one slot that starts open. nil when none does.
+-- The first slot, in the model's own order, that draws a card (UX-7a,
+-- WKE-642): one road Panel.CardWorthDrawing passes - the pick, a road with an
+-- imperative, a whole-set verdict in the best set, or a road whose worn row is
+-- above zero. The one slot that starts open. nil when no slot draws anything.
+-- UX-6 asked for an imperative instead, and R-3a's bound (ns.Roads.
+-- GateImperatives) puts one only on a road the slot's answer goes forward on:
+-- on a character whose every answer is a keep nothing opened, while the same
+-- slots drew upgrade cards. An imperative passes the same test, so a slot that
+-- opened before still opens.
 function Panel.FirstWorthTaking(model)
-    for _, section in ipairs(type(model) == "table" and model.slots or {}) do
-        for _, group in ipairs(section.roadGroups or {}) do
-            for _, row in ipairs(group.rows or {}) do
-                if row.kind ~= ns.Roads.KIND_KEEP and Panel.IsImperative(row.todo) then
-                    return section.slot
-                end
-            end
+    if type(model) ~= "table" then
+        return nil
+    end
+    for _, section in ipairs(model.slots or {}) do
+        if Panel.EachSlotCard(section, model.upgradeDocuments, Panel.CardWorthDrawing) then
+            return section.slot
         end
     end
     return nil
@@ -1805,6 +1811,41 @@ function Panel.CardWorthDrawing(row)
     local rating = type(road.rating) == "table" and road.rating or {}
     if rating.kind == ns.Roads.RATING_SET then
         return rating.inTopSet == true
+    end
+    return false
+end
+
+-- Every road a slot with roads could draw as a card, in the order the list
+-- sorts them (UX-7a): the set and item groups' own roads, then the drops rated
+-- at another level (UX-6b, they join the item group), then the unknown ones.
+-- The ones the client says are not for this spec are never drawn and are not
+-- visited. `visit(row, group)` is called for each; the walk stops at the first
+-- that answers true and hands that true back, so one pure walk serves both
+-- what the list draws (Panel.Elements) and which slot starts open
+-- (Panel.FirstWorthTaking). A slot with no roads is visited for nothing.
+function Panel.EachSlotCard(section, documents, visit)
+    if type(section) ~= "table" or type(section.roadGroups) ~= "table" then
+        return false
+    end
+    for _, group in ipairs(section.roadGroups) do
+        if group.group ~= ns.Roads.GROUP_NONE then
+            for _, row in ipairs(Panel.CardRows(group)) do
+                if visit(row, group.group) then
+                    return true
+                end
+            end
+        end
+    end
+    local sorted = section.noRating or Panel.SortNoRating(section, documents)
+    for _, row in ipairs(sorted.otherLevel) do
+        if visit(row, ns.Roads.GROUP_ITEM) then
+            return true
+        end
+    end
+    for _, row in ipairs(sorted.unknown) do
+        if visit(row, ns.Roads.GROUP_NONE) then
+            return true
+        end
     end
     return false
 end
@@ -3147,7 +3188,6 @@ function Panel.Elements(model, state)
             -- each group's own order and under its own eyebrow, so the two
             -- scales still never share a row; everything else is behind the
             -- slot's one fold, counted.
-            local sorted = section.noRating or Panel.SortNoRating(section, model.upgradeDocuments)
             local drawn, folded, foldRows = {}, {}, {}
             for _, group in ipairs(ns.Roads.GROUP_ORDER) do
                 drawn[group], folded[group] = {}, {}
@@ -3155,23 +3195,10 @@ function Panel.Elements(model, state)
             -- Each card as it is drawn: a road drawn only for its crested row
             -- wears it (UX-6d, Panel.CardFace); the choice is the one
             -- CardWorthDrawing reads.
-            local function sortInto(row, group)
+            Panel.EachSlotCard(section, model.upgradeDocuments, function(row, group)
                 local into = Panel.CardWorthDrawing(row) and drawn or folded
                 into[group][#into[group] + 1] = Panel.CardFace(row)
-            end
-            for _, group in ipairs(section.roadGroups) do
-                if group.group ~= ns.Roads.GROUP_NONE then
-                    for _, row in ipairs(Panel.CardRows(group)) do
-                        sortInto(row, group.group)
-                    end
-                end
-            end
-            for _, row in ipairs(sorted.otherLevel) do
-                sortInto(row, ns.Roads.GROUP_ITEM)
-            end
-            for _, row in ipairs(sorted.unknown) do
-                sortInto(row, ns.Roads.GROUP_NONE)
-            end
+            end)
             for _, group in ipairs(ns.Roads.GROUP_ORDER) do
                 if #drawn[group] > 0 then
                     eyebrow(group)
