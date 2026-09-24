@@ -1879,26 +1879,148 @@ end
 -- road beats what is worn. Nothing is computed - it is one road's badge, chosen
 -- by ns.Roads.IsForward, and two scales are never compared: the set group is
 -- asked first because it comes first in the fixed order.
-function Panel.SlotBadge(section)
+--
+-- Since UX-7 (WKE-644) the choice is Panel.SlotBest, which hands back the ROW
+-- and its group, because the slot line draws that road in its middle; the
+-- badge is that row's, chosen exactly as before.
+function Panel.SlotBest(section)
     local groups = type(section) == "table" and section.roadGroups or nil
     if type(groups) ~= "table" then
-        return nil
+        return nil, nil
     end
     local best, bestPercent
     for _, group in ipairs(groups) do
         for _, row in ipairs(Panel.CardRows(group)) do
             if row.badge and ns.Roads.IsForward(row.road) then
                 if group.group == ns.Roads.GROUP_SET then
-                    return row.badge
+                    return row, group.group
                 end
                 local percent = tonumber(row.road.rating.percent)
                 if group.group == ns.Roads.GROUP_ITEM and percent and (not bestPercent or percent > bestPercent) then
-                    best, bestPercent = row.badge, percent
+                    best, bestPercent = row, percent
                 end
             end
         end
     end
-    return best
+    if best then
+        return best, ns.Roads.GROUP_ITEM
+    end
+    return nil, nil
+end
+
+function Panel.SlotBadge(section)
+    local row = Panel.SlotBest(section)
+    return row and row.badge or nil
+end
+
+-- ---------------------------------------------------------------------------
+-- The slot line carries its answer (UX-7, WKE-644). The owner, of the By slot
+-- list: "We again have a lot of negative space in the middle, research the
+-- best way we can utilize all the space we have and provide maximum
+-- information and detail." His answers to the direction page: the answer ON
+-- the line with the cards still under it; keep the hairline bar; a slot with
+-- nothing better shows its name alone; yes to the counts on the line. The
+-- shapes are borrowed, never the code: the Adventure Guide's and KeystoneLoot's
+-- drop line (icon, name in its quality colour, where it comes from in grey),
+-- Details' row (a bar between the name and the number, drawn to the number),
+-- Auctionator's fixed columns (the same fact at the same x on every row).
+--
+-- The middle names the road Panel.SlotBest chose - the road the badge at the
+-- right is - and says how many other roads the slot draws. A slot whose best
+-- road is nothing (no road beats what is worn) carries only the fold's count.
+Panel.SLOT_MORE_WAYS = "%d more %s"
+Panel.SLOT_WAY_NOUN = { "way", "ways" }
+
+-- The fold's count in words, the fold line's own (`30 more items`), without
+-- its mark.
+function Panel.FoldCountText(count, allDrops)
+    local noun = Panel.FOLD_NOUN[allDrops and "drop" or "item"]
+    return string.format(Panel.FOLD_TEXT, count, noun[count == 1 and 1 or 2])
+end
+
+-- What a slot line's middle says, pure: `{ best, drawn, folded, grey }`. `best`
+-- is Panel.SlotBest's row or nil; `drawn` and `folded` are what the slot draws
+-- and what its fold holds when it is open (the same walk and the same test as
+-- Panel.Elements); `grey` is the line under the road's name - where it comes
+-- from (its second line, or its tag for a craft or a delve), then `N more
+-- ways` when the slot draws more than the one named - or, with no best road,
+-- the fold's count alone. nil for a slot with no roads.
+function Panel.SlotLine(section, documents)
+    if type(section) ~= "table" or type(section.roadGroups) ~= "table" then
+        return nil
+    end
+    local drawn, foldRows = 0, {}
+    Panel.EachSlotCard(section, documents, function(row)
+        if Panel.CardWorthDrawing(row) then
+            drawn = drawn + 1
+        else
+            foldRows[#foldRows + 1] = row
+        end
+    end)
+    local best = Panel.SlotBest(section)
+    local line = { best = best, drawn = drawn, folded = #foldRows }
+    local parts = {}
+    if best then
+        -- Where it comes from: the road's own second line, or - for a craft
+        -- or a delve, which a document names by item alone - its tag.
+        local source = best.second
+        if type(source) ~= "string" or source == "" then
+            source = best.tag
+        end
+        if type(source) == "string" and source ~= "" then
+            parts[#parts + 1] = source
+        end
+        local more = drawn - 1
+        if more > 0 then
+            parts[#parts + 1] = string.format(Panel.SLOT_MORE_WAYS, more, Panel.SLOT_WAY_NOUN[more == 1 and 1 or 2])
+        end
+    elseif #foldRows > 0 then
+        local count, _, _, allDrops = Panel.FoldCounts(foldRows)
+        parts[#parts + 1] = Panel.FoldCountText(count, allDrops)
+    end
+    line.grey = #parts > 0 and table.concat(parts, Panel.ROAD_SEPARATOR) or nil
+    return line
+end
+
+-- The hairline bar (UX-7). A RENDERING of the document's own figure, not a
+-- figure: its length is the best road's percent over the largest such percent
+-- on screen, which is layout arithmetic, like a tile's size. No healer value
+-- is computed (§1). Only a per-item percent is drawn - a whole-set pick's badge
+-- is another scale and two scales are never compared (UX-6's slot badge) - and
+-- a slot with nothing better draws none.
+function Panel.SlotBarPercent(section)
+    local row, group = Panel.SlotBest(section)
+    if not row or group ~= ns.Roads.GROUP_ITEM then
+        return nil
+    end
+    local percent = tonumber(row.road.rating.percent)
+    if not percent or percent <= 0 then
+        return nil
+    end
+    return percent
+end
+
+-- The largest percent a slot line's bar is drawn against: the largest positive
+-- per-item slot badge in the model. nil when no slot has one.
+function Panel.SlotBarMax(model)
+    local max
+    for _, section in ipairs(type(model) == "table" and model.slots or {}) do
+        local percent = Panel.SlotBarPercent(section)
+        if percent and (not max or percent > max) then
+            max = percent
+        end
+    end
+    return max
+end
+
+-- The bar's length as a fraction of the middle's width: 0 with no bar.
+function Panel.SlotBarFraction(section, maxPercent)
+    local percent = Panel.SlotBarPercent(section)
+    maxPercent = tonumber(maxPercent)
+    if not percent or not maxPercent or maxPercent <= 0 then
+        return 0
+    end
+    return math.min(1, percent / maxPercent)
 end
 
 -- The badge on a card's plate. A no-rating road has none: its phrase is its
@@ -2015,6 +2137,23 @@ function Panel.SlotTooltipLines(section)
     local lines = { section.slot }
     if section.plan then
         lines[#lines + 1] = section.plan
+    end
+    -- The road the line's middle names, in full (UX-7): its facts and its
+    -- cost as its card's hover carries them, under its name so it is clear
+    -- whose they are. Its badge's scale is the group header below, and a line
+    -- click opens the slot rather than following the road, so neither is
+    -- repeated. A road with neither facts nor cost adds nothing.
+    local best = Panel.SlotBest(section)
+    if best and (best.tooltipFactsText or best.costText) then
+        if type(best.name) == "string" and best.name ~= "" then
+            lines[#lines + 1] = best.name
+        end
+        if best.tooltipFactsText then
+            lines[#lines + 1] = best.tooltipFactsText
+        end
+        if best.costText then
+            lines[#lines + 1] = best.costText
+        end
     end
     for _, group in ipairs(section.roadGroups or {}) do
         if group.header then
@@ -2278,9 +2417,8 @@ function Panel.FoldText(rows, open)
 end
 
 function Panel.FoldTextOf(open, count, _, _, allDrops)
-    local noun = Panel.FOLD_NOUN[allDrops and "drop" or "item"]
     local mark = open and Panel.SECTION_OPEN_MARK or Panel.SECTION_SHUT_MARK
-    return mark .. " " .. string.format(Panel.FOLD_TEXT, count, noun[count == 1 and 1 or 2])
+    return mark .. " " .. Panel.FoldCountText(count, allDrops)
 end
 
 -- The fold's hover: the two counts, a zero one not printed.
@@ -2811,6 +2949,33 @@ Panel.ELEMENT_DRAWER = "drawer"
 Panel.SLOT_ICON_X = 4
 Panel.SLOT_ICON_SIZE = UI.ItemLine.ICON_SIZE
 Panel.SLOT_LINE_HEIGHT = Panel.SLOT_ICON_SIZE + 6
+
+-- The slot line's columns (UX-7, WKE-644): the worn icon, the slot's name in a
+-- FIXED column (Auctionator's rule, so every middle starts at the same x), the
+-- middle - the best road's icon at the card's size less two, its name over its
+-- grey line, the hairline bar under it all - and then the badge's room and the
+-- mark at the right, where they were. The line is SLOT_LINE_HEIGHT tall still:
+-- a name line and a grey line fit beside a 26-point icon as they do on a card.
+Panel.SLOT_NAME_GAP = 8
+Panel.SLOT_NAME_WIDTH = 80
+Panel.SLOT_MIDDLE_X = Panel.SLOT_ICON_X + Panel.SLOT_ICON_SIZE + Panel.SLOT_NAME_GAP * 2 + Panel.SLOT_NAME_WIDTH
+Panel.SLOT_MIDDLE_ICON_SIZE = 26
+Panel.SLOT_MIDDLE_GAP = 6
+Panel.SLOT_MIDDLE_NAME_HEIGHT = 14
+Panel.SLOT_MIDDLE_GREY_HEIGHT = 12
+-- The mark's column (its inset and width) and the badge's room left of it.
+Panel.SLOT_MARK_INSET = 4
+Panel.SLOT_MARK_WIDTH = 12
+Panel.SLOT_BADGE_ROOM = 150
+Panel.SLOT_RIGHT_ROOM = Panel.SLOT_MARK_INSET + Panel.SLOT_MARK_WIDTH + Panel.SLOT_NAME_GAP * 2 + Panel.SLOT_BADGE_ROOM
+Panel.SLOT_BAR_HEIGHT = 2
+Panel.SLOT_BAR_ALPHA = 0.5
+
+-- The middle's width on a list this wide, in points: what the bar's fraction
+-- is of.
+function Panel.SlotMiddleWidth(listWidth)
+    return math.max(0, Panel.ListWidth(listWidth) - Panel.SLOT_MIDDLE_X - Panel.SLOT_RIGHT_ROOM)
+end
 -- The eyebrow over a group of cards.
 Panel.GROUP_HEIGHT = 20
 -- The item line's own icon (M5-1) plus the gap under it.
@@ -3139,8 +3304,11 @@ function Panel.Elements(model, state)
 
     local firstWorth = Panel.FirstWorthTaking(model)
     local cardWidth, cardHeight = Panel.CardSize(state.listWidth)
+    local barMax = Panel.SlotBarMax(model)
+    local middleWidth = Panel.SlotMiddleWidth(state.listWidth)
     for _, section in ipairs(model.slots) do
         local open = Panel.SlotOpen(collapsed[section.slot], section, firstWorth)
+        local bar = Panel.SlotBarFraction(section, barMax)
         add({
             kind = Panel.ELEMENT_SECTION,
             height = Panel.SLOT_LINE_HEIGHT,
@@ -3152,6 +3320,11 @@ function Panel.Elements(model, state)
             badge = Panel.SlotBadge(section),
             collapsed = not open,
             section = section,
+            -- The answer on the line (UX-7): the best road, the grey line,
+            -- and the bar's fraction and length in points.
+            line = Panel.SlotLine(section, model.upgradeDocuments),
+            bar = bar,
+            barWidth = bar * middleWidth,
         })
         if open and section.roadGroups then
             -- Up to four cards a row, filled across in the group's own order:
@@ -3956,18 +4129,50 @@ local function ensureSection(element)
         element.sectionIcon:SetPoint("TOPLEFT", button, "TOPLEFT", Panel.SLOT_ICON_X, -3)
 
         element.sectionName = button:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-        element.sectionName:SetPoint("LEFT", element.sectionIcon, "RIGHT", 8, 0)
+        element.sectionName:SetPoint("LEFT", element.sectionIcon, "RIGHT", Panel.SLOT_NAME_GAP, 0)
         element.sectionName:SetJustifyH("LEFT")
+        element.sectionName:SetWordWrap(false)
 
         element.sectionMark = button:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-        element.sectionMark:SetPoint("RIGHT", button, "RIGHT", -4, 0)
-        element.sectionMark:SetWidth(12)
+        element.sectionMark:SetPoint("RIGHT", button, "RIGHT", -Panel.SLOT_MARK_INSET, 0)
+        element.sectionMark:SetWidth(Panel.SLOT_MARK_WIDTH)
         element.sectionMark:SetJustifyH("CENTER")
 
         element.sectionBadge = button:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-        element.sectionBadge:SetPoint("RIGHT", element.sectionMark, "LEFT", -8, 0)
+        element.sectionBadge:SetPoint("RIGHT", element.sectionMark, "LEFT", -Panel.SLOT_NAME_GAP, 0)
         element.sectionBadge:SetJustifyH("RIGHT")
         element.sectionBadge:SetWordWrap(false)
+
+        -- The middle (UX-7): the best road's icon (its own hover is that
+        -- item's tooltip, as the worn icon's is), its name over its grey line,
+        -- and the hairline bar along the line's bottom.
+        element.middleIcon = UI.ItemLine.CreateIcon(button, { size = Panel.SLOT_MIDDLE_ICON_SIZE })
+        element.middleIcon:SetPoint(
+            "TOPLEFT",
+            button,
+            "TOPLEFT",
+            Panel.SLOT_MIDDLE_X,
+            -(Panel.SLOT_LINE_HEIGHT - Panel.SLOT_MIDDLE_ICON_SIZE) / 2
+        )
+
+        element.middleName = button:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+        element.middleName:SetPoint("TOPLEFT", element.middleIcon, "TOPRIGHT", Panel.SLOT_MIDDLE_GAP, 0)
+        element.middleName:SetPoint("RIGHT", button, "RIGHT", -Panel.SLOT_RIGHT_ROOM, 0)
+        element.middleName:SetHeight(Panel.SLOT_MIDDLE_NAME_HEIGHT)
+        element.middleName:SetJustifyH("LEFT")
+        element.middleName:SetWordWrap(false)
+
+        element.middleGrey = button:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+        element.middleGrey:SetHeight(Panel.SLOT_MIDDLE_GREY_HEIGHT)
+        element.middleGrey:SetJustifyH("LEFT")
+        element.middleGrey:SetWordWrap(false)
+
+        element.middleBar = button:CreateTexture(nil, "ARTWORK")
+        element.middleBar:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", Panel.SLOT_MIDDLE_X, 0)
+        element.middleBar:SetHeight(Panel.SLOT_BAR_HEIGHT)
+        local red, green, blue = UI.ItemLine.RGB(UI.ItemLine.TONE.better.hex)
+        element.middleBar:SetColorTexture(red, green, blue, Panel.SLOT_BAR_ALPHA)
+        element.middleBar:Hide()
     end
     return element.sectionButton
 end
@@ -4375,7 +4580,11 @@ function Panel.InitElement(panel, element, data)
             UI.ItemLine.ClearIcon(element.sectionIcon)
         end
         element.sectionName:SetText(data.header or data.slot)
+        -- A fixed column on a slot with roads, so every middle starts at the
+        -- same x; the pending section's longer name keeps its own width.
+        element.sectionName:SetWidth(data.line and Panel.SLOT_NAME_WIDTH or 0)
         element.sectionBadge:SetText(UI.ItemLine.BadgeText(data.badge))
+        Panel.InitSlotMiddle(panel, element, data)
         -- A click saves which way the reader left it, per character: true is
         -- shut, false is opened, so the first-worth-taking default (nil) never
         -- overrides a choice he made (Panel.SlotOpen).
@@ -4467,6 +4676,62 @@ function Panel.InitElement(panel, element, data)
         Panel.InitDrawer(element, data)
     end
     return element
+end
+
+-- The slot line's middle (UX-7, WKE-644). With a best road: its icon, its
+-- name in its quality colour (truncated, never wrapped) and the grey line
+-- under it. With none: the grey line alone, at the middle's left - the fold's
+-- count. The bar is drawn to the element's own length, or not at all. A name
+-- the client has not sent yet is asked for once, and the line re-bound when it
+-- arrives, as a card does.
+function Panel.InitSlotMiddle(panel, element, data)
+    local line = data.line
+    local best = line and line.best or nil
+    ns.ItemData.Cancel(element.middleRequest)
+    element.middleRequest = nil
+    element.sectionData = data
+    element.middleGrey:ClearAllPoints()
+    if best then
+        UI.ItemLine.SetIcon(element.middleIcon, {
+            itemID = best.itemID,
+            link = best.link,
+            levelNote = best.levelNote,
+            dropLevel = best.dropLevel,
+            keyLevel = best.keyLevel,
+            name = best.name,
+            quality = best.quality,
+            itemLevel = best.itemLevel,
+            icon = best.icon,
+        })
+        local resolved = element.middleIcon.resolved or {}
+        local color = UI.ItemLine.QualityColor(resolved.quality)
+        local name = resolved.name or best.name or ""
+        element.middleName:SetText(color and ("|cff" .. color.hex .. name .. "|r") or name)
+        element.middleName:Show()
+        element.middleGrey:SetPoint("TOPLEFT", element.middleName, "BOTTOMLEFT", 0, -1)
+        if resolved.pending and resolved.itemID then
+            element.middleRequest = ns.ItemData.Request(resolved.itemID, function()
+                if element.sectionData == data then
+                    Panel.InitSlotMiddle(panel, element, data)
+                end
+            end)
+        end
+    else
+        UI.ItemLine.ClearIcon(element.middleIcon)
+        element.middleName:SetText("")
+        element.middleName:Hide()
+        element.middleGrey:SetPoint("LEFT", element.sectionButton, "LEFT", Panel.SLOT_MIDDLE_X, 0)
+    end
+    element.middleGrey:SetPoint("RIGHT", element.sectionButton, "RIGHT", -Panel.SLOT_RIGHT_ROOM, 0)
+    element.middleGrey:SetText(line and line.grey or "")
+    element.middleGrey:SetShown(line ~= nil and line.grey ~= nil)
+    local width = tonumber(data.barWidth) or 0
+    if width > 0 then
+        element.middleBar:SetWidth(width)
+        element.middleBar:Show()
+    else
+        element.middleBar:Hide()
+    end
 end
 
 -- One row of up to four tiles (UX-5, WKE-614). Every tile is re-bound here and
@@ -4825,6 +5090,12 @@ function Panel.ResetElement(element)
     end
     if element.sectionIcon then
         UI.ItemLine.ClearIcon(element.sectionIcon)
+    end
+    if element.middleIcon then
+        UI.ItemLine.ClearIcon(element.middleIcon)
+        ns.ItemData.Cancel(element.middleRequest)
+        element.middleRequest = nil
+        element.sectionData = nil
     end
     for _, line in ipairs(element.drawerLines or {}) do
         UI.ItemLine.Clear(line)

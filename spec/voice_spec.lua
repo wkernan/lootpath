@@ -351,6 +351,8 @@ describe("the source-free voice (V-1, WKE-569)", function()
             c.check("UpgradeMap.open.hover", element.hover)
             c.check("UpgradeMap.open.header", element.header)
             c.check("UpgradeMap.open.badge", element.badge and element.badge.text)
+            -- UX-7 (WKE-644): the slot line's grey line.
+            c.check("UpgradeMap.open.slotLine", element.line and element.line.grey)
             for _, card in ipairs(element.cards or {}) do
                 local badge = Panel.CardBadge(card.row)
                 c.check("UpgradeMap.card.second", Panel.CardSecond(card.row))
