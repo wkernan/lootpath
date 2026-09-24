@@ -1814,6 +1814,155 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
         end
     end)
 
+    -- UX-7 (WKE-644): the slot line carries its answer - the best road's
+    -- icon, name and where it comes from, a hairline bar drawn to its
+    -- percent, and how many other ways the slot draws.
+    it("puts the best road, where it comes from and the other ways on the slot line (UX-7)", function()
+        local Panel = ns.UpgradeMapPanel
+        local m = model()
+        local list = elements(m, { slots = {} })
+        -- The line's counts are the list's own: each slot opened alone draws
+        -- `drawn` cards and folds `folded` roads.
+        for _, entry in ipairs(m.slots) do
+            local line = sectionElement(list, entry.slot).line
+            assert.is_table(line, entry.slot)
+            local drawn, fold = 0, nil
+            for _, element in ipairs(under(elements(m, shutAllBut(m, entry.slot)), entry.slot)) do
+                drawn = drawn + #(element.cards or {})
+                if element.kind == Panel.ELEMENT_FOLD then
+                    fold = element
+                end
+            end
+            assert.equal(drawn, line.drawn, entry.slot)
+            assert.equal(fold and fold.count or 0, line.folded, entry.slot)
+            assert.equal(Panel.SlotBest(entry), line.best, entry.slot)
+            -- The extent is the line's, unchanged.
+            assert.equal(Panel.SLOT_LINE_HEIGHT, sectionElement(list, entry.slot).height)
+        end
+        assert.equal(40, Panel.SLOT_LINE_HEIGHT)
+
+        -- A slot whose best road is a drop: its name, where it drops, and the
+        -- other four ways Head draws.
+        local head = sectionElement(list, "Head").line
+        assert.equal("Gaze of the Coiled Watcher", head.best.name)
+        assert.equal("Ula'tek - The Venomous Abyss, Mythic raid · 4 more ways", head.grey)
+        assert.equal(5, head.drawn)
+        -- A craft, which a document names by item alone: its tag.
+        assert.equal("Crafted · 2 more ways", sectionElement(list, "Wrist").line.grey)
+        assert.equal(ns.Roads.KIND_CRAFT, sectionElement(list, "Wrist").line.best.kind)
+        -- A whole-set pick is the slot's answer and is named too; it has no bar.
+        local shoulder = sectionElement(list, "Shoulder").line
+        assert.equal("Venom-Cursed Lynx's Spaulders", shoulder.best.name)
+        assert.equal("into the tier shoulders · 11 more ways", shoulder.grey)
+        -- A slot with nothing better: no road on the line, the fold's count.
+        local keeps = { ["1H Weapon"] = "57 more items", Offhand = "22 more items", Shield = "7 more drops" }
+        for slot, grey in pairs(keeps) do
+            local line = sectionElement(list, slot).line
+            assert.is_nil(line.best, slot)
+            assert.equal(grey, line.grey, slot)
+            assert.equal(0, sectionElement(list, slot).bar, slot)
+            assert.equal(0, sectionElement(list, slot).barWidth, slot)
+        end
+
+        -- One more way is one way; a lone road says only where it comes from;
+        -- a slot with nothing at all says nothing.
+        local function road(percent, second)
+            return {
+                kind = ns.Roads.KIND_DROP,
+                second = second,
+                badge = { text = "+x", tone = "better" },
+                road = { rating = { kind = ns.Roads.RATING_ITEM, percent = percent } },
+            }
+        end
+        local function slotWith(rows)
+            return {
+                slot = "Neck",
+                roadGroups = { { group = ns.Roads.GROUP_ITEM, rows = rows } },
+                noRating = { otherLevel = {}, unknown = {} },
+            }
+        end
+        assert.equal(
+            "Boss - Place · 1 more way",
+            Panel.SlotLine(slotWith({ road(1.2, "Boss - Place"), road(0.5, "Other") })).grey
+        )
+        assert.equal("Boss - Place", Panel.SlotLine(slotWith({ road(1.2, "Boss - Place") })).grey)
+        local empty = Panel.SlotLine(slotWith({}))
+        assert.is_nil(empty.best)
+        assert.is_nil(empty.grey)
+        assert.is_nil(Panel.SlotLine({ slot = "Head" }))
+        assert.is_nil(Panel.SlotLine(nil))
+    end)
+
+    it("draws the hairline bar to the best percent over the largest on screen (UX-7)", function()
+        local Panel = ns.UpgradeMapPanel
+        local m = model()
+        -- The largest positive per-item slot badge on the week is Head's.
+        assert.equal(2.989, Panel.SlotBarMax(m))
+        assert.equal(2.989, Panel.SlotBarPercent(section(m, "Head")))
+        local expected = {
+            Head = 1,
+            Neck = 1.73 / 2.989,
+            Wrist = 0.178 / 2.989,
+            Hands = 1.385 / 2.989,
+            Legs = 2.456 / 2.989,
+            Finger = 2.366 / 2.989,
+            Trinket = 1.899 / 2.989,
+        }
+        local list = elements(m, { slots = {} })
+        local middle = Panel.SlotMiddleWidth(nil)
+        assert.equal(396, middle)
+        for _, entry in ipairs(m.slots) do
+            local fraction = Panel.SlotBarFraction(entry, Panel.SlotBarMax(m))
+            assert.near(expected[entry.slot] or 0, fraction, 1e-12, entry.slot)
+            assert.is_true(fraction <= 1, entry.slot)
+            local element = sectionElement(list, entry.slot)
+            assert.equal(fraction, element.bar)
+            assert.equal(fraction * middle, element.barWidth)
+        end
+        -- A set pick's badge is another scale: no bar. Nothing, no bar.
+        for _, slot in ipairs({ "Shoulder", "Back", "Chest", "Waist", "Feet", "2H Weapon", "1H Weapon" }) do
+            assert.equal(0, Panel.SlotBarFraction(section(m, slot), 2.989), slot)
+        end
+        assert.equal(0, Panel.SlotBarFraction(section(m, "Head"), nil))
+        assert.equal(0, Panel.SlotBarFraction(section(m, "Head"), 0))
+        assert.is_nil(Panel.SlotBarMax({ slots = {} }))
+        -- The middle starts at one x on every line: the slot name is a fixed
+        -- column.
+        local wornColumn = Panel.SLOT_ICON_X + Panel.SLOT_ICON_SIZE
+        assert.equal(wornColumn + Panel.SLOT_NAME_GAP * 2 + Panel.SLOT_NAME_WIDTH, Panel.SLOT_MIDDLE_X)
+        assert.equal(134, Panel.SLOT_MIDDLE_X)
+    end)
+
+    it("names the best road's facts on the line's hover and keeps the sentence (UX-7)", function()
+        local Panel = ns.UpgradeMapPanel
+        local m = model()
+        local head = section(m, "Head")
+        local lines = Panel.SlotTooltipLines(head)
+        assert.equal("Head", lines[1])
+        assert.equal(head.plan, lines[2])
+        -- Head's road carries no facts of its own, only its cost clause: its
+        -- name, then that.
+        assert.is_nil(Panel.SlotBest(head).tooltipFactsText)
+        assert.equal("Gaze of the Coiled Watcher", lines[3])
+        assert.equal("crest type and cost not readable", lines[4])
+        assert.equal(Panel.SlotBest(head).costText, lines[4])
+        -- A craft named by item alone: its facts, and no name line.
+        local wrist = Panel.SlotTooltipLines(section(m, "Wrist"))
+        assert.equal(section(m, "Wrist").plan, wrist[2])
+        assert.equal("the rating assumes Crit / Haste · spark and materials not read", wrist[3])
+        -- A set pick with facts and a cost: all three.
+        local back = Panel.SlotTooltipLines(section(m, "Back"))
+        assert.equal("Preyhunter's Refined Shawl", back[3])
+        assert.equal(Panel.SlotBest(section(m, "Back")).tooltipFactsText, back[4])
+        assert.equal(Panel.SlotBest(section(m, "Back")).costText, back[5])
+        -- A slot with nothing better gains nothing.
+        local weapon = Panel.SlotTooltipLines(section(m, "1H Weapon"))
+        for _, line in ipairs(weapon) do
+            assert.is_nil(line:find("Ula'tek", 1, true))
+        end
+        assert.is_nil(Panel.SlotBest(section(m, "1H Weapon")))
+    end)
+
     -- UX-6d (WKE-641): a card drawn only because its crested row is above
     -- zero wears that row. The owner: "badge them and show the player it
     -- would be better if they [crested] it."
@@ -2567,5 +2716,70 @@ describe("Roads on the window, over the owner's week of 2026-09-08", function()
         -- Printed still, with its phrase (`/lootpath status` reads these lines).
         local printed = table.concat(panel.lines, "\n")
         assert.is_not_nil(printed:find(other.name .. " (" .. tostring(other.itemLevel) .. ")", 1, true))
+    end)
+
+    -- UX-7 (WKE-644): the slot line's middle, bound to a frame the way the
+    -- scroll box binds one - and re-bound, as the pool re-binds.
+    it("draws the best road, its grey line and the bar on the slot line's frame (UX-7)", function()
+        local Panel = ns.UpgradeMapPanel
+        local panel = frame.upgradeMapPanel
+        local function dataFor(slot)
+            for _, data in ipairs(panel.elements) do
+                if data.kind == Panel.ELEMENT_SECTION and data.slot == slot then
+                    return data
+                end
+            end
+            return nil
+        end
+        local element = CreateFrame("Frame", nil, panel)
+        local head = dataFor("Head")
+        Panel.InitElement(panel, element, head)
+        assert.is_true(element.middleIcon:IsShown())
+        assert.equal(head.line.best.itemID, element.middleIcon.item.itemID)
+        assert.equal(Panel.SLOT_MIDDLE_ICON_SIZE, element.middleIcon:GetWidth())
+        assert.is_not_nil(element.middleName:GetText():find("Gaze of the Coiled Watcher", 1, true))
+        assert.is_false(element.middleName.wordWrap)
+        assert.is_false(element.middleGrey.wordWrap)
+        assert.equal(head.line.grey, element.middleGrey:GetText())
+        assert.is_true(element.middleBar:IsShown())
+        assert.is_true(head.barWidth > 0)
+        assert.equal(head.barWidth, element.middleBar:GetWidth())
+        assert.equal(Panel.SLOT_BAR_HEIGHT, element.middleBar:GetHeight())
+        -- The slot's name is a fixed column, and the middle starts at one x.
+        assert.equal(Panel.SLOT_NAME_WIDTH, element.sectionName:GetWidth())
+        assert.equal(Panel.SLOT_MIDDLE_X, element.middleIcon.points[1][4])
+        assert.equal(Panel.SLOT_MIDDLE_X, element.middleBar.points[1][4])
+        -- Its hover still carries the sentence, and now the road's facts.
+        element.sectionButton.stub.Enter()
+        local hover = GameTooltip.stub.Text()
+        assert.is_not_nil(hover:find(head.section.plan, 1, true))
+        assert.is_not_nil(hover:find(head.line.best.name, 1, true))
+        assert.is_not_nil(hover:find(head.line.best.costText, 1, true))
+
+        -- The same frame re-bound to a slot with nothing better: the count
+        -- alone at the middle's left, no icon, no name, no bar.
+        local weapon = dataFor("1H Weapon")
+        Panel.InitElement(panel, element, weapon)
+        assert.is_false(element.middleIcon:IsShown())
+        assert.equal("", element.middleName:GetText())
+        assert.equal("57 more items", element.middleGrey:GetText())
+        assert.equal(Panel.SLOT_MIDDLE_X, element.middleGrey.points[1][4])
+        assert.is_false(element.middleBar:IsShown())
+        assert.equal(Panel.SLOT_NAME_WIDTH, element.sectionName:GetWidth())
+
+        -- A craft's name the client has not sent yet: asked once, and the line
+        -- fills itself in when it comes - unless the frame moved on.
+        local wrist = dataFor("Wrist")
+        Panel.InitElement(panel, element, wrist)
+        local itemID = wrist.line.best.itemID
+        assert.is_not_nil(element.middleRequest)
+        world.items[itemID] = {
+            instant = { itemID, "Armor", "Leather", "INVTYPE_WRIST", 134400, 4, 2 },
+            info = { "Placeholder Bracers", "|Hitem:" .. itemID .. "|h[Placeholder Bracers]|h", 4, n = 3 },
+            level = 331,
+        }
+        world.fireEvent("ITEM_DATA_LOAD_RESULT", itemID, true)
+        assert.is_not_nil(element.middleName:GetText():find("Placeholder Bracers", 1, true))
+        assert.equal("Crafted · 2 more ways", element.middleGrey:GetText())
     end)
 end)
