@@ -1432,8 +1432,10 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
         assert.equal(2, both.drop.keyLevel)
         assert.equal(308, both.max.level)
         assert.equal(2, both.max.keyLevel)
+        -- Since UX-6d (WKE-641) the crested row, the upgrade of the two, is
+        -- the one the card wears.
         assert.same(
-            { "-0.10% · rated at 295, drops at 276", "crested to 308 · +0.20%" },
+            { "drops at 276 · not better at 295 · crested to 308, +0.20%" },
             Panel.OtherLevelRow({ itemLevel = 276 }, both).otherLevelHover
         )
         -- A bonus-roll row alone is no figure this card carries.
@@ -1709,6 +1711,154 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
         for _, slot in ipairs({ "1H Weapon", "Offhand", "Shield" }) do
             assert.equal(0, counts[slot][1], slot)
         end
+    end)
+
+    -- UX-6d (WKE-641): a card drawn only because its crested row is above
+    -- zero wears that row. The owner: "badge them and show the player it
+    -- would be better if they [crested] it."
+    it("wears the drop row if it is an upgrade, else the crested row if it is (UX-6d)", function()
+        local Panel = ns.UpgradeMapPanel
+        local up, tie, down = { percent = 0.2 }, { percent = 0 }, { percent = -0.1 }
+        local crest, flat = { percent = 0.5 }, { percent = 0 }
+        assert.equal(up, Panel.WornRow(up, crest))
+        assert.equal(crest, Panel.WornRow(tie, crest))
+        assert.equal(crest, Panel.WornRow(down, crest))
+        assert.equal(tie, Panel.WornRow(tie, flat))
+        assert.equal(down, Panel.WornRow(down, nil))
+        assert.equal(crest, Panel.WornRow(nil, crest))
+        assert.equal(flat, Panel.WornRow(nil, flat))
+        assert.is_nil(Panel.WornRow(nil, nil))
+        -- The same choice is what decides a card is drawn, so the two cannot
+        -- disagree: drawn exactly when the worn row is an upgrade.
+        local shapes = {
+            itemRow(0.3),
+            itemRow(0),
+            itemRow(-0.2, { { dropType = "max", percent = 0.3 } }),
+            itemRow(-0.2, { { dropType = "max", percent = 0 } }),
+            itemRow(-0.2, { { dropType = "bonus", percent = 0.5 } }),
+        }
+        for index, row in ipairs(shapes) do
+            local worn = Panel.WornRow(Panel.CardRatingRows(row))
+            assert.equal(
+                ns.UFImport.IsUpgrade({ upgradePercent = worn.percent }) == true,
+                Panel.CardWorthDrawing(row),
+                "shape " .. index
+            )
+        end
+    end)
+
+    it("wears the crested figure on a card drawn only for its crested row, and says to crest it (UX-6d)", function()
+        local Panel = ns.UpgradeMapPanel
+        local m = model()
+        -- Rated at another level: drops at 276, his drop row at 295 is not
+        -- above zero, his crested row at 308 is.
+        local hide = otherLevelRow(m, "Chest", "Hide of Pestilence")
+        assert.same({ text = "+0.14%", tone = "better" }, Panel.CardBadge(hide))
+        assert.equal("crest it to 308", Panel.CardLine(hide))
+        local hideHover = Panel.CardTooltipLines(hide)
+        assert.equal("drops at 276 · not better at 295 · crested to 308, +0.14%", hideHover[1])
+        assert.is_nil(table.concat(hideHover, "\n"):find("crested to 308 · ", 1, true))
+        -- Its figures are still his rows, whole.
+        assert.equal(hide.otherLevel.max.entry.upgradePercent, hide.otherLevel.max.percent)
+
+        -- Rated at the level it drops: the model's road is untouched, the card
+        -- drawn for it wears the cap row out of the same document.
+        local shawl = rowWhere(m, "Back", function(row)
+            return row.name == "Amani Summoning Shawl" and row.group == ns.Roads.GROUP_ITEM
+        end)
+        local face = Panel.CardFace(shawl)
+        assert.are_not.equal(shawl, face)
+        assert.same({ text = "+0.31%", tone = "better" }, Panel.CardBadge(face))
+        assert.equal("crest it to 334", Panel.CardLine(face))
+        local hover = Panel.CardTooltipLines(face)
+        assert.equal("drops at 318 · not better as it drops · crested to 334, +0.31%", hover[1])
+        local joined = table.concat(hover, "\n")
+        assert.is_nil(joined:find("at its cap", 1, true), joined)
+        assert.is_not_nil(joined:find("crest type and cost not readable", 1, true), joined)
+        assert.is_not_nil(joined:find("click: show the run", 1, true), joined)
+        -- The road, its row and the printed line are what they were: the
+        -- printed line already carries the cap clause.
+        assert.same({ text = ns.Roads.PHRASE_NOT_IN_BEST_SET, tone = "none" }, shawl.badge)
+        assert.equal(ns.Roads.TODO_KEEP_WORN, shawl.todo)
+        assert.is_not_nil(Panel.RoadLineText(shawl):find("at its cap 334 +0.31%", 1, true))
+        assert.is_nil(Panel.RoadLineText(shawl):find("crest it", 1, true))
+        -- And that face is the card the list draws.
+        local drawnShawl
+        for _, element in ipairs(under(elements(m, shutAllBut(m, "Back")), "Back")) do
+            for _, card in ipairs(element.cards or {}) do
+                if card.row.name == "Amani Summoning Shawl" then
+                    drawnShawl = card.row
+                end
+            end
+        end
+        assert.equal("crest it to 334", Panel.CardLine(drawnShawl))
+        assert.equal("+0.31%", Panel.CardBadge(drawnShawl).text)
+
+        -- A drop row above zero keeps the drop face, the crested row on the hover.
+        local warmask = otherLevelRow(m, "Head", "Shadow Hunter's Warmask")
+        assert.equal("rated at 321", Panel.CardLine(warmask))
+        assert.same({ text = "+0.17%", tone = "better" }, Panel.CardBadge(warmask))
+        assert.equal("crested to 334 · +0.75%", Panel.CardTooltipLines(warmask)[2])
+        local gaze = rowWhere(m, "Head", function(row)
+            return row.name == "Gaze of the Coiled Watcher" and row.group == ns.Roads.GROUP_ITEM
+        end)
+        assert.equal(gaze, Panel.CardFace(gaze))
+        -- Neither above zero: the drop face, as before (and folded).
+        local crown = rowWhere(m, "Head", function(row)
+            return row.name == "Crown of Roaring Storms" and row.group == ns.Roads.GROUP_ITEM
+        end)
+        assert.equal(crown, Panel.CardFace(crown))
+        -- No drop row at all: UX-6b's crested-only card, unchanged.
+        local maxOnly = Panel.OtherLevelRating({ document(nil, { { 334, "max", 0.5 } }) }, 1001)
+        local row = Panel.OtherLevelRow({ itemLevel = 308, kind = ns.Roads.KIND_DROP }, maxOnly)
+        assert.equal("crested to 334", Panel.CardLine(row))
+        assert.same({ "+0.50% · crested to 334, drops at 308" }, Panel.CardTooltipLines(row))
+        -- A hand-built pair: the crested row worn, its hover naming both.
+        local pair = Panel.OtherLevelRating({ document(2, { { 295, "drop", -0.1 }, { 308, "max", 0.2 } }) }, 1001)
+        local worn = Panel.OtherLevelRow({ itemLevel = 276 }, pair)
+        assert.same({ text = "+0.20%", tone = "better" }, worn.badge)
+        assert.equal("crest it to 308", Panel.CardLine(worn))
+        assert.same({ "drops at 276 · not better at 295 · crested to 308, +0.20%" }, worn.otherLevelHover)
+    end)
+
+    it("puts a positive badge on every drawn rated card of the committed week (UX-6d)", function()
+        local Panel = ns.UpgradeMapPanel
+        local m = model()
+        local crested, total, flat = {}, 0, {}
+        for _, entry in ipairs(m.slots) do
+            if entry.roadGroups then
+                for _, element in ipairs(under(elements(m, shutAllBut(m, entry.slot)), entry.slot)) do
+                    for _, card in ipairs(element.cards or {}) do
+                        local row = card.row
+                        if row.group == ns.Roads.GROUP_ITEM then
+                            if not (row.badge and row.badge.tone == "better") then
+                                flat[#flat + 1] = entry.slot .. " " .. tostring(row.name)
+                            end
+                            local line = Panel.CardLine(row) or ""
+                            if line:find("^crest it to %d+$") then
+                                crested[entry.slot] = (crested[entry.slot] or 0) + 1
+                                total = total + 1
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        assert.same({}, flat)
+        -- The 46 UX-6c counted wearing `not in your best set`, each slot's own.
+        assert.same({
+            Shoulder = 6,
+            Back = 6,
+            Chest = 2,
+            Wrist = 2,
+            Hands = 2,
+            Waist = 4,
+            Legs = 8,
+            Feet = 4,
+            Trinket = 4,
+            ["2H Weapon"] = 8,
+        }, crested)
+        assert.equal(46, total)
     end)
 
     it("says a vault reward not rated yet once, beside the bags, never on a card (UX-6b)", function()

@@ -1734,6 +1734,56 @@ local function isUpgradePercent(percent)
     return ns.UFImport.IsUpgrade(percentEntry) == true
 end
 
+-- The two document rows a per-item card can carry, each `{ percent, level }`
+-- as his document gave it: the drop row and the crested (`max`) row - the item
+-- with its crests spent, out of the same document (UpgradeFinderEngine.js:
+-- 259-260; `bonus` is the vault-track copy and is not it). A drop rated at
+-- another level carries both whole (UX-6b's `otherLevel`); a road rated where
+-- it drops carries its own rating and the `max` entry of its `alsoAt` (`at its
+-- cap 334 +0.72%`). nil, nil for every other card. No table is built: this
+-- runs for every road of every open slot on every draw.
+function Panel.CardRatingRows(row)
+    if type(row) ~= "table" then
+        return nil, nil
+    end
+    local other = row.otherLevel
+    if type(other) == "table" then
+        return other.drop, other.max
+    end
+    local road = type(row.road) == "table" and row.road or nil
+    local rating = road and type(road.rating) == "table" and road.rating or nil
+    if not rating or rating.kind ~= ns.Roads.RATING_ITEM then
+        return nil, nil
+    end
+    for _, also in ipairs(rating.alsoAt or {}) do
+        if also.dropType == ns.UFImport.DROP_TYPE_MAX then
+            return rating, also
+        end
+    end
+    return rating, nil
+end
+
+-- The row a card wears (UX-6b's choice, widened by UX-6d, WKE-641): the drop
+-- row if it is an upgrade, else the crested row if it is, else the drop row -
+-- and with no drop row, the crested row. The owner, of the cards drawn only
+-- for their crested row: "badge them and show the player it would be better
+-- if they [crested] it." One pure choice, read both by what is drawn
+-- (Panel.CardWorthDrawing) and by what the card says (Panel.OtherLevelRow,
+-- Panel.CardFace), so the two cannot disagree. It picks one of his rows; it
+-- never computes one.
+function Panel.WornRow(drop, max)
+    if drop ~= nil and isUpgradePercent(drop.percent) then
+        return drop
+    end
+    if max ~= nil and isUpgradePercent(max.percent) then
+        return max
+    end
+    if drop ~= nil then
+        return drop
+    end
+    return max
+end
+
 function Panel.CardWorthDrawing(row)
     if type(row) ~= "table" then
         return false
@@ -1745,29 +1795,41 @@ function Panel.CardWorthDrawing(row)
     if road.phrase == ns.Roads.PHRASE_RATED_LATER then
         return true
     end
-    -- A drop rated at another level (UX-6b) carries his rows whole.
-    local other = row.otherLevel
-    if type(other) == "table" then
-        return (other.drop ~= nil and ns.UFImport.IsUpgrade(other.drop.entry) == true)
-            or (other.max ~= nil and ns.UFImport.IsUpgrade(other.max.entry) == true)
+    -- A per-item card - a drop rated at another level (UX-6b) or where it
+    -- drops - is drawn when the row it wears is an upgrade: its drop row, or
+    -- the same drop with its crests spent, a reason to run it.
+    local drop, max = Panel.CardRatingRows(row)
+    if drop ~= nil or max ~= nil then
+        return isUpgradePercent(Panel.WornRow(drop, max).percent)
     end
     local rating = type(road.rating) == "table" and road.rating or {}
     if rating.kind == ns.Roads.RATING_SET then
         return rating.inTopSet == true
     end
-    if rating.kind == ns.Roads.RATING_ITEM then
-        if isUpgradePercent(rating.percent) then
-            return true
-        end
-        -- The same drop with its crests spent, out of the same document
-        -- (`at its cap 334 +0.72%`): a reason to run it.
-        for _, also in ipairs(rating.alsoAt or {}) do
-            if also.dropType == ns.UFImport.DROP_TYPE_MAX and isUpgradePercent(also.percent) then
-                return true
-            end
-        end
-    end
     return false
+end
+
+-- What a card drawn for its crested row says (UX-6d, WKE-641). The face line
+-- is the todo's place in the todo's voice (`do: Catalyst it`, `do: equip it`,
+-- stripped as a card strips them), and it is only on the card: the road keeps
+-- its own step, so ns.Roads.GateImperatives and the printed line are untouched.
+-- The hover names both of his rows: where it drops and that the drop row is
+-- not better there, then the crested row and its figure.
+Panel.CREST_IT = "crest it to %d"
+Panel.CRESTED_HOVER = "drops at %d · %s · crested to %d, %s"
+Panel.CRESTED_NOT_AS_DROPS = "not better as it drops"
+Panel.CRESTED_NOT_AT = "not better at %d"
+
+-- Puts the crested row on a card copy: the badge its figure in its own tone,
+-- the face line, the one hover line. `dropClause` says what the drop row was.
+local function wearCrested(copy, max, dropClause, dropsAt)
+    local badge = ns.Roads.ItemBadge(max.percent)
+    copy.badge = badge and { text = badge, tone = "better" } or nil
+    copy.levelLine = string.format(Panel.CREST_IT, max.level)
+    copy.otherLevelHover = {
+        string.format(Panel.CRESTED_HOVER, tonumber(dropsAt) or 0, dropClause, max.level, badge or ""),
+    }
+    copy.wearsCrested = true
 end
 
 -- The slot line's badge: the best road's own badge, in that road's tone. A
@@ -2017,7 +2079,9 @@ Panel.OTHER_LEVEL_ALSO = "%s · %s"
 -- both exist the max row rides on the hover: the rule a rated row's own
 -- `at its cap 334 +0.72%` follows (ns.Roads' `otherLevels`,
 -- Panel.RoadFactEntries), where the drop figure is the badge and the cap is
--- the muted second figure.
+-- the muted second figure. Since UX-6d (WKE-641) a drop row that is not an
+-- upgrade beside a crested row that is gives the card to the crested row
+-- (Panel.WornRow): its figure on the badge, `crest it to 308` on the face.
 function Panel.OtherLevelRow(row, rating)
     if type(row) ~= "table" or type(rating) ~= "table" then
         return nil
@@ -2030,6 +2094,10 @@ function Panel.OtherLevelRow(row, rating)
     end
     copy.group = ns.Roads.GROUP_ITEM
     copy.otherLevel = rating
+    if rating.drop and rating.max and Panel.WornRow(rating.drop, rating.max) == rating.max then
+        wearCrested(copy, rating.max, string.format(Panel.CRESTED_NOT_AT, rating.drop.level), row.itemLevel)
+        return copy
+    end
     local badge = ns.Roads.ItemBadge(shown.percent)
     local percent = tonumber(shown.percent)
     local tone = "none"
@@ -2080,8 +2148,9 @@ function Panel.SortNoRating(section, documents, specFit)
     for index, row in ipairs(sorted.otherLevel) do
         position[row] = index
     end
+    -- The figure the card wears (Panel.WornRow), so the badges read in order.
     local function figure(row)
-        local shown = row.otherLevel.drop or row.otherLevel.max
+        local shown = Panel.WornRow(row.otherLevel.drop, row.otherLevel.max)
         return tonumber(shown.percent) or 0
     end
     table.sort(sorted.otherLevel, function(left, right)
@@ -2092,6 +2161,41 @@ function Panel.SortNoRating(section, documents, specFit)
         return position[left] < position[right]
     end)
     return sorted
+end
+
+-- The card a road rated where it drops is drawn as (UX-6d, WKE-641): the row
+-- itself, unless the row it wears (Panel.WornRow) is its crested row - the
+-- drop row not an upgrade, the `max` row of the same document one - and then
+-- a copy wearing it: the crested figure on the badge, `crest it to 334` on the
+-- face, and the hover naming both rows. The cap clause leaves that copy's
+-- hover facts, because the hover's first line now says it. The road, the row
+-- the model keeps and its printed line (`at its cap 334 +0.31%` already on
+-- it) are untouched. A drop rated at another level is already its card
+-- (Panel.OtherLevelRow), and comes back as it is.
+function Panel.CardFace(row)
+    if type(row) ~= "table" or row.otherLevel ~= nil then
+        return row
+    end
+    local drop, max = Panel.CardRatingRows(row)
+    if drop == nil or max == nil or Panel.WornRow(drop, max) ~= max then
+        return row
+    end
+    local copy = {}
+    for key, value in pairs(row) do
+        copy[key] = value
+    end
+    wearCrested(copy, max, Panel.CRESTED_NOT_AS_DROPS, row.itemLevel)
+    local shape = Panel.ROAD_ALSO_AT_TEXT[max.label] or Panel.ROAD_ALSO_AT_DEFAULT
+    local capFact = max.label and max.badge and string.format(shape, max.label, max.level, max.badge) or nil
+    local facts = {}
+    for _, text in ipairs(row.tooltipFacts or {}) do
+        if text ~= capFact then
+            facts[#facts + 1] = text
+        end
+    end
+    copy.tooltipFacts = facts
+    copy.tooltipFactsText = #facts > 0 and table.concat(facts, Panel.ROAD_SEPARATOR) or nil
+    return copy
 end
 
 -- The fold over everything a slot does not draw (UX-6c, WKE-640; it absorbs
@@ -3048,9 +3152,12 @@ function Panel.Elements(model, state)
             for _, group in ipairs(ns.Roads.GROUP_ORDER) do
                 drawn[group], folded[group] = {}, {}
             end
+            -- Each card as it is drawn: a road drawn only for its crested row
+            -- wears it (UX-6d, Panel.CardFace); the choice is the one
+            -- CardWorthDrawing reads.
             local function sortInto(row, group)
                 local into = Panel.CardWorthDrawing(row) and drawn or folded
-                into[group][#into[group] + 1] = row
+                into[group][#into[group] + 1] = Panel.CardFace(row)
             end
             for _, group in ipairs(section.roadGroups) do
                 if group.group ~= ns.Roads.GROUP_NONE then
