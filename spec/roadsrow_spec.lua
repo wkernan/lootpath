@@ -1855,7 +1855,8 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
         assert.equal("Venom-Cursed Lynx's Spaulders", shoulder.best.name)
         assert.equal("into the tier shoulders · 11 more ways", shoulder.grey)
         -- A slot with nothing better: no road on the line, the fold's count.
-        for slot, grey in pairs({ ["1H Weapon"] = "57 more items", Offhand = "22 more items", Shield = "7 more drops" }) do
+        local keeps = { ["1H Weapon"] = "57 more items", Offhand = "22 more items", Shield = "7 more drops" }
+        for slot, grey in pairs(keeps) do
             local line = sectionElement(list, slot).line
             assert.is_nil(line.best, slot)
             assert.equal(grey, line.grey, slot)
@@ -1927,10 +1928,8 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
         assert.is_nil(Panel.SlotBarMax({ slots = {} }))
         -- The middle starts at one x on every line: the slot name is a fixed
         -- column.
-        assert.equal(
-            Panel.SLOT_ICON_X + Panel.SLOT_ICON_SIZE + Panel.SLOT_NAME_GAP + Panel.SLOT_NAME_WIDTH + Panel.SLOT_NAME_GAP,
-            Panel.SLOT_MIDDLE_X
-        )
+        local wornColumn = Panel.SLOT_ICON_X + Panel.SLOT_ICON_SIZE
+        assert.equal(wornColumn + Panel.SLOT_NAME_GAP * 2 + Panel.SLOT_NAME_WIDTH, Panel.SLOT_MIDDLE_X)
         assert.equal(134, Panel.SLOT_MIDDLE_X)
     end)
 
