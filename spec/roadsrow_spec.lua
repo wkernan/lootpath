@@ -1668,7 +1668,8 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
         assert.is_false(Panel.CardWorthDrawing({ todo = ns.Roads.TODO_REFRESH, road = {} }))
         assert.is_false(Panel.CardWorthDrawing({ todo = ns.Roads.TODO_KEEP_WORN, road = {} }))
         -- Every road the model gives an imperative is drawn, so the slot that
-        -- starts open always opens onto a card (FirstWorthTaking is untouched).
+        -- starts open always opens onto a card (and since UX-7a that slot is the
+        -- first that draws one).
         for _, entry in ipairs(m.slots) do
             for _, group in ipairs(entry.roadGroups or {}) do
                 for _, row in ipairs(Panel.CardRows(group)) do
@@ -1710,6 +1711,106 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
         assert.equal("Head", Panel.FirstWorthTaking(m))
         for _, slot in ipairs({ "1H Weapon", "Offhand", "Shield" }) do
             assert.equal(0, counts[slot][1], slot)
+        end
+    end)
+
+    -- UX-7a (WKE-642): the slot that starts open is the first that draws a
+    -- card. The owner's Druid, every answer a keep, opened nothing while Head
+    -- drew a +2.89% card.
+    it("opens the first slot that draws a card, not the first with an imperative (UX-7a)", function()
+        local Panel = ns.UpgradeMapPanel
+        local m = model()
+        -- Read off the list itself: each slot opened alone, the first whose
+        -- open list carries a card.
+        local function firstDrawn()
+            for _, entry in ipairs(m.slots) do
+                if entry.roadGroups then
+                    for _, element in ipairs(under(elements(m, shutAllBut(m, entry.slot)), entry.slot)) do
+                        if #(element.cards or {}) > 0 then
+                            return entry.slot
+                        end
+                    end
+                end
+            end
+            return nil
+        end
+        assert.equal("Head", firstDrawn())
+        assert.equal("Head", Panel.FirstWorthTaking(m))
+        for _, element in ipairs(elements(m, { slots = {} })) do
+            if element.kind == Panel.ELEMENT_SECTION then
+                assert.equal(element.slot ~= "Head", element.collapsed, element.slot)
+            end
+        end
+
+        -- The owner's Druid: every answer a keep, so no road carries an
+        -- imperative (R-3a's bound). The same week with every step taken off
+        -- still opens the first slot that draws a card.
+        for _, entry in ipairs(m.slots) do
+            for _, group in ipairs(entry.roadGroups or {}) do
+                for _, row in ipairs(group.rows) do
+                    if Panel.IsImperative(row.todo) then
+                        row.todo = ns.Roads.TODO_KEEP_WORN
+                    end
+                end
+            end
+            for _, row in ipairs(entry.noRating and entry.noRating.otherLevel or {}) do
+                if Panel.IsImperative(row.todo) then
+                    row.todo = ns.Roads.TODO_KEEP_WORN
+                end
+            end
+        end
+        assert.equal("Head", firstDrawn())
+        assert.equal("Head", Panel.FirstWorthTaking(m))
+        assert.is_false(sectionElement(elements(m, { slots = {} }), "Head").collapsed)
+
+        local function road(percent)
+            return { kind = ns.Roads.RATING_ITEM, percent = percent }
+        end
+        local function slotOf(name, rows)
+            return { slot = name, roadGroups = { { group = ns.Roads.GROUP_ITEM, rows = rows } } }
+        end
+        local keep = { kind = ns.Roads.KIND_KEEP, todo = ns.Roads.TODO_NOTHING }
+        local function drop(todo, percent)
+            return { kind = ns.Roads.KIND_DROP, todo = todo, road = { rating = percent and road(percent) or nil } }
+        end
+        -- Only keep answers, one slot with a road above zero: that slot.
+        local onlyKeeps = {
+            slots = {
+                slotOf("Head", { keep, drop(ns.Roads.TODO_KEEP_WORN, -0.40) }),
+                slotOf("Neck", { keep, drop(ns.Roads.TODO_KEEP_WORN, 0) }),
+                slotOf("Shoulder", { keep, drop(ns.Roads.TODO_KEEP_WORN, 2.89) }),
+                slotOf("Back", { keep }),
+            },
+        }
+        assert.equal("Shoulder", Panel.FirstWorthTaking(onlyKeeps))
+        -- An earlier drawn card beats a later imperative.
+        local earlier = {
+            slots = {
+                slotOf("Head", { keep, drop(ns.Roads.TODO_KEEP_WORN, 1.67) }),
+                slotOf("Neck", { keep, drop(ns.Roads.TODO_RAID, nil) }),
+            },
+        }
+        assert.equal("Head", Panel.FirstWorthTaking(earlier))
+        -- An imperative still opens its slot when nothing is drawn before it.
+        earlier.slots[1] = slotOf("Head", { keep, drop(ns.Roads.TODO_KEEP_WORN, -1.2) })
+        assert.equal("Neck", Panel.FirstWorthTaking(earlier))
+        -- A slot whose only drawn card is a drop rated at another level
+        -- (UX-6b: it joins the rated group) is worth taking too.
+        local otherLevelOnly = {
+            slot = "Wrist",
+            roadGroups = { { group = ns.Roads.GROUP_ITEM, rows = { keep } } },
+            noRating = { otherLevel = { { otherLevel = { drop = { percent = 0.52, level = 321 } } } }, unknown = {} },
+        }
+        assert.equal("Wrist", Panel.FirstWorthTaking({ slots = { slotOf("Head", { keep }), otherLevelOnly } }))
+        -- Nothing drawn anywhere opens nothing.
+        onlyKeeps.slots[3] = slotOf("Shoulder", { keep, drop(ns.Roads.TODO_REFRESH, 0) })
+        assert.is_nil(Panel.FirstWorthTaking(onlyKeeps))
+        local list = Panel.Elements(
+            { hasMap = true, hasVerdict = true, hasRoads = true, slots = onlyKeeps.slots, pending = { count = 0 } },
+            { slots = {} }
+        )
+        for _, element in ipairs(list) do
+            assert.is_true(element.kind ~= Panel.ELEMENT_SECTION or element.collapsed, element.slot)
         end
     end)
 
