@@ -734,7 +734,7 @@ describe("ns.Journal over the 2026-09-06 transcript", function()
         for _, list in pairs(sources) do
             for _, entry in ipairs(list) do
                 entries = entries + 1
-                if entry.instanceImage or entry.instanceImage2 or entry.instanceBackground then
+                if entry.instanceImage or entry.instanceImage2 or entry.instanceBackground or entry.instanceLore then
                     withArt = withArt + 1
                 end
                 if entry.icon then
@@ -1108,6 +1108,39 @@ describe("ns.Journal cache", function()
         assert.are_not.equal(first, third)
     end)
 
+    -- UX-5d: the cache answers for ONE walk. A newer `capture journal` under
+    -- the same key (same build, season, spec, difficulties) is a different
+    -- walk and is rebuilt - otherwise the owner's fresh walk, the one that
+    -- carries the lore painting, would be answered with the old walk's rows.
+    it("rebuilds when a newer walk is stored under the same key", function()
+        local _, _, fromCache = ns.Journal:Build({ snapshot = snapshot })
+        assert.is_false(fromCache)
+        local newer = {}
+        for k, v in pairs(snapshot) do
+            newer[k] = v
+        end
+        newer.capturedAt = (tonumber(snapshot.capturedAt) or 0) + 60
+        local _, summary, cached = ns.Journal:Build({ snapshot = newer })
+        assert.is_false(cached)
+        assert.equal("69587|18|105|2:8:15:16:23", summary.cacheKey)
+        assert.equal(newer.capturedAt, ns.db.global.journalCache[summary.cacheKey].walkAt)
+        -- ...and that newer walk is then the one the cache answers for.
+        local _, _, again = ns.Journal:Build({ snapshot = newer })
+        assert.is_true(again)
+    end)
+
+    -- An entry built before the entry's fields last changed (UX-5d added
+    -- `instanceLore`) carries rows the code no longer builds: rebuilt.
+    it("rebuilds an entry cached before the entry's shape last changed", function()
+        local _, summary = ns.Journal:Build({ snapshot = snapshot })
+        local entry = ns.db.global.journalCache[summary.cacheKey]
+        assert.equal(ns.Journal.CACHE_SHAPE, entry.shape)
+        entry.shape = nil
+        local _, _, cached = ns.Journal:Build({ snapshot = snapshot })
+        assert.is_false(cached)
+        assert.equal(ns.Journal.CACHE_SHAPE, ns.db.global.journalCache[summary.cacheKey].shape)
+    end)
+
     it("keys a difficulty subset separately", function()
         local raids, raidSummary = ns.Journal:Build({ snapshot = snapshot, difficultyIDs = { 15, 16 } })
         assert.equal("69587|18|105|15:16", raidSummary.cacheKey)
@@ -1197,6 +1230,40 @@ describe("ns.Journal over a walk whose item data arrives late", function()
                 assert.equal(4102, entry.instanceImage)
                 assert.equal(4104, entry.instanceImage2)
                 assert.equal(4101, entry.instanceBackground)
+                -- ...and the lore painting, the FIFTH return, which the
+                -- journal's own instance page draws (UX-5d).
+                assert.equal(4103, entry.instanceLore)
+            end
+        end
+    end)
+
+    -- UX-5d: the lore painting is its own field. A pack that carries the
+    -- button art but not the fifth return reads nil there and keeps the rest,
+    -- so a tile falls back to the button art rather than drawing nothing.
+    it("reads the lore painting from the fifth return and nil when it is absent", function()
+        local data = walkData(nil)
+        local fields = ns.JournalAdapter.INSTANCE_INFO_FIELDS
+        assert.equal(5, fields.loreImage)
+        for _, target in ipairs(data.walk.targets) do
+            target.instanceInfo[fields.loreImage] = nil
+        end
+        local sources = ns.Journal:Build({ data = data, build = "69587", refresh = true })
+        for _, list in pairs(sources) do
+            for _, entry in ipairs(list) do
+                assert.is_nil(entry.instanceLore)
+                assert.equal(4102, entry.instanceImage)
+            end
+        end
+        -- The lore painting alone is still art: the entry carries it.
+        local loreOnly = walkData(nil)
+        for _, target in ipairs(loreOnly.walk.targets) do
+            local pack = target.instanceInfo
+            pack[fields.buttonImage1], pack[fields.buttonImage2], pack[fields.bgImage] = nil, nil, nil
+        end
+        for _, list in pairs(ns.Journal:Build({ data = loreOnly, build = "69587", refresh = true })) do
+            for _, entry in ipairs(list) do
+                assert.equal(4103, entry.instanceLore)
+                assert.is_nil(entry.instanceImage)
             end
         end
     end)
@@ -1222,6 +1289,7 @@ describe("ns.Journal over a walk whose item data arrives late", function()
         assert.is_nil(entry.instanceImage)
         assert.is_nil(entry.instanceImage2)
         assert.is_nil(entry.instanceBackground)
+        assert.is_nil(entry.instanceLore)
         -- ...and the row is still a row: the art is the only thing missing.
         assert.equal("Finger", entry.slot)
         assert.equal(134132, entry.icon)
