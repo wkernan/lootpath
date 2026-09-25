@@ -2585,6 +2585,32 @@ describe("UpgradeMapPanel run cards", function()
     -- The tile is (list width - three gaps) / four, and its height is the
     -- Adventure Guide's own 174:96 of that: no width and no height is written
     -- down, so a window that changes width moves the tiles with it (M5-2c).
+    -- UX-5d: the lore painting's band is the tile's own 174:96, so the tile's
+    -- size does not move (V-5a's rule). The lore file is square - Blizzard
+    -- draws 390 points of it at `right 0.7617187`, and 390 / 0.7617187 is 512 -
+    -- so the band's pixel ratio is its width over its height in coordinates.
+    -- "Within rounding" is the tile's own rounding: the height the band's
+    -- ratio makes of a tile's width is the height TileSize gives it.
+    it("crops the lore painting to the tile's own proportion, inside its painted edge", function()
+        local Panel = ns.UpgradeMapPanel
+        local left, right, top, bottom = unpack(Panel.TILE_LORE_TEX_COORD)
+        -- Inside the painted edge on all four sides, never the whole file.
+        assert.is_true(left > 0 and top > 0 and right < 1 and bottom < 1)
+        assert.is_true(left < right and top < bottom)
+        local ratio = (right - left) / (bottom - top)
+        local width, height = Panel.TileSize()
+        assert.equal(height, math.floor(width / ratio + 0.5))
+        -- ...and at a narrower list, and at twice the tile, the same holds.
+        local narrow, narrowHeight = Panel.TileSize(Panel.ListWidth() - 100)
+        assert.equal(narrowHeight, math.floor(narrow / ratio + 0.5))
+        assert.equal(math.floor(2 * width / Panel.TILE_ART_RATIO + 0.5), math.floor(2 * width / ratio + 0.5))
+        -- The by-slot card is a tile of a narrower list, so it holds there too.
+        local cardWidth, cardHeight = Panel.CardSize()
+        assert.equal(cardHeight, math.floor(cardWidth / ratio + 0.5))
+        -- The button art keeps its own crop, untouched.
+        assert.same({ 0, 0.68359375, 0, 0.7421875 }, Panel.TILE_ART_TEX_COORD)
+    end)
+
     it("derives a tile from the panel's own width and never from a literal", function()
         local width, height = ns.UpgradeMapPanel.TileSize()
         local listWidth = ns.UI.PANEL_WIDTH - ns.UpgradeMapPanel.SCROLLBAR_ROOM
@@ -2703,6 +2729,7 @@ describe("UpgradeMapPanel run cards", function()
                     copy[k] = v
                 end
                 copy.instanceImage = 4000 + (entry.instanceID or 0)
+                copy.instanceLore = 5000 + (entry.instanceID or 0)
                 copies[index] = copy
             end
             withArt[itemID] = copies
@@ -2714,6 +2741,8 @@ describe("UpgradeMapPanel run cards", function()
         })
         for _, run in ipairs(walkedRuns(model)) do
             assert.equal(4000 + run.instanceID, run.instanceImage)
+            -- The lore painting rides beside the button art (UX-5d).
+            assert.equal(5000 + run.instanceID, run.instanceLore)
         end
         -- R-4's cards have no instance and therefore no art: the card draws
         -- the plain dark strip rather than standing in a picture of somewhere
@@ -2723,6 +2752,7 @@ describe("UpgradeMapPanel run cards", function()
             assert.is_not_nil(card)
             assert.is_nil(card.instanceID)
             assert.is_nil(card.instanceImage)
+            assert.is_nil(card.instanceLore)
         end
     end)
 end)
@@ -3648,6 +3678,63 @@ describe("UpgradeMapPanel through the scroll box", function()
         -- The tile is the crop's own proportion, so nothing is squashed into it.
         assert.equal(row.tileWidth, tile:GetWidth())
         assert.equal(row.tileHeight, tile:GetHeight())
+    end)
+
+    -- UX-5d: the owner's choice of the three journal pictures. A run whose
+    -- walk recorded the lore painting draws it, cropped by the lore band; a
+    -- run with only the button art draws that with Blizzard's button crop.
+    it("draws the lore painting with its own band when the walk recorded it", function()
+        local Panel = ns.UpgradeMapPanel
+        local frame = Panel.Create()
+        frame:Refresh()
+        local function tileFor(withLore)
+            local sources = ns.Journal:Build({ snapshot = snapshot })
+            local withArt = {}
+            for itemID, list in pairs(sources) do
+                local copies = {}
+                for index, entry in ipairs(list) do
+                    local copy = {}
+                    for k, v in pairs(entry) do
+                        copy[k] = v
+                    end
+                    copy.instanceImage = 4000 + (entry.instanceID or 0)
+                    if withLore then
+                        copy.instanceLore = 5000 + (entry.instanceID or 0)
+                    end
+                    copies[index] = copy
+                end
+                withArt[itemID] = copies
+            end
+            local elements = Panel.RunElements(Panel.RunModel({ sources = withArt }), {})
+            local row
+            for _, candidate in ipairs(elements) do
+                if candidate.kind == Panel.ELEMENT_RUN_ROW then
+                    row = row or candidate
+                end
+            end
+            local element = CreateFrame("Frame", nil, frame)
+            Panel.InitElement(frame, element, row)
+            return element.tiles[1], row.runs[1], row
+        end
+        local tile, run, row = tileFor(true)
+        assert.equal(5000 + run.instanceID, run.instanceLore)
+        assert.equal(run.instanceLore, tile.art:GetTexture())
+        assert.same(Panel.TILE_LORE_TEX_COORD, tile.art.texCoord)
+        assert.is_true(tile.art:IsShown())
+        -- The tile's size does not move with the picture.
+        assert.equal(row.tileWidth, tile:GetWidth())
+        assert.equal(row.tileHeight, tile:GetHeight())
+        -- A run with no lore painting draws the button art with the button's
+        -- crop, exactly as before.
+        local plainTile, plainRun = tileFor(false)
+        assert.is_nil(plainRun.instanceLore)
+        assert.equal(plainRun.instanceImage, plainTile.art:GetTexture())
+        assert.same(Panel.TILE_ART_TEX_COORD, plainTile.art.texCoord)
+        -- The chooser itself, in its four cases.
+        assert.same({ 7, Panel.TILE_LORE_TEX_COORD }, { Panel.InstanceArt(7, 8) })
+        assert.same({ 8, Panel.TILE_ART_TEX_COORD }, { Panel.InstanceArt(nil, 8) })
+        assert.same({ 7, Panel.TILE_LORE_TEX_COORD }, { Panel.InstanceArt(7, nil) })
+        assert.is_nil(Panel.InstanceArt(nil, nil))
     end)
 
     it("says why it is empty in the list as well as in its text, in combat", function()

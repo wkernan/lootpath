@@ -2257,7 +2257,7 @@ describe("Roads on the window, over the owner's week of 2026-09-08", function()
 
     -- The walk with the art a post-M5-3 walk records put on it, the way the
     -- by-run tests do: a stub-shaped value, never a real instance's file.
-    local function modelWithArt()
+    local function modelWithArt(withLore)
         local gathered = ns.UpgradeMapPanel.Gather({ db = ns.db })
         local withArt = {}
         for itemID, list in pairs(gathered.sources) do
@@ -2268,6 +2268,9 @@ describe("Roads on the window, over the owner's week of 2026-09-08", function()
                     copy[k] = v
                 end
                 copy.instanceImage = 4000 + (entry.instanceID or 0)
+                if withLore then
+                    copy.instanceLore = 5000 + (entry.instanceID or 0)
+                end
                 copies[index] = copy
             end
             withArt[itemID] = copies
@@ -2314,6 +2317,29 @@ describe("Roads on the window, over the owner's week of 2026-09-08", function()
         local plain = boundCardRow(panel, Panel.Model(Panel.Gather({ db = ns.db })), "Head", 1)
         assert.equal(plain.cards[1].cardIcon.resolved.icon, plain.cards[1].art:GetTexture())
         assert.equal(Panel.MOSAIC_ALPHA, plain.cards[1].art:GetAlpha())
+    end)
+
+    -- UX-5d: a card draws the instance the way its run's tile does - the lore
+    -- painting in its band when the walk recorded one - through the same
+    -- chooser, so the two never disagree about which picture an instance is.
+    it("draws a card over the lore painting, in the tile's lore band, when the walk recorded it (UX-5d)", function()
+        local Panel = ns.UpgradeMapPanel
+        local panel = frame.upgradeMapPanel
+        local element, data = boundCardRow(panel, modelWithArt(true), "Head", 1)
+        local drop = element.cards[1]
+        local source = data.cards[1].row.road.source
+        assert.equal(5000 + source.instanceID, data.cards[1].art)
+        assert.same(Panel.TILE_LORE_TEX_COORD, data.cards[1].artTexCoord)
+        assert.equal(5000 + source.instanceID, drop.art:GetTexture())
+        assert.same(Panel.TILE_LORE_TEX_COORD, drop.art.texCoord)
+        assert.equal(1, drop.art:GetAlpha())
+        -- The craft beside it still has no instance and keeps its own icon.
+        assert.is_nil(data.cards[2].art)
+        assert.equal(Panel.MOSAIC_ALPHA, element.cards[2].art:GetAlpha())
+        -- Without the lore painting, the button art with the button's crop.
+        local _, plain = boundCardRow(panel, modelWithArt(false), "Head", 1)
+        assert.equal(4000 + source.instanceID, plain.cards[1].art)
+        assert.same(Panel.TILE_ART_TEX_COORD, plain.cards[1].artTexCoord)
     end)
 
     it("dims a no-rating card and puts its phrase on the second line (UX-6)", function()

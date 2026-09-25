@@ -310,7 +310,9 @@ end
 -- EJ_GetInstanceInfo(id)` takes the FOURTH return as the instance's button art
 -- (Blizzard_EncounterJournal.lua line 2413), and `instanceName, description,
 -- bgImage, _, loreImage, buttonImage, dungeonAreaMapID` (line 1211) fixes the
--- three around it. Every one is a file ID the client hands over.
+-- three around it. Every one is a file ID the client hands over. The FIFTH is
+-- the lore painting the journal's instance page draws (`loreBG:SetTexture(
+-- loreImage)`, line 1215) and, since UX-5d, the picture a Run Tile prefers.
 Adapter.INSTANCE_INFO_FIELDS = {
     name = 1,
     description = 2,
@@ -578,7 +580,9 @@ function Adapter.Walk(opts, onDone)
             record.setPreviewLevel = Adapter.SetPreviewMythicPlusLevel(target.previewLevel)
         end
         -- Recorded after the instance is selected, so a client that answers
-        -- only about the current selection answers about this target.
+        -- only about the current selection answers about this target. The
+        -- whole pack is kept (INSTANCE_INFO_FIELDS names its positions): the
+        -- button art, the background and, read since UX-5d, the lore painting.
         record.instanceInfo = Adapter.InstanceInfo(target.instanceID)
         record.encounters = Adapter.Encounters(target.instanceID)
         result.targets[index] = record
@@ -737,11 +741,13 @@ end
 --   { [itemID] = { { instanceID, instanceName, encounterID, encounterName,
 --                    difficultyID, itemLevel, slot, isRaid, pending,
 --                    itemKey, name, icon, instanceImage, instanceImage2,
---                    instanceBackground } ... } }
+--                    instanceBackground, instanceLore } ... } }
 --
--- `icon` and the three instance file IDs are what the Upgrade Map's item lines
--- and run cards draw (M5-3). Both are the client's own values, carried rather
--- than derived; the art is nil on every walk taken before the recording landed.
+-- `icon` and the four instance file IDs are what the Upgrade Map's item lines
+-- and run cards draw (M5-3; `instanceLore`, the lore painting, UX-5d). All are
+-- the client's own values, carried rather than derived; the art is nil on every
+-- walk taken before the recording landed, and `instanceLore` is nil on every
+-- walk read before UX-5d built this field, though the pack it reads is older.
 --
 -- It is pure Lua over a table the adapter already produced - the same shape a
 -- `capture journal` snapshot stores - so like QEImport.Parse it carries no
@@ -828,9 +834,12 @@ local function probeValue(pack)
 end
 
 -- The art the Adventure Guide draws an instance with, off the walk's own
--- `EJ_GetInstanceInfo` pack (M5-3). Every value is a file ID the client gave;
--- nothing is derived and nothing is defaulted, because a run card with no art
--- is a run card with no art. Both committed walks predate the recording, so
+-- `EJ_GetInstanceInfo` pack (M5-3): the button art, its second, the background,
+-- and the lore painting (UX-5d, the owner's pick for a tile). Every value is a
+-- file ID the client gave; nothing is derived and nothing is defaulted,
+-- because a run card with no art is a run card with no art. A pack without the
+-- fifth return reads nil there and keeps the rest, so a tile falls back to the
+-- button art. Both committed walks predate the recording, so
 -- this answers nil on all six of them and the cards ship without art until a
 -- new `capture journal` lands - which is a human-required step.
 local function instanceArt(target)
@@ -843,8 +852,14 @@ local function instanceArt(target)
         instanceImage = tonumber(pack[fields.buttonImage1]),
         instanceImage2 = tonumber(pack[fields.buttonImage2]),
         instanceBackground = tonumber(pack[fields.bgImage]),
+        instanceLore = tonumber(pack[fields.loreImage]),
     }
-    if art.instanceImage == nil and art.instanceImage2 == nil and art.instanceBackground == nil then
+    if
+        art.instanceImage == nil
+        and art.instanceImage2 == nil
+        and art.instanceBackground == nil
+        and art.instanceLore == nil
+    then
         return nil
     end
     return art
@@ -1022,6 +1037,7 @@ local function aggregate(targets, wanted)
                             instanceImage = art and art.instanceImage or nil,
                             instanceImage2 = art and art.instanceImage2 or nil,
                             instanceBackground = art and art.instanceBackground or nil,
+                            instanceLore = art and art.instanceLore or nil,
                         }
                         seen[key] = entry
                         local list = sources[itemID]
@@ -1053,6 +1069,12 @@ local function aggregate(targets, wanted)
     return sources, summary
 end
 
+-- What a cache entry's rows are built with. Bumped whenever an entry's fields
+-- change, so an entry cached by older code - whose rows lack the new field for
+-- as long as the build lasts - is rebuilt rather than answered: 2 is UX-5d's
+-- `instanceLore`; an entry with no shape predates it.
+Journal.CACHE_SHAPE = 2
+
 -- Build(opts) -> sources, summary, fromCache
 --
 -- opts.data       the `data` table of a `capture journal` snapshot (required),
@@ -1062,6 +1084,12 @@ end
 -- opts.build / opts.seasonID / opts.specID   override what the walk recorded
 -- opts.previewMythicPlusLevel  override the M+ level the walk previewed
 -- opts.refresh    rebuild even when the cache already holds this key
+--
+-- A cache entry answers for ONE walk (UX-5d): it records the snapshot's
+-- `capturedAt` and the entry shape, and a newer walk under the same key, or an
+-- entry of another shape, is a miss. Before this, a fresh `capture journal` on
+-- the same game build was answered with the old walk's rows until the build
+-- changed.
 function Journal.Build(_, opts)
     opts = opts or {}
     local snapshot = opts.snapshot
@@ -1100,10 +1128,11 @@ function Journal.Build(_, opts)
         db = ns.db
     end
     local cache = db and db.global and db.global.journalCache or nil
+    local walkAt = snapshot and snapshot.capturedAt or nil
     if cache then
         Journal.Invalidate(db, build)
         local entry = cache[key]
-        if entry and not opts.refresh then
+        if entry and not opts.refresh and entry.walkAt == walkAt and entry.shape == Journal.CACHE_SHAPE then
             return entry.sources, entry.summary, true
         end
     end
@@ -1122,7 +1151,13 @@ function Journal.Build(_, opts)
         or (data.requested and tonumber(data.requested.previewMythicPlusLevel))
         or nil
     if cache then
-        cache[key] = { build = build, sources = sources, summary = summary }
+        cache[key] = {
+            build = build,
+            walkAt = walkAt,
+            shape = Journal.CACHE_SHAPE,
+            sources = sources,
+            summary = summary,
+        }
     end
     return sources, summary, false
 end

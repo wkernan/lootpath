@@ -455,6 +455,7 @@ local function candidateRow(itemID, entry, owned, difficultyLabels, previewLevel
         -- file IDs, carried; nil on a walk taken before they were recorded.
         icon = entry.icon,
         instanceImage = entry.instanceImage,
+        instanceLore = entry.instanceLore,
         -- The link the walk read this row's item level off, carried so the
         -- hover shows the item AT that level (M5-3a). A walk taken before the
         -- link was kept has none, and then the row carries the note that says
@@ -1425,8 +1426,11 @@ function Panel.RunModel(opts)
                         -- The art the Adventure Guide draws this instance
                         -- with, for the card's left strip. nil on every walk
                         -- taken before the recording landed, and a card with
-                        -- no art draws a plain strip rather than a guess.
+                        -- no art draws a plain strip rather than a guess. The
+                        -- lore painting beside it is what the tile prefers
+                        -- (UX-5d); nil on every walk read before it was kept.
                         instanceImage = entry.instanceImage,
+                        instanceLore = entry.instanceLore,
                         instanceBackground = entry.instanceBackground,
                         drops = 0,
                         pendingDrops = 0,
@@ -2104,15 +2108,20 @@ function Panel.CardClicks(row)
         or (row.verb == ns.Roads.VERB_SHOW_IN_VAULT and row.vaultKey ~= nil)
 end
 
--- The one lookup a card's art needs: which picture the walk recorded for an
--- instance. The walk's entries carry it (Modules/Journal.lua); no road does.
--- A walk taken before the art was recorded answers an empty table.
+-- The one lookup a card's art needs: which pictures the walk recorded for an
+-- instance - `{ image = the button art, lore = the lore painting }` (UX-5d).
+-- The walk's entries carry them (Modules/Journal.lua); no road does. A walk
+-- taken before the art was recorded answers an empty table.
 function Panel.InstanceImages(sources)
     local images = {}
     for _, list in pairs(type(sources) == "table" and sources or {}) do
         for _, entry in ipairs(list) do
-            if entry.instanceID ~= nil and entry.instanceImage ~= nil and images[entry.instanceID] == nil then
-                images[entry.instanceID] = entry.instanceImage
+            local id = entry.instanceID
+            if id ~= nil and (entry.instanceImage ~= nil or entry.instanceLore ~= nil) then
+                local art = images[id] or {}
+                art.image = art.image or entry.instanceImage
+                art.lore = art.lore or entry.instanceLore
+                images[id] = art
             end
         end
     end
@@ -2124,7 +2133,13 @@ function Panel.CardArt(row, images)
     if type(source) ~= "table" or source.instanceID == nil or type(images) ~= "table" then
         return nil
     end
-    return images[source.instanceID]
+    local art = images[source.instanceID]
+    if type(art) ~= "table" then
+        return nil
+    end
+    -- The same choice the run's tile makes, so a card and its tile never draw
+    -- an instance as two different pictures: the texture and its crop.
+    return Panel.InstanceArt(art.lore, art.image)
 end
 
 -- The slot line's hover: the slot, its sentence, the long group headers (the
@@ -3019,6 +3034,19 @@ Panel.TILES_PER_ROW = 4
 Panel.TILE_GAP = 8
 Panel.TILE_ART_RATIO = 174 / 96
 Panel.TILE_ART_TEX_COORD = { 0, 0.68359375, 0, 0.7421875 }
+-- The lore painting (UX-5d, WKE-645): the instance page's own picture, the
+-- FIFTH return of EJ_GetInstanceInfo, which Blizzard draws at 390 x 330 with
+-- `right 0.7617187, bottom 0.65625` (Blizzard_EncounterJournal.xml:1476-1481) -
+-- more than twice the button art's pixels across, which is why it stays sharp
+-- at the tile's size where the button art is upscaled. The owner chose it
+-- (2026-09-25, three pictures side by side). The file carries its own painted
+-- burnt-parchment edge on every side, so the band sits INSIDE it: left, right,
+-- top, bottom, 0.705 x 0.389 of a square file (361 x 199 of its 512 pixels) -
+-- 174:96 within the tile's own rounding at the tile's 172 AND the card's 160,
+-- so neither size moves (V-5a's rule; 0.52, the issue's first bottom, rounds
+-- the card a point taller). These four numbers are a first guess the owner
+-- corrects on screen; this is the one place to.
+Panel.TILE_LORE_TEX_COORD = { 0.03, 0.735, 0.13, 0.519 }
 -- The room the scroll bar takes on the right, the same number the scroll box is
 -- anchored with.
 Panel.SCROLLBAR_ROOM = 22
@@ -3098,6 +3126,21 @@ function Panel.ListWidth(width)
         return width
     end
     return (ns.UI and ns.UI.PANEL_WIDTH or 0) - Panel.SCROLLBAR_ROOM
+end
+
+-- Which picture an instance is drawn with, and its crop (UX-5d): the lore
+-- painting in its band when the walk recorded one, else the button art with
+-- the button's own crop, else nothing - and then the caller draws what it drew
+-- before (the mosaic, the flat back, the item's icon). One choice, used by the
+-- tile and by the by-slot card alike.
+function Panel.InstanceArt(lore, image)
+    if lore ~= nil then
+        return lore, Panel.TILE_LORE_TEX_COORD
+    end
+    if image ~= nil then
+        return image, Panel.TILE_ART_TEX_COORD
+    end
+    return nil
 end
 
 -- One tile, in points. Derived from the list, never written down.
@@ -3344,7 +3387,8 @@ function Panel.Elements(model, state)
                             cards = {},
                         })
                     end
-                    cardRow.cards[#cardRow.cards + 1] = { row = row, art = Panel.CardArt(row, model.instanceImages) }
+                    local art, artTexCoord = Panel.CardArt(row, model.instanceImages)
+                    cardRow.cards[#cardRow.cards + 1] = { row = row, art = art, artTexCoord = artTexCoord }
                     local badge = Panel.CardBadge(row)
                     explain(Panel.CardSecond(row), badge and badge.text or nil, Panel.CardLine(row))
                 end
@@ -4766,15 +4810,17 @@ function Panel.InitTile(panel, tile, run, open)
     tile.run = run
     local rated = (tonumber(run.rated) or 0) > 0
 
-    -- The art. A walked run draws the instance's own file, cropped exactly as
-    -- the Adventure Guide crops it; Crafting and Delves, which have no
-    -- instance, draw the mosaic of their own four best drops (UX-5c). A run
-    -- with no rated rows draws the flat back and its name. Nothing draws a
-    -- texture the client did not name.
+    -- The art. A walked run draws the instance's lore painting inside its
+    -- painted edge (UX-5d), or, on a walk that did not keep it, the button
+    -- file cropped exactly as the Adventure Guide crops it; Crafting and
+    -- Delves, which have no instance, draw the mosaic of their own four best
+    -- drops (UX-5c). A run with no rated rows draws the flat back and its
+    -- name. Nothing draws a texture the client did not name.
     local mosaic = nil
-    if run.instanceImage then
-        tile.art:SetTexture(run.instanceImage)
-        tile.art:SetTexCoord(unpack(Panel.TILE_ART_TEX_COORD))
+    local texture, texCoord = Panel.InstanceArt(run.instanceLore, run.instanceImage)
+    if texture and texCoord then
+        tile.art:SetTexture(texture)
+        tile.art:SetTexCoord(unpack(texCoord))
         tile.art:Show()
     else
         tile.art:Hide()
@@ -4956,13 +5002,14 @@ function Panel.InitCard(panel, tile, card)
         end)
     end
 
-    -- The art: the instance's own picture, cropped as the tiles crop it, when
-    -- the walk recorded one; otherwise the item's own icon behind the shade,
-    -- cropped to the card's proportion as the mosaic crops (UX-5b) and at the
-    -- mosaic's alpha. Never a picture of somewhere else.
+    -- The art: the instance's own picture, chosen and cropped as its run's
+    -- tile chooses and crops it (UX-5d), when the walk recorded one; otherwise
+    -- the item's own icon behind the shade, cropped to the card's proportion
+    -- as the mosaic crops (UX-5b) and at the mosaic's alpha. Never a picture of
+    -- somewhere else.
     if card.art then
         tile.art:SetTexture(card.art)
-        tile.art:SetTexCoord(unpack(Panel.TILE_ART_TEX_COORD))
+        tile.art:SetTexCoord(unpack(card.artTexCoord))
         tile.art:SetAlpha(1)
     else
         tile.art:SetTexture(resolved.icon)
