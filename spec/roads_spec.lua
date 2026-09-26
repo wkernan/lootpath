@@ -1436,6 +1436,124 @@ describe("Roads over the owner's week of 2026-09-08", function()
         -- is differential 7 at 1.73%.
         assert.equal("1.73% behind", group("2H Weapon", ns.Roads.GROUP_SET)[2].rating.badge)
     end)
+
+    -- -----------------------------------------------------------------------
+    -- R-2c (WKE-646): a copy the documents rate at another level. The owner,
+    -- 2026-09-25, hovering a Sickening Signet at 311 his documents rate at the
+    -- level the walk previews: "It tells me to pass - it should know that this
+    -- is a better upgrade." The rings below are this week's own Finger drops:
+    -- 252258 rated at 305 by the key documents at +1.833 (the `max` row 308 at
+    -- +1.922), 251148 rated at 305 at exactly 0 (its `max` row 0 too), and
+    -- 159459, walked at 276 and rated only at 295 (+0.885). Each copy is the
+    -- drop's own item ID under bonus IDs no document carries, at 311 in the
+    -- bags, which is what a Hero 3/6 ring off a key looks like to the rating.
+    describe("a copy the documents rate at another level (R-2c)", function()
+        local function bagCopy(itemID, level)
+            local link = string.format("|cffa335ee|Hitem:%d::::::::90:105::35:2:6652:12798::::::|h[Ring]|h|r", itemID)
+            local parsed = ns.ParseItemLink(link)
+            assert.is_table(parsed)
+            local copy = {
+                key = parsed.key,
+                itemID = itemID,
+                link = link,
+                name = "Ring",
+                slot = "Finger",
+                itemLevel = level,
+                location = "bag",
+            }
+            table.insert(inputs.inventory.records, copy)
+            return copy
+        end
+
+        local function answerForCopy(copy)
+            local answer = ns.Roads.ForItemIn(ns.Roads.ForSlot("Finger", inputs), copy.key, inputs)
+            answer.sentence = ns.Roads.ItemSentence(answer)
+            return answer
+        end
+
+        it("answers a bag copy above what you wear with the road that rates it, and never a pass", function()
+            local copy = bagCopy(252258, 311)
+            local answer = answerForCopy(copy)
+            assert.is_table(answer.own)
+            assert.equal(252258, answer.own.item.itemID)
+            assert.equal(ns.Roads.KIND_DROP, answer.own.kind)
+            assert.is_nil(answer.phrase)
+            assert.same(
+                { ratedAt = 305, heldAt = 311, percent = 1.833, badge = "+1.83%", crested = false, upgrade = true },
+                answer.otherLevel
+            )
+            assert.equal(ns.Roads.BEATS_WORN_SENTENCE, answer.sentence)
+            assert.equal(
+                "+1.83% rated at 305 · you hold it at 311 · Refresh rates this one",
+                ns.Roads.OtherLevelText(answer.otherLevel, answer.otherLevel.heldAt, true)
+            )
+            -- The Better: line keeps naming the slot's best road, and never
+            -- the item itself back.
+            for _, road in ipairs(answer.others) do
+                assert.is_true(road ~= answer.own)
+            end
+        end)
+
+        it("keeps the pass on a copy rated at or below what you wear, with the figure and never 'not rated'", function()
+            local copy = bagCopy(251148, 311)
+            local answer = answerForCopy(copy)
+            assert.is_table(answer.own)
+            assert.equal(251148, answer.own.item.itemID)
+            assert.is_false(answer.otherLevel.upgrade)
+            assert.is_nil(answer.phrase)
+            assert.equal("Pass - ", answer.sentence:sub(1, 7))
+            local line = ns.Roads.OtherLevelText(answer.otherLevel, answer.otherLevel.heldAt, true)
+            assert.equal("rated at 305: not better · you hold it at 311", line)
+            assert.is_nil(line:find("not rated", 1, true))
+        end)
+
+        it("answers a copy of a drop rated only at another level with UX-6b's row", function()
+            local copy = bagCopy(159459, 311)
+            local answer = answerForCopy(copy)
+            assert.is_table(answer.own)
+            assert.equal(ns.Roads.GROUP_NONE, answer.own.group)
+            assert.equal(295, answer.otherLevel.ratedAt)
+            assert.equal(0.885, answer.otherLevel.percent)
+            assert.is_true(answer.otherLevel.upgrade)
+            assert.equal(ns.Roads.BEATS_WORN_SENTENCE, answer.sentence)
+        end)
+
+        it("leaves an item ID no road carries at 'not rated'", function()
+            local copy = bagCopy(99999, 311)
+            local answer = answerForCopy(copy)
+            assert.is_nil(answer.own)
+            assert.is_nil(answer.otherLevel)
+            assert.equal(ns.Roads.PHRASE_NOT_RATED_NEW, answer.phrase)
+        end)
+
+        it("answers a link nobody holds with the figure and no position", function()
+            local slotRoads = ns.Roads.ForSlot("Finger", inputs)
+            local answer = ns.Roads.ForItemIDIn(slotRoads, 252258, inputs)
+            assert.is_table(answer)
+            assert.is_false(answer.held)
+            assert.is_nil(ns.Roads.ItemSentence(answer))
+            assert.equal(
+                "+1.83% rated at 305 · this one is 308",
+                ns.Roads.OtherLevelText(answer.otherLevel, 308, false)
+            )
+            assert.is_nil(ns.Roads.ForItemIDIn(slotRoads, 99999, inputs))
+            -- 268265 is the Neck item group's first forward road (+1.73 at
+            -- 344, its only road): a link to it offers that group's next road,
+            -- never itself back.
+            local neck = ns.Roads.ForSlot("Neck", inputs)
+            local first
+            for _, road in ipairs(neck.groups[ns.Roads.GROUP_ITEM]) do
+                first = first or (ns.Roads.IsForward(road) and road or nil)
+            end
+            assert.equal(268265, first.item.itemID)
+            local best = ns.Roads.ForItemIDIn(neck, 268265, inputs)
+            assert.equal(first, best.own)
+            assert.is_true(#best.others > 0)
+            for _, road in ipairs(best.others) do
+                assert.is_true(road ~= best.own)
+            end
+        end)
+    end)
 end)
 
 -- ---------------------------------------------------------------------------

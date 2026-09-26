@@ -1731,17 +1731,11 @@ end
 --     crested row - IsUpgrade calls an upgrade.
 -- Not drawn: a tie, a downgrade, `not in your best set`, and every road with
 -- no figure. They are not dropped: the slot's one fold counts them.
--- A figure off a road, read the way IsUpgrade reads an entry's: the road
--- carries his `upgradePercent` unchanged, so it is handed back in the entry's
--- own shape (one table, reused, because this runs for every road of every open
--- slot on every draw).
-local percentEntry = {}
+-- A figure off a road, read the way IsUpgrade reads an entry's
+-- (ns.Roads.IsUpgradePercent; moved there by R-2c, WKE-646, so the tooltip and
+-- the glow read a figure the way the cards do).
 local function isUpgradePercent(percent)
-    if percent == nil then
-        return false
-    end
-    percentEntry.upgradePercent = percent
-    return ns.UFImport.IsUpgrade(percentEntry) == true
+    return ns.Roads.IsUpgradePercent(percent)
 end
 
 -- The two document rows a per-item card can carry, each `{ percent, level }`
@@ -1780,18 +1774,10 @@ end
 -- if they [crested] it." One pure choice, read both by what is drawn
 -- (Panel.CardWorthDrawing) and by what the card says (Panel.OtherLevelRow,
 -- Panel.CardFace), so the two cannot disagree. It picks one of his rows; it
--- never computes one.
+-- never computes one. Since R-2c (WKE-646) it is ns.Roads.WornRow, so the
+-- tooltip and the glow wear the row the card wears.
 function Panel.WornRow(drop, max)
-    if drop ~= nil and isUpgradePercent(drop.percent) then
-        return drop
-    end
-    if max ~= nil and isUpgradePercent(max.percent) then
-        return max
-    end
-    if drop ~= nil then
-        return drop
-    end
-    return max
+    return ns.Roads.WornRow(drop, max)
 end
 
 function Panel.CardWorthDrawing(row)
@@ -2219,24 +2205,11 @@ Panel.NO_RATING_UNKNOWN = "unknown"
 -- figures all come from one run (ns.Roads' `otherLevels`, docs/ROADS-UX.md
 -- surface 2). With no drop row, the lowest `max` row any document carries.
 -- Each is his entry and its level, unchanged (ns.UFImport.OtherLevelEntry);
--- nothing is scaled toward the level the drop arrives at.
+-- nothing is scaled toward the level the drop arrives at. Since R-2c
+-- (WKE-646) the body is ns.Roads.OtherLevelRating, which the tooltip and the
+-- glow ask as well: one lookup for "the same item, rated at another level".
 function Panel.OtherLevelRating(documents, itemID)
-    if type(documents) ~= "table" or itemID == nil then
-        return nil
-    end
-    local function row(list, dropType)
-        local entry, level, keyLevel, document = ns.UFImport.OtherLevelEntry(list, itemID, dropType)
-        if not entry then
-            return nil
-        end
-        return { entry = entry, level = level, keyLevel = keyLevel, percent = entry.upgradePercent }, document
-    end
-    local drop, document = row(documents, ns.UFImport.DROP_TYPE_DROP)
-    local max = row(drop and { document } or documents, ns.UFImport.DROP_TYPE_MAX)
-    if not drop and not max then
-        return nil
-    end
-    return { drop = drop, max = max }
+    return ns.Roads.OtherLevelRating(documents, itemID)
 end
 
 -- Which of the three a no-rating road is. Pure: `specFit(road)` is the

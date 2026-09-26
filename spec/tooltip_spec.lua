@@ -427,9 +427,14 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
 
     it("never draws more than four lines, and the last is the age and one command", function()
         local map = ns.RoadsCache.Map()
-        for key in pairs(map.byKey) do
+        for key, answer in pairs(map.byKey) do
             local block = lines(key)
-            assert.is_true(#block <= 4, key .. " draws " .. #block .. " lines")
+            -- The one exception (R-2c, WKE-646): a piece you hold that the
+            -- documents rate at another level keeps its Better: line and adds
+            -- the rated figure with both levels under the sentence. On this
+            -- week that is the bag trinket 273796, rated only at 305 and 308.
+            local cap = (answer.held and answer.otherLevel) and 5 or 4
+            assert.is_true(#block <= cap, key .. " draws " .. #block .. " lines")
             local last = block[#block]
             assert.is_true(
                 last == "Rated 5h ago · /lootpath map" or last == "Rated 5h ago · /lootpath refresh",
@@ -686,9 +691,98 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         assert.equal(LYNX, (ns.UI.Tooltip.KeyFromLink(link)))
     end)
 
-    it("adds nothing for a chat link or a merchant item no road knows", function()
-        local shown = world.showItemTooltip({ hyperlink = "|Hitem:99999::::::::80:105::::::|h[Nothing]|h" })
+    it("adds nothing for a chat link or a merchant item whose item ID the map has nothing for", function()
+        local link = "|Hitem:99999::::::::80:105::::::|h[Nothing]|h"
+        world.items[link] = { level = 308, info = { "Nothing", link, 4, n = 3 } }
+        local shown = world.showItemTooltip({ hyperlink = link })
         assert.is_nil(shown.stub.Text():find("Lootpath", 1, true))
+        shown = world.showItemTooltip({ hyperlink = link }, ItemRefTooltip)
+        assert.is_nil(shown.stub.Text():find("Lootpath", 1, true))
+        assert.is_nil(ns.UI.Tooltip.Answer(link))
+    end)
+
+    -- -----------------------------------------------------------------------
+    -- R-2c (WKE-646): a copy the documents rate at another level. The owner,
+    -- 2026-09-25: a party member's Band of the Amani Warlord clicked in chat
+    -- drew Pawn's line and no Lootpath block, and a Sickening Signet at 311 in
+    -- his bags was told to pass. The ring here is this week's Finger drop
+    -- 252258, rated at 305 by the key documents at +1.833 (`spec/roads_spec.lua`
+    -- asserts the row); 251148 is the Finger drop rated at 305 at exactly 0.
+
+    -- A copy of a drop under bonus IDs no document carries, at `level`, as the
+    -- client would name it.
+    local function copyLink(itemID, level)
+        local link = string.format("|cffa335ee|Hitem:%d::::::::90:105::35:2:6652:12798::::::|h[Ring]|h|r", itemID)
+        world.items[link] = { level = level, info = { "Ring", link, 4, n = 3 } }
+        return link
+    end
+
+    -- The same copy, in the bags, and the map rebuilt over it.
+    local function holdCopy(itemID, level)
+        local link = copyLink(itemID, level)
+        local parsed = ns.ParseItemLink(link)
+        table.insert(gathered.inventory.records, {
+            key = parsed.key,
+            itemID = itemID,
+            link = link,
+            name = "Ring",
+            slot = "Finger",
+            itemLevel = level,
+            location = "bag",
+        })
+        model = ns.UpgradeMapPanel.Model(gathered)
+        ns.RoadsCache.SetMap(ns.RoadsCache.Build(model))
+        return parsed.key, link
+    end
+
+    it("answers a chat link at a level no road arrives at, with the rated figure and the link's level", function()
+        local link = copyLink(252258, 308)
+        local answer, _, level = ns.UI.Tooltip.Answer(link)
+        assert.is_table(answer)
+        assert.equal(308, level)
+        assert.equal(305, answer.otherLevel.ratedAt)
+        local shown = world.showItemTooltip({ hyperlink = link }, ItemRefTooltip)
+        local text = shown.stub.Text()
+        assert.is_truthy(text:find("Lootpath · Finger", 1, true))
+        assert.is_truthy(text:find("+1.83% rated at 305 · this one is 308", 1, true))
+        -- Nobody holds it, so it takes no position.
+        assert.is_nil(text:find("Pass", 1, true))
+        assert.is_nil(text:find("Beats", 1, true))
+    end)
+
+    it("draws the block on ItemRefTooltip and GameTooltip, and on no other tooltip", function()
+        local link = copyLink(252258, 308)
+        assert.is_true(ns.UI.Tooltip.IsOurs(ItemRefTooltip))
+        assert.is_true(ns.UI.Tooltip.IsOurs(GameTooltip))
+        assert.is_truthy(world.showItemTooltip({ hyperlink = link }).stub.Text():find("Lootpath", 1, true))
+        for _, name in ipairs({ "ShoppingTooltip1", "ShoppingTooltip2", "PawnPrivateTooltip1" }) do
+            local other = world.newTooltip(name)
+            assert.is_false(ns.UI.Tooltip.IsOurs(other))
+            local text = world.showItemTooltip({ hyperlink = link }, other).stub.Text()
+            assert.is_nil(text:find("Lootpath", 1, true), name .. " got the block")
+        end
+    end)
+
+    it("tells the owner's bag copy it beats what he wears, with both levels, and marks it", function()
+        local key, link = holdCopy(252258, 311)
+        local text = world.showItemTooltip({ hyperlink = link }).stub.Text()
+        assert.is_truthy(text:find(ns.Roads.BEATS_WORN_SENTENCE, 1, true))
+        assert.is_truthy(text:find("+1.83% rated at 305 · you hold it at 311 · Refresh rates this one", 1, true))
+        assert.is_truthy(text:find("Better: ", 1, true))
+        assert.is_nil(text:find("Pass", 1, true))
+        assert.is_nil(text:find("not rated", 1, true))
+        assert.is_true(ns.Glow.Wants(key))
+    end)
+
+    it("keeps the pass on a bag copy rated at or below what he wears, with the figure, and does not mark it", function()
+        local key, link = holdCopy(251148, 311)
+        local text = world.showItemTooltip({ hyperlink = link }).stub.Text()
+        assert.is_truthy(text:find("Pass - ", 1, true))
+        assert.is_truthy(text:find("rated at 305: not better · you hold it at 311", 1, true))
+        assert.is_nil(text:find("not rated", 1, true))
+        assert.is_false(ns.Glow.Wants(key))
+        assert.is_false(ns.RoadsCache.RoadWantsGlow(nil, { upgrade = false }))
+        assert.is_true(ns.RoadsCache.RoadWantsGlow(nil, { upgrade = true }))
     end)
 
     it("walks nothing on the hover path", function()
@@ -696,6 +790,9 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         -- is built, a hover may not reach the model, the journal walk or a bag
         -- scan. This is what "no table allocation beyond the lines" can be
         -- proven to mean in a language whose allocator a test cannot ask.
+        -- R-2c's chat link is hovered too, and its other-level lookup is one
+        -- of the things counted: it is answered off the map, never walked.
+        local chat = copyLink(252258, 308)
         local calls = 0
         local function count(holder, name)
             local original = holder[name]
@@ -706,6 +803,10 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         end
         count(ns.Roads, "ForSlot")
         count(ns.Roads, "ForItem")
+        count(ns.Roads, "ForItemIn")
+        count(ns.Roads, "ForItemIDIn")
+        count(ns.Roads, "OtherLevelRoad")
+        count(ns.Roads, "OtherLevelRating")
         count(ns.Roads, "PlanSentence")
         count(ns.Inventory, "Scan")
         count(ns.UpgradeMapPanel, "Model")
@@ -714,6 +815,7 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
             hover(LYNX)
             hover(MISTSTALKER)
             hover(VAULT_SPAULDERS)
+            world.showItemTooltip({ hyperlink = chat }, ItemRefTooltip)
         end
         assert.equal(0, calls)
     end)

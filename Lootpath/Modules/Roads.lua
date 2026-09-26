@@ -1043,6 +1043,196 @@ local function documentAt(documents, keyLevel)
 end
 
 -- ---------------------------------------------------------------------------
+-- The same item, rated at another level (R-2c, WKE-646).
+--
+-- The owner, 2026-09-25 evening, hovering a Sickening Signet at 311 in his bags
+-- - a drop his documents rate at the level the walk previews, looted because
+-- the Voidscar Arena tile named it: "It tells me to pass - it should know that
+-- this is a better upgrade." The copy in the bags carries its own bonus IDs,
+-- so no road carries its key, and the tooltip fell to the pass. UX-6b
+-- (WKE-639) already carried a document row for an item rated at another
+-- level onto the cards; these are that rule, moved here so the cards, the
+-- tooltip and the glow ask one function.
+--
+-- Nothing is computed. The figure is one of his rows, whole, at the level he
+-- rated it; the surface says that level and the copy's own side by side, and a
+-- copy above the rated level is never "at least as good" - that would be an
+-- inference, and the cure (Refresh) rates the copy itself.
+
+-- An `upgradePercent` the way ns.UFImport.IsUpgrade reads an entry's: a road
+-- carries his figure unchanged, so it is handed back in the entry's own shape
+-- (one table, reused, because the cards ask this for every road of every open
+-- slot on every draw).
+local percentEntry = {}
+function Roads.IsUpgradePercent(percent)
+    if percent == nil then
+        return false
+    end
+    percentEntry.upgradePercent = percent
+    return ns.UFImport.IsUpgrade(percentEntry) == true
+end
+
+-- The row his documents carry for a drop at another level, or nil: the `drop`
+-- row at the lowest level any document carries one, and the `max` row - the
+-- item with its crests spent - OUT OF THE SAME DOCUMENT, because a card's
+-- figures all come from one run (`otherLevels` above, docs/ROADS-UX.md
+-- surface 2). With no drop row, the lowest `max` row any document carries.
+-- Each is his entry and its level, unchanged (ns.UFImport.OtherLevelEntry);
+-- nothing is scaled toward the level the drop arrives at. (UX-6b, WKE-639;
+-- moved here from UpgradeMapPanel.lua by R-2c, and the panel still calls it.)
+function Roads.OtherLevelRating(documents, itemID)
+    if type(documents) ~= "table" or itemID == nil then
+        return nil
+    end
+    local function row(list, dropType)
+        local entry, level, keyLevel, document = ns.UFImport.OtherLevelEntry(list, itemID, dropType)
+        if not entry then
+            return nil
+        end
+        return { entry = entry, level = level, keyLevel = keyLevel, percent = entry.upgradePercent }, document
+    end
+    local drop, document = row(documents, ns.UFImport.DROP_TYPE_DROP)
+    local max = row(drop and { document } or documents, ns.UFImport.DROP_TYPE_MAX)
+    if not drop and not max then
+        return nil
+    end
+    return { drop = drop, max = max }
+end
+
+-- The row a card wears (UX-6b's choice, widened by UX-6d, WKE-641): the drop
+-- row if it is an upgrade, else the crested row if it is, else the drop row -
+-- and with no drop row, the crested row. One pure choice, read by what the
+-- cards draw, by the tooltip and by the glow, so the three cannot disagree. It
+-- picks one of his rows; it never computes one.
+function Roads.WornRow(drop, max)
+    if drop ~= nil and Roads.IsUpgradePercent(drop.percent) then
+        return drop
+    end
+    if max ~= nil and Roads.IsUpgradePercent(max.percent) then
+        return max
+    end
+    if drop ~= nil then
+        return drop
+    end
+    return max
+end
+
+-- The two rows a road rated where it drops carries - its own rating and the
+-- `max` entry of its `alsoAt` - in the `{ percent, level }` shape WornRow reads.
+local function ratedRows(road)
+    local rating = road.rating
+    local drop = { percent = rating.percent, level = tonumber(rating.level or road.arrivesAt) }
+    for _, also in ipairs(rating.alsoAt or {}) do
+        if also.dropType == ns.UFImport.DROP_TYPE_MAX then
+            return drop, { percent = also.percent, level = also.level }
+        end
+    end
+    return drop, nil
+end
+
+-- The slot's road for this item ID, rated at another level, and the row it
+-- wears: `road, otherLevel`, or nil. A drop road his documents rate where it
+-- drops comes first, at its lowest rated level (a raid item walked at two
+-- difficulties is two roads); with none, a drop road his documents rate only
+-- at another level (UX-6b's no-rating card). Only drops: the documents' drop
+-- and max rows are about drops, and every other road is keyed by the very
+-- piece it is about.
+--
+-- `otherLevel` is { ratedAt, percent, badge, crested, upgrade }: the level and
+-- figure of the row worn, whether that row is the crested one, and whether it
+-- is above what you wear - the test the cards are drawn by (UX-6c).
+-- It walks the slot's roads, so it is asked when the map is BUILT and never on
+-- a hover (R-0).
+function Roads.OtherLevelRoad(slotRoads, itemID, documents)
+    local id = tonumber(itemID)
+    if type(slotRoads) ~= "table" or type(slotRoads.groups) ~= "table" or not id then
+        return nil
+    end
+    local rated, ratedLevel, unrated
+    for _, group in ipairs({ Roads.GROUP_ITEM, Roads.GROUP_NONE }) do
+        for _, road in ipairs(slotRoads.groups[group] or {}) do
+            local item = road.item
+            if road.kind == Roads.KIND_DROP and type(item) == "table" and tonumber(item.itemID) == id then
+                local rating = type(road.rating) == "table" and road.rating or nil
+                if rating and rating.kind == Roads.RATING_ITEM then
+                    local level = tonumber(rating.level or road.arrivesAt) or math.huge
+                    if not rated or level < ratedLevel then
+                        rated, ratedLevel = road, level
+                    end
+                else
+                    unrated = unrated or road
+                end
+            end
+        end
+    end
+    local road, drop, max
+    if rated then
+        road = rated
+        drop, max = ratedRows(rated)
+    elseif unrated then
+        local rating = Roads.OtherLevelRating(documents, id)
+        if not rating then
+            return nil
+        end
+        road, drop, max = unrated, rating.drop, rating.max
+    else
+        return nil
+    end
+    local worn = Roads.WornRow(drop, max)
+    if not worn or not tonumber(worn.level) then
+        return nil
+    end
+    return road,
+        {
+            ratedAt = tonumber(worn.level),
+            percent = worn.percent,
+            badge = Roads.ItemBadge(worn.percent),
+            crested = worn == max,
+            upgrade = Roads.IsUpgradePercent(worn.percent),
+        }
+end
+
+-- What the block says under the sentence about a copy answered at another
+-- level. The rated figure and its level first, then the copy's own level: `you
+-- hold it at 311` for a piece you carry, `this one is 308` for a link somebody
+-- put in chat. A copy you hold is one Refresh away from its own rating, so the
+-- line names that cure when the row is an upgrade; a row at or below zero says
+-- so and keeps the pass above it.
+Roads.OTHER_LEVEL_RATED = "rated at %d"
+Roads.OTHER_LEVEL_CRESTED = "crested to %d"
+Roads.OTHER_LEVEL_NOT_BETTER = "%s: not better"
+Roads.OTHER_LEVEL_HELD = "you hold it at %d"
+Roads.OTHER_LEVEL_LINKED = "this one is %d"
+Roads.OTHER_LEVEL_REFRESH = "Refresh rates this one"
+
+function Roads.OtherLevelText(otherLevel, copyLevel, held)
+    if type(otherLevel) ~= "table" or not tonumber(otherLevel.ratedAt) then
+        return nil
+    end
+    local where = string.format(
+        otherLevel.crested and Roads.OTHER_LEVEL_CRESTED or Roads.OTHER_LEVEL_RATED,
+        tonumber(otherLevel.ratedAt)
+    )
+    local parts = {}
+    local percent = tonumber(otherLevel.percent)
+    if otherLevel.upgrade then
+        parts[1] = string.format("%s %s", otherLevel.badge or "", where)
+    elseif percent and percent ~= 0 then
+        parts[1] = string.format("%s %s", Roads.ItemBadge(percent), string.format(Roads.OTHER_LEVEL_NOT_BETTER, where))
+    else
+        parts[1] = string.format(Roads.OTHER_LEVEL_NOT_BETTER, where)
+    end
+    local level = tonumber(copyLevel)
+    if level then
+        parts[#parts + 1] = string.format(held and Roads.OTHER_LEVEL_HELD or Roads.OTHER_LEVEL_LINKED, level)
+    end
+    if held and otherLevel.upgrade then
+        parts[#parts + 1] = Roads.OTHER_LEVEL_REFRESH
+    end
+    return table.concat(parts, " · ")
+end
+
+-- ---------------------------------------------------------------------------
 -- Upgrading what you wear: the `maxed` document's own answer (R-3c, WKE-580).
 --
 -- The crest road used to be `no rating` with `arrivesAt` set to the level the
@@ -2151,11 +2341,45 @@ function Roads.ForItem(key, inputs)
     return Roads.ForItemIn(Roads.ForSlot(slot, inputs), key, inputs)
 end
 
+-- The other roads an answer offers, one per remaining group, and RATED ONLY
+-- (R-2a, WKE-571). The Upgrade Map lists the no-rating group because a reader
+-- who opened a slot asked for everything it opens onto; a tooltip has three
+-- lines and the reader asked about one item, so a road nothing rated cannot
+-- take one of them. A "no rating" road under a best-set pick is the shape the
+-- owner read on 2026-09-14 and it told him nothing. Principle 10's three is a
+-- cap, not a quota.
+--
+-- `skip` is a road that answers for the item without carrying its key (R-2c's
+-- other-level road): its group still offers its best road, as it did before
+-- the item had one, but never the item itself back.
+local function offerOthers(answer, slotRoads, ownGroup, skip)
+    for _, group in ipairs(Roads.GROUP_ORDER) do
+        if group ~= ownGroup and #answer.others < Roads.TOOLTIP_ROADS - 1 then
+            local forward, rated
+            for _, road in ipairs(slotRoads.groups[group] or {}) do
+                if road ~= skip then
+                    if Roads.IsForward(road) then
+                        forward = forward or road
+                    elseif Roads.IsRated(road) then
+                        rated = rated or road
+                    end
+                end
+            end
+            local pick = forward or rated
+            if pick then
+                answer.others[#answer.others + 1] = pick
+            end
+        end
+    end
+end
+
 -- The same answer, over a slot's roads that have already been built. R-2's
 -- cache builds every slot once per verdict and then asks this for every key it
 -- holds, so a hover is a table lookup and never a walk: `ForItem` above is the
 -- one-shot caller and this is the body both of them share. Nothing here reads
--- `inputs` except to name the phrase for an item no road carries.
+-- `inputs` except to name the phrase for an item no road carries, and - since
+-- R-2c - to find the road his documents rate that item's ID by at another
+-- level.
 function Roads.ForItemIn(slotRoads, key, inputs)
     inputs = type(inputs) == "table" and inputs or {}
     local answer = { others = {} }
@@ -2181,31 +2405,6 @@ function Roads.ForItemIn(slotRoads, key, inputs)
             end
         end
     end
-    answer.own = own
-
-    -- The other roads this answer offers, one per remaining group, and RATED
-    -- ONLY (R-2a, WKE-571). The Upgrade Map lists the no-rating group because a
-    -- reader who opened a slot asked for everything it opens onto; a tooltip
-    -- has three lines and the reader asked about one item, so a road nothing
-    -- rated cannot take one of them. A "no rating" road under a best-set pick
-    -- is the shape the owner read on 2026-09-14 and it told him nothing.
-    -- Principle 10's three is a cap, not a quota.
-    for _, group in ipairs(Roads.GROUP_ORDER) do
-        if group ~= ownGroup and #answer.others < Roads.TOOLTIP_ROADS - 1 then
-            local forward, rated
-            for _, road in ipairs(slotRoads.groups[group] or {}) do
-                if Roads.IsForward(road) then
-                    forward = forward or road
-                elseif Roads.IsRated(road) then
-                    rated = rated or road
-                end
-            end
-            local pick = forward or rated
-            if pick then
-                answer.others[#answer.others + 1] = pick
-            end
-        end
-    end
 
     -- Whether the player is carrying this item, which is what decides that the
     -- plan owes it a sentence (R-2a, WKE-571; `Roads.ItemSentence`). It is read
@@ -2225,14 +2424,59 @@ function Roads.ForItemIn(slotRoads, key, inputs)
     -- stale plan name its own remedy (defect 4).
     answer.stale = slotRoads.staleBags == true
 
+    local otherLevelRoad
     if not own then
         -- Which pass rated it travels with the phrase (C-11): the line says
         -- what is true of the item and the sentence above it says why the plan
         -- does not mention it.
         answer.phrase, answer.laterPass = Roads.NotRatedPhrase(inputs.excluded, item, key, inputs.passes)
+        -- R-2c (WKE-646): a copy the documents rate at ANOTHER level. A later
+        -- pass that rated this very copy speaks louder and is left alone; so is
+        -- a key nothing is held under. Otherwise the documents did rate the
+        -- item, and "not rated" would be false: the road that rates it answers,
+        -- with both levels on the answer.
+        if item and not answer.laterPass then
+            local road, otherLevel = Roads.OtherLevelRoad(slotRoads, item.itemID, inputs.ufDocuments)
+            if road and otherLevel then
+                otherLevel.heldAt = tonumber(item.itemLevel or item.level)
+                own, otherLevelRoad = road, road
+                answer.otherLevel = otherLevel
+                answer.phrase = nil
+            end
+        end
     elseif own.phrase then
         answer.phrase = own.phrase
     end
+    answer.own = own
+    offerOthers(answer, slotRoads, not otherLevelRoad and ownGroup or nil, otherLevelRoad)
+    return answer
+end
+
+-- The answer for an item ID the map has a road for at another level and no
+-- key for (R-2c, WKE-646): a link somebody put in chat, whose bonus IDs are
+-- nobody's. Built once per item ID when the map is built, never on a hover.
+-- Not held, so the block spends its lines on the road's figure and where it
+-- drops, and takes no position; the copy's own level is the link's, and the
+-- tooltip adds it at hover time because only the hover knows it.
+function Roads.ForItemIDIn(slotRoads, itemID, inputs)
+    inputs = type(inputs) == "table" and inputs or {}
+    if type(slotRoads) ~= "table" or type(slotRoads.groups) ~= "table" then
+        return nil
+    end
+    local road, otherLevel = Roads.OtherLevelRoad(slotRoads, itemID, inputs.ufDocuments)
+    if not road or not otherLevel then
+        return nil
+    end
+    local answer = {
+        others = {},
+        slot = slotRoads.slot,
+        slotRoads = slotRoads,
+        own = road,
+        otherLevel = otherLevel,
+        held = false,
+        stale = slotRoads.staleBags == true,
+    }
+    offerOthers(answer, slotRoads, nil, road)
     return answer
 end
 
@@ -2633,6 +2877,12 @@ function Roads.ItemSentence(answer)
     elseif answer.held ~= true then
         -- Not yours, so there is nothing to do about it here; what the rating
         -- says about it is all there is to say, and only when it points forward.
+        -- A link answered at another level (R-2c) gets no sentence: its figure
+        -- is about a copy at another level, and the line under the header says
+        -- it with both levels, which a sentence may not carry.
+        if type(answer.otherLevel) == "table" then
+            return nil
+        end
         local rating = type(own) == "table" and own.rating or nil
         local percent = (type(rating) == "table" and rating.kind == Roads.RATING_ITEM) and tonumber(rating.percent)
             or nil
@@ -2672,6 +2922,15 @@ function Roads.ItemSentence(answer)
     -- grounds for: the pool that built it did not hold this item, and the pool
     -- that did hold it preferred it to what the character is wearing.
     if not own and answer.phrase == Roads.PHRASE_RATED_LATER then
+        return Roads.BEATS_WORN_SENTENCE
+    end
+    -- A copy the documents rate at another level, above what you wear (R-2c,
+    -- WKE-646): never a pass. The owner's Sickening Signet at 311, rated at
+    -- the level the walk previews, was told "Pass - use your Preyseeker ring"
+    -- over the very drop the Voidscar Arena tile had sent him for. The figure
+    -- and both levels are the line under this one; at or below zero the pass
+    -- below stands and that line states the figure.
+    if type(answer.otherLevel) == "table" and answer.otherLevel.upgrade == true then
         return Roads.BEATS_WORN_SENTENCE
     end
     -- On the character it is a swap; in the bags it is a pass.

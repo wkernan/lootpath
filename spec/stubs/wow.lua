@@ -2036,6 +2036,11 @@ function Stub.install()
         return attachTooltipData(attachTooltipMethods(newFrame("GameTooltip", world)), name)
     end
 
+    -- The tooltip a clicked chat link opens: a GameTooltip of its own, named
+    -- (Blizzard_UIPanels_Game/Mainline/ItemRef.xml:5). R-2c (WKE-646) draws the
+    -- block on it.
+    define("ItemRefTooltip", world.newTooltip("ItemRefTooltip"))
+
     define("TooltipDataProcessor", {
         AllTypes = "ALL",
         AddTooltipPostCall = function(dataType, func)
