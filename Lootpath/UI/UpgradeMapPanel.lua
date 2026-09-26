@@ -1617,7 +1617,7 @@ end
 -- what a card is, so nothing new is drawn; the slot line carries the slot's
 -- name alone; the first slot worth taking starts open and the rest shut; the
 -- explanations come off the screen. Every sentence that left is one hover
--- away (Panel.SlotTooltipLines, Panel.CardTooltipLines), and every string the
+-- away (Panel.SlotHoverLines, Panel.CardTooltipLines), and every string the
 -- printed lines carry - `/lootpath status` - is unchanged: SectionHeaderText,
 -- GroupHeaderText and RoadLineText still say exactly what they said.
 Panel.ELEMENT_CARD_ROW = "cardRow"
@@ -1626,8 +1626,8 @@ Panel.ELEMENT_FOLD = "fold"
 
 -- The divider over a group of cards: an eyebrow, not a sentence. The two
 -- scales still never sort together (docs/ROADS-UX.md principle 2); the long
--- forms (ns.Roads.GROUP_HEADER, GroupHeaderText) stay for the printed lines
--- and the slot line's hover.
+-- forms (ns.Roads.GROUP_HEADER, GroupHeaderText) stay for the printed lines;
+-- since UX-7c (WKE-652) they are no longer on the slot line's hover.
 Panel.GROUP_EYEBROW = {
     [ns.Roads.GROUP_SET] = "In your best set",
     [ns.Roads.GROUP_ITEM] = "Rated against what you wear",
@@ -2134,51 +2134,56 @@ function Panel.CardArt(row, images)
     return Panel.InstanceArt(art.lore, art.image)
 end
 
--- The slot line's hover: the slot, its sentence, the long group headers (the
--- two scale clauses, the set group's arrangement), the Keep row as printed,
--- and the count of hidden level-1 drops. Everything the line stopped saying.
-function Panel.SlotTooltipLines(section)
+-- The slot line's hover (UX-7c, WKE-652): at most three lines. The owner,
+-- 2026-09-26, of Head's nine: "The tooltip to the top right is also very busy,
+-- way too much text." So: the slot's name; its sentence (Roads.SlotSentence,
+-- the one answer; none, no line); and the road the line's middle names, as
+-- `<name> · <badge> · <second>` - the badge and the second line are the
+-- document's and the journal's own words, the same second (or tag) the line's
+-- grey carries (none, no line). Everything else UX-6 and UX-7 put here has a
+-- home of its own and is not repeated: the group headers' scale clauses (the
+-- eyebrows keep the two scales apart; `/lootpath status` prints the long
+-- forms), the Keep row (the worn icon's own hover is the worn item), `No
+-- rating` (the fold line says its count), the best road's facts and cost (its
+-- card's hover carries them), and the hidden level-1 count (a fact about the
+-- list, not the slot: on the header's hint icon, Panel.HintLines). Pure;
+-- `name` is the name the client has since resolved for that road's item (the
+-- one the line's middle draws), used over the road's own when there is one, so
+-- a craft the document names by item alone is named on its hover too.
+function Panel.SlotHoverLines(section, name)
     if type(section) ~= "table" or type(section.slot) ~= "string" then
         return {}
     end
     local lines = { section.slot }
-    if section.plan then
+    if type(section.plan) == "string" and section.plan ~= "" then
         lines[#lines + 1] = section.plan
     end
-    -- The road the line's middle names, in full (UX-7): its facts and its
-    -- cost as its card's hover carries them, under its name so it is clear
-    -- whose they are. Its badge's scale is the group header below, and a line
-    -- click opens the slot rather than following the road, so neither is
-    -- repeated. A road with neither facts nor cost adds nothing.
     local best = Panel.SlotBest(section)
-    if best and (best.tooltipFactsText or best.costText) then
-        if type(best.name) == "string" and best.name ~= "" then
-            lines[#lines + 1] = best.name
-        end
-        if best.tooltipFactsText then
-            lines[#lines + 1] = best.tooltipFactsText
-        end
-        if best.costText then
-            lines[#lines + 1] = best.costText
-        end
-    end
-    for _, group in ipairs(section.roadGroups or {}) do
-        if group.header then
-            lines[#lines + 1] = group.header
-        end
-    end
-    for _, group in ipairs(section.roadGroups or {}) do
-        for _, row in ipairs(group.rows or {}) do
-            if row.kind == ns.Roads.KIND_KEEP then
-                lines[#lines + 1] = Panel.RoadLineText(row)
+    if best then
+        local parts = {}
+        local function part(text)
+            if type(text) == "string" and text ~= "" then
+                parts[#parts + 1] = text
             end
         end
-    end
-    if section.hiddenNote then
-        lines[#lines + 1] = section.hiddenNote
+        part((type(name) == "string" and name ~= "") and name or best.name)
+        part(type(best.badge) == "table" and best.badge.text or nil)
+        local source = best.second
+        if type(source) ~= "string" or source == "" then
+            source = best.tag
+        end
+        part(source)
+        if #parts > 0 then
+            lines[#lines + 1] = table.concat(parts, Panel.ROAD_SEPARATOR)
+        end
     end
     return lines
 end
+
+-- The slot's name on its hover is drawn in the game's own gold,
+-- NORMAL_FONT_COLOR (Core/Type/GlobalColors.lua:155 under .luals/), the rest in
+-- white, as the client draws a tooltip's title over its body.
+Panel.SLOT_HOVER_TITLE_COLOR = { 1.000, 0.824, 0.000 }
 
 -- ---------------------------------------------------------------------------
 -- The `No rating` flood, sorted before it is folded (UX-6b, WKE-639). The owner
@@ -3633,6 +3638,18 @@ end
 function Panel.HintLines(model, mode)
     local lines = { Panel.NOTE }
     if mode ~= Panel.MODE_RUN then
+        -- By slot, since UX-7c (WKE-652): how many level-1 drops the list
+        -- leaves out, for the whole list - it moved here off each slot line's
+        -- hover, because it is a fact about the list and not about a slot.
+        -- Only where roads are drawn: the older candidate list still says
+        -- each slot's count inline under the slot.
+        local hidden = type(model) == "table"
+            and model.hasRoads
+            and type(model.counts) == "table"
+            and tonumber(model.counts.hiddenLevelOne)
+        if hidden and hidden > 0 then
+            lines[#lines + 1] = string.format(Panel.LEVEL_ONE_NOTE, hidden)
+        end
         return lines
     end
     lines[#lines + 1] = Panel.RUN_NOTE
@@ -4772,14 +4789,18 @@ function Panel.InitElement(panel, element, data)
             state.slots[data.slot] = data.collapsed ~= true
             Panel.Refresh(panel)
         end)
-        local tooltip = Panel.SlotTooltipLines(data.section)
-        if #tooltip > 0 then
+        -- Built on the hover, not at bind: a road's name the client sends
+        -- after the line was drawn is in it the next time it is hovered.
+        if #Panel.SlotHoverLines(data.section) > 0 then
             button:SetScript("OnEnter", function(self)
                 if GameTooltip then
                     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                    for index, line in ipairs(tooltip) do
+                    local resolved = element.middleIcon and element.middleIcon.resolved or nil
+                    local name = type(resolved) == "table" and resolved.name or nil
+                    for index, line in ipairs(Panel.SlotHoverLines(data.section, name)) do
                         if index == 1 then
-                            GameTooltip:SetText(line, 1, 1, 1, 1, true)
+                            local gold = Panel.SLOT_HOVER_TITLE_COLOR
+                            GameTooltip:SetText(line, gold[1], gold[2], gold[3], 1, true)
                         else
                             GameTooltip:AddLine(line, 1, 1, 1, true)
                         end
