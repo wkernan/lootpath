@@ -3496,6 +3496,111 @@ describe("UpgradeMapPanel tiles on the frames", function()
         assert.is_nil(P.AtlasBandTexCoord(square, nil))
     end)
 
+    -- UX-5f (WKE-650): the owner, 2026-09-26, "Images don't look centered."
+    -- Where the band sits along the rect is the picture's own anchor: 0 its
+    -- left or top edge, 0.5 the centre UX-5e drew, 1 its right or bottom.
+    it("slides the band along the rect by an anchor, and never out of it (UX-5f)", function()
+        local P = ns.UpgradeMapPanel
+        local ratio = P.TILE_ART_RATIO
+        local wide = {
+            width = 1000,
+            height = 300,
+            leftTexCoord = 0,
+            rightTexCoord = 0.9765625,
+            topTexCoord = 0.25,
+            bottomTexCoord = 0.54,
+        }
+        local centred = P.AtlasBandTexCoord(wide, ratio)
+        local near = function(a, b)
+            return math.abs(a - b) < 1e-12
+        end
+
+        -- 0.5 is where the band sat before: the default, to the last bit.
+        assert.same(centred, P.AtlasBandTexCoord(wide, ratio, { x = 0.5, y = 0.5 }))
+        -- 0: the band's left is the rect's left.
+        local leftmost = P.AtlasBandTexCoord(wide, ratio, { x = 0, y = 0.5 })
+        assert.equal(0, leftmost[1])
+        -- 1: the band's right is the rect's right.
+        local rightmost = P.AtlasBandTexCoord(wide, ratio, { x = 1, y = 0.5 })
+        assert.is_true(near(0.9765625, rightmost[2]))
+        -- Past either edge the band stays inside the rect.
+        assert.same(leftmost, P.AtlasBandTexCoord(wide, ratio, { x = -3, y = 0.5 }))
+        assert.same(rightmost, P.AtlasBandTexCoord(wide, ratio, { x = 7, y = 0.5 }))
+        -- The band's proportion and its full height never change.
+        for _, band in ipairs({ leftmost, rightmost, P.AtlasBandTexCoord(wide, ratio, { x = 0.65, y = 0 }) }) do
+            assert.equal(0.25, band[3])
+            assert.equal(0.54, band[4])
+            assert.is_true(near(band[2] - band[1], centred[2] - centred[1]))
+            assert.is_true(math.abs(bandRatio(wide, band) - ratio) < 1e-9)
+        end
+        io.write(
+            string.format(
+                "UX-5f wide band x=0 %.6f %.6f  x=0.5 %.6f %.6f  x=1 %.6f %.6f\n",
+                leftmost[1],
+                leftmost[2],
+                centred[1],
+                centred[2],
+                rightmost[1],
+                rightmost[2]
+            )
+        )
+
+        -- A taller atlas slides along its height by y, and keeps its width.
+        local square = {
+            width = 256,
+            height = 256,
+            leftTexCoord = 0.1,
+            rightTexCoord = 0.6,
+            topTexCoord = 0.2,
+            bottomTexCoord = 0.7,
+        }
+        local top = P.AtlasBandTexCoord(square, ratio, { x = 0.9, y = 0 })
+        local bottom = P.AtlasBandTexCoord(square, ratio, { x = 0.9, y = 1 })
+        assert.same({ 0.1, 0.6 }, { top[1], top[2] })
+        assert.equal(0.2, top[3])
+        assert.is_true(near(0.7, bottom[4]))
+        assert.is_true(math.abs(bandRatio(square, bottom) - ratio) < 1e-9)
+
+        -- The two pictures' anchors: plain numbers inside 0..1.
+        for _, anchor in ipairs({ P.DELVE_ART_ANCHOR, P.CRAFT_ART_ANCHOR }) do
+            assert.is_table(anchor)
+            for _, key in ipairs({ "x", "y" }) do
+                assert.is_number(anchor[key])
+                assert.is_true(anchor[key] >= 0 and anchor[key] <= 1)
+            end
+        end
+    end)
+
+    it("draws each backdrop at its own picture's anchor, not the centre (UX-5f)", function()
+        local P = ns.UpgradeMapPanel
+        local wide = {
+            width = 1000,
+            height = 300,
+            leftTexCoord = 0,
+            rightTexCoord = 0.9765625,
+            topTexCoord = 0.25,
+            bottomTexCoord = 0.54,
+        }
+        -- Stub anchors far from each other and from the centre, so a mix-up shows.
+        local delveAnchor, craftAnchor = P.DELVE_ART_ANCHOR, P.CRAFT_ART_ANCHOR
+        P.DELVE_ART_ANCHOR = { x = 0.9, y = 0.5 }
+        P.CRAFT_ART_ANCHOR = { x = 0.1, y = 0.5 }
+        world.atlases[P.DELVE_ART_ATLAS] = wide
+        world.atlases[P.CRAFT_ART_ATLAS] = wide
+        local info = ns.UI.ItemLine.AtlasInfo(P.DELVE_ART_ATLAS)
+
+        local _, delveBand = P.InstanceArt(nil, nil, ns.UFImport.SOURCE_KIND_DELVE)
+        local _, craftBand = P.InstanceArt(nil, nil, ns.UFImport.SOURCE_KIND_CRAFT, nil)
+        P.DELVE_ART_ANCHOR, P.CRAFT_ART_ANCHOR = delveAnchor, craftAnchor
+        world.atlases[P.DELVE_ART_ATLAS] = nil
+        world.atlases[P.CRAFT_ART_ATLAS] = nil
+
+        assert.same(P.AtlasBandTexCoord(info, P.TILE_ART_RATIO, { x = 0.9, y = 0.5 }), delveBand)
+        assert.same(P.AtlasBandTexCoord(info, P.TILE_ART_RATIO, { x = 0.1, y = 0.5 }), craftBand)
+        -- The lore paintings are untouched: their own fixed crop.
+        assert.same({ 7, P.TILE_LORE_TEX_COORD }, { P.InstanceArt(7, 8, nil) })
+    end)
+
     -- A backdrop atlas on the stub: its size and its rect in its file, the
     -- shape GetAtlasInfo answers. Stub-shaped values, never the real art's.
     local function backdrop(width, height)
@@ -3536,7 +3641,8 @@ describe("UpgradeMapPanel tiles on the frames", function()
             assert.is_nil(tile.art:GetTexture())
             -- Drawn into the tile's box, never at the atlas's own size.
             assert.is_false(tile.art.atlasUsedSize)
-            local band = P.AtlasBandTexCoord(ns.UI.ItemLine.AtlasInfo(P.DELVE_ART_ATLAS), P.TILE_ART_RATIO)
+            local band =
+                P.AtlasBandTexCoord(ns.UI.ItemLine.AtlasInfo(P.DELVE_ART_ATLAS), P.TILE_ART_RATIO, P.DELVE_ART_ANCHOR)
             assert.is_table(band)
             assert.same(band, tile.art.texCoord)
             for _, cell in ipairs(tile.mosaic) do
@@ -3584,7 +3690,8 @@ describe("UpgradeMapPanel tiles on the frames", function()
         assert.is_true(tile.art:IsShown())
         assert.equal(P.CRAFT_ART_ATLAS, tile.art:GetAtlas())
         assert.is_false(tile.art.atlasUsedSize)
-        local band = P.AtlasBandTexCoord(ns.UI.ItemLine.AtlasInfo(P.CRAFT_ART_ATLAS), P.TILE_ART_RATIO)
+        local band =
+            P.AtlasBandTexCoord(ns.UI.ItemLine.AtlasInfo(P.CRAFT_ART_ATLAS), P.TILE_ART_RATIO, P.CRAFT_ART_ANCHOR)
         assert.same(band, tile.art.texCoord)
         for _, cell in ipairs(tile.mosaic) do
             assert.is_false(cell:IsShown())
@@ -3597,7 +3704,16 @@ describe("UpgradeMapPanel tiles on the frames", function()
         world.atlases[tailoring] = backdrop(900, 300)
         P.InitTile(frame, tile, crafting, false)
         assert.equal(tailoring, tile.art:GetAtlas())
-        assert.same(P.AtlasBandTexCoord(ns.UI.ItemLine.AtlasInfo(tailoring), P.TILE_ART_RATIO), tile.art.texCoord)
+        -- A wide atlas (900 x 300 against the tile's 174:96): the band sits at
+        -- the craft anchor, not the centre (UX-5f).
+        assert.same(
+            P.AtlasBandTexCoord(ns.UI.ItemLine.AtlasInfo(tailoring), P.TILE_ART_RATIO, P.CRAFT_ART_ANCHOR),
+            tile.art.texCoord
+        )
+        assert.are_not.same(
+            P.AtlasBandTexCoord(ns.UI.ItemLine.AtlasInfo(tailoring), P.TILE_ART_RATIO),
+            tile.art.texCoord
+        )
 
         -- Neither atlas on this client: the mosaic, as before.
         world.atlases[P.CRAFT_ART_ATLAS] = nil
