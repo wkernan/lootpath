@@ -269,6 +269,15 @@ end
 -- time, on the client that has it. A client that answers an atlas but no usable
 -- size gets the name and no size, which is "draw it the way you would have
 -- anyway" rather than a guessed pair of numbers (V-5a, WKE-607).
+--
+-- Since UX-5e (WKE-649) it also carries where the atlas sits in its file, when
+-- the client says: `leftTexCoord`, `rightTexCoord`, `topTexCoord` and
+-- `bottomTexCoord`, the same AtlasInfo's fields (TextureUtilsDocumentation.lua
+-- :65-68, beside `width` and `height` at :62-63), each through ns.Safe. All
+-- four or none: a caller that crops inside the atlas's rect needs the whole
+-- rect, and a client that gives part of it gets the atlas as the client cut it.
+local ATLAS_COORD_FIELDS = { "leftTexCoord", "rightTexCoord", "topTexCoord", "bottomTexCoord" }
+
 function ItemLine.AtlasInfo(name)
     if type(name) ~= "string" or name == "" then
         return nil
@@ -282,7 +291,18 @@ function ItemLine.AtlasInfo(name)
     if not width or not height or width <= 0 or height <= 0 then
         return { name = name }
     end
-    return { name = name, width = width, height = height }
+    local answer = { name = name, width = width, height = height }
+    local coords = {}
+    for _, field in ipairs(ATLAS_COORD_FIELDS) do
+        coords[field] = tonumber((ns.Safe(info[field])))
+        if coords[field] == nil then
+            return answer
+        end
+    end
+    for field, value in pairs(coords) do
+        answer[field] = value
+    end
+    return answer
 end
 
 -- An atlas name the client actually has, or nil. The name-only half of

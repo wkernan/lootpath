@@ -2481,7 +2481,22 @@ function Stub.install()
             if type(entry) ~= "table" then
                 return { file = atlas, width = 16, height = 16 }
             end
-            return { file = atlas, width = entry.width, height = entry.height }
+            -- UX-5e (WKE-649): an entry may also carry the four tex coords of
+            -- the atlas's rect inside its file - `leftTexCoord`,
+            -- `rightTexCoord`, `topTexCoord`, `bottomTexCoord`, fields of the
+            -- same AtlasInfo (TextureUtilsDocumentation.lua:65-68) - so a test
+            -- can say where a painted backdrop sits in its file. An entry
+            -- without them answers none, which is a client whose answer the
+            -- addon must not guess past.
+            return {
+                file = atlas,
+                width = entry.width,
+                height = entry.height,
+                leftTexCoord = entry.leftTexCoord,
+                rightTexCoord = entry.rightTexCoord,
+                topTexCoord = entry.topTexCoord,
+                bottomTexCoord = entry.bottomTexCoord,
+            }
         end,
     })
 

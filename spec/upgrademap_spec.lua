@@ -3393,6 +3393,273 @@ describe("UpgradeMapPanel tiles on the frames", function()
         end
     end)
 
+    -- UX-5e (WKE-649): the Delves and Crafting tiles draw the client's own
+    -- painted backdrops. The band is the tile's 174:96 cut out of the atlas's
+    -- OWN rect, centred, from the four tex coords and the size AtlasInfo
+    -- answers (TextureUtilsDocumentation.lua:62-68) - never a guessed size.
+    local function bandRatio(info, band)
+        -- The band's proportion in the atlas's own pixels: its share of the
+        -- rect across times the width, over its share down times the height.
+        local across = (band[2] - band[1]) / (info.rightTexCoord - info.leftTexCoord) * info.width
+        local down = (band[4] - band[3]) / (info.bottomTexCoord - info.topTexCoord) * info.height
+        return across / down
+    end
+
+    it("cuts a centred 174:96 band out of an atlas's own rect, and nothing when the client gave no coords", function()
+        local P = ns.UpgradeMapPanel
+        local ratio = P.TILE_ART_RATIO
+
+        -- A square atlas: the whole width, the middle 96/174 of the height.
+        local square = {
+            name = "square",
+            width = 256,
+            height = 256,
+            leftTexCoord = 0.1,
+            rightTexCoord = 0.6,
+            topTexCoord = 0.2,
+            bottomTexCoord = 0.7,
+        }
+        local band = P.AtlasBandTexCoord(square, ratio)
+        assert.is_table(band)
+        assert.equal(0.1, band[1])
+        assert.equal(0.6, band[2])
+        assert.is_true(math.abs((band[3] + band[4]) / 2 - 0.45) < 1e-12)
+        assert.is_true(band[3] > 0.2 and band[4] < 0.7)
+        io.write(
+            string.format(
+                "UX-5e square band %.6f %.6f %.6f %.6f ratio %.6f tile %.6f\n",
+                band[1],
+                band[2],
+                band[3],
+                band[4],
+                bandRatio(square, band),
+                ratio
+            )
+        )
+        assert.is_true(math.abs(bandRatio(square, band) - ratio) < 1e-9)
+
+        -- A wide atlas: the whole height, the middle of the width.
+        local wide = {
+            name = "wide",
+            width = 1000,
+            height = 300,
+            leftTexCoord = 0,
+            rightTexCoord = 0.9765625,
+            topTexCoord = 0.25,
+            bottomTexCoord = 0.54,
+        }
+        band = P.AtlasBandTexCoord(wide, ratio)
+        assert.is_table(band)
+        assert.equal(0.25, band[3])
+        assert.equal(0.54, band[4])
+        assert.is_true(math.abs((band[1] + band[2]) / 2 - 0.9765625 / 2) < 1e-12)
+        assert.is_true(band[1] > 0 and band[2] < 0.9765625)
+        io.write(
+            string.format(
+                "UX-5e wide band %.6f %.6f %.6f %.6f ratio %.6f tile %.6f\n",
+                band[1],
+                band[2],
+                band[3],
+                band[4],
+                bandRatio(wide, band),
+                ratio
+            )
+        )
+        assert.is_true(math.abs(bandRatio(wide, band) - ratio) < 1e-9)
+
+        -- A tall one crops the height too, and stays inside the rect.
+        local tall = {
+            width = 100,
+            height = 400,
+            leftTexCoord = 0.5,
+            rightTexCoord = 0.6,
+            topTexCoord = 0,
+            bottomTexCoord = 1,
+        }
+        band = P.AtlasBandTexCoord(tall, ratio)
+        assert.equal(0.5, band[1])
+        assert.equal(0.6, band[2])
+        assert.is_true(band[3] > 0 and band[4] < 1)
+        assert.is_true(math.abs(bandRatio(tall, band) - ratio) < 1e-9)
+
+        -- No coords, no size, nothing at all: no band, and the caller draws
+        -- the atlas as the client cut it rather than a guess.
+        assert.is_nil(P.AtlasBandTexCoord({ name = "x", width = 256, height = 256 }, ratio))
+        assert.is_nil(P.AtlasBandTexCoord({
+            name = "x",
+            leftTexCoord = 0,
+            rightTexCoord = 1,
+            topTexCoord = 0,
+            bottomTexCoord = 1,
+        }, ratio))
+        assert.is_nil(P.AtlasBandTexCoord(nil, ratio))
+        assert.is_nil(P.AtlasBandTexCoord(square, nil))
+    end)
+
+    -- A backdrop atlas on the stub: its size and its rect in its file, the
+    -- shape GetAtlasInfo answers. Stub-shaped values, never the real art's.
+    local function backdrop(width, height)
+        return {
+            width = width,
+            height = height,
+            leftTexCoord = 0.0009765625,
+            rightTexCoord = 0.8134765625,
+            topTexCoord = 0.001953125,
+            bottomTexCoord = 0.6875,
+        }
+    end
+
+    -- C_Item.GetItemInfoInstant's own seven returns for a stub item.
+    local function instantAs(itemID, classID, subclassID, equipLoc)
+        world.items[itemID] = {
+            instant = { itemID, "Armor", "x", equipLoc or "INVTYPE_CHEST", 5000 + itemID, classID, subclassID, n = 7 },
+        }
+    end
+
+    it(
+        "draws the Delves tile's own painted backdrop cropped to the tile, and the mosaic on a client without it",
+        function()
+            local P = ns.UpgradeMapPanel
+            local frame = P.Create()
+            local model = runModel()
+            local delves = cardNamed(model, "Delves")
+            assert.is_not_nil(delves)
+            for index = 1, P.MOSAIC_COUNT do
+                instantAs(delves.upgrades[index].itemID, 4, 8)
+            end
+            assert.equal("delves-companion-background", P.DELVE_ART_ATLAS)
+
+            world.atlases[P.DELVE_ART_ATLAS] = backdrop(700, 500)
+            local tile = drawTile(frame, model, delves)
+            assert.is_true(tile.art:IsShown())
+            assert.equal(P.DELVE_ART_ATLAS, tile.art:GetAtlas())
+            assert.is_nil(tile.art:GetTexture())
+            -- Drawn into the tile's box, never at the atlas's own size.
+            assert.is_false(tile.art.atlasUsedSize)
+            local band = P.AtlasBandTexCoord(ns.UI.ItemLine.AtlasInfo(P.DELVE_ART_ATLAS), P.TILE_ART_RATIO)
+            assert.is_table(band)
+            assert.same(band, tile.art.texCoord)
+            for _, cell in ipairs(tile.mosaic) do
+                assert.is_false(cell:IsShown())
+            end
+            assert.equal("Delves", tile.name:GetText())
+            assert.equal(P.TileSecondText(delves), tile.second:GetText())
+
+            -- The same tile on a client without the atlas: the mosaic, as before.
+            world.atlases[P.DELVE_ART_ATLAS] = nil
+            P.InitTile(frame, tile, delves, false)
+            assert.is_false(tile.art:IsShown())
+            for index, cell in ipairs(tile.mosaic) do
+                assert.is_true(cell:IsShown())
+                assert.equal(5000 + delves.upgrades[index].itemID, cell:GetTexture())
+            end
+
+            -- A client that names the atlas but gives no coords: the atlas as the
+            -- client cut it, no crop guessed on top.
+            world.atlases[P.DELVE_ART_ATLAS] = true
+            local fresh = drawTile(frame, model, delves)
+            assert.equal(P.DELVE_ART_ATLAS, fresh.art:GetAtlas())
+            assert.is_true(fresh.art:IsShown())
+            assert.is_nil(fresh.art.texCoord)
+        end
+    )
+
+    it("draws the Crafting tile's painted backdrop, by its best drop's profession where that is sure", function()
+        local P = ns.UpgradeMapPanel
+        local frame = P.Create()
+        local model = runModel()
+        local crafting = cardNamed(model, "Crafting")
+        assert.is_not_nil(crafting)
+        assert.equal("Professions-Specializations-Preview-Art-Leatherworking", P.CRAFT_ART_ATLAS)
+        -- The best drop is a weapon: several professions make one, so the
+        -- owner's chosen picture.
+        local best = crafting.upgrades[1].itemID
+        world.items[best] = { instant = { best, "Weapon", "x", "INVTYPE_2HWEAPON", 7001, 2, 10, n = 7 } }
+        for index = 2, P.MOSAIC_COUNT do
+            instantAs(crafting.upgrades[index].itemID, 4, 8)
+        end
+
+        world.atlases[P.CRAFT_ART_ATLAS] = backdrop(600, 400)
+        local tile = drawTile(frame, model, crafting)
+        assert.is_true(tile.art:IsShown())
+        assert.equal(P.CRAFT_ART_ATLAS, tile.art:GetAtlas())
+        assert.is_false(tile.art.atlasUsedSize)
+        local band = P.AtlasBandTexCoord(ns.UI.ItemLine.AtlasInfo(P.CRAFT_ART_ATLAS), P.TILE_ART_RATIO)
+        assert.same(band, tile.art.texCoord)
+        for _, cell in ipairs(tile.mosaic) do
+            assert.is_false(cell:IsShown())
+        end
+        assert.equal("Crafting", tile.name:GetText())
+
+        -- Its best drop cloth, and the client has Tailoring's art: that one.
+        instantAs(best, 4, 1, "INVTYPE_ROBE")
+        local tailoring = "Professions-Specializations-Preview-Art-Tailoring"
+        world.atlases[tailoring] = backdrop(900, 300)
+        P.InitTile(frame, tile, crafting, false)
+        assert.equal(tailoring, tile.art:GetAtlas())
+        assert.same(P.AtlasBandTexCoord(ns.UI.ItemLine.AtlasInfo(tailoring), P.TILE_ART_RATIO), tile.art.texCoord)
+
+        -- Neither atlas on this client: the mosaic, as before.
+        world.atlases[P.CRAFT_ART_ATLAS] = nil
+        world.atlases[tailoring] = nil
+        P.InitTile(frame, tile, crafting, false)
+        assert.is_false(tile.art:IsShown())
+        for _, cell in ipairs(tile.mosaic) do
+            assert.is_true(cell:IsShown())
+        end
+    end)
+
+    it("names a crafted piece's profession only in the four sure cases, and falls back otherwise", function()
+        local P = ns.UpgradeMapPanel
+        local art = "Professions-Specializations-Preview-Art-%s"
+        for _, kit in ipairs({ "Tailoring", "Leatherworking", "Blacksmithing", "Jewelcrafting" }) do
+            world.atlases[string.format(art, kit)] = backdrop(600, 400)
+        end
+        -- Enum.ItemClass.Armor = 4; Enum.ItemArmorSubclass Generic 0, Cloth 1,
+        -- Leather 2, Mail 3, Plate 4 (Core/Data/Enum.lua under .luals/).
+        instantAs(1001, 4, 1, "INVTYPE_ROBE")
+        instantAs(1002, 4, 2, "INVTYPE_CHEST")
+        instantAs(1003, 4, 3, "INVTYPE_WRIST")
+        instantAs(1004, 4, 4, "INVTYPE_HAND")
+        instantAs(1005, 4, 0, "INVTYPE_FINGER")
+        instantAs(1006, 4, 0, "INVTYPE_NECK")
+        world.items[1007] = { instant = { 1007, "Weapon", "x", "INVTYPE_WEAPON", 7007, 2, 7, n = 7 } }
+        instantAs(1008, 4, 0, "INVTYPE_TRINKET")
+        assert.equal(string.format(art, "Tailoring"), P.CraftArtAtlas({ itemID = 1001 }))
+        assert.equal(string.format(art, "Leatherworking"), P.CraftArtAtlas({ itemID = 1002 }))
+        assert.equal(string.format(art, "Leatherworking"), P.CraftArtAtlas({ itemID = 1003 }))
+        assert.equal(string.format(art, "Blacksmithing"), P.CraftArtAtlas({ itemID = 1004 }))
+        assert.equal(string.format(art, "Jewelcrafting"), P.CraftArtAtlas({ itemID = 1005 }))
+        assert.equal(string.format(art, "Jewelcrafting"), P.CraftArtAtlas({ itemID = 1006 }))
+        -- A weapon, a trinket, an item the client says nothing about, no road.
+        assert.equal(P.CRAFT_ART_ATLAS, P.CraftArtAtlas({ itemID = 1007 }))
+        assert.equal(P.CRAFT_ART_ATLAS, P.CraftArtAtlas({ itemID = 1008 }))
+        assert.equal(P.CRAFT_ART_ATLAS, P.CraftArtAtlas({ itemID = 1999 }))
+        assert.equal(P.CRAFT_ART_ATLAS, P.CraftArtAtlas(nil))
+        -- A client without the stylised atlas: the chosen picture.
+        world.atlases[string.format(art, "Blacksmithing")] = nil
+        assert.equal(P.CRAFT_ART_ATLAS, P.CraftArtAtlas({ itemID = 1004 }))
+        -- The one switch: one picture for every crafted piece.
+        P.CRAFT_ART_PER_PROFESSION = false
+        assert.equal(P.CRAFT_ART_ATLAS, P.CraftArtAtlas({ itemID = 1001 }))
+        P.CRAFT_ART_PER_PROFESSION = true
+
+        -- The chooser: an atlas, its band and the atlas flag; nil without it.
+        world.atlases[P.DELVE_ART_ATLAS] = backdrop(700, 500)
+        local texture, texCoord, isAtlas = P.InstanceArt(nil, nil, ns.UFImport.SOURCE_KIND_DELVE)
+        assert.equal(P.DELVE_ART_ATLAS, texture)
+        assert.is_table(texCoord)
+        assert.is_true(isAtlas)
+        texture, texCoord, isAtlas = P.InstanceArt(nil, nil, ns.UFImport.SOURCE_KIND_CRAFT, { itemID = 1001 })
+        assert.equal(string.format(art, "Tailoring"), texture)
+        assert.is_table(texCoord)
+        assert.is_true(isAtlas)
+        world.atlases[P.DELVE_ART_ATLAS] = nil
+        assert.is_nil(P.InstanceArt(nil, nil, ns.UFImport.SOURCE_KIND_DELVE))
+        -- An instance's own art is never an atlas.
+        assert.same({ 7, P.TILE_LORE_TEX_COORD }, { P.InstanceArt(7, 8, nil) })
+    end)
+
     it("dims a tile with nothing rated, and gives it no badge at all", function()
         local frame = ns.UpgradeMapPanel.Create()
         local model = runModel()
