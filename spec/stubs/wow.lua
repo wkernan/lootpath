@@ -250,6 +250,16 @@ local function attachFontSurface(r)
     for _, name in ipairs(IGNORED_FONT_METHODS) do
         r[name] = function() end
     end
+    -- Which font object a FontString was given is a choice the code makes -
+    -- Blizzard's banner font or the plain one (V-6a, WKE-653) - so the stub
+    -- records it (`region.fontObject`) instead of ignoring it. The real widget
+    -- has a getter for it (FontInstance GetFontObject); it answers what was set.
+    function r:SetFontObject(font)
+        self.fontObject = font
+    end
+    function r:GetFontObject()
+        return self.fontObject
+    end
 end
 
 -- A Texture's own surface (Base/TextureBase.lua and Texture/Texture.lua).
@@ -1922,6 +1932,15 @@ function Stub.install()
     -- nothing more.
     define("GameFontNormalOutline", { fontName = "GameFontNormalOutline" })
     define("GameFontDisable", { fontName = "GameFontDisable" })
+    -- Blizzard's banner font (the family at Blizzard_Fonts_Shared/Shared/
+    -- GameFonts.xml:1171), which the Great Vault's row Name inherits
+    -- (Blizzard_WeeklyRewards.xml) and the Vault tab's banner asks for since
+    -- V-6a (WKE-653). An identity, like the two above; a test that wants a
+    -- client without it sets `_G.Fancy24Font = nil` before building a frame.
+    define("Fancy24Font", { fontName = "Fancy24Font" })
+    -- The colour Blizzard gives that Name, read from Core/Type/GlobalColors.lua
+    -- :155 under .luals/ (`CreateColor(1.000, 0.824, 0.000, 1.000)`).
+    define("NORMAL_FONT_COLOR", { r = 1.000, g = 0.824, b = 0.000, a = 1.000 })
     define("UIParent", newFrame("Frame", world))
     define("UISpecialFrames", {})
     -- The minimap, for the launcher to hang off (M5-2). 140 points across at
