@@ -1793,6 +1793,14 @@ describe("Equip Now after an equip (M5-1g)", function()
         return out
     end
 
+    -- The import drew the real match's own full rows first; a list with
+    -- nothing on it puts every frame away, so each test starts from exactly
+    -- the one transition it names.
+    local function clean()
+        ns.UI.EquipPanel.Refresh(panel, nil)
+        assert.equal(0, #drawnItems(panel))
+    end
+
     local function shownRows()
         local n = 0
         for _, frameRow in ipairs(panel.rows) do
@@ -1817,6 +1825,7 @@ describe("Equip Now after an equip (M5-1g)", function()
         local real = panel.match
         local before, after = oneSwap(real, false), oneSwap(real, true)
         ns.UI.EquipPanel.ToggleFold(ns.db)
+        clean()
 
         ns.UI.EquipPanel.Refresh(panel, before)
         assert.equal(1, shownRows())
@@ -1842,6 +1851,7 @@ describe("Equip Now after an equip (M5-1g)", function()
         local real = panel.match
         local before, after = oneSwap(real, true), oneSwap(real, false)
         ns.UI.EquipPanel.ToggleFold(ns.db)
+        clean()
 
         ns.UI.EquipPanel.Refresh(panel, before)
         assert.equal(0, shownRows())
