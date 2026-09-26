@@ -803,6 +803,7 @@ end
 ---@field becomes table|nil      his tier clone, when the road spends a charge
 ---@field catalyzed boolean|nil  true when the road spends a Catalyst charge
 ---@field planPick boolean|nil   true when this is the plan's own pick
+---@field verdictItem table|nil  the document's own item behind a set road (R-2d)
 ---@field openNow string|nil     "open now", for a vault road
 ---@field resetSeconds number|nil the client's own countdown to the reset
 ---@field rankedAtAnotherLevel table|nil the levels it IS rated at, when not this one
@@ -1590,6 +1591,10 @@ function Roads.ForSlot(slot, inputs)
             local arrivesAt = facts.level or item.level
             local road = newRoad(kind, Roads.GROUP_SET, slot, facts)
             road.planPick = alternative == nil
+            -- The document's own item for this road (R-2d, WKE-648): what the
+            -- rated set enchanted and gemmed it with travels on it, read by
+            -- `Roads.RatedFinish` and nothing else.
+            road.verdictItem = item
             road.owned = conversion and conversion.owned or ownedRecord
             -- What the item becomes on the way in: his tier clone. Set for a
             -- conversion of something you own and for a vault reward he
@@ -2341,6 +2346,99 @@ function Roads.ForItem(key, inputs)
     return Roads.ForItemIn(Roads.ForSlot(slot, inputs), key, inputs)
 end
 
+-- ---------------------------------------------------------------------------
+-- What the rating enchanted and gemmed a piece with (R-2d, WKE-648).
+--
+-- The owner, 2026-09-25 night: "On hover of an item I'm wearing, Lootpath
+-- should also tell me what the best gem/enchant or whatever consumable I can
+-- purchase to use on it." The rated set already says: the Top Gear engine picks
+-- an enchant per slot by NAME (`TopGearEngine.ts:580-630`) and the set's gem IDs
+-- (`:795-799`), and the export writes them on every item, `gems:
+-- item.socketedGems` and `enchant: enchants[item.slot]` (`TopGearJSONExport.ts:
+-- 15-23`), which `ns.QEImport.Item` keeps as `gems` and `enchant`. Lootpath
+-- repeats that choice and nothing else: it never picks, ranks, prices or says
+-- "buy".
+
+-- The rated set's choice for one of its items: `{ enchant = <name> | nil, gems
+-- = { id, ... } }`, both read off the document's own item unchanged. nil for
+-- anything that is not an item.
+function Roads.RatedFinish(verdictItem)
+    if type(verdictItem) ~= "table" then
+        return nil
+    end
+    local enchant = verdictItem.enchant
+    if type(enchant) ~= "string" or enchant == "" then
+        enchant = nil
+    end
+    local gems = {}
+    for _, gem in ipairs(type(verdictItem.gems) == "table" and verdictItem.gems or {}) do
+        local id = tonumber(gem)
+        if id and id > 0 then
+            gems[#gems + 1] = id
+        end
+    end
+    return { enchant = enchant, gems = gems }
+end
+
+-- The rated choice beside the copy's own: `{ enchant, gems = { { id, missing
+-- } } }`, or nil when the rating chose nothing for the piece. A gem the rating
+-- used is `missing` when the copy's link carries no unmatched gem of that ID;
+-- two of one gem need two. With no copy to read (`own` nil) nothing is marked -
+-- not knowing is not a difference. The enchant is never compared: the export
+-- names it and the link numbers it, and nothing the annotations carry joins
+-- the two (ARCHITECTURE.md §11).
+function Roads.CompareFinish(rated, own)
+    if type(rated) ~= "table" then
+        return nil
+    end
+    local gems = type(rated.gems) == "table" and rated.gems or {}
+    if rated.enchant == nil and #gems == 0 then
+        return nil
+    end
+    local carried
+    if type(own) == "table" then
+        carried = {}
+        for _, id in ipairs(type(own.gems) == "table" and own.gems or {}) do
+            carried[id] = (carried[id] or 0) + 1
+        end
+    end
+    local out = { enchant = rated.enchant, gems = {} }
+    for _, id in ipairs(gems) do
+        local missing = nil
+        if carried then
+            if (carried[id] or 0) > 0 then
+                carried[id] = carried[id] - 1
+                missing = false
+            else
+                missing = true
+            end
+        end
+        out.gems[#out.gems + 1] = { id = id, missing = missing }
+    end
+    return out
+end
+
+-- Which document item speaks for a piece you hold, if any: the set group's own
+-- pick carrying this very key and being a piece you own - what you wear, or a
+-- bag piece the set puts on - or the pick itself arrived since the refresh.
+-- Nothing on a piece outside the set, a Catalyst or vault road (the set's item
+-- is the one that comes OUT), or a road the set did not pick.
+local function finishItemFor(own, held, pick)
+    if type(held) ~= "table" then
+        return nil
+    end
+    if type(own) == "table" and own.group == Roads.GROUP_SET then
+        if own.planPick and (own.kind == Roads.KIND_KEEP or own.kind == Roads.KIND_SET) then
+            return own.verdictItem
+        end
+        return nil
+    end
+    if pick and Roads.IsArrivedPick(held, pick) then
+        return pick.verdictItem
+    end
+    return nil
+end
+
 -- The other roads an answer offers, one per remaining group, and RATED ONLY
 -- (R-2a, WKE-571). The Upgrade Map lists the no-rating group because a reader
 -- who opened a slot asked for everything it opens onto; a tooltip has three
@@ -2449,6 +2547,15 @@ function Roads.ForItemIn(slotRoads, key, inputs)
     end
     answer.own = own
     offerOthers(answer, slotRoads, not otherLevelRoad and ownGroup or nil, otherLevelRoad)
+
+    -- What the rating enchanted and gemmed it with, beside what the copy's own
+    -- link carries (R-2d, WKE-648). Read here, when the map is built, so the
+    -- hover formats and never parses.
+    local finishItem = finishItemFor(own, item, Roads.PlanPick(slotRoads))
+    if finishItem then
+        local copy = item and ns.ItemData and ns.ItemData.LinkFinish and ns.ItemData.LinkFinish(item.link) or nil
+        answer.finish = Roads.CompareFinish(Roads.RatedFinish(finishItem), copy)
+    end
     return answer
 end
 

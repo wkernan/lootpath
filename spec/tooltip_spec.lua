@@ -429,11 +429,18 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         local map = ns.RoadsCache.Map()
         for key, answer in pairs(map.byKey) do
             local block = lines(key)
-            -- The one exception (R-2c, WKE-646): a piece you hold that the
+            -- The two exceptions, never on one answer: a piece you hold that the
             -- documents rate at another level keeps its Better: line and adds
-            -- the rated figure with both levels under the sentence. On this
-            -- week that is the bag trinket 273796, rated only at 305 and 308.
-            local cap = (answer.held and answer.otherLevel) and 5 or 4
+            -- the rated figure with both levels under the sentence (R-2c,
+            -- WKE-646; on this week the bag trinket 273796 at 282, rated at
+            -- 305), and a piece of the set adds what the rating enchanted and
+            -- gemmed it with (R-2d, WKE-648; on this week the worn pieces the
+            -- set keeps, such as the ring 251136).
+            local cap = 4
+            if (answer.held and answer.otherLevel) or answer.finish then
+                cap = 5
+            end
+            assert.is_false(answer.otherLevel ~= nil and answer.finish ~= nil, key .. " carries both")
             assert.is_true(#block <= cap, key .. " draws " .. #block .. " lines")
             local last = block[#block]
             assert.is_true(
@@ -785,6 +792,85 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         assert.is_true(ns.RoadsCache.RoadWantsGlow(nil, { upgrade = true }))
     end)
 
+    -- -----------------------------------------------------------------------
+    -- R-2d (WKE-648): what the rating enchanted and gemmed a piece of the set
+    -- with. The owner, 2026-09-25 night: "On hover of an item I'm wearing,
+    -- Lootpath should also tell me what the best gem/enchant or whatever
+    -- consumable I can purchase to use on it." On this week the set keeps his
+    -- worn ring 251136, and the thisWeek document rates it with Zul'jin's
+    -- Mastery and gem 240892 - which his worn link carries (and no enchant: the
+    -- enchant is never compared, ARCHITECTURE.md §11). The worn neck 272228 is
+    -- rated with gem 240983 and no enchant, and carries 240983.
+    local RING = "251136:6652:12698:12822:13438:13668"
+    local NECK = "272228:6652:12846:13668"
+
+    local function ringPick()
+        for _, road in ipairs(ns.RoadsCache.Map().bySlot.Finger.groups[ns.Roads.GROUP_SET]) do
+            for _, key in ipairs(road.keys) do
+                if key == RING then
+                    return road
+                end
+            end
+        end
+        return nil
+    end
+
+    it(
+        "says what the rating enchanted and gemmed a worn piece of the set with, and marks nothing that matches",
+        function()
+            world.items[240892] = { info = { "Stub Gem", "|Hitem:240892|h[Stub Gem]|h", 3, n = 3 } }
+            -- Both worn rings (251136 and 259912) are rated with 240892.
+            assert.equal(2, ns.RoadsCache.NameGems(ns.RoadsCache.Map()))
+            local ring = lines(RING)
+            assert.equal("Keep this on.", ring[2])
+            assert.equal("rated with: Zul'jin's Mastery · Stub Gem", ring[3])
+            assert.same({ { id = 240892, missing = false, name = "Stub Gem" } }, ns.RoadsCache.Lookup(RING).finish.gems)
+            -- A gem the client has not named yet, and no enchant.
+            assert.equal("rated with: a gem", lines(NECK)[3])
+            assert.is_nil(hover(RING):find("(missing)", 1, true))
+        end
+    )
+
+    it("marks a gem the rating used that the worn copy does not carry, in the better tone and in a word", function()
+        local pick = ringPick()
+        assert.is_table(pick)
+        pick.verdictItem.gems = { 240892, 240983 }
+        ns.RoadsCache.SetMap(ns.RoadsCache.Build(model))
+        local answer = ns.RoadsCache.Lookup(RING)
+        assert.same({ { id = 240892, missing = false }, { id = 240983, missing = true } }, answer.finish.gems)
+        assert.equal("rated with: Zul'jin's Mastery · a gem, a gem (missing)", lines(RING)[3])
+        local better = ns.UI.ItemLine.TONE.better.hex
+        assert.is_truthy(hover(RING):find("|cff" .. better .. "a gem (missing)|r", 1, true))
+    end)
+
+    it("says nothing about the finish of a piece outside the set, or of one the set converts", function()
+        assert.is_nil(ns.RoadsCache.Lookup(MISTSTALKER).finish)
+        for _, text in ipairs(lines(MISTSTALKER)) do
+            assert.is_nil(text:find("rated with", 1, true))
+        end
+        assert.is_nil(hover(MISTSTALKER):find("rated with", 1, true))
+        -- Nor on a piece the set CONVERTS: the Lynx Spaulders are the Catalyst
+        -- pick, and the set's item is the tier clone that comes out, whose
+        -- enchant the document names - not the piece under the cursor.
+        local lynx = ns.RoadsCache.Lookup(LYNX)
+        assert.equal(ns.Roads.KIND_CATALYST, lynx.own.kind)
+        assert.is_true(lynx.own.planPick)
+        assert.is_string(lynx.own.verdictItem.enchant)
+        assert.is_nil(lynx.finish)
+        assert.is_nil(hover(LYNX):find("rated with", 1, true))
+    end)
+
+    it("reads a link's own enchant and gems, and never a secret", function()
+        local link = "|cffa335ee|Hitem:251136:7968:240892:240983::::::90:105::35:2:6652:12798::::::|h[Ring]|h|r"
+        assert.same({ enchantID = 7968, gems = { 240892, 240983 } }, ns.ItemData.LinkFinish(link))
+        local bare = "|cffa335ee|Hitem:251136::::::::90:105::35:2:6652:12798::::::|h[Ring]|h|r"
+        assert.same({ gems = {} }, ns.ItemData.LinkFinish(bare))
+        world.secrets[link] = "value"
+        assert.is_nil(ns.ItemData.LinkFinish(link))
+        assert.is_nil(ns.ItemData.LinkFinish(nil))
+        assert.is_nil(ns.ItemData.LinkFinish("not a link"))
+    end)
+
     it("walks nothing on the hover path", function()
         -- "O(1) on the hover path" as a guard rather than a claim: once the map
         -- is built, a hover may not reach the model, the journal walk or a bag
@@ -807,6 +893,9 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         count(ns.Roads, "ForItemIDIn")
         count(ns.Roads, "OtherLevelRoad")
         count(ns.Roads, "OtherLevelRating")
+        count(ns.Roads, "RatedFinish")
+        count(ns.Roads, "CompareFinish")
+        count(ns.ItemData, "LinkFinish")
         count(ns.Roads, "PlanSentence")
         count(ns.Inventory, "Scan")
         count(ns.UpgradeMapPanel, "Model")
@@ -816,6 +905,7 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
             hover(MISTSTALKER)
             hover(VAULT_SPAULDERS)
             world.showItemTooltip({ hyperlink = chat }, ItemRefTooltip)
+            hover(RING)
         end
         assert.equal(0, calls)
     end)

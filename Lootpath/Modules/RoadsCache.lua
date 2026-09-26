@@ -360,6 +360,7 @@ function Cache.Rebuild()
         state.map = Cache.Build(model)
     end
     state.map.builtAt = time()
+    Cache.NameGems(state.map)
     Cache.RequestNames(state.map)
     -- A bag that is already open is showing the old map until something tells
     -- it otherwise. Which bag that is, this file does not know.
@@ -441,7 +442,51 @@ function Cache.RequestNames(map)
             end)
         end
     end)
+    -- The gems a `rated with:` line names (R-2d), asked for the same way: once
+    -- per item ID for the session, the answer landing through a rebuild whose
+    -- `NameGems` puts the name on the line.
+    Cache.EachFinishGem(map, function(gem)
+        if not gem.name and not state.named[gem.id] then
+            state.named[gem.id] = true
+            asked = asked + 1
+            ns.ItemData.Request(gem.id, function()
+                Cache.Changed()
+            end)
+        end
+    end)
     return asked
+end
+
+-- Every gem a `rated with:` line names (R-2d, WKE-648), once per answer.
+function Cache.EachFinishGem(map, fn)
+    if type(map) ~= "table" or type(map.byKey) ~= "table" then
+        return
+    end
+    for _, answer in pairs(map.byKey) do
+        local finish = type(answer) == "table" and answer.finish or nil
+        for _, gem in ipairs(type(finish) == "table" and finish.gems or {}) do
+            fn(gem)
+        end
+    end
+end
+
+-- Every gem the client can already name, named - after the build, because
+-- `Build` is pure and the hover never asks the client (R-0). Returns how many.
+function Cache.NameGems(map)
+    if not (ns.ItemData and ns.ItemData.Cached) then
+        return 0
+    end
+    local named = 0
+    Cache.EachFinishGem(map, function(gem)
+        if not gem.name then
+            local cached = ns.ItemData.Cached(gem.id)
+            if cached and cached.name then
+                gem.name = cached.name
+                named = named + 1
+            end
+        end
+    end)
+    return named
 end
 
 -- Ask for a rebuild. Several events in one burst produce one build, because a

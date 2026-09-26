@@ -212,6 +212,48 @@ describe("QEImport.Parse over the hand-built v1 sample", function()
         assert.equal(1834, chest.setId)
     end)
 
+    -- R-2d (WKE-648): what the rated set enchanted and gemmed an item with, read
+    -- off the parsed item unchanged. Both: the owner's ring 251136 in the
+    -- committed thisWeek Dungeon document (Zul'jin's Mastery and gem 240892,
+    -- TopGearJSONExport.ts:22-23). One: the sample's neck (gems only) and chest
+    -- (enchant only). None: an item carrying neither.
+    it("reads the rated set's enchant and gems off an item, both, one or none", function()
+        local week = ns.QEImport.Parse(readFile("spec/fixtures/qe/qe-droptimizer-Hotornot-hdaldwpeakpb.json"))
+        assert.is_true(week.ok, week.reason)
+        local ring = week.verdict.topSet.items[ns.ItemKey(251136, { 13438, 6652, 13668, 12698, 12822 })]
+        assert.same({ enchant = "Zul'jin's Mastery", gems = { 240892 } }, ns.Roads.RatedFinish(ring))
+
+        local neck = result.verdict.topSet.items[ns.ItemKey(271531, { 10390, 12040 })]
+        assert.same({ enchant = nil, gems = { 213743, 213743 } }, ns.Roads.RatedFinish(neck))
+        local chest = result.verdict.topSet.items[ns.ItemKey(271525, { 13692, 1561, 6652 })]
+        assert.same({ enchant = "Crystalline Radiance", gems = {} }, ns.Roads.RatedFinish(chest))
+
+        local bare =
+            ns.QEImport.Item({ id = 12345, slot = "Wrist", level = 300, bonusIDs = {}, gems = {}, enchant = "" })
+        assert.same({ enchant = nil, gems = {} }, ns.Roads.RatedFinish(bare))
+        assert.is_nil(ns.Roads.CompareFinish(ns.Roads.RatedFinish(bare), { gems = {} }))
+        -- A raw item as the export might carry it: an empty enchant is none,
+        -- and a gem that is not a positive ID is not a gem.
+        assert.same(
+            { enchant = nil, gems = { 213743 } },
+            ns.Roads.RatedFinish({ enchant = "", gems = { 0, "x", 213743 } })
+        )
+        assert.is_nil(ns.Roads.RatedFinish(nil))
+    end)
+
+    -- Two of one gem need two: a copy carrying one of the pair lacks the other.
+    it("marks a rated gem the copy does not carry, counting each one, and marks nothing it cannot read", function()
+        local rated = { enchant = "Crystalline Radiance", gems = { 213743, 213743 } }
+        local one = ns.Roads.CompareFinish(rated, { enchantID = 7000, gems = { 213743 } })
+        assert.same({ { id = 213743, missing = false }, { id = 213743, missing = true } }, one.gems)
+        assert.equal("Crystalline Radiance", one.enchant)
+        local both = ns.Roads.CompareFinish(rated, { gems = { 213743, 213743 } })
+        assert.same({ { id = 213743, missing = false }, { id = 213743, missing = false } }, both.gems)
+        local unread = ns.Roads.CompareFinish(rated, nil)
+        assert.is_nil(unread.gems[1].missing)
+        assert.is_nil(unread.gems[2].missing)
+    end)
+
     it("reads every differential as an alternative that is worse, in both signs", function()
         local alternatives = result.verdict.alternatives
         assert.equal(2, #alternatives)

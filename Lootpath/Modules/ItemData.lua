@@ -191,6 +191,28 @@ function ItemData.Cached(itemInfo)
     }
 end
 
+-- What a copy's own link says it is enchanted and gemmed with (R-2d, WKE-648):
+-- `{ enchantID = <number> | nil, gems = { id, ... } }` out of the item string's
+-- second to sixth fields (`|Hitem:itemID:enchantID:gem1:gem2:gem3:gem4:...`,
+-- ns.ParseItemLink's measured layout). A parse of a string the client already
+-- gave, so no call is made; the link passes ns.Safe first, and a secret value
+-- answers nil - never a parse of it. nil for anything that is not an item link.
+function ItemData.LinkFinish(link)
+    local safe, secret = ns.Safe(link)
+    if secret or type(safe) ~= "string" or safe == "" then
+        return nil
+    end
+    local parsed = ns.ParseItemLink(safe)
+    if not parsed then
+        return nil
+    end
+    local gems = {}
+    for _, id in ipairs(parsed.gems or {}) do
+        gems[#gems + 1] = id
+    end
+    return { enchantID = parsed.enchantID, gems = gems }
+end
+
 function ItemData.IsCached(itemInfo)
     return ItemData.Cached(itemInfo) ~= nil
 end
