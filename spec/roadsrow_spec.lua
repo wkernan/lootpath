@@ -2914,17 +2914,19 @@ describe("Roads on the window, over the owner's week of 2026-09-08", function()
         -- Its hover draws exactly the three lines (UX-7c), the slot's name in
         -- the game's gold and the rest in white.
         local colours = {}
-        local setText, addLine = GameTooltip.SetText, GameTooltip.AddLine
-        GameTooltip.SetText = function(self, text, r, g, b, ...)
+        local tip = world.tooltip -- the stub's GameTooltip, spied on and restored
+        assert.equal(GameTooltip, tip)
+        local setText, addLine = tip.SetText, tip.AddLine
+        tip.SetText = function(self, text, r, g, b, ...)
             colours[#colours + 1] = { r, g, b }
             return setText(self, text, r, g, b, ...)
         end
-        GameTooltip.AddLine = function(self, text, r, g, b, ...)
+        tip.AddLine = function(self, text, r, g, b, ...)
             colours[#colours + 1] = { r, g, b }
             return addLine(self, text, r, g, b, ...)
         end
         element.sectionButton.stub.Enter()
-        GameTooltip.SetText, GameTooltip.AddLine = setText, addLine
+        tip.SetText, tip.AddLine = setText, addLine
         local hover = GameTooltip.stub.Text()
         assert.equal(table.concat(Panel.SlotHoverLines(head.section), "\n"), hover)
         assert.equal(3, #colours)
