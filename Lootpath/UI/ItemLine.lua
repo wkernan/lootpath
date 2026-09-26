@@ -490,6 +490,38 @@ function ItemLine.SetMark(line, mark)
     return atlas ~= nil
 end
 
+-- Whether a hover draws the shopping compare beside the item (M5-1f, WKE-651).
+-- The owner, 2026-09-26, hovering the worn helm on Equip Now: "This doubled up
+-- mouseover is way too busy on the screen." M5-1 drew the compare on every
+-- hover; the client's own item buttons draw it only when the player asked.
+--
+-- The rule is the client's, asked of the client: TooltipUtil.ShouldDoItemComparison
+-- (Blizzard_SharedXMLGame/Tooltip/TooltipUtil.lua:3-6: the alwaysCompareItems
+-- setting, or the compare modifier held), which the bags ask before they
+-- compare (ContainerFrame.lua:1555). A client without it falls back to the
+-- modifier alone, IsModifiedClick("COMPAREITEMS"); a client with neither, or
+-- one that throws or answers a secret, gets no compare. No setting of ours:
+-- the player's own already says what he wants.
+--
+-- And never on a worn piece: the compare shows what is worn in the hovered
+-- item's slot, which for a worn item is the item against itself. A caller
+-- says an item is worn the way the inventory record does, `location =
+-- "equipped"`.
+function ItemLine.ShouldCompare(line)
+    local item = type(line) == "table" and line.item or nil
+    if type(item) == "table" and item.location == "equipped" then
+        return false
+    end
+    local util = TooltipUtil
+    if type(util) == "table" and type(util.ShouldDoItemComparison) == "function" then
+        return probe(util.ShouldDoItemComparison, GameTooltip) == true
+    end
+    if type(IsModifiedClick) == "function" then
+        return probe(IsModifiedClick, "COMPAREITEMS") == true
+    end
+    return false
+end
+
 function ItemLine.ShowTooltip(line, anchorTo)
     local item = line.resolved
     if not (GameTooltip and item) then
@@ -521,10 +553,9 @@ function ItemLine.ShowTooltip(line, anchorTo)
         GameTooltip:AddLine(colored(ItemLine.GREY, note))
     end
     GameTooltip:Show()
-    -- The shopping compare, which is what makes "what does this actually have
-    -- on it" one hover away rather than a line of ours. Guarded: it is a
-    -- FrameXML global, not an exported API.
-    if type(GameTooltip_ShowCompareItem) == "function" then
+    -- The shopping compare, only when the player asked for it (M5-1f). Guarded:
+    -- it is a FrameXML global, not an exported API.
+    if ItemLine.ShouldCompare(line) and type(GameTooltip_ShowCompareItem) == "function" then
         pcall(GameTooltip_ShowCompareItem, GameTooltip, anchorTo or line)
     end
     return true

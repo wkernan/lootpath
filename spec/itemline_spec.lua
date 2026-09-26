@@ -165,6 +165,75 @@ describe("UI.ItemLine over a cached item", function()
         assert.is_nil(world.tooltip.hyperlink)
     end)
 
+    -- M5-1f (WKE-651). The owner, 2026-09-26, hovering the worn helm on Equip
+    -- Now: "This doubled up mouseover is way too busy on the screen." The
+    -- compare follows the client's own rule, and never draws a worn piece
+    -- against itself.
+    describe("the compare, only when the player asked for it", function()
+        local LINK = "|Hitem:271528|h[Placeholder Hood]|h"
+
+        local function hover(item)
+            ns.UI.ItemLine.Set(line, item)
+            local before = #world.compareCalls
+            line.iconButton.stub:Enter()
+            local drawn = #world.compareCalls - before
+            line.iconButton.stub:Leave()
+            return drawn
+        end
+
+        it("draws no compare when the client's rule says no, and the item still shows", function()
+            world.alwaysCompareItems = false
+            world.modifiedClicks = {}
+            assert.equal(0, hover({ itemID = ITEM_ID, link = LINK }))
+            assert.equal(LINK, world.tooltip.hyperlink)
+            assert.is_false(ns.UI.ItemLine.ShouldCompare(line))
+        end)
+
+        it("draws it for the player's setting, and for the modifier held", function()
+            world.alwaysCompareItems = true
+            world.modifiedClicks = {}
+            assert.equal(1, hover({ itemID = ITEM_ID, link = LINK }))
+            world.alwaysCompareItems = false
+            world.modifiedClicks = { COMPAREITEMS = true }
+            assert.equal(1, hover({ itemID = ITEM_ID, link = LINK }))
+            -- The call is the one M5-1 made: GameTooltip, anchored to the target.
+            local call = world.compareCalls[#world.compareCalls]
+            assert.equal(world.tooltip, call[1])
+            assert.equal(line.iconButton, call[2])
+        end)
+
+        it("never draws it on a worn item, whatever the rule says", function()
+            world.alwaysCompareItems = true
+            world.modifiedClicks = { COMPAREITEMS = true }
+            assert.equal(0, hover({ itemID = ITEM_ID, link = LINK, location = "equipped" }))
+            assert.equal(LINK, world.tooltip.hyperlink)
+            -- The same item in the bags is compared.
+            assert.equal(1, hover({ itemID = ITEM_ID, link = LINK, location = "bag" }))
+        end)
+
+        it("follows the modifier alone on a client without the rule", function()
+            _G.TooltipUtil = nil
+            world.alwaysCompareItems = true
+            world.modifiedClicks = {}
+            assert.equal(0, hover({ itemID = ITEM_ID, link = LINK }))
+            world.modifiedClicks = { COMPAREITEMS = true }
+            assert.equal(1, hover({ itemID = ITEM_ID, link = LINK }))
+        end)
+
+        it("draws none on a client with neither, or a rule that throws", function()
+            _G.TooltipUtil = nil
+            _G.IsModifiedClick = nil
+            assert.equal(0, hover({ itemID = ITEM_ID, link = LINK }))
+            _G.TooltipUtil = {
+                ShouldDoItemComparison = function()
+                    error("no")
+                end,
+            }
+            assert.equal(0, hover({ itemID = ITEM_ID, link = LINK }))
+            assert.equal(LINK, world.tooltip.hyperlink)
+        end)
+    end)
+
     -- M5-3a. A journal drop's link carries the previewed key level, so the
     -- hover reads at the level the row prints; with only an id the client
     -- draws the item as it exists in its own expansion and says nothing about

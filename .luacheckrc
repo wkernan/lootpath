@@ -155,6 +155,10 @@ read_globals = {
     "ITEM_QUALITY_COLORS",
     "RETRIEVING_ITEM_INFO",
     "GameTooltip_ShowCompareItem",
+    -- The compare's fallback rule where TooltipUtil.ShouldDoItemComparison is
+    -- missing (M5-1f, WKE-651): the modifier alone, `isHeld`, through a type
+    -- check (Core/Data/Wiki.lua:7277 under .luals/).
+    "IsModifiedClick",
     "Settings",
     -- Blizzard's tooltip data handler, from
     -- Blizzard_SharedXML/Tooltip/TooltipDataHandler.lua and TooltipUtil.lua
