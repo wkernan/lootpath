@@ -3627,6 +3627,11 @@ describe("UpgradeMapPanel tiles on the frames", function()
         -- as Cloth, so only the class tells them apart (Enum.lua:5742-5744).
         world.items[1007] = { instant = { 1007, "Weapon", "x", "INVTYPE_2HWEAPON", 7007, 2, 1, n = 7 } }
         instantAs(1008, 4, 0, "INVTYPE_TRINKET")
+        -- The chosen picture IS Leatherworking's, so leather or mail falling
+        -- through to it would look right by accident: while the map is read,
+        -- the fallback carries a name of its own.
+        local chosen = P.CRAFT_ART_ATLAS
+        P.CRAFT_ART_ATLAS = "stub-craft-fallback"
         assert.equal(string.format(art, "Tailoring"), P.CraftArtAtlas({ itemID = 1001 }))
         assert.equal(string.format(art, "Leatherworking"), P.CraftArtAtlas({ itemID = 1002 }))
         assert.equal(string.format(art, "Leatherworking"), P.CraftArtAtlas({ itemID = 1003 }))
@@ -3645,6 +3650,7 @@ describe("UpgradeMapPanel tiles on the frames", function()
         P.CRAFT_ART_PER_PROFESSION = false
         assert.equal(P.CRAFT_ART_ATLAS, P.CraftArtAtlas({ itemID = 1001 }))
         P.CRAFT_ART_PER_PROFESSION = true
+        P.CRAFT_ART_ATLAS = chosen
 
         -- The chooser: an atlas, its band and the atlas flag; nil without it.
         world.atlases[P.DELVE_ART_ATLAS] = backdrop(700, 500)
