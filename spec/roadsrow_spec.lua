@@ -2298,7 +2298,8 @@ describe("Roads on the window, over the owner's week of 2026-09-08", function()
         local craftRow = data.cards[2].row
         assert.equal(ns.Roads.KIND_CRAFT, craftRow.kind)
         local expected = Panel.CraftArtAtlas(craftRow)
-        local band = Panel.AtlasBandTexCoord(ns.UI.ItemLine.AtlasInfo(expected), Panel.TILE_ART_RATIO)
+        local band =
+            Panel.AtlasBandTexCoord(ns.UI.ItemLine.AtlasInfo(expected), Panel.TILE_ART_RATIO, Panel.CRAFT_ART_ANCHOR)
         assert.is_table(band)
         assert.equal(expected, data.cards[2].art)
         assert.is_true(data.cards[2].artAtlas)
@@ -2326,7 +2327,11 @@ describe("Roads on the window, over the owner's week of 2026-09-08", function()
         local texture, texCoord, isAtlas = Panel.CardArt(delveRow, {})
         assert.equal(Panel.DELVE_ART_ATLAS, texture)
         assert.same(
-            Panel.AtlasBandTexCoord(ns.UI.ItemLine.AtlasInfo(Panel.DELVE_ART_ATLAS), Panel.TILE_ART_RATIO),
+            Panel.AtlasBandTexCoord(
+                ns.UI.ItemLine.AtlasInfo(Panel.DELVE_ART_ATLAS),
+                Panel.TILE_ART_RATIO,
+                Panel.DELVE_ART_ANCHOR
+            ),
             texCoord
         )
         assert.is_true(isAtlas)

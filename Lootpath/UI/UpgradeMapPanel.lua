@@ -3093,6 +3093,19 @@ Panel.MOSAIC_ALPHA = 0.55
 -- without it draws the mosaic.
 Panel.DELVE_ART_ATLAS = "delves-companion-background"
 Panel.CRAFT_ART_ATLAS = "Professions-Specializations-Preview-Art-Leatherworking"
+-- Where in each picture its band sits (UX-5f, WKE-650): 0 is the rect's left
+-- or top edge, 0.5 its centre, 1 its right or bottom. The owner, 2026-09-26:
+-- "Images don't look centered." Both paintings keep their subject off centre -
+-- the delve sketch right of the middle on dark parchment, the Leatherworking
+-- tools in the left third with darkness to the right - so a centred band
+-- landed on the emptiest part of each. The position is a fact about each file
+-- that no annotation carries; these four numbers are FIRST GUESSES, and the
+-- owner's eye on a real screen settles them (nudge them here). The other
+-- professions' preview art shares the craft anchor: one number the owner can
+-- read off one picture, rather than four guesses about paintings nobody here
+-- has seen.
+Panel.DELVE_ART_ANCHOR = { x = 0.65, y = 0.5 }
+Panel.CRAFT_ART_ANCHOR = { x = 0.0, y = 0.5 }
 -- The per-profession step (Panel.CraftArtAtlas): the same art for the
 -- profession that makes the piece, where the item's class says which one for
 -- sure. `false` is the owner's "one picture for all", in one place.
@@ -3138,12 +3151,23 @@ end
 -- four coords - AtlasInfo's `leftTexCoord`, `rightTexCoord`, `topTexCoord`,
 -- `bottomTexCoord` (TextureUtilsDocumentation.lua:65-68) - and its proportion
 -- is read off the same answer's `width` and `height` (:62-63), never a size
--- this addon guessed. A wider atlas keeps its full height and the middle of
--- its width; a taller one its full width and the middle of its height;
--- centred either way, so the scene's middle stays (V-5a's rule: cropped, never
--- stretched). Nil when any of the six is missing - the caller then draws the
--- atlas as the client cut it. Pure: nothing here reads a frame or the client.
-function Panel.AtlasBandTexCoord(info, ratio)
+-- this addon guessed. A wider atlas keeps its full height and a stretch of
+-- its width; a taller one its full width and a stretch of its height (V-5a's
+-- rule: cropped, never stretched). WHERE that stretch sits is `anchor`
+-- (UX-5f, WKE-650): `{ x = 0..1, y = 0..1 }`, 0 the rect's left or top edge,
+-- 0.5 its centre, 1 its right or bottom - clamped, so the band never leaves
+-- the rect; without one it is centred, as every call before UX-5f drew it.
+-- Nil when any of the six is missing - the caller then draws the atlas as the
+-- client cut it. Pure: nothing here reads a frame or the client.
+local function anchorAt(anchor, key)
+    local at = type(anchor) == "table" and tonumber(anchor[key]) or nil
+    if not at or at ~= at then
+        return 0.5
+    end
+    return math.min(1, math.max(0, at))
+end
+
+function Panel.AtlasBandTexCoord(info, ratio, anchor)
     ratio = tonumber(ratio)
     if type(info) ~= "table" or not ratio or ratio <= 0 then
         return nil
@@ -3159,13 +3183,13 @@ function Panel.AtlasBandTexCoord(info, ratio)
     end
     local own = width / height
     if own > ratio then
-        local half = (right - left) * (ratio / own) / 2
-        local middle = (left + right) / 2
-        return { middle - half, middle + half, top, bottom }
+        local cut = (right - left) * (ratio / own)
+        local start = left + (right - left - cut) * anchorAt(anchor, "x")
+        return { start, start + cut, top, bottom }
     end
-    local half = (bottom - top) * (own / ratio) / 2
-    local middle = (top + bottom) / 2
-    return { left, right, middle - half, middle + half }
+    local cut = (bottom - top) * (own / ratio)
+    local start = top + (bottom - top - cut) * anchorAt(anchor, "y")
+    return { left, right, start, start + cut }
 end
 
 -- Which profession a crafted piece names for sure, from the client's own item
@@ -3215,8 +3239,9 @@ end
 -- Since UX-5e (WKE-649) a Delves or Crafting run or road - `kind` is its
 -- source kind, `road` the road (or the run's best row) a craft is chosen by -
 -- answers with the client's painted backdrop: the atlas NAME, its band
--- (Panel.AtlasBandTexCoord at the tile's 174:96, or nil for "as the client cut
--- it") and `true`, meaning "draw it with SetAtlas". A client without the atlas
+-- (Panel.AtlasBandTexCoord at the tile's 174:96 and, since UX-5f, at that
+-- picture's own anchor - DELVE_ART_ANCHOR or CRAFT_ART_ANCHOR - or nil for "as
+-- the client cut it") and `true`, meaning "draw it with SetAtlas". A client without the atlas
 -- answers nothing, and the caller draws the mosaic or the icon as before.
 function Panel.InstanceArt(lore, image, kind, road)
     if lore ~= nil then
@@ -3225,17 +3250,17 @@ function Panel.InstanceArt(lore, image, kind, road)
     if image ~= nil then
         return image, Panel.TILE_ART_TEX_COORD
     end
-    local name = nil
+    local name, anchor = nil, nil
     if kind == ns.UFImport.SOURCE_KIND_DELVE then
-        name = Panel.DELVE_ART_ATLAS
+        name, anchor = Panel.DELVE_ART_ATLAS, Panel.DELVE_ART_ANCHOR
     elseif kind == ns.UFImport.SOURCE_KIND_CRAFT then
-        name = Panel.CraftArtAtlas(road)
+        name, anchor = Panel.CraftArtAtlas(road), Panel.CRAFT_ART_ANCHOR
     end
     local info = name and UI.ItemLine.AtlasInfo(name) or nil
     if not info then
         return nil
     end
-    return name, Panel.AtlasBandTexCoord(info, Panel.TILE_ART_RATIO), true
+    return name, Panel.AtlasBandTexCoord(info, Panel.TILE_ART_RATIO, anchor), true
 end
 
 -- Draws what InstanceArt chose on one texture: an atlas through SetAtlas at the
