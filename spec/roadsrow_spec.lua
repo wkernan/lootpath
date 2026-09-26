@@ -377,21 +377,45 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
                 assert.is_true(row.itemLevel ~= ns.UpgradeMapPanel.HIDDEN_ITEM_LEVEL)
             end
         end
-        -- ...and since UX-6 (WKE-637) the note is on the slot line's hover, not
-        -- under the open slot: it explains the list, it is not part of it.
+        -- ...and since UX-6 (WKE-637) the note is off the open slot: it explains
+        -- the list, it is not part of it. Since UX-7c (WKE-652) it is not on the
+        -- slot line's hover either but on the header's hint icon, once, for the
+        -- whole list: a fact about the list, not about a slot.
+        local Panel = ns.UpgradeMapPanel
         local state = shutAllBut(m, "Head")
         local said = false
-        for _, element in ipairs(ns.UpgradeMapPanel.Elements(m, state)) do
+        for _, element in ipairs(Panel.Elements(m, state)) do
             said = said or element.text == head.hiddenNote
         end
         assert.is_false(said)
-        local hovered = 0
-        for _, line in ipairs(ns.UpgradeMapPanel.SlotTooltipLines(head)) do
-            if line == head.hiddenNote then
-                hovered = hovered + 1
+        for _, entry in ipairs(m.slots) do
+            for _, line in ipairs(Panel.SlotHoverLines(entry)) do
+                assert.is_nil(line:find("item level 1 hidden", 1, true), line)
             end
         end
-        assert.equal(1, hovered)
+        local hint = Panel.HintLines(m, Panel.MODE_SLOT)
+        local hinted = 0
+        for _, line in ipairs(hint) do
+            if line == string.format(Panel.LEVEL_ONE_NOTE, m.counts.hiddenLevelOne) then
+                hinted = hinted + 1
+            end
+        end
+        assert.equal(1, hinted)
+        assert.equal("6 drops at item level 1 hidden: cosmetic and quest items", hint[2])
+        -- The older candidate list says each slot's count inline, so its hint
+        -- does not repeat it; and nothing hidden, nothing said.
+        assert.same(
+            { Panel.NOTE },
+            Panel.HintLines({ hasRoads = false, counts = { hiddenLevelOne = 5 } }, Panel.MODE_SLOT)
+        )
+        assert.same(
+            { Panel.NOTE },
+            Panel.HintLines({ hasRoads = true, counts = { hiddenLevelOne = 0 } }, Panel.MODE_SLOT)
+        )
+        -- By run the hint says what it always said, and nothing of this.
+        for _, line in ipairs(Panel.HintLines(m, Panel.MODE_RUN)) do
+            assert.is_nil(line:find("item level 1 hidden", 1, true), line)
+        end
         -- The printed list says it too, and exactly once.
         local printed = 0
         for _, line in ipairs(ns.UpgradeMapPanel.Lines(m)) do
@@ -573,7 +597,7 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
         assert.equal(ns.UpgradeMapPanel.SLOT_LINE_HEIGHT, header.height)
         assert.equal(
             "Catalyst your Lynx shoulders, skip the vault ones, no crests here.",
-            ns.UpgradeMapPanel.SlotTooltipLines(header.section)[2]
+            ns.UpgradeMapPanel.SlotHoverLines(header.section)[2]
         )
     end)
 
@@ -1163,17 +1187,24 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
                 assert.is_nil(text:find(sentence, 1, true), text)
             end
         end
-        -- ...and each one is still one hover away, on the slot line.
+        -- ...and the sentence is one hover away, on the slot line. Since UX-7c
+        -- (WKE-652) the long group headers, the Keep row and the hidden count
+        -- are not on that hover: the printed lines (`/lootpath status`) still
+        -- say every one of them, and the hint icon the hidden count.
         local shoulder = section(m, "Shoulder")
-        local tooltip = table.concat(Panel.SlotTooltipLines(shoulder), "\n")
+        local tooltip = table.concat(Panel.SlotHoverLines(shoulder), "\n")
         assert.is_not_nil(tooltip:find(shoulder.plan, 1, true))
-        assert.is_not_nil(tooltip:find(Panel.GROUP_SET_TAIL, 1, true))
-        assert.is_not_nil(tooltip:find(ns.Roads.ITEM_SCALE_TEXT, 1, true))
-        -- Head's answer keeps what it wears, so its hover carries the Keep row.
+        assert.is_nil(tooltip:find(Panel.GROUP_SET_TAIL, 1, true))
+        assert.is_nil(tooltip:find(ns.Roads.ITEM_SCALE_TEXT, 1, true))
         local head = section(m, "Head")
-        local headTip = table.concat(Panel.SlotTooltipLines(head), "\n")
-        assert.is_not_nil(headTip:find(ns.Roads.TAG_KEEP, 1, true))
-        assert.is_not_nil(headTip:find(head.hiddenNote, 1, true))
+        local headTip = table.concat(Panel.SlotHoverLines(head), "\n")
+        assert.is_nil(headTip:find(ns.Roads.TAG_KEEP, 1, true))
+        assert.is_nil(headTip:find(head.hiddenNote, 1, true))
+        local printed = table.concat(Panel.Lines(m), "\n")
+        assert.is_not_nil(printed:find(Panel.GROUP_SET_TAIL, 1, true))
+        assert.is_not_nil(printed:find(ns.Roads.ITEM_SCALE_TEXT, 1, true))
+        assert.is_not_nil(printed:find(ns.Roads.TAG_KEEP, 1, true))
+        assert.is_not_nil(printed:find(head.hiddenNote, 1, true))
         -- The long group header is the same string it always was.
         assert.equal(
             "Other rated sources · percents are against what you wear · at your key's preview level, per the client",
@@ -1933,34 +1964,71 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
         assert.equal(134, Panel.SLOT_MIDDLE_X)
     end)
 
-    it("names the best road's facts on the line's hover and keeps the sentence (UX-7)", function()
+    -- UX-7c (WKE-652): the owner, 2026-09-26, of Head's nine-line hover: "The
+    -- tooltip to the top right is also very busy, way too much text." Three
+    -- lines at most: the slot, its answer, its best road.
+    it("says three lines on the slot line's hover: the slot, its answer, its best road (UX-7c)", function()
         local Panel = ns.UpgradeMapPanel
         local m = model()
         local head = section(m, "Head")
-        local lines = Panel.SlotTooltipLines(head)
+        local lines = Panel.SlotHoverLines(head)
+        io.write("UX-7c Head hover: " .. table.concat(lines, " | ") .. "\n")
+        assert.equal(3, #lines)
         assert.equal("Head", lines[1])
         assert.equal(head.plan, lines[2])
-        -- Head's road carries no facts of its own, only its cost clause: its
-        -- name, then that.
-        assert.is_nil(Panel.SlotBest(head).tooltipFactsText)
-        assert.equal("Gaze of the Coiled Watcher", lines[3])
-        assert.equal("crest type and cost not readable", lines[4])
-        assert.equal(Panel.SlotBest(head).costText, lines[4])
-        -- A craft named by item alone: its facts, and no name line.
-        local wrist = Panel.SlotTooltipLines(section(m, "Wrist"))
-        assert.equal(section(m, "Wrist").plan, wrist[2])
-        assert.equal("the rating assumes Crit / Haste · spark and materials not read", wrist[3])
-        -- A set pick with facts and a cost: all three.
-        local back = Panel.SlotTooltipLines(section(m, "Back"))
-        assert.equal("Preyhunter's Refined Shawl", back[3])
-        assert.equal(Panel.SlotBest(section(m, "Back")).tooltipFactsText, back[4])
-        assert.equal(Panel.SlotBest(section(m, "Back")).costText, back[5])
-        -- A slot with nothing better gains nothing.
-        local weapon = Panel.SlotTooltipLines(section(m, "1H Weapon"))
-        for _, line in ipairs(weapon) do
-            assert.is_nil(line:find("Ula'tek", 1, true))
+        local best = Panel.SlotBest(head)
+        assert.equal(table.concat({ best.name, best.badge.text, best.second }, Panel.ROAD_SEPARATOR), lines[3])
+        -- The fixture week's words (the issue's example, off a later rating,
+        -- read +2.80%; the shape is the same).
+        assert.equal("Gaze of the Coiled Watcher · +2.99% · Ula'tek - The Venomous Abyss, Mythic raid", lines[3])
+
+        -- A keep slot, nothing better: the slot and its answer, two lines.
+        local weapon = section(m, "1H Weapon")
+        assert.is_nil(Panel.SlotBest(weapon))
+        assert.same({ "1H Weapon", weapon.plan }, Panel.SlotHoverLines(weapon))
+
+        -- A craft named by item alone: its tag stands where a second line would.
+        local wrist = section(m, "Wrist")
+        local wristBest = Panel.SlotBest(wrist)
+        local wristLines = Panel.SlotHoverLines(wrist)
+        io.write("UX-7c Wrist hover: " .. table.concat(wristLines, " | ") .. "\n")
+        assert.equal(3, #wristLines)
+        assert.is_not_nil(wristLines[3]:find(wristBest.tag, 1, true))
+        assert.is_not_nil(wristLines[3]:find(wristBest.badge.text, 1, true))
+
+        -- No sentence: the lines that remain, in order.
+        local quiet = {}
+        for key, value in pairs(head) do
+            quiet[key] = value
         end
-        assert.is_nil(Panel.SlotBest(section(m, "1H Weapon")))
+        quiet.plan = nil
+        assert.same({ "Head", lines[3] }, Panel.SlotHoverLines(quiet))
+        assert.same({ "Head" }, Panel.SlotHoverLines({ slot = "Head" }))
+        assert.same({}, Panel.SlotHoverLines(nil))
+
+        -- On no slot: a group header, the Keep row, `No rating`, the hidden
+        -- count, a road's facts or its cost.
+        for _, entry in ipairs(m.slots) do
+            local hover = Panel.SlotHoverLines(entry)
+            assert.is_true(#hover <= 3, entry.slot)
+            local text = table.concat(hover, "\n")
+            for _, never in ipairs({
+                ns.Roads.GROUP_HEADER[ns.Roads.GROUP_SET],
+                ns.Roads.GROUP_HEADER[ns.Roads.GROUP_ITEM],
+                ns.Roads.GROUP_HEADER[ns.Roads.GROUP_NONE],
+                ns.Roads.ITEM_SCALE_TEXT,
+                Panel.GROUP_SET_TAIL,
+                ns.Roads.TAG_KEEP,
+                "item level 1 hidden",
+                "crest type and cost not readable",
+            }) do
+                assert.is_nil(text:find(never, 1, true), entry.slot .. ": " .. never)
+            end
+            local slotBest = Panel.SlotBest(entry)
+            if slotBest and slotBest.tooltipFactsText then
+                assert.is_nil(text:find(slotBest.tooltipFactsText, 1, true), entry.slot)
+            end
+        end
     end)
 
     -- UX-6d (WKE-641): a card drawn only because its crested row is above
@@ -2843,12 +2911,28 @@ describe("Roads on the window, over the owner's week of 2026-09-08", function()
         assert.equal(Panel.SLOT_NAME_WIDTH, element.sectionName:GetWidth())
         assert.equal(Panel.SLOT_MIDDLE_X, element.middleIcon.points[1][4])
         assert.equal(Panel.SLOT_MIDDLE_X, element.middleBar.points[1][4])
-        -- Its hover still carries the sentence, and now the road's facts.
+        -- Its hover draws exactly the three lines (UX-7c), the slot's name in
+        -- the game's gold and the rest in white.
+        local colours = {}
+        local setText, addLine = GameTooltip.SetText, GameTooltip.AddLine
+        GameTooltip.SetText = function(self, text, r, g, b, ...)
+            colours[#colours + 1] = { r, g, b }
+            return setText(self, text, r, g, b, ...)
+        end
+        GameTooltip.AddLine = function(self, text, r, g, b, ...)
+            colours[#colours + 1] = { r, g, b }
+            return addLine(self, text, r, g, b, ...)
+        end
         element.sectionButton.stub.Enter()
+        GameTooltip.SetText, GameTooltip.AddLine = setText, addLine
         local hover = GameTooltip.stub.Text()
-        assert.is_not_nil(hover:find(head.section.plan, 1, true))
-        assert.is_not_nil(hover:find(head.line.best.name, 1, true))
-        assert.is_not_nil(hover:find(head.line.best.costText, 1, true))
+        assert.equal(table.concat(Panel.SlotHoverLines(head.section), "\n"), hover)
+        assert.equal(3, #colours)
+        assert.is_nil(hover:find(head.line.best.costText, 1, true))
+        assert.same({ 1.000, 0.824, 0.000 }, colours[1])
+        assert.same(Panel.SLOT_HOVER_TITLE_COLOR, colours[1])
+        assert.same({ 1, 1, 1 }, colours[2])
+        assert.same({ 1, 1, 1 }, colours[3])
 
         -- The same frame re-bound to a slot with nothing better: the count
         -- alone at the middle's left, no icon, no name, no bar.
@@ -2875,5 +2959,12 @@ describe("Roads on the window, over the owner's week of 2026-09-08", function()
         world.fireEvent("ITEM_DATA_LOAD_RESULT", itemID, true)
         assert.is_not_nil(element.middleName:GetText():find("Placeholder Bracers", 1, true))
         assert.equal("Crafted · 2 more ways", element.middleGrey:GetText())
+        -- ...and its hover names it too, now the client has (UX-7c).
+        element.sectionButton.stub.Enter()
+        local wristHover = GameTooltip.stub.Text()
+        assert.is_not_nil(
+            wristHover:find("Placeholder Bracers · " .. wrist.line.best.badge.text .. " · Crafted", 1, true)
+        )
+        assert.equal(3, select(2, wristHover:gsub("\n", "")) + 1)
     end)
 end)

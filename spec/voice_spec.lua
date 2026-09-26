@@ -335,6 +335,11 @@ describe("the source-free voice (V-1, WKE-569)", function()
         -- card's hover, every slot line's hover and badge, and the nudge.
         local Panel = ns.UpgradeMapPanel
         c.check("UpgradeMap.answer", map.answer:GetText())
+        -- UX-7c (WKE-652): the hint icon by slot, which now carries the hidden
+        -- level-1 count the slot line's hover used to.
+        for _, line in ipairs(Panel.HintLines(map.model, Panel.MODE_SLOT)) do
+            c.check("UpgradeMap.slotHint", line)
+        end
         -- And since UX-6b (WKE-639) every slot's fold open too - since UX-6c
         -- (WKE-640) the one fold over everything a slot does not draw - and
         -- every fold's hover.
@@ -342,7 +347,7 @@ describe("the source-free voice (V-1, WKE-569)", function()
         for _, section in ipairs(map.model.slots or {}) do
             everyOpen.slots[section.slot] = false
             everyOpen.fold[section.slot] = true
-            for _, line in ipairs(Panel.SlotTooltipLines(section)) do
+            for _, line in ipairs(Panel.SlotHoverLines(section)) do
                 c.check("UpgradeMap.slotHover", line)
             end
         end
