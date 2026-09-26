@@ -2279,6 +2279,69 @@ describe("Roads on the window, over the owner's week of 2026-09-08", function()
         return ns.UpgradeMapPanel.Model(gathered)
     end
 
+    -- UX-5e (WKE-649): a craft or delve card has no instance, so until now it
+    -- drew its item's own icon. It follows its tile: the client's painted
+    -- backdrop, chosen by the same function and cropped by the same band.
+    it("draws a craft or delve card over the same painted backdrop its tile draws (UX-5e)", function()
+        local Panel = ns.UpgradeMapPanel
+        local panel = frame.upgradeMapPanel
+        world.atlases[Panel.CRAFT_ART_ATLAS] = {
+            width = 600,
+            height = 400,
+            leftTexCoord = 0.0009765625,
+            rightTexCoord = 0.8134765625,
+            topTexCoord = 0.001953125,
+            bottomTexCoord = 0.6875,
+        }
+        local element, data = boundCardRow(panel, modelWithArt(), "Head", 1)
+        assert.is_table(element)
+        local craftRow = data.cards[2].row
+        assert.equal(ns.Roads.KIND_CRAFT, craftRow.kind)
+        local expected = Panel.CraftArtAtlas(craftRow)
+        local band = Panel.AtlasBandTexCoord(ns.UI.ItemLine.AtlasInfo(expected), Panel.TILE_ART_RATIO)
+        assert.is_table(band)
+        assert.equal(expected, data.cards[2].art)
+        assert.is_true(data.cards[2].artAtlas)
+        local craft = element.cards[2]
+        assert.equal(expected, craft.art:GetAtlas())
+        assert.is_false(craft.art.atlasUsedSize)
+        assert.same(band, craft.art.texCoord)
+        assert.equal(1, craft.art:GetAlpha())
+        assert.is_true(craft.art:IsShown())
+        -- The drop card beside it is untouched: its instance's own art.
+        local drop = element.cards[1]
+        assert.is_nil(drop.art:GetAtlas())
+        assert.same(Panel.TILE_ART_TEX_COORD, drop.art.texCoord)
+
+        -- A delve road answers with the delve backdrop, and nil without it.
+        world.atlases[Panel.DELVE_ART_ATLAS] = {
+            width = 700,
+            height = 500,
+            leftTexCoord = 0,
+            rightTexCoord = 1,
+            topTexCoord = 0,
+            bottomTexCoord = 1,
+        }
+        local delveRow = { kind = ns.Roads.KIND_DELVE, itemID = craftRow.itemID, road = { kind = ns.Roads.KIND_DELVE } }
+        local texture, texCoord, isAtlas = Panel.CardArt(delveRow, {})
+        assert.equal(Panel.DELVE_ART_ATLAS, texture)
+        assert.same(
+            Panel.AtlasBandTexCoord(ns.UI.ItemLine.AtlasInfo(Panel.DELVE_ART_ATLAS), Panel.TILE_ART_RATIO),
+            texCoord
+        )
+        assert.is_true(isAtlas)
+        world.atlases[Panel.DELVE_ART_ATLAS] = nil
+        assert.is_nil(Panel.CardArt(delveRow, {}))
+
+        -- The craft card on a client with no backdrop: its own icon, as before.
+        world.atlases[Panel.CRAFT_ART_ATLAS] = nil
+        local plain, plainData = boundCardRow(panel, modelWithArt(), "Head", 1)
+        assert.is_nil(plainData.cards[2].art)
+        assert.is_nil(plain.cards[2].art:GetAtlas())
+        assert.equal(plain.cards[2].cardIcon.resolved.icon, plain.cards[2].art:GetTexture())
+        assert.equal(Panel.MOSAIC_ALPHA, plain.cards[2].art:GetAlpha())
+    end)
+
     it("draws a card over the instance's own art, and over the item's icon when the walk has none (UX-6)", function()
         local Panel = ns.UpgradeMapPanel
         local panel = frame.upgradeMapPanel

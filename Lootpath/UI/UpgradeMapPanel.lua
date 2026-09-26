@@ -2115,6 +2115,12 @@ function Panel.InstanceImages(sources)
 end
 
 function Panel.CardArt(row, images)
+    -- A craft or a delve has no instance: the same backdrop its run's tile
+    -- draws, chosen by the road's own item (UX-5e, WKE-649).
+    local kind = type(row) == "table" and row.kind or nil
+    if kind == ns.Roads.KIND_CRAFT or kind == ns.Roads.KIND_DELVE then
+        return Panel.InstanceArt(nil, nil, kind, row)
+    end
     local source = type(row) == "table" and type(row.road) == "table" and row.road.source or nil
     if type(source) ~= "table" or source.instanceID == nil or type(images) ~= "table" then
         return nil
@@ -3062,12 +3068,36 @@ Panel.TILE_OPEN_EDGE = 2
 -- Delves tile drew the `ui-journeys-delve-card` atlas until UX-5c (WKE-636),
 -- and that atlas is not a picture: it is `RewardCardBG`, the background of
 -- Blizzard's 317 x 106 reward card, hollow in the middle for an icon and a name
--- (`Blizzard_Journeys.xml:268-300`, under .luals/). The client names no scenic
--- art for a delve, and nothing draws a texture the client did not name. The
--- icons are at reduced alpha because they are a backdrop and not a list - the
--- rows themselves are in the drawer.
+-- (`Blizzard_Journeys.xml:268-300`, under .luals/). Since UX-5e (WKE-649) the
+-- mosaic is the FALLBACK: both tiles draw a painted backdrop the client names
+-- (below), and the mosaic only where this client lacks it. The icons are at
+-- reduced alpha because they are a backdrop and not a list - the rows
+-- themselves are in the drawer.
 Panel.MOSAIC_COUNT = 4
 Panel.MOSAIC_ALPHA = 0.55
+
+-- The two painted backdrops (UX-5e, WKE-649). The mosaic is four 64 x 64 item
+-- icons upscaled about five times on the owner's display - no crop makes that
+-- sharp - so the owner ran an in-game preview of the atlases Blizzard's own UI
+-- builds by name and chose the second drawn in each row (2026-09-26): for
+-- Delves the companion window's backdrop, a sketched cave mouth on dark
+-- parchment (`Blizzard_DelvesCompanionConfiguration.xml:203`, `atlas=
+-- "delves-companion-background"`), and for Crafting the Professions window's
+-- specialization preview art for Leatherworking, tools on a dark ground
+-- (`Blizzard_Professions.lua:1405-1408` builds
+-- `"Professions-Specializations-Preview-Art-%s"` with the profession's kit
+-- specifier, `tInvert(Enum.Profession)` at :1389). The two names are the
+-- issue's best reading of which picture was "#2"; they await the owner's own
+-- two chat lines, and nothing else depends on which they are - change them
+-- here. Each is asked of the client first (ItemLine.AtlasInfo) and a client
+-- without it draws the mosaic.
+Panel.DELVE_ART_ATLAS = "delves-companion-background"
+Panel.CRAFT_ART_ATLAS = "Professions-Specializations-Preview-Art-Leatherworking"
+-- The per-profession step (Panel.CraftArtAtlas): the same art for the
+-- profession that makes the piece, where the item's class says which one for
+-- sure. `false` is the owner's "one picture for all", in one place.
+Panel.CRAFT_ART_PER_PROFESSION = true
+Panel.CRAFT_ART_FORMAT = "Professions-Specializations-Preview-Art-%s"
 
 Panel.TILE_SEPARATOR = " · "
 Panel.TILE_COUNT_TEXT = "%d of %d"
@@ -3101,19 +3131,125 @@ function Panel.ListWidth(width)
     return (ns.UI and ns.UI.PANEL_WIDTH or 0) - Panel.SCROLLBAR_ROOM
 end
 
+-- The part of an atlas a box of `ratio` (width / height) shows, as `{ left,
+-- right, top, bottom }` tex coords in the atlas's FILE (UX-5e, WKE-649). An
+-- atlas is a rect inside a larger file; `SetAtlas` draws that rect and a
+-- later `SetTexCoord` replaces it, so the band is cut from the client's own
+-- four coords - AtlasInfo's `leftTexCoord`, `rightTexCoord`, `topTexCoord`,
+-- `bottomTexCoord` (TextureUtilsDocumentation.lua:65-68) - and its proportion
+-- is read off the same answer's `width` and `height` (:62-63), never a size
+-- this addon guessed. A wider atlas keeps its full height and the middle of
+-- its width; a taller one its full width and the middle of its height;
+-- centred either way, so the scene's middle stays (V-5a's rule: cropped, never
+-- stretched). Nil when any of the six is missing - the caller then draws the
+-- atlas as the client cut it. Pure: nothing here reads a frame or the client.
+function Panel.AtlasBandTexCoord(info, ratio)
+    ratio = tonumber(ratio)
+    if type(info) ~= "table" or not ratio or ratio <= 0 then
+        return nil
+    end
+    local left, right = tonumber(info.leftTexCoord), tonumber(info.rightTexCoord)
+    local top, bottom = tonumber(info.topTexCoord), tonumber(info.bottomTexCoord)
+    local width, height = tonumber(info.width), tonumber(info.height)
+    if not (left and right and top and bottom and width and height) then
+        return nil
+    end
+    if width <= 0 or height <= 0 or right <= left or bottom <= top then
+        return nil
+    end
+    local own = width / height
+    if own > ratio then
+        local half = (right - left) * (ratio / own) / 2
+        local middle = (left + right) / 2
+        return { middle - half, middle + half, top, bottom }
+    end
+    local half = (bottom - top) * (own / ratio) / 2
+    local middle = (top + bottom) / 2
+    return { left, right, middle - half, middle + half }
+end
+
+-- Which profession a crafted piece names for sure, from the client's own item
+-- class and subclass (C_Item.GetItemInfoInstant through ns.ItemData, already
+-- read for the icon). Blizzard's kit specifiers are `Enum.Profession`'s own
+-- keys (Blizzard_Professions.lua:1389). The four sure cases, and only those:
+-- cloth is Tailoring, leather and mail are Leatherworking, plate is
+-- Blacksmithing, a ring or a necklace is Jewelcrafting. Anything else - a
+-- weapon, a trinket, an off-hand, a shield, which several professions make -
+-- names none. The numbers are `Enum.ItemClass.Armor` (4) and
+-- `Enum.ItemArmorSubclass` Cloth 1, Leather 2, Mail 3, Plate 4 (Core/Data/
+-- Enum.lua:5152-5157 and :5122-5127 under .luals/).
+local ARMOR_CLASS = 4
+local CRAFT_KIT_BY_ARMOR = { [1] = "Tailoring", [2] = "Leatherworking", [3] = "Leatherworking", [4] = "Blacksmithing" }
+local CRAFT_KIT_BY_EQUIP_LOC = { INVTYPE_FINGER = "Jewelcrafting", INVTYPE_NECK = "Jewelcrafting" }
+
+local function craftKit(road)
+    local item = type(road) == "table" and (road.link or road.itemID) or nil
+    local instant = item ~= nil and ns.ItemData.Instant(item) or nil
+    if type(instant) ~= "table" or instant.classID ~= ARMOR_CLASS then
+        return nil
+    end
+    return CRAFT_KIT_BY_EQUIP_LOC[instant.equipLoc] or CRAFT_KIT_BY_ARMOR[instant.subclassID]
+end
+
+-- The atlas a crafted road or run is drawn with (UX-5e): the preview art of
+-- the profession that makes it, when craftKit is sure AND this client has that
+-- atlas; otherwise the owner's chosen picture. The one place the per-profession
+-- rule lives, so "one picture for all" is CRAFT_ART_PER_PROFESSION = false.
+function Panel.CraftArtAtlas(road)
+    if Panel.CRAFT_ART_PER_PROFESSION then
+        local kit = craftKit(road)
+        local name = kit and string.format(Panel.CRAFT_ART_FORMAT, kit) or nil
+        if name and UI.ItemLine.AtlasInfo(name) then
+            return name
+        end
+    end
+    return Panel.CRAFT_ART_ATLAS
+end
+
 -- Which picture an instance is drawn with, and its crop (UX-5d): the lore
 -- painting in its band when the walk recorded one, else the button art with
 -- the button's own crop, else nothing - and then the caller draws what it drew
 -- before (the mosaic, the flat back, the item's icon). One choice, used by the
 -- tile and by the by-slot card alike.
-function Panel.InstanceArt(lore, image)
+--
+-- Since UX-5e (WKE-649) a Delves or Crafting run or road - `kind` is its
+-- source kind, `road` the road (or the run's best row) a craft is chosen by -
+-- answers with the client's painted backdrop: the atlas NAME, its band
+-- (Panel.AtlasBandTexCoord at the tile's 174:96, or nil for "as the client cut
+-- it") and `true`, meaning "draw it with SetAtlas". A client without the atlas
+-- answers nothing, and the caller draws the mosaic or the icon as before.
+function Panel.InstanceArt(lore, image, kind, road)
     if lore ~= nil then
         return lore, Panel.TILE_LORE_TEX_COORD
     end
     if image ~= nil then
         return image, Panel.TILE_ART_TEX_COORD
     end
-    return nil
+    local name = nil
+    if kind == ns.UFImport.SOURCE_KIND_DELVE then
+        name = Panel.DELVE_ART_ATLAS
+    elseif kind == ns.UFImport.SOURCE_KIND_CRAFT then
+        name = Panel.CraftArtAtlas(road)
+    end
+    local info = name and UI.ItemLine.AtlasInfo(name) or nil
+    if not info then
+        return nil
+    end
+    return name, Panel.AtlasBandTexCoord(info, Panel.TILE_ART_RATIO), true
+end
+
+-- Draws what InstanceArt chose on one texture: an atlas through SetAtlas at the
+-- box's size (never its own) and then its band, or a file with its crop.
+local function drawArt(texture, art, texCoord, isAtlas)
+    if isAtlas then
+        texture:SetAtlas(art, false)
+        if texCoord then
+            texture:SetTexCoord(unpack(texCoord))
+        end
+        return
+    end
+    texture:SetTexture(art)
+    texture:SetTexCoord(unpack(texCoord))
 end
 
 -- One tile, in points. Derived from the list, never written down.
@@ -3360,8 +3496,9 @@ function Panel.Elements(model, state)
                             cards = {},
                         })
                     end
-                    local art, artTexCoord = Panel.CardArt(row, model.instanceImages)
-                    cardRow.cards[#cardRow.cards + 1] = { row = row, art = art, artTexCoord = artTexCoord }
+                    local art, artTexCoord, artAtlas = Panel.CardArt(row, model.instanceImages)
+                    cardRow.cards[#cardRow.cards + 1] =
+                        { row = row, art = art, artTexCoord = artTexCoord, artAtlas = artAtlas }
                     local badge = Panel.CardBadge(row)
                     explain(Panel.CardSecond(row), badge and badge.text or nil, Panel.CardLine(row))
                 end
@@ -4787,13 +4924,15 @@ function Panel.InitTile(panel, tile, run, open)
     -- painted edge (UX-5d), or, on a walk that did not keep it, the button
     -- file cropped exactly as the Adventure Guide crops it; Crafting and
     -- Delves, which have no instance, draw the mosaic of their own four best
-    -- drops (UX-5c). A run with no rated rows draws the flat back and its
-    -- name. Nothing draws a texture the client did not name.
+    -- drops (UX-5c) - since UX-5e only where this client lacks their painted
+    -- backdrop, which a craft chooses by its best drop. A run with no rated
+    -- rows and no backdrop draws the flat back and its name. Nothing draws a
+    -- texture the client did not name.
     local mosaic = nil
-    local texture, texCoord = Panel.InstanceArt(run.instanceLore, run.instanceImage)
-    if texture and texCoord then
-        tile.art:SetTexture(texture)
-        tile.art:SetTexCoord(unpack(texCoord))
+    local best = type(run.upgrades) == "table" and run.upgrades[1] or nil
+    local texture, texCoord, isAtlas = Panel.InstanceArt(run.instanceLore, run.instanceImage, run.sourceKind, best)
+    if texture and (texCoord or isAtlas) then
+        drawArt(tile.art, texture, texCoord, isAtlas)
         tile.art:Show()
     else
         tile.art:Hide()
@@ -4981,8 +5120,7 @@ function Panel.InitCard(panel, tile, card)
     -- as the mosaic crops (UX-5b) and at the mosaic's alpha. Never a picture of
     -- somewhere else.
     if card.art then
-        tile.art:SetTexture(card.art)
-        tile.art:SetTexCoord(unpack(card.artTexCoord))
+        drawArt(tile.art, card.art, card.artTexCoord, card.artAtlas)
         tile.art:SetAlpha(1)
     else
         tile.art:SetTexture(resolved.icon)
