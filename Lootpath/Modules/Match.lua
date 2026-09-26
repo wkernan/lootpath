@@ -7,7 +7,9 @@
 -- of those items you are wearing, which you own, and which you do not have.
 --
 -- Row: { slot, equipped = record|nil, best = record|nil, verdictItem = item|nil,
---        status, matchedBy, reason, dstSlot }
+--        status, matchedBy, reason, dstSlot, ratedAt, heldAt }
+--   (`ratedAt` / `heldAt` only on a MATCHED_BY_ID_ABOVE row: the level the
+--   rating named and the level of the copy the character holds.)
 --   equipped_is_best - QE Live's item for that slot is already on the character
 --   swap             - it is in the bags or the bank; `equipped` is what it replaces
 --   best_in_vault    - the scan cannot find it because it is an unclaimed Great
@@ -20,9 +22,18 @@
 --   no_verdict       - something is worn in a slot the export does not name
 --
 -- Identity is ns.ItemKey (itemID + sorted bonus IDs), the same definition
--- QEImport uses. An itemID + item-level match is the ONLY fallback, it is never
--- silent, and an itemID-only match is never accepted: two copies of an item at
--- different upgrade levels are different items to QE Live (decision 2026-09-05).
+-- QEImport uses. Two fallbacks, both never silent:
+--   1. itemID + the SAME item level (bonus IDs differ);
+--   2. M2-5 (WKE-647): itemID at a level ABOVE the rated one - the rated piece,
+--      crested since the rating (crests keep the item ID and raise the level;
+--      R-3c's rule on the Roads surface, §7 2026-09-15). Tried only after every
+--      rated item has had its exact and same-level match, so a crested copy
+--      never takes a record another rated item matches outright. It is a claim
+--      of identity, never of value: the row keeps both levels and says Refresh
+--      rates the crested copy.
+-- A copy BELOW the rated level is never accepted: it has not been crested to
+-- the rated piece, and two copies of an item at different upgrade levels are
+-- different items to QE Live (decision 2026-09-05).
 
 local _, ns = ...
 
@@ -40,6 +51,7 @@ local STATUS = Match.STATUS
 
 Match.MATCHED_BY_KEY = "key"
 Match.MATCHED_BY_ID_LEVEL = "itemID+level"
+Match.MATCHED_BY_ID_ABOVE = "itemID+above"
 
 -- Display order, taken from the slot order of a real export
 -- (spec/fixtures/qe/qe-droptimizer-Hotornot-cxeiassqdyvz.json, 2026-09-06),
@@ -93,7 +105,7 @@ local function push(index, key, record)
 end
 
 local function indexRecords(records)
-    local byKey, byIDLevel = {}, {}
+    local byKey, byIDLevel, byID = {}, {}, {}
     for i = 1, #records do
         local record = records[i]
         if record.key then
@@ -101,9 +113,10 @@ local function indexRecords(records)
         end
         if record.itemID and record.itemLevel then
             push(byIDLevel, levelKey(record.itemID, record.itemLevel), record)
+            push(byID, record.itemID, record)
         end
     end
-    return byKey, byIDLevel
+    return byKey, byIDLevel, byID
 end
 
 -- The best unclaimed copy in a candidate list. Every record is claimed at most
@@ -118,6 +131,41 @@ local function pick(list, claimed)
         local record = list[i]
         if not claimed[record] and (not best or rankOf(record) < rankOf(best)) then
             best = record
+        end
+    end
+    return best
+end
+
+-- M2-5: the unclaimed copy of this item ID whose level is ABOVE the rated one.
+-- The worn copy first, because the one on the character is the one the player
+-- crested and put on; then the highest level owned; then the usual placement
+-- order. Strictly above: a copy at the rated level is the same-level fallback's,
+-- and a copy below is not the rated piece at all.
+local function pickAbove(list, level, claimed)
+    if not list then
+        return nil
+    end
+    local best
+    for i = 1, #list do
+        local record = list[i]
+        local held = tonumber(record.itemLevel)
+        if not claimed[record] and held and held > level then
+            if not best then
+                best = record
+            else
+                local worn, bestWorn = record.location == "equipped", best.location == "equipped"
+                if worn ~= bestWorn then
+                    if worn then
+                        best = record
+                    end
+                elseif held ~= tonumber(best.itemLevel) then
+                    if held > tonumber(best.itemLevel) then
+                        best = record
+                    end
+                elseif rankOf(record) < rankOf(best) then
+                    best = record
+                end
+            end
         end
     end
     return best
@@ -164,9 +212,12 @@ function Match.Build(inventory, verdict)
     end
 
     local records = inventory.records or {}
-    local byKey, byIDLevel = indexRecords(records)
-    local claimed, rows, fallbacks = {}, {}, {}
+    local byKey, byIDLevel, byID = indexRecords(records)
+    local claimed, rows, fallbacks, logs = {}, {}, {}, {}
+    local found = {}
 
+    -- Pass 1: every rated item's exact match, then its same-level match. Each
+    -- claims its record here, before any crested copy is looked for.
     local items = verdict.topSet.items or {}
     local order = verdict.topSet.order or {}
     for i = 1, #order do
@@ -191,29 +242,68 @@ function Match.Build(inventory, verdict)
                         bonusText(item.bonusIDs),
                         bonusText(record.bonusIDs)
                     )
+                    logs[#logs + 1] = "matched by itemID and item level, not by bonus IDs - " .. fallbacks[#fallbacks]
                 end
             end
             if record then
                 claimed[record] = true
-                row.best = record
-                if record.location == "equipped" then
-                    row.equipped = record
-                    row.status = STATUS.EQUIPPED_IS_BEST
-                else
-                    row.status = STATUS.SWAP
-                end
-                if row.slot == "Unknown" and record.slot then
-                    row.slot = record.slot
-                end
-            elseif item.isVault then
-                -- No `reason`: this row is not a failure to explain away. The
-                -- panel says what it is and points at the Vault tab.
-                row.status = STATUS.BEST_IN_VAULT
-            else
-                row.status = STATUS.BEST_NOT_OWNED
-                row.reason = notOwnedReason(inventory)
+                found[row] = record
             end
             rows[#rows + 1] = row
+        end
+    end
+
+    -- Pass 2 (M2-5): a rated item still unmatched, and not a Great Vault option,
+    -- is matched to a copy of the same item ID held ABOVE the rated level - the
+    -- rated piece, crested since. Identity only: both levels stay on the row.
+    for i = 1, #rows do
+        local row = rows[i]
+        local item = row.verdictItem
+        local level = tonumber(item.level)
+        if not found[row] and not item.isVault and level then
+            local record = pickAbove(byID[item.itemID], level, claimed)
+            if record then
+                claimed[record] = true
+                found[row] = record
+                row.matchedBy = Match.MATCHED_BY_ID_ABOVE
+                row.ratedAt = level
+                row.heldAt = tonumber(record.itemLevel)
+                fallbacks[#fallbacks + 1] = string.format(
+                    "%s: item %d rated at %s matched to your copy at %s by itemID - "
+                        .. "crested above the rated level; Refresh rates the crested copy",
+                    row.slot,
+                    item.itemID,
+                    tostring(level),
+                    tostring(row.heldAt)
+                )
+                logs[#logs + 1] = "matched by itemID above the rated level - " .. fallbacks[#fallbacks]
+            end
+        end
+    end
+
+    -- Every rated row's status is what its placement says, however it matched.
+    for i = 1, #rows do
+        local row = rows[i]
+        local item = row.verdictItem
+        local record = found[row]
+        if record then
+            row.best = record
+            if record.location == "equipped" then
+                row.equipped = record
+                row.status = STATUS.EQUIPPED_IS_BEST
+            else
+                row.status = STATUS.SWAP
+            end
+            if row.slot == "Unknown" and record.slot then
+                row.slot = record.slot
+            end
+        elseif item.isVault then
+            -- No `reason`: this row is not a failure to explain away. The
+            -- panel says what it is and points at the Vault tab.
+            row.status = STATUS.BEST_IN_VAULT
+        else
+            row.status = STATUS.BEST_NOT_OWNED
+            row.reason = notOwnedReason(inventory)
         end
     end
 
@@ -275,8 +365,8 @@ function Match.Build(inventory, verdict)
     end
 
     -- Never silent: every fallback reaches the chat frame as well as the result.
-    for i = 1, #fallbacks do
-        ns.Log("matched by itemID and item level, not by bonus IDs - %s", fallbacks[i])
+    for i = 1, #logs do
+        ns.Log("%s", logs[i])
     end
 
     return {

@@ -391,7 +391,7 @@ describe("Match.Build item identity", function()
         assert.is_truthy(world.output():find("matched by itemID and item level", 1, true))
     end)
 
-    it("never accepts an itemID-only match when the item levels differ", function()
+    it("never accepts an itemID-only match for a copy below the rated level", function()
         local inventory = {
             ok = true,
             bankAvailable = true,
@@ -568,5 +568,191 @@ describe("the items QE Live never saw", function()
         local lines = ns.UI.EquipPanel.ExcludedLines(match)
         assert.equal(1, #lines)
         assert.is_nil(ns.UI.EquipPanel.NoteText(match):find("Lynx Spaulders", 1, true))
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- M2-5 (WKE-647): a crested copy of the rated piece IS the rated piece.
+--
+-- The owner, 2026-09-25 night: he crested the Sickening Signet of Atroxus from
+-- 311 to 321 and put it on, and Equip Now called the rated 311 `not owned` and
+-- said it `replaces` the 321 he was wearing. Crests keep the item ID and raise
+-- the level, so the same item ID ABOVE the rated level is the rated piece; the
+-- same item ID BELOW it is not (it has not been crested to it), and stays what
+-- it was. Identity, never value: nothing here says what the 321 is worth.
+describe("Match.Build: a crested copy of the rated piece (M2-5)", function()
+    local ns, world
+
+    before_each(function()
+        ns, world = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local SIGNET = 500
+    local function signetAt(level)
+        return { itemID = SIGNET, key = "500:11", slot = "Finger", level = level, bonusIDs = { 11 } }
+    end
+
+    it("matches the worn copy crested above the rated level, and calls it already best", function()
+        local worn = record({
+            itemID = SIGNET,
+            bonusIDs = { 12 },
+            itemLevel = 321,
+            slot = "Finger",
+            location = "equipped",
+            slotIndex = 11,
+        })
+        local built =
+            ns.Match.Build({ ok = true, bankAvailable = false, records = { worn } }, verdict({ signetAt(311) }))
+        assert.equal(1, #built.rows)
+        local row = built.bySlot["Finger"][1]
+        assert.equal("equipped_is_best", row.status)
+        assert.equal(ns.Match.MATCHED_BY_ID_ABOVE, row.matchedBy)
+        assert.equal(311, row.ratedAt)
+        assert.equal(321, row.heldAt)
+        assert.equal(worn, row.best)
+        assert.equal(worn, row.equipped)
+        assert.is_nil(row.reason)
+        -- The bar's counts: one already best, nothing not owned, and the worn
+        -- copy is not left over as a slot with no rating.
+        assert.equal(1, built.counts.equipped_is_best)
+        assert.equal(0, built.counts.best_not_owned)
+        assert.equal(0, built.counts.no_verdict)
+        -- Never silent: the fallbacks line names both levels, and the chat
+        -- frame carries it.
+        assert.equal(1, #built.fallbacks)
+        assert.is_truthy(built.fallbacks[1]:find("rated at 311", 1, true))
+        assert.is_truthy(built.fallbacks[1]:find("your copy at 321", 1, true))
+        assert.is_truthy(world.output():find("your copy at 321", 1, true))
+    end)
+
+    it("calls the same crested copy in the bags a swap, onto the ring worn meanwhile", function()
+        local other = record({
+            itemID = 777,
+            bonusIDs = { 1 },
+            itemLevel = 305,
+            slot = "Finger",
+            location = "equipped",
+            slotIndex = 11,
+        })
+        local crested =
+            record({ itemID = SIGNET, bonusIDs = { 12 }, itemLevel = 321, slot = "Finger", location = "bag" })
+        local built = ns.Match.Build(
+            { ok = true, bankAvailable = true, records = { other, crested } },
+            verdict({ signetAt(311) })
+        )
+        local row = built.bySlot["Finger"][1]
+        assert.equal("swap", row.status)
+        assert.equal(ns.Match.MATCHED_BY_ID_ABOVE, row.matchedBy)
+        assert.equal(crested, row.best)
+        assert.equal(other, row.equipped)
+        assert.equal(11, row.dstSlot)
+        assert.is_true(ns.Match.IsSwap(row))
+        assert.equal(1, built.counts.swap)
+        assert.equal(0, built.counts.best_not_owned)
+    end)
+
+    it("never matches a copy BELOW the rated level: it has not been crested to it", function()
+        local worn = record({
+            itemID = SIGNET,
+            bonusIDs = { 12 },
+            itemLevel = 301,
+            slot = "Finger",
+            location = "equipped",
+            slotIndex = 11,
+        })
+        local built =
+            ns.Match.Build({ ok = true, bankAvailable = false, records = { worn } }, verdict({ signetAt(311) }))
+        local row = built.bySlot["Finger"][1]
+        assert.equal("best_not_owned", row.status)
+        assert.is_nil(row.matchedBy)
+        assert.is_nil(row.ratedAt)
+        assert.is_nil(row.heldAt)
+        assert.equal(worn, row.equipped)
+        assert.is_truthy(row.reason)
+        assert.equal(1, built.counts.best_not_owned)
+        assert.same({}, built.fallbacks)
+    end)
+
+    it("prefers the worn copy over a higher one in the bags, then the highest owned", function()
+        local worn = record({
+            itemID = SIGNET,
+            bonusIDs = { 12 },
+            itemLevel = 318,
+            slot = "Finger",
+            location = "equipped",
+            slotIndex = 12,
+        })
+        local higher =
+            record({ itemID = SIGNET, bonusIDs = { 13 }, itemLevel = 324, slot = "Finger", location = "bag" })
+        local built =
+            ns.Match.Build({ ok = true, bankAvailable = true, records = { higher, worn } }, verdict({ signetAt(311) }))
+        assert.equal(worn, built.bySlot["Finger"][1].best)
+        assert.equal("equipped_is_best", built.bySlot["Finger"][1].status)
+
+        local low = record({ itemID = SIGNET, bonusIDs = { 12 }, itemLevel = 318, slot = "Finger", location = "bag" })
+        local high = record({ itemID = SIGNET, bonusIDs = { 13 }, itemLevel = 324, slot = "Finger", location = "bank" })
+        built = ns.Match.Build({ ok = true, bankAvailable = true, records = { low, high } }, verdict({ signetAt(311) }))
+        assert.equal(high, built.bySlot["Finger"][1].best)
+        assert.equal(324, built.bySlot["Finger"][1].heldAt)
+    end)
+
+    it("never takes a copy another rated item matches exactly, whatever the order", function()
+        -- The rated 311 comes first in the export's order and misses; the 321
+        -- is a rated item of its own by key. The exact match keeps it.
+        local worn = record({
+            itemID = SIGNET,
+            bonusIDs = { 12 },
+            itemLevel = 321,
+            slot = "Finger",
+            location = "equipped",
+            slotIndex = 11,
+        })
+        local built = ns.Match.Build(
+            { ok = true, bankAvailable = true, records = { worn } },
+            verdict({
+                signetAt(311),
+                { itemID = SIGNET, key = "500:12", slot = "Finger", level = 321, bonusIDs = { 12 } },
+            })
+        )
+        local fingers = built.bySlot["Finger"]
+        assert.equal(2, #fingers)
+        assert.equal("best_not_owned", fingers[1].status)
+        assert.equal("equipped_is_best", fingers[2].status)
+        assert.equal(ns.Match.MATCHED_BY_KEY, fingers[2].matchedBy)
+    end)
+
+    it("keeps the rated level's own copy ahead of a crested one", function()
+        local atLevel =
+            record({ itemID = SIGNET, bonusIDs = { 14 }, itemLevel = 311, slot = "Finger", location = "bag" })
+        local crested =
+            record({ itemID = SIGNET, bonusIDs = { 12 }, itemLevel = 321, slot = "Finger", location = "bag" })
+        local built = ns.Match.Build(
+            { ok = true, bankAvailable = true, records = { crested, atLevel } },
+            verdict({ signetAt(311) })
+        )
+        local row = built.bySlot["Finger"][1]
+        assert.equal(ns.Match.MATCHED_BY_ID_LEVEL, row.matchedBy)
+        assert.equal(atLevel, row.best)
+        assert.is_nil(row.heldAt)
+    end)
+
+    it("leaves a Great Vault option a vault option", function()
+        local worn = record({
+            itemID = SIGNET,
+            bonusIDs = { 12 },
+            itemLevel = 321,
+            slot = "Finger",
+            location = "equipped",
+            slotIndex = 11,
+        })
+        local item = signetAt(311)
+        item.isVault = true
+        local built = ns.Match.Build({ ok = true, bankAvailable = true, records = { worn } }, verdict({ item }))
+        assert.equal("best_in_vault", built.bySlot["Finger"][1].status)
+        assert.is_nil(built.bySlot["Finger"][1].matchedBy)
     end)
 end)

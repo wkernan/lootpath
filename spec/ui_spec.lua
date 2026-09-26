@@ -4795,3 +4795,162 @@ describe("the healing gate's screen", function()
         assert.equal(0, world.reloads)
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- M2-5 (WKE-647): a crested copy of the rated piece, on Equip Now.
+--
+-- The owner's Druid, 2026-09-25 night: the Signet rated at 311, crested to 321
+-- and worn, drew as a red `you don't own this` row that `replaces` itself, and
+-- the bar said `1 not owned`. Match now calls the worn 321 the rated piece;
+-- this is what the tab says about it - the held copy's level on the item, the
+-- two levels once on the second line, the Refresh sentence on the hint icon,
+-- and no red anywhere.
+describe("Equip Now on a crested copy of the rated piece (M2-5)", function()
+    local ns
+
+    before_each(function()
+        ns = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local SIGNET = 500
+
+    local function rec(fields)
+        return {
+            key = fields.key,
+            itemID = fields.itemID,
+            link = "|cffa335ee|Hitem:" .. fields.itemID .. "::::::::80:105::::|h[" .. fields.name .. "]|h|r",
+            name = fields.name,
+            itemLevel = fields.itemLevel,
+            bonusIDs = fields.bonusIDs or {},
+            slot = fields.slot,
+            location = fields.location,
+            slotIndex = fields.slotIndex,
+            quality = 4,
+        }
+    end
+
+    local function build(records, bankAvailable)
+        local item = { itemID = SIGNET, key = "500:11", slot = "Finger", level = 311, bonusIDs = { 11 }, count = 1 }
+        local verdict = {
+            topSet = { score = 1, stats = {}, items = { [item.key] = item }, order = { item.key } },
+            alternatives = {},
+            vault = {},
+        }
+        local match = ns.Match.Build({ ok = true, bankAvailable = bankAvailable, records = records }, verdict)
+        assert.is_true(match.ok)
+        return match
+    end
+
+    local function wornSignet()
+        return rec({
+            key = "500:12",
+            itemID = SIGNET,
+            name = "Sickening Signet of Atroxus",
+            itemLevel = 321,
+            bonusIDs = { 12 },
+            slot = "Finger",
+            location = "equipped",
+            slotIndex = 11,
+        })
+    end
+
+    local CRESTED = "crested to 321" .. " · " .. "rated at 311"
+
+    it("draws the worn crested copy as already best, at its own level, with the two levels once", function()
+        local match = build({ wornSignet() }, false)
+        local row = match.rows[1]
+        local described = ns.UI.EquipPanel.Describe(row)
+        assert.equal("equipped_is_best", described.status)
+        -- The HELD copy's level, never the rated one.
+        assert.equal(321, described.item.itemLevel)
+        assert.is_truthy(described.text:find("Sickening Signet of Atroxus", 1, true))
+        assert.is_truthy(described.text:find(CRESTED, 1, true))
+        assert.is_falsy(described.text:find("not found", 1, true))
+        assert.is_nil(described.note)
+        assert.is_false(described.actionable)
+
+        local drawn = ns.UI.EquipPanel.Drawn(row, match)
+        assert.equal("Finger" .. ns.UI.EquipPanel.SECOND_SEPARATOR .. CRESTED, drawn.second)
+        assert.is_nil(drawn.note)
+        assert.is_falsy(drawn.ghost)
+        assert.is_true(drawn.dim)
+        -- Once: the pair is not said twice on the line.
+        local _, times = drawn.second:gsub("crested to", "")
+        assert.equal(1, times)
+    end)
+
+    it("puts the Refresh sentence on the hint icon, and nothing red on the bar", function()
+        local match = build({ wornSignet() }, false)
+        local note = ns.UI.EquipPanel.NoteText(match)
+        assert.is_truthy(note:find(ns.UI.EquipPanel.CRESTED_HINT, 1, true))
+        assert.equal("Refresh rates the crested copy", ns.UI.EquipPanel.CRESTED_HINT)
+
+        local key = ns.UI.EquipPanel.BarKeyText(match)
+        assert.is_truthy(key:find("1 already best", 1, true))
+        assert.is_falsy(key:find("not owned", 1, true))
+        assert.is_truthy(
+            ns.UI.EquipPanel
+                .SummaryText(match)
+                :find("1 already best, 0 to swap, 0 waiting in the Great Vault, 0 not owned", 1, true)
+        )
+        for _, segment in ipairs(ns.UI.EquipPanel.Bar(match).segments) do
+            assert.are_not.equal("best_not_owned", segment.status)
+        end
+    end)
+
+    it("says nothing about crests when no row was matched above its level", function()
+        local exact = wornSignet()
+        exact.key = "500:11"
+        exact.itemLevel = 311
+        local match = build({ exact }, true)
+        assert.is_nil(match.rows[1].heldAt)
+        assert.is_falsy(ns.UI.EquipPanel.NoteText(match):find("crested", 1, true))
+        assert.is_falsy(ns.UI.EquipPanel.Drawn(match.rows[1], match).second:find("crested", 1, true))
+    end)
+
+    it("draws the crested copy in the bags as a swap onto the ring worn meanwhile", function()
+        local other = rec({
+            key = "777:1",
+            itemID = 777,
+            name = "Band of Something",
+            itemLevel = 305,
+            slot = "Finger",
+            location = "equipped",
+            slotIndex = 11,
+        })
+        local crested = wornSignet()
+        crested.location = "bag"
+        crested.slotIndex = nil
+        local match = build({ other, crested }, true)
+        local row = match.rows[1]
+        assert.equal("swap", row.status)
+        local described = ns.UI.EquipPanel.Describe(row)
+        assert.is_true(described.actionable)
+        assert.equal(321, described.item.itemLevel)
+        assert.equal(305, described.worn.itemLevel)
+        local sep = ns.UI.EquipPanel.SECOND_SEPARATOR
+        assert.equal(
+            "Finger" .. sep .. "in your bags" .. sep .. "replaces Band of Something 305" .. sep .. CRESTED,
+            ns.UI.EquipPanel.Drawn(row, match).second
+        )
+    end)
+
+    it("reads so on the drawn tab: the folded row, the hint's hover and the bar", function()
+        local match = build({ wornSignet() }, true)
+        ns.UI.Frame()
+        local panel = ns.UI.frame.equipPanel
+        ns.UI.EquipPanel.ToggleFold(ns.db)
+        ns.UI.EquipPanel.Refresh(panel, match)
+        local items = drawnItems(panel)
+        assert.equal(1, #items)
+        assert.equal("Finger" .. ns.UI.EquipPanel.SECOND_SEPARATOR .. CRESTED, items[1].line.second:GetText())
+        assert.is_false(items[1].note:IsShown())
+        assert.is_true(panel.hint:IsShown())
+        assert.is_truthy(panel.hintText:find(ns.UI.EquipPanel.CRESTED_HINT, 1, true))
+        assert.is_falsy(panel.barKey:GetText():find("not owned", 1, true))
+    end)
+end)
