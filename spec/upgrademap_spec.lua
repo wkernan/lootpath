@@ -3623,7 +3623,9 @@ describe("UpgradeMapPanel tiles on the frames", function()
         instantAs(1004, 4, 4, "INVTYPE_HAND")
         instantAs(1005, 4, 0, "INVTYPE_FINGER")
         instantAs(1006, 4, 0, "INVTYPE_NECK")
-        world.items[1007] = { instant = { 1007, "Weapon", "x", "INVTYPE_WEAPON", 7007, 2, 7, n = 7 } }
+        -- A two-handed axe: Enum.ItemWeaponSubclass.Axe2H is 1, the same number
+        -- as Cloth, so only the class tells them apart (Enum.lua:5742-5744).
+        world.items[1007] = { instant = { 1007, "Weapon", "x", "INVTYPE_2HWEAPON", 7007, 2, 1, n = 7 } }
         instantAs(1008, 4, 0, "INVTYPE_TRINKET")
         assert.equal(string.format(art, "Tailoring"), P.CraftArtAtlas({ itemID = 1001 }))
         assert.equal(string.format(art, "Leatherworking"), P.CraftArtAtlas({ itemID = 1002 }))
@@ -3658,6 +3660,33 @@ describe("UpgradeMapPanel tiles on the frames", function()
         assert.is_nil(P.InstanceArt(nil, nil, ns.UFImport.SOURCE_KIND_DELVE))
         -- An instance's own art is never an atlas.
         assert.same({ 7, P.TILE_LORE_TEX_COORD }, { P.InstanceArt(7, 8, nil) })
+    end)
+
+    it("carries an atlas's rect only when the client gave all four coords as plain values", function()
+        local P = ns.UpgradeMapPanel
+        world.atlases[P.DELVE_ART_ATLAS] = backdrop(700, 500)
+        local info = ns.UI.ItemLine.AtlasInfo(P.DELVE_ART_ATLAS)
+        assert.equal(700, info.width)
+        assert.equal(0.0009765625, info.leftTexCoord)
+        assert.equal(0.8134765625, info.rightTexCoord)
+        assert.equal(0.001953125, info.topTexCoord)
+        assert.equal(0.6875, info.bottomTexCoord)
+
+        -- One coord secret: ns.Safe refuses it, so no rect at all, and the
+        -- tile draws the atlas as the client cut it.
+        local secret = backdrop(700, 500)
+        secret.leftTexCoord = world.markSecret(0.123)
+        world.atlases[P.DELVE_ART_ATLAS] = secret
+        info = ns.UI.ItemLine.AtlasInfo(P.DELVE_ART_ATLAS)
+        assert.equal(700, info.width)
+        assert.is_nil(info.leftTexCoord)
+        assert.is_nil(info.rightTexCoord)
+        assert.is_nil(P.AtlasBandTexCoord(info, P.TILE_ART_RATIO))
+        local frame = P.Create()
+        local model = runModel()
+        local tile = drawTile(frame, model, cardNamed(model, "Delves"))
+        assert.equal(P.DELVE_ART_ATLAS, tile.art:GetAtlas())
+        assert.is_nil(tile.art.texCoord)
     end)
 
     it("dims a tile with nothing rated, and gives it no badge at all", function()
