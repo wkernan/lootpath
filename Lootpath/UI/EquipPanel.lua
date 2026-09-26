@@ -1760,7 +1760,14 @@ function EquipPanel.Refresh(panel, match)
     -- line sits between the rows that need something and the rows that do not,
     -- so a row's top is no longer always the row above it.
     local previous = nil
+    -- Two counters since M5-1g (WKE-655): `drawn` counts everything on the
+    -- list, full rows and settled cells alike, against MAX_ROWS and for the
+    -- overflow line; `rowsDrawn` counts the full-width row FRAMES only, so it
+    -- is what indexes panel.rows and where the hide loop starts. With one
+    -- counter a list whose full rows fell while cells were drawn (an equip, a
+    -- bag change) left its old top row shown over the fold.
     local drawn, folded = 0, 0
+    local rowsDrawn = 0
     local pairsDrawn = 0
     local column = EquipPanel.ColumnWidth(panel.rowWidth)
 
@@ -1825,7 +1832,8 @@ function EquipPanel.Refresh(panel, match)
             end
         elseif drawn < EquipPanel.MAX_ROWS then
             drawn = drawn + 1
-            local i = drawn
+            rowsDrawn = rowsDrawn + 1
+            local i = rowsDrawn
             local frameRow = panel.rows[i]
             if not frameRow then
                 frameRow = createRow(panel, i)
@@ -1848,7 +1856,7 @@ function EquipPanel.Refresh(panel, match)
     end
 
     local shown = drawn
-    for i = shown + 1, #panel.rows do
+    for i = rowsDrawn + 1, #panel.rows do
         panel.rows[i]:Hide()
         -- A hidden row waits for nothing: its request is cancelled, so a late
         -- answer never redraws an item that is no longer on screen.
