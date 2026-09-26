@@ -87,7 +87,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Build the zip (no upload)
-        uses: BigWigsMods/packager@v2.5.1
+        uses: BigWigsMods/packager@v2.6.1
         with:
           args: -d
       - uses: actions/upload-artifact@v7.0.1
