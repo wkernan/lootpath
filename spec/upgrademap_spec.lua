@@ -1362,7 +1362,10 @@ describe("UpgradeMapPanel by-run view, joined to the genuine Raid export", funct
                     firstEmpty = firstEmpty or index
                     assert.is_nil(run.best)
                     assert.is_nil(run.bestPercent)
-                    assert.is_not_nil(run.text:find("no drop rated yet", 1, true))
+                    -- UX-5g: the words say which of the two it is, and on
+                    -- this walk every one is a run nothing ranks at its level.
+                    assert.equal(0, run.ranked)
+                    assert.is_not_nil(run.text:find("not rated at " .. run.difficultyLabel, 1, true))
                 else
                     assert.is_nil(firstEmpty, "a rated run sorted after an unrated one")
                 end
@@ -2142,8 +2145,8 @@ describe("UpgradeMapPanel by-run view across key levels", function()
         local drops = journalDropsPerRun(ns, sources, summary.previewMythicPlusLevel)
         assert.equal(drops[dungeon.key], dungeon.drops)
         -- Proven red against C-7's single document: with only the +10 document
-        -- every dungeon run reads "no drop rated yet" and none of
-        -- them is rated at all.
+        -- every dungeon run reads "not rated at Mythic+ 10" (UX-5g) and none
+        -- of them is rated at all.
         local only10 = ns.UpgradeMapPanel.RunModel({
             sources = sources,
             summary = summary,
@@ -2153,7 +2156,7 @@ describe("UpgradeMapPanel by-run view across key levels", function()
         for _, run in ipairs(walkedRuns(only10)) do
             if not run.isRaid then
                 assert.is_nil(run.best)
-                assert.matches("no drop rated yet", run.text)
+                assert.is_not_nil(run.text:find("not rated at " .. run.difficultyLabel, 1, true))
             end
         end
     end)
@@ -2676,7 +2679,9 @@ describe("UpgradeMapPanel run cards", function()
             end
         end
         assert.is_not_nil(empty)
-        assert.equal(ns.UpgradeMapPanel.TILE_NO_UPGRADE, ns.UpgradeMapPanel.TileSecondText(empty))
+        -- Nothing in it is ranked at the level the client lists (UX-5g).
+        assert.equal(0, empty.ranked)
+        assert.equal("not rated at " .. empty.difficultyLabel, ns.UpgradeMapPanel.TileSecondText(empty))
         assert.equal(0, #empty.upgrades)
         -- ...and a rated run says its difficulty there instead.
         assert.equal(model.runs[1].difficultyLabel, ns.UpgradeMapPanel.TileSecondText(model.runs[1]))
@@ -2694,7 +2699,7 @@ describe("UpgradeMapPanel run cards", function()
                 assert.equal("better", run.badge.tone)
             else
                 unrated = unrated + 1
-                assert.equal(ns.UpgradeMapPanel.RUN_NO_UPGRADE_TEXT, run.badge.text)
+                assert.equal(ns.UpgradeMapPanel.RunNoneText(run), run.badge.text)
                 assert.equal("none", run.badge.tone)
             end
             -- The denominator is on the card, always: the count text is the
@@ -2753,6 +2758,178 @@ describe("UpgradeMapPanel run cards", function()
             assert.is_nil(card.instanceID)
             assert.is_nil(card.instanceImage)
             assert.is_nil(card.instanceLore)
+        end
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- UX-5g (WKE-657): a run with no upgrade in it says which of two things is
+-- true. The owner, 2026-09-26, over a Heroic raid filter where every tile read
+-- "no drop is an upgrade": "Is this actually correct about no gear upgrades
+-- within a heroic raid?" The rating covered Mythic (`settings.raid = [3]`), so
+-- not one Heroic drop had a row - "not rated at Heroic raid" is the truth, and
+-- "no drop is an upgrade" is kept for a run whose drops ARE ranked and none is
+-- better. The tile, the drawer and the printed line say it with one function.
+describe("UpgradeMapPanel a run with no upgrade in it (UX-5g)", function()
+    local ns, sources, summary, P
+
+    before_each(function()
+        ns = H.load()
+        P = ns.UpgradeMapPanel
+        sources, summary = coldWalk(ns)
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function runModel(opts)
+        opts = opts or {}
+        return P.RunModel({
+            sources = sources,
+            summary = summary,
+            upgrades = opts.upgrades or upgrades(ns, UF_RAID),
+            upgradeDocuments = opts.upgradeDocuments,
+            difficultyIDs = opts.difficultyIDs,
+        })
+    end
+
+    -- The words each surface draws for one run: the tile's second line, the
+    -- open drawer's empty line, and the printed line.
+    local function surfaces(model, run)
+        local frame = P.Create()
+        local data
+        for _, element in ipairs(P.RunElements(model, { runs = { [run.key] = true } })) do
+            if element.kind == P.ELEMENT_DRAWER then
+                data = element
+            end
+        end
+        assert.is_not_nil(data)
+        local drawn = CreateFrame("Frame", nil, frame)
+        P.InitElement(frame, drawn, data)
+        local tile
+        for _, element in ipairs(P.RunElements(model, {})) do
+            if element.kind == P.ELEMENT_RUN_ROW then
+                for index, candidate in ipairs(element.runs) do
+                    if candidate == run then
+                        local row = CreateFrame("Frame", nil, frame)
+                        P.InitElement(frame, row, element)
+                        tile = row.tiles[index]
+                    end
+                end
+            end
+        end
+        assert.is_not_nil(tile)
+        local printed
+        for _, line in ipairs(P.RunLines(model)) do
+            if line:find(run.label .. ": ", 1, true) == 1 then
+                printed = printed or line
+            end
+        end
+        return tile.second:GetText(), drawn.drawerFrame.empty:GetText(), printed
+    end
+
+    it("says one run in three ways with one function", function()
+        assert.is_nil(P.RunNoneText({ rated = 1, ranked = 3, difficultyLabel = "Heroic" }))
+        assert.equal("not rated at Heroic", P.RunNoneText({ rated = 0, ranked = 0, difficultyLabel = "Heroic" }))
+        assert.equal("no drop is an upgrade", P.RunNoneText({ rated = 0, ranked = 2, difficultyLabel = "Heroic" }))
+        -- A run that carries no count reads as not rated, which promises
+        -- nothing; one with no label says so without one.
+        assert.equal("not rated at Heroic", P.RunNoneText({ rated = 0, difficultyLabel = "Heroic" }))
+        assert.equal("not rated yet", P.RunNoneText({ rated = 0, ranked = 0 }))
+        assert.equal("not rated at Heroic", P.TileSecondText({ rated = 0, ranked = 0, difficultyLabel = "Heroic" }))
+        assert.equal("Heroic", P.TileSecondText({ rated = 1, ranked = 1, difficultyLabel = "Heroic" }))
+    end)
+
+    it("says a Heroic raid run the Mythic rating never ranked is not rated at Heroic", function()
+        local model = runModel()
+        local heroic = {}
+        for _, run in ipairs(model.runs) do
+            if run.isRaid and run.difficultyLabel == "Heroic raid" then
+                heroic[#heroic + 1] = run
+            end
+        end
+        -- Measured over the 2026-09-06 cold walk and the committed Raid
+        -- export: 13 Heroic raid runs, not one drop of them ranked.
+        assert.equal(13, #heroic)
+        for _, run in ipairs(heroic) do
+            assert.equal(0, run.ranked)
+            assert.equal(0, run.rated)
+            assert.equal("not rated at Heroic raid", P.TileSecondText(run))
+            assert.equal("not rated at Heroic raid", run.badge.text)
+        end
+        local tileText, drawerText, printed = surfaces(model, heroic[1])
+        assert.equal("not rated at Heroic raid", tileText)
+        assert.equal("not rated at Heroic raid", drawerText)
+        assert.equal(heroic[1].label .. ": not rated at Heroic raid; " .. heroic[1].countText, printed)
+    end)
+
+    it("says no drop is an upgrade only where the drops are ranked and none is better", function()
+        -- One rated Mythic raid run, its every drop given a row below zero in
+        -- a hand-built document: the numbers are the test's, not a rating.
+        local rated
+        for _, run in ipairs(runModel().runs) do
+            if run.isRaid and not run.sourceKind and run.rated > 0 then
+                rated = rated or run
+            end
+        end
+        assert.is_not_nil(rated)
+        local items = {}
+        for itemID, list in pairs(sources) do
+            for _, entry in ipairs(list) do
+                if P.RunKey(entry, nil) == rated.key and entry.itemLevel then
+                    items[ns.UFImport.Key(itemID, entry.itemLevel)] = { upgradePercent = -0.25 }
+                end
+            end
+        end
+        local model = runModel({ upgradeDocuments = { { verdict = { items = items } } } })
+        local run
+        for _, candidate in ipairs(model.runs) do
+            if candidate.key == rated.key then
+                run = candidate
+            end
+        end
+        assert.is_not_nil(run)
+        assert.equal(0, run.rated)
+        assert.is_true(run.ranked > 0)
+        local tileText, drawerText, printed = surfaces(model, run)
+        assert.equal("no drop is an upgrade", tileText)
+        assert.equal("no drop is an upgrade", drawerText)
+        assert.equal(run.label .. ": no drop is an upgrade; " .. run.countText, printed)
+        assert.equal("no drop is an upgrade", run.badge.text)
+
+        -- ...and the run that IS rated still says its difficulty.
+        local original = runModel()
+        for _, candidate in ipairs(original.runs) do
+            if candidate.key == rated.key then
+                assert.equal(candidate.difficultyLabel, P.TileSecondText(candidate))
+                assert.equal("Mythic raid", P.TileSecondText(candidate))
+            end
+        end
+    end)
+
+    it("puts the raid difficulty the rating covers on the hint, by run only", function()
+        local model = runModel()
+        local want = "Raid drops are rated at Mythic. To rate Heroic raid, set it in the rating tool and refresh."
+        assert.equal(want, model.raidNote)
+        local lines = P.HintLines(model, P.MODE_RUN)
+        assert.equal(want, lines[#lines])
+        for _, line in ipairs(P.HintLines(model, P.MODE_SLOT)) do
+            assert.is_nil(line:find("Raid drops", 1, true))
+        end
+
+        -- Filtered to Mythic raid, which IS ranked: nothing to ask for.
+        local mythic = runModel({ difficultyIDs = { 16 } })
+        assert.equal("Raid drops are rated at Mythic.", mythic.raidNote)
+        -- Filtered to Heroic raid - the owner's screen.
+        local heroic = runModel({ difficultyIDs = { 15 } })
+        assert.equal(want, heroic.raidNote)
+
+        -- A document that does not say which difficulty it rated: no line.
+        local bare = runModel({ upgradeDocuments = { { verdict = { items = {} } } } })
+        assert.is_nil(bare.raidNote)
+        for _, line in ipairs(P.HintLines(bare, P.MODE_RUN)) do
+            assert.is_nil(line:find("Raid drops", 1, true))
         end
     end)
 end)
@@ -3829,7 +4006,7 @@ describe("UpgradeMapPanel tiles on the frames", function()
         assert.equal(ns.UpgradeMapPanel.TILE_DIM_ALPHA, dim:GetAlpha())
         assert.equal("", dim.badge:GetText())
         assert.is_false(dim.badgePlate:IsShown())
-        assert.equal(ns.UpgradeMapPanel.TILE_NO_UPGRADE, dim.second:GetText())
+        assert.equal("not rated at " .. empty.difficultyLabel, dim.second:GetText())
         -- Still clickable: it was looked at, not left out.
         assert.is_not_nil(dim:GetScript("OnClick"))
 
@@ -3894,7 +4071,9 @@ describe("UpgradeMapPanel tiles on the frames", function()
         assert.equal(empty, data.run)
         ns.UpgradeMapPanel.InitElement(frame, drawn, data)
         assert.is_true(drawn.drawerFrame.empty:IsShown())
-        assert.equal(ns.UpgradeMapPanel.DRAWER_NONE_TEXT, drawn.drawerFrame.empty:GetText())
+        -- The tile's own words (UX-5g), not a third phrasing.
+        assert.equal(ns.UpgradeMapPanel.TileSecondText(empty), drawn.drawerFrame.empty:GetText())
+        assert.equal("not rated at " .. empty.difficultyLabel, drawn.drawerFrame.empty:GetText())
         for _, line in ipairs(drawn.drawerLines) do
             assert.is_false(line:IsShown())
         end

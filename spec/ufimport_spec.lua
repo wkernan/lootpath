@@ -1081,3 +1081,61 @@ describe("UFImport.OtherLevelEntry", function()
         assert.is_false(ns.UFImport.HasDropType(maxEntry, nil))
     end)
 end)
+
+-- UX-5g (WKE-657): the raid difficulty a document's raid rows are rated at.
+-- The engine reads `playerSettings.raid[0]` and nothing past it
+-- (UpgradeFinderEngine.js:144, :266, :268 in the owner's fork), and the index
+-- is into the fork's own list (UpgradeFinderFront.js:106), pinned here
+-- independently of the module.
+local FORK_RAID_DIFFICULTY = { "Raid Finder", "Normal", "Heroic", "Mythic" }
+
+describe("UFImport raid difficulty", function()
+    local ns
+
+    before_each(function()
+        ns = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("names the fork's list, index for index, 0-based", function()
+        for position, word in ipairs(FORK_RAID_DIFFICULTY) do
+            assert.equal(word, ns.UFImport.RAID_DIFFICULTY_NAME[position - 1])
+        end
+        assert.is_nil(ns.UFImport.RAID_DIFFICULTY_NAME[4])
+    end)
+
+    it("reads the difficulty both genuine exports were rated at: Mythic", function()
+        for _, path in ipairs({ REAL_RAID, REAL_DUNGEON }) do
+            local verdict = parsed(ns, path).verdict
+            assert.same({ 3 }, verdict.settings.raid)
+            assert.equal(3, ns.UFImport.RaidDifficultyOf(verdict))
+            assert.same({ "Mythic" }, ns.UFImport.RaidDifficultyNames({ { verdict = verdict } }))
+        end
+    end)
+
+    it("reads only the first entry, and nothing it cannot place", function()
+        assert.equal(2, ns.UFImport.RaidDifficultyOf({ settings = { raid = { 2, 3 } } }))
+        assert.is_nil(ns.UFImport.RaidDifficultyOf({ settings = { raid = { 4 } } }))
+        assert.is_nil(ns.UFImport.RaidDifficultyOf({ settings = { raid = { "3" } } }))
+        assert.is_nil(ns.UFImport.RaidDifficultyOf({ settings = { raid = {} } }))
+        assert.is_nil(ns.UFImport.RaidDifficultyOf({ settings = {} }))
+        assert.is_nil(ns.UFImport.RaidDifficultyOf({}))
+        assert.is_nil(ns.UFImport.RaidDifficultyOf(nil))
+        -- The hand-built sample mirrors the real header: `raid: [3]`.
+        assert.equal(3, ns.UFImport.RaidDifficultyOf(parsed(ns).verdict))
+    end)
+
+    it("names every difficulty the documents carry, once each, in their order", function()
+        local mythic = { verdict = { settings = { raid = { 3 } } } }
+        local heroic = { verdict = { settings = { raid = { 2 } } } }
+        local silent = { verdict = { items = {} } }
+        assert.same({ "Mythic" }, ns.UFImport.RaidDifficultyNames({ mythic, mythic, silent }))
+        assert.same({ "Heroic", "Mythic" }, ns.UFImport.RaidDifficultyNames({ silent, heroic, mythic, heroic }))
+        assert.is_nil(ns.UFImport.RaidDifficultyNames({ silent }))
+        assert.is_nil(ns.UFImport.RaidDifficultyNames({}))
+        assert.is_nil(ns.UFImport.RaidDifficultyNames(nil))
+    end)
+end)
