@@ -2050,7 +2050,32 @@ function Stub.install()
         end,
     })
 
+    -- The compare's own rule (M5-1f), modelled line for line on
+    -- Blizzard_SharedXMLGame/Tooltip/TooltipUtil.lua:3-6 over two settable
+    -- facts: `world.alwaysCompareItems` is the player's CVar, read through
+    -- GetCVarBool (Blizzard_SharedXML/CvarUtil.lua:53), and
+    -- `world.modifiedClicks[action]` is a held modifier, read through
+    -- IsModifiedClick (Core/Data/Wiki.lua:7277, `isHeld`). The CVar's default
+    -- here is ON: the annotations name the CVar and not its default, and a
+    -- tab's hover test that expects the compare describes a player who asked
+    -- for it. A test that is about the rule sets both.
+    world.alwaysCompareItems = true
+    world.modifiedClicks = {}
+    define("GetCVarBool", function(name)
+        if name == "alwaysCompareItems" then
+            return world.alwaysCompareItems == true
+        end
+        return false
+    end)
+    define("IsModifiedClick", function(action)
+        return world.modifiedClicks[action] == true
+    end)
+
     define("TooltipUtil", {
+        ShouldDoItemComparison = function(shown)
+            local alwaysCompare = not shown.suppressAutomaticCompareItem and _G.GetCVarBool("alwaysCompareItems")
+            return alwaysCompare or _G.IsModifiedClick("COMPAREITEMS")
+        end,
         GetDisplayedItem = function(displayed)
             if displayed:IsTooltipType(Enum.TooltipDataType.Item) then
                 local data = displayed:GetPrimaryTooltipData()
