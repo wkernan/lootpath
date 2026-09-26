@@ -1734,6 +1734,132 @@ describe("Equip Now's settled slots in two columns (M5-1e)", function()
     end)
 end)
 
+-- M5-1g (WKE-655). The owner on WKE-592, 2026-09-26, the Druid: "After hitting
+-- Equip or Equip All this still shows." The header said every slot was best
+-- and the swap he had just equipped was still drawn at the top of the list,
+-- over the fold line and the first pair. Since M5-1e one counter counted the
+-- full rows and the settled cells together, and the hide loop read it as the
+-- number of row frames used.
+describe("Equip Now after an equip (M5-1g)", function()
+    local ns, world, panel
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        ns.UI.Frame()
+        ns.UI.frame.pasteBox:SetText(readFile(REAL_EXPORT))
+        ns.UI.frame.importButton:Click()
+        panel = ns.UI.frame.equipPanel
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function copy(t)
+        local out = {}
+        for k, v in pairs(t) do
+            out[k] = v
+        end
+        return out
+    end
+
+    -- The real match cut down to the owner's screen: its first swap and its
+    -- settled slots. `equipped` true settles the swap the way the rescan after
+    -- an equip does: the piece it named is now the one worn.
+    local function oneSwap(match, equipped)
+        local rows = {}
+        local counts = { equipped_is_best = 0, swap = 0, best_in_vault = 0, best_not_owned = 0, no_verdict = 0 }
+        local swapTaken = false
+        for _, row in ipairs(match.rows) do
+            local take = row.status == "equipped_is_best" or (row.status == "swap" and not swapTaken)
+            if take then
+                local out = copy(row)
+                if out.status == "swap" then
+                    swapTaken = true
+                    if equipped then
+                        out.status = "equipped_is_best"
+                        out.equipped = out.best
+                    end
+                end
+                rows[#rows + 1] = out
+                counts[out.status] = counts[out.status] + 1
+            end
+        end
+        assert.is_true(swapTaken)
+        local out = copy(match)
+        out.rows = rows
+        out.counts = counts
+        return out
+    end
+
+    local function shownRows()
+        local n = 0
+        for _, frameRow in ipairs(panel.rows) do
+            if frameRow.shown then
+                n = n + 1
+            end
+        end
+        return n
+    end
+
+    local function shownPairs()
+        local n = 0
+        for _, pair in ipairs(panel.pairs) do
+            if pair.shown then
+                n = n + 1
+            end
+        end
+        return n
+    end
+
+    it("hides the swap row it no longer draws once the swap is equipped", function()
+        local real = panel.match
+        local before, after = oneSwap(real, false), oneSwap(real, true)
+        ns.UI.EquipPanel.ToggleFold(ns.db)
+
+        ns.UI.EquipPanel.Refresh(panel, before)
+        assert.equal(1, shownRows())
+        assert.equal("swap", panel.rows[1].matchRow.status)
+
+        ns.UI.EquipPanel.Refresh(panel, after)
+        -- No row frame at all: rows[1] is hidden, and its item let go.
+        assert.equal(0, shownRows())
+        assert.is_false(panel.rows[1].shown)
+        assert.is_nil(panel.rows[1].line.item)
+        -- Every slot is a settled cell, two across.
+        assert.equal(math.ceil(#after.rows / 2), shownPairs())
+        assert.equal(#after.rows, #drawnItems(panel))
+        -- The fold line is the list's top, and the first pair hangs off it.
+        assert.is_true(panel.fold.shown)
+        assert.same({ "TOPLEFT", panel.list, "TOPLEFT", 0, 0 }, panel.fold.points[1])
+        assert.equal(panel.fold, panel.pairs[1].points[1][2])
+        assert.is_false(panel.overflow:IsShown())
+        assert.is_false(panel.equipAll:IsShown())
+    end)
+
+    it("still draws rows[1] when a swap appears on a list that had none", function()
+        local real = panel.match
+        local before, after = oneSwap(real, true), oneSwap(real, false)
+        ns.UI.EquipPanel.ToggleFold(ns.db)
+
+        ns.UI.EquipPanel.Refresh(panel, before)
+        assert.equal(0, shownRows())
+        assert.equal(math.ceil(#before.rows / 2), shownPairs())
+
+        ns.UI.EquipPanel.Refresh(panel, after)
+        assert.equal(1, shownRows())
+        assert.is_true(panel.rows[1].shown)
+        assert.equal("swap", panel.rows[1].matchRow.status)
+        assert.same({ "TOPLEFT", panel.list, "TOPLEFT", 0, 0 }, panel.rows[1].points[1])
+        -- The fold line sits under the swap, and the settled slots under it.
+        assert.equal(panel.rows[1], panel.fold.points[1][2])
+        assert.equal(math.ceil((#after.rows - 1) / 2), shownPairs())
+        assert.equal(#after.rows, #drawnItems(panel))
+        assert.is_true(panel.equipAll:IsShown())
+    end)
+end)
+
 describe("the Equip Now panel in combat", function()
     local ns, world, panel
 
