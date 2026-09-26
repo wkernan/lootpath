@@ -131,14 +131,15 @@ Panel.ROW_ATLAS = {
     World = "evergreen-weeklyrewards-category-world",
 }
 
--- V-6a (WKE-653): where in each row's painting the banner's window sits, as
--- `{ x, y }` fractions of the painting (0 = its left or top edge, 1 = its
--- right or bottom). The banner draws the art at its OWN scale, as Blizzard
--- does (`SetAtlas(atlas, useAtlasSize)` in `WeeklyRewardsMixin:SetUpActivity`,
--- Blizzard_WeeklyRewards.lua), so it can only show a window of it; this is the
--- window's centre. First guesses from the issue, not measured: the raid boss
--- sits centre-left, the dungeon door and the world vista centre. The owner's
--- eye on a real screen settles them.
+-- V-6a (WKE-653): where in each row's painting the banner sits, as `{ x, y }`
+-- fractions (0 = the painting's left or top edge, 0.5 its centre, 1 its right
+-- or bottom). Since V-6c (WKE-656) the banner is a band of the painting at its
+-- full height, cropped sideways to the banner's width, so `x` slides that band
+-- along the painting (`AtlasBandTexCoord`'s anchor, UpgradeMapPanel.lua) and
+-- `y` acts only on a painting taller than the banner's shape. First guesses
+-- from V-6a's issue, not measured: the raid boss sits centre-left, the dungeon
+-- door and the world vista centre. The owner's eye on a real screen settles
+-- them.
 Panel.ROW_ART_ANCHOR = {
     Raid = { x = 0.35, y = 0.5 },
     Activities = { x = 0.5, y = 0.5 },
@@ -2498,62 +2499,56 @@ end
 -- (`C_Texture.GetAtlasInfo` through `ns.UI.ItemLine.AtlasInfo`); this addon
 -- knows the pixel size of no atlas.
 --
--- The window of an atlas a box shows when the art is drawn at its OWN scale
--- (V-6a, WKE-653): one atlas pixel per point, as Blizzard's `useAtlasSize`
--- draws it, cut to the box. Returns `{ left, right, top, bottom }` tex coords
--- in the atlas's FILE plus the width and height to draw at - the box, or the
--- atlas's own side where the atlas is smaller than the box, so nothing is ever
--- scaled up. `anchor` = `{ x, y }` in 0..1 is where in the atlas the window's
--- centre goes, pulled back inside the atlas at its edges. The rect is the
--- client's own four coords (AtlasInfo's `leftTexCoord` .. `bottomTexCoord`,
--- TextureUtilsDocumentation.lua:65-68) and the size its `width` / `height`
--- (:62-63); nil when any of the six is missing, and the caller draws what it
--- drew before. Pure. UpgradeMapPanel's `AtlasBandTexCoord` (UX-5e) cuts a
--- band of a RATIO at the atlas's full height; this cuts a window of a SIZE at
--- scale 1, which is the difference the owner saw.
-function Panel.AtlasCropTexCoord(info, boxWidth, boxHeight, anchor)
+-- The part of an atlas a banner shows (V-6c, WKE-656): ONE scale factor, so
+-- the painting's full HEIGHT fills the box, and a sideways crop to the box's
+-- width, slid along the painting by `anchor`. That is exactly UpgradeMapPanel's
+-- `AtlasBandTexCoord(info, ratio, anchor)` (UX-5e/5f) at the box's own ratio,
+-- called here, never copied: a band of `boxWidth / boxHeight` at the atlas's
+-- full height, `anchor.x` 0 its left edge, 0.5 its centre, 1 its right edge,
+-- clamped inside the rect. Returns `{ left, right, top, bottom }` tex coords in
+-- the atlas's FILE plus the width and height to draw at, which are always the
+-- box's own - never taller than the banner, never wider. Nil when the client
+-- gives no rect or size, and the caller keeps V-5a's fit.
+--
+-- V-6a cut a window of the box's SIZE at scale 1 instead, on a guess that the
+-- atlas was about the size of Blizzard's 326 x 131 header frame. On the
+-- owner's screen (2026-09-26) that window landed on dark ground (Raids, World)
+-- or one edge of a shape (Dungeons): the atlas is larger than the guess, and a
+-- 132 x 104 piece of it at scale 1 is a corner. The band is the fit V-6a set
+-- aside as "a fit again" - one factor, the full height, the width cropped.
+-- The band goes on an atlas SMALLER than the box too (it is scaled up by the
+-- same one factor, never stretched): a band is always a band.
+function Panel.RowBannerTexCoord(info, boxWidth, boxHeight, anchor)
     boxWidth, boxHeight = tonumber(boxWidth), tonumber(boxHeight)
-    if type(info) ~= "table" or not boxWidth or not boxHeight or boxWidth <= 0 or boxHeight <= 0 then
+    if not boxWidth or not boxHeight or boxWidth <= 0 or boxHeight <= 0 then
         return nil
     end
-    local left, right = tonumber(info.leftTexCoord), tonumber(info.rightTexCoord)
-    local top, bottom = tonumber(info.topTexCoord), tonumber(info.bottomTexCoord)
-    local width, height = tonumber(info.width), tonumber(info.height)
-    if not (left and right and top and bottom and width and height) then
+    -- Asked at draw time: UI/UpgradeMapPanel.lua loads before this file in the
+    -- .toc, and the call is only ever made from a refresh.
+    local band = ns.UpgradeMapPanel and ns.UpgradeMapPanel.AtlasBandTexCoord
+    if type(band) ~= "function" then
         return nil
     end
-    if width <= 0 or height <= 0 or right <= left or bottom <= top then
+    local coords = band(info, boxWidth / boxHeight, anchor)
+    if not coords then
         return nil
     end
-    local ax = type(anchor) == "table" and tonumber(anchor.x) or 0.5
-    local ay = type(anchor) == "table" and tonumber(anchor.y) or 0.5
-    local drawWidth, drawHeight = math.min(boxWidth, width), math.min(boxHeight, height)
-    local x0 = math.max(0, math.min(width - drawWidth, ax * width - drawWidth / 2))
-    local y0 = math.max(0, math.min(height - drawHeight, ay * height - drawHeight / 2))
-    local spanX, spanY = right - left, bottom - top
-    return {
-        left + spanX * x0 / width,
-        left + spanX * (x0 + drawWidth) / width,
-        top + spanY * y0 / height,
-        top + spanY * (y0 + drawHeight) / height,
-    },
-        drawWidth,
-        drawHeight
+    return coords, boxWidth, boxHeight
 end
 
 -- Returns true when there was art to draw. With `crop` (an anchor, V-6a) the
--- art is drawn at its own scale and cut to the box when the client says where
--- the atlas sits and how big it is; without those it is fitted as before.
+-- art is drawn as the banner's band (V-6c) when the client says where the
+-- atlas sits and how big it is; without those it is fitted as before.
 local function drawAtlas(texture, name, boxWidth, boxHeight, margin, crop)
     local info = ns.UI.ItemLine.AtlasInfo(name)
     if not info then
         return false
     end
     if crop then
-        local coords, drawWidth, drawHeight = Panel.AtlasCropTexCoord(info, boxWidth, boxHeight, crop)
+        local coords, drawWidth, drawHeight = Panel.RowBannerTexCoord(info, boxWidth, boxHeight, crop)
         if coords then
             -- SetAtlas first: it sets the atlas's own rect, and the tex coords
-            -- after it replace that rect with the window inside it.
+            -- after it replace that rect with the band inside it.
             texture:SetAtlas(info.name)
             texture:SetSize(math.max(1, math.floor(drawWidth or 1)), math.max(1, math.floor(drawHeight or 1)))
             texture:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
@@ -3130,10 +3125,11 @@ function Panel.Refresh(self, opts)
             -- own aspect (V-5a), or the name alone. The name hangs off the
             -- art's left edge, so a row with no art anchors it to the row
             -- instead of to a texture that was never given a size.
-            -- Since V-6a (WKE-653) the art is drawn at its own scale and cut
-            -- to the banner around this row's anchor, the name at its top-left
-            -- as Blizzard places it; a client that will not say where the
-            -- atlas sits keeps V-5a's fit.
+            -- Since V-6c (WKE-656) the art is the painting's full height
+            -- scaled into the banner by one factor and cropped sideways at
+            -- this row's anchor, the name at its top-left as Blizzard places
+            -- it (V-6a); a client that will not say where the atlas sits keeps
+            -- V-5a's fit.
             local rowArt = drawAtlas(
                 rowFrame.art,
                 data.atlas,

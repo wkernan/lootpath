@@ -3604,9 +3604,13 @@ describe("the Vault tab's grid over the live client (V-5)", function()
     -- whole painting into the banner by one factor - about a third of its size,
     -- and soft. Blizzard draws it at its own size (`SetAtlas(atlas, true)` in
     -- `WeeklyRewardsMixin:SetUpActivity`), so the banner now does too and shows
-    -- a window of it, around each row's anchor. The 326 x 131 below is the
-    -- stub's placeholder (the size of Blizzard's header frame), never a
-    -- measured atlas; the figures were read from busted's output.
+    -- a window of it, around each row's anchor. V-6c (WKE-656): that window
+    -- at scale 1 showed a dark corner on his screen ("Image for Vaults now
+    -- don't show well at all"), so the banner is now the painting's full
+    -- height by one factor, cropped sideways at the row's anchor. The 326 x
+    -- 131 below is the stub's placeholder (the size of Blizzard's header
+    -- frame), never a measured atlas; the figures were read from busted's
+    -- output.
     local CATEGORY = {
         Raid = "evergreen-weeklyrewards-category-raids",
         Activities = "evergreen-weeklyrewards-category-dungeons",
@@ -3636,23 +3640,32 @@ describe("the Vault tab's grid over the live client (V-5)", function()
         end
     end
 
-    it("cuts a banner-sized window of the atlas at its own scale, around each row's anchor", function()
+    it("draws the painting's full height into the banner and crops it sideways at each row's anchor", function()
         local Panel = ns.VaultPanel
+        -- V-6c (WKE-656): the band UpgradeMapPanel cuts for its tiles, at the
+        -- banner's own 132:104, called rather than copied.
         local whole =
             { width = 326, height = 131, leftTexCoord = 0, rightTexCoord = 1, topTexCoord = 0, bottomTexCoord = 1 }
-        local raid, w, h = Panel.AtlasCropTexCoord(whole, 132, 104, Panel.ROW_ART_ANCHOR.Raid)
+        local raid, w, h = Panel.RowBannerTexCoord(whole, 132, 104, Panel.ROW_ART_ANCHOR.Raid)
         assert.equal(132, w)
         assert.equal(104, h)
-        assertCoords({ 0.147546, 0.552454, 0.103053, 0.896947 }, raid)
+        -- The full height, every time: top and bottom are the rect's own.
+        assertCoords({ 0.171490, 0.681518, 0, 1 }, raid)
         assertCoords(
-            { 0.297546, 0.702454, 0.103053, 0.896947 },
-            (Panel.AtlasCropTexCoord(whole, 132, 104, Panel.ROW_ART_ANCHOR.Activities))
+            { 0.244986, 0.755014, 0, 1 },
+            (Panel.RowBannerTexCoord(whole, 132, 104, Panel.ROW_ART_ANCHOR.Activities))
         )
         assertCoords(
-            { 0.297546, 0.702454, 0.103053, 0.896947 },
-            (Panel.AtlasCropTexCoord(whole, 132, 104, Panel.ROW_ART_ANCHOR.World))
+            { 0.244986, 0.755014, 0, 1 },
+            (Panel.RowBannerTexCoord(whole, 132, 104, Panel.ROW_ART_ANCHOR.World))
         )
-        -- Inside a rect that is not the whole file: the window is cut from the
+        for _, key in ipairs(Panel.ROW_ORDER) do
+            assertCoords(
+                ns.UpgradeMapPanel.AtlasBandTexCoord(whole, 132 / 104, Panel.ROW_ART_ANCHOR[key]),
+                (Panel.RowBannerTexCoord(whole, 132, 104, Panel.ROW_ART_ANCHOR[key]))
+            )
+        end
+        -- Inside a rect that is not the whole file: the band is cut from the
         -- atlas's own rect, not from the file around it.
         local inside = {
             width = 326,
@@ -3663,37 +3676,41 @@ describe("the Vault tab's grid over the live client (V-5)", function()
             bottomTexCoord = 0.7,
         }
         assertCoords(
-            { 0.173773, 0.376227, 0.251527, 0.648473 },
-            (Panel.AtlasCropTexCoord(inside, 132, 104, Panel.ROW_ART_ANCHOR.Raid))
+            { 0.185745, 0.440759, 0.2, 0.7 },
+            (Panel.RowBannerTexCoord(inside, 132, 104, Panel.ROW_ART_ANCHOR.Raid))
         )
         assertCoords(
-            { 0.248773, 0.451227, 0.251527, 0.648473 },
-            (Panel.AtlasCropTexCoord(inside, 132, 104, Panel.ROW_ART_ANCHOR.Activities))
+            { 0.222493, 0.477507, 0.2, 0.7 },
+            (Panel.RowBannerTexCoord(inside, 132, 104, Panel.ROW_ART_ANCHOR.Activities))
         )
+        -- The anchor's x slides the band along the painting, edge to edge.
+        assertCoords({ 0, 0.510028, 0, 1 }, (Panel.RowBannerTexCoord(whole, 132, 104, { x = 0, y = 0.5 })))
+        assertCoords({ 0.489972, 1, 0, 1 }, (Panel.RowBannerTexCoord(whole, 132, 104, { x = 1, y = 0.5 })))
+        -- The owner's measured width, height and rect for the three atlases
+        -- are not on WKE-656 yet (its comments were empty on 2026-09-26); the
+        -- 326 x 131 above is the stub's placeholder, Blizzard's header frame.
     end)
 
-    it("keeps the window inside the atlas and never draws the art larger than it is", function()
+    it("never draws the banner taller or wider than the banner, whatever the atlas's shape", function()
         local Panel = ns.VaultPanel
-        local whole =
-            { width = 326, height = 131, leftTexCoord = 0, rightTexCoord = 1, topTexCoord = 0, bottomTexCoord = 1 }
-        -- An anchor at the very edge is pulled back so the window stays in.
-        local left = Panel.AtlasCropTexCoord(whole, 132, 104, { x = 0, y = 0 })
-        assert.equal(0, left[1])
-        assert.equal(0, left[3])
-        local right = Panel.AtlasCropTexCoord(whole, 132, 104, { x = 1, y = 1 })
-        assert.equal(1, right[2])
-        assert.equal(1, right[4])
-        -- An atlas smaller than the box is drawn at its own size, whole.
-        local small =
-            { width = 100, height = 50, leftTexCoord = 0, rightTexCoord = 1, topTexCoord = 0, bottomTexCoord = 1 }
-        local coords, w, h = Panel.AtlasCropTexCoord(small, 132, 104, { x = 0.5, y = 0.5 })
-        assert.equal(100, w)
-        assert.equal(50, h)
-        assertCoords({ 0, 1, 0, 1 }, coords)
+        local shapes = {
+            { width = 326, height = 131, leftTexCoord = 0, rightTexCoord = 1, topTexCoord = 0, bottomTexCoord = 1 },
+            { width = 100, height = 200, leftTexCoord = 0, rightTexCoord = 1, topTexCoord = 0, bottomTexCoord = 1 },
+            { width = 100, height = 50, leftTexCoord = 0, rightTexCoord = 1, topTexCoord = 0, bottomTexCoord = 1 },
+        }
+        for _, info in ipairs(shapes) do
+            local coords, w, h = Panel.RowBannerTexCoord(info, 132, 104, { x = 0.5, y = 0.5 })
+            assert.equal(132, w)
+            assert.equal(104, h)
+            assert.is_true(coords[1] >= 0 and coords[2] <= 1 and coords[3] >= 0 and coords[4] <= 1)
+        end
+        -- A painting taller than the banner's shape keeps its full width and
+        -- is cut top and bottom instead.
+        assertCoords({ 0, 1, 0.303030, 0.696970 }, (Panel.RowBannerTexCoord(shapes[2], 132, 104, { x = 0.5, y = 0.5 })))
         -- Nothing to cut without the rect or the size.
-        assert.is_nil(Panel.AtlasCropTexCoord({ width = 326, height = 131 }, 132, 104, { x = 0.5, y = 0.5 }))
+        assert.is_nil(Panel.RowBannerTexCoord({ width = 326, height = 131 }, 132, 104, { x = 0.5, y = 0.5 }))
         assert.is_nil(
-            Panel.AtlasCropTexCoord(
+            Panel.RowBannerTexCoord(
                 { leftTexCoord = 0, rightTexCoord = 1, topTexCoord = 0, bottomTexCoord = 1 },
                 132,
                 104
@@ -3701,7 +3718,7 @@ describe("the Vault tab's grid over the live client (V-5)", function()
         )
     end)
 
-    it("draws each row's banner as that window, sharp and banner-sized", function()
+    it("draws each row's banner as that band, banner-sized", function()
         withRect({ 0.1, 0.6, 0.2, 0.7 })
         local frame = ns.VaultPanel.Create()
         frame:Refresh()
@@ -3709,24 +3726,25 @@ describe("the Vault tab's grid over the live client (V-5)", function()
             local art = frame.gridRows[index].art
             assert.is_true(art:IsShown())
             assert.equal(CATEGORY[key], art:GetAtlas())
-            -- Not the atlas's own size (it would overflow), not a fit (soft):
-            -- the banner's own box, one atlas pixel to a point.
+            -- Not the atlas's own size (it would overflow), not V-5a's fit:
+            -- the banner's own box, the painting's full height in it.
             assert.is_false(art.atlasUsedSize)
             assert.equal(ns.VaultPanel.ROW_BANNER_WIDTH, art:GetWidth())
             assert.equal(104, art:GetHeight())
             assertCoords(
                 (
-                    ns.VaultPanel.AtlasCropTexCoord(
+                    ns.UpgradeMapPanel.AtlasBandTexCoord(
                         C_Texture.GetAtlasInfo(CATEGORY[key]),
-                        ns.VaultPanel.ROW_BANNER_WIDTH,
-                        104,
+                        ns.VaultPanel.ROW_BANNER_WIDTH / 104,
                         ns.VaultPanel.ROW_ART_ANCHOR[key]
                     )
                 ),
                 art.texCoord
             )
+            assert.equal(0.2, art.texCoord[3])
+            assert.equal(0.7, art.texCoord[4])
         end
-        -- The raid's window is its own, not the dungeon's.
+        -- The raid's band is its own, not the dungeon's.
         assert.not_equal(frame.gridRows[1].art.texCoord[1], frame.gridRows[2].art.texCoord[1])
     end)
 
