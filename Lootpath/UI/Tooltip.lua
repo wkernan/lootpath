@@ -283,6 +283,59 @@ function Tooltip.OtherLevelText(answer, itemLevel)
     return ns.Roads.OtherLevelText(other, level, held)
 end
 
+-- The rating's enchant and gems for a piece of the set (R-2d, WKE-648):
+-- `rated with: Zul'jin's Mastery · Masterful Amethyst, Masterful Amethyst`.
+-- The source's own names, repeated; nothing picked, ranked or priced, and no
+-- "buy". A gem the rating used that the copy's link does not carry is drawn in
+-- the badges' better tone AND says so in a word (principle 14: colour is never
+-- the only signal). The enchant is never marked: the export names it and the
+-- link numbers it, and nothing the annotations carry joins the two (§11).
+-- A gem the client has not named yet reads `a gem` until it does.
+Tooltip.RATED_WITH = "rated with: "
+Tooltip.GEM_MISSING = "%s (missing)"
+Tooltip.GEM_NAMELESS = "a gem"
+Tooltip.GEM_SEPARATOR = ", "
+
+-- The line as plain text and as coloured parts, or nil. Pure over the answer.
+function Tooltip.FinishText(answer)
+    local finish = type(answer) == "table" and answer.finish or nil
+    if type(finish) ~= "table" then
+        return nil
+    end
+    local parts = { { text = Tooltip.RATED_WITH, hex = Tooltip.NOTE_HEX } }
+    local function part(text, hex)
+        parts[#parts + 1] = { text = text, hex = hex or Tooltip.NOTE_HEX }
+    end
+    local wrote = false
+    if type(finish.enchant) == "string" and finish.enchant ~= "" then
+        part(finish.enchant)
+        wrote = true
+    end
+    local better = ns.UI.ItemLine and ns.UI.ItemLine.TONE and ns.UI.ItemLine.TONE.better
+    for index, gem in ipairs(finish.gems or {}) do
+        if index == 1 and wrote then
+            part(Tooltip.SEPARATOR)
+        elseif index > 1 then
+            part(Tooltip.GEM_SEPARATOR)
+        end
+        local name = gem.name or Tooltip.GEM_NAMELESS
+        if gem.missing == true then
+            part(string.format(Tooltip.GEM_MISSING, name), better and better.hex or nil)
+        else
+            part(name)
+        end
+        wrote = true
+    end
+    if not wrote then
+        return nil
+    end
+    local text = {}
+    for index, entry in ipairs(parts) do
+        text[index] = entry.text
+    end
+    return table.concat(text), parts
+end
+
 -- The whole block as lines, in order, each with the tone it is drawn in. Pure:
 -- what the tooltip says is a headless assertion over a cache entry, and no
 -- frame is touched anywhere in here.
@@ -297,9 +350,9 @@ function Tooltip.Lines(answer, opts)
     if type(answer) ~= "table" then
         return lines
     end
-    local function add(text, hex, header)
+    local function add(text, hex, header, parts)
         if type(text) == "string" and text ~= "" then
-            lines[#lines + 1] = { text = text, hex = hex or Tooltip.NOTE_HEX, header = header or nil }
+            lines[#lines + 1] = { text = text, hex = hex or Tooltip.NOTE_HEX, header = header or nil, parts = parts }
         end
     end
 
@@ -309,6 +362,11 @@ function Tooltip.Lines(answer, opts)
     -- figure and its level beside the copy's own, under the sentence. The
     -- held copy's level is the record's; a link's is the one the hover read.
     add(Tooltip.OtherLevelText(answer, opts.itemLevel))
+    -- What the rating enchanted and gemmed a piece of the set with (R-2d,
+    -- WKE-648). Never on the same answer as the line above: that one is for a
+    -- copy no set road carries, this one only for the set's own pick.
+    local finishText, finishParts = Tooltip.FinishText(answer)
+    add(finishText, nil, nil, finishParts)
 
     -- Line 3. A road to something you do NOT hold spends it on its own where,
     -- because that is what a reader who cannot act on it needs; everything you
@@ -427,7 +485,17 @@ function Tooltip.Append(tooltip, answer, opts)
         return false
     end
     for _, line in ipairs(lines) do
-        tooltip:AddLine(ns.UI.ItemLine.Colored(line.hex, line.text))
+        if type(line.parts) == "table" then
+            -- One line, several tones (R-2d): each part coloured and closed on
+            -- its own, so no colour code is ever nested inside another.
+            local out = {}
+            for index, part in ipairs(line.parts) do
+                out[index] = ns.UI.ItemLine.Colored(part.hex, part.text)
+            end
+            tooltip:AddLine(table.concat(out))
+        else
+            tooltip:AddLine(ns.UI.ItemLine.Colored(line.hex, line.text))
+        end
     end
     return true
 end
