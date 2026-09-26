@@ -374,6 +374,14 @@ describe("the source-free voice (V-1, WKE-569)", function()
             for _, line in ipairs(ns.UpgradeMapPanel.RunLines(map.model) or {}) do
                 c.check("UpgradeMap.runLine", line)
             end
+            -- UX-5g (WKE-657): the run-mode hint, which now says which raid
+            -- difficulty the rating covers, and every tile's second line.
+            for _, line in ipairs(Panel.HintLines(map.model, Panel.MODE_RUN)) do
+                c.check("UpgradeMap.runHint", line)
+            end
+            for _, run in ipairs(map.model.runs or {}) do
+                c.check("UpgradeMap.tileSecond", Panel.TileSecondText(run))
+            end
         end
         ns.UpgradeMapPanel.Refresh(map, { mode = ns.UpgradeMapPanel.MODE_SLOT })
 

@@ -1054,7 +1054,27 @@ Panel.RUN_NO_IMPORT_NOTE =
 -- The denominator is every drop the journal lists for the run, so the reader
 -- can see how thin a "best upgrade" is spread.
 Panel.RUN_COUNT_TEXT = "%d of %d drops rated upgrades"
-Panel.RUN_NO_UPGRADE_TEXT = "no drop rated yet"
+
+-- A run with no drop rated as an upgrade is one of two things, and until UX-5g
+-- (WKE-657) every surface said one set of words for both: the tile "no drop is
+-- an upgrade", the drawer "no drop here is rated as an upgrade", the printed
+-- line "no drop rated yet". The owner, 2026-09-26, over a Heroic raid filter
+-- where every tile said the first: "Is this actually correct about no gear
+-- upgrades within a heroic raid?" It was not - the rating covered Mythic, and
+-- not one Heroic drop had a row. So a run now says which it is, the same words
+-- on the tile, in the drawer and on the printed line (Panel.RunNoneText):
+--   * nothing in it is ranked at the level the client lists -> not rated there;
+--   * drops ARE ranked there and none of them is an upgrade -> no upgrade.
+Panel.RUN_NOT_RATED_TEXT = "not rated at %s"
+Panel.RUN_NOT_RATED_BARE = "not rated yet"
+Panel.RUN_NO_UPGRADE_TEXT = "no drop is an upgrade"
+
+-- What the header's hint says about raids in run mode (UX-5g): which difficulty
+-- the raid drops were rated at, in the rating page's own word
+-- (ns.UFImport.RaidDifficultyNames), and - where a raid difficulty on screen has
+-- nothing ranked in any of its runs - that it can be rated too. No source named.
+Panel.RAID_RATED_AT_TEXT = "Raid drops are rated at %s."
+Panel.RAID_RATE_OTHER_TEXT = "To rate %s, set it in the rating tool and refresh."
 
 -- The answer, first, in a guildmate's words (UX-5, WKE-614; the voice rule,
 -- 2026-09-16). It replaces the three "Best run right now (by best upgrade): ..."
@@ -1145,6 +1165,70 @@ function Panel.RunAnswer(model)
         return string.format(Panel.RUN_ANSWER[kind], what, top.bestPercent)
     end
     return string.format(Panel.RUN_ANSWER[kind], name, what, top.bestPercent)
+end
+
+-- The words a run with no upgrade in it says, or nil when it has one (UX-5g,
+-- WKE-657). One function for the tile's second line, the drawer's empty line
+-- and the printed line, so the three cannot say two things again. `ranked` is
+-- the count of drops a document ranks at the level the client lists
+-- (RunModel); a run that does not carry it reads as not rated, which is the
+-- claim that promises nothing.
+function Panel.RunNoneText(run)
+    if type(run) ~= "table" or (tonumber(run.rated) or 0) > 0 then
+        return nil
+    end
+    if (tonumber(run.ranked) or 0) > 0 then
+        return Panel.RUN_NO_UPGRADE_TEXT
+    end
+    if run.difficultyLabel and run.difficultyLabel ~= "" then
+        return string.format(Panel.RUN_NOT_RATED_TEXT, run.difficultyLabel)
+    end
+    return Panel.RUN_NOT_RATED_BARE
+end
+
+-- "a", "a and b", "a, b and c".
+local function joinWords(words)
+    if #words <= 1 then
+        return words[1]
+    end
+    return table.concat(words, ", ", 1, #words - 1) .. " and " .. words[#words]
+end
+
+-- The hint's raid line (UX-5g): the difficulty the documents rated raid drops
+-- at, in the rating page's word, and then the raid difficulties on screen with
+-- nothing ranked in ANY of their runs, in the client's own label. nil when no
+-- document says which difficulty it rated. A difficulty with one ranked run is
+-- the rated one, so the second sentence never asks a player to rate what
+-- already is; nothing here compares the page's word with the client's.
+function Panel.RaidNote(documents, runs)
+    local rated = ns.UFImport.RaidDifficultyNames(documents)
+    if not rated then
+        return nil
+    end
+    local text = string.format(Panel.RAID_RATED_AT_TEXT, joinWords(rated))
+    local order, labels, ranked = {}, {}, {}
+    for _, run in ipairs(runs or {}) do
+        if run.isRaid and run.difficultyID ~= nil then
+            local id = run.difficultyID
+            if labels[id] == nil then
+                order[#order + 1] = id
+                labels[id] = run.difficultyLabel or tostring(id)
+            end
+            if (tonumber(run.ranked) or 0) > 0 then
+                ranked[id] = true
+            end
+        end
+    end
+    local unrated = {}
+    for _, id in ipairs(order) do
+        if not ranked[id] then
+            unrated[#unrated + 1] = labels[id]
+        end
+    end
+    if #unrated > 0 then
+        text = text .. " " .. string.format(Panel.RAID_RATE_OTHER_TEXT, joinWords(unrated))
+    end
+    return text
 end
 
 -- One key level exists today: the one the walk previewed. The companion now
@@ -1288,8 +1372,9 @@ local function finishRun(model, run)
         run.badge = { text = string.format("best %+.2f%%", run.bestPercent), tone = "better" }
         model.counts.ratedRuns = model.counts.ratedRuns + 1
     else
-        run.text = string.format("%s: %s; %s", run.label, Panel.RUN_NO_UPGRADE_TEXT, run.countText)
-        run.badge = { text = Panel.RUN_NO_UPGRADE_TEXT, tone = "none" }
+        local none = Panel.RunNoneText(run)
+        run.text = string.format("%s: %s; %s", run.label, none, run.countText)
+        run.badge = { text = none, tone = "none" }
     end
     model.runs[#model.runs + 1] = run
     model.counts.runs = model.counts.runs + 1
@@ -1323,6 +1408,9 @@ local function exportRuns(model, documents, owned)
                 -- game. No instance art, because there is no instance.
                 drops = #held,
                 pendingDrops = 0,
+                -- Every row here IS a ranked row: the export lists nothing it
+                -- did not rank.
+                ranked = #held,
                 rated = 0,
                 upgrades = {},
             }
@@ -1434,6 +1522,10 @@ function Panel.RunModel(opts)
                         instanceBackground = entry.instanceBackground,
                         drops = 0,
                         pendingDrops = 0,
+                        -- Drops a document ranks at the level the client
+                        -- lists, upgrade or not (UX-5g); `rated` is the ones
+                        -- among them that are upgrades.
+                        ranked = 0,
                         rated = 0,
                         upgrades = {},
                     }
@@ -1461,6 +1553,9 @@ function Panel.RunModel(opts)
                 if #documents > 0 and entry.itemLevel then
                     ranked, upgradeKeyLevel, upgradePick =
                         ns.UFImport.LookupAcrossLevels(documents, itemID, entry.itemLevel)
+                end
+                if ranked then
+                    run.ranked = run.ranked + 1
                 end
                 if ranked and ns.UFImport.IsUpgrade(ranked) then
                     local row = candidateRow(itemID, entry, owned, difficultyLabels, previewLevel)
@@ -1494,6 +1589,8 @@ function Panel.RunModel(opts)
     -- string the panel draws above the list and the same one `RunLines` prints
     -- first, so the screen and `/lootpath status` cannot say two things.
     model.headline = Panel.RunAnswer(model)
+    -- Which raid difficulty the rating covers, for the hint (UX-5g).
+    model.raidNote = Panel.RaidNote(documents, model.runs)
 
     if model.counts.keyLevels > 0 then
         table.sort(model.keyLevels)
@@ -3120,12 +3217,11 @@ Panel.CRAFT_ART_FORMAT = "Professions-Specializations-Preview-Art-%s"
 Panel.TILE_SEPARATOR = " · "
 Panel.TILE_COUNT_TEXT = "%d of %d"
 -- What a run with nothing rated says on its second line, in place of the
--- difficulty. It is still clickable and its drawer still says the same thing:
--- a dim tile is a run that was looked at, not one that was left out.
-Panel.TILE_NO_UPGRADE = "no drop is an upgrade"
+-- difficulty, is Panel.RunNoneText's (UX-5g). It is still clickable and its
+-- drawer says the same words: a dim tile is a run that was looked at, not one
+-- that was left out.
 
 Panel.DRAWER_CLOSE_TEXT = "click the tile to close"
-Panel.DRAWER_NONE_TEXT = "no drop here is rated as an upgrade"
 Panel.DRAWER_HEADER_HEIGHT = 20
 Panel.DRAWER_PADDING = 6
 Panel.DRAWER_POINTER_SIZE = 8
@@ -3325,10 +3421,7 @@ function Panel.TileSecondText(run)
     if type(run) ~= "table" then
         return ""
     end
-    if (tonumber(run.rated) or 0) == 0 then
-        return Panel.TILE_NO_UPGRADE
-    end
-    return run.difficultyLabel or ""
+    return Panel.RunNoneText(run) or run.difficultyLabel or ""
 end
 
 -- Name · difficulty · n of m. The tile's hover and the drawer's header line are
@@ -3659,6 +3752,9 @@ function Panel.HintLines(model, mode)
         end
         if model.exportNote then
             lines[#lines + 1] = model.exportNote
+        end
+        if model.raidNote then
+            lines[#lines + 1] = model.raidNote
         end
     end
     return lines
@@ -5077,7 +5173,7 @@ function Panel.InitDrawer(element, data)
 
     local rows = run.upgrades or {}
     frame.empty:SetShown(#rows == 0)
-    frame.empty:SetText(#rows == 0 and Panel.DRAWER_NONE_TEXT or "")
+    frame.empty:SetText(#rows == 0 and (Panel.RunNoneText(run) or Panel.RUN_NO_UPGRADE_TEXT) or "")
     for position, row in ipairs(rows) do
         UI.ItemLine.Set(drawerLine(element, position), {
             itemID = row.itemID,

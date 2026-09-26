@@ -803,6 +803,64 @@ function UFImport.LevelsAcrossLevels(documents, itemID)
     return levels
 end
 
+-- ---------------------------------------------------------------------------
+-- The raid difficulty a document rates (UX-5g, WKE-657).
+--
+-- The Upgrade Finder rates raid drops at ONE difficulty per run: its engine
+-- reads `playerSettings.raid[0]` and nothing past it (UpgradeFinderEngine.js:144,
+-- :266, :268), and the page's difficulty toggle replaces the selection with the
+-- one clicked rather than adding to it (UpgradeFinderFront.js:266-268). The
+-- export carries the array whole as `settings.raid` (Parse keeps `settings` as
+-- it came), so a document says which difficulty its raid rows are for - and a
+-- Heroic drop has no row in a document run at Mythic.
+--
+-- The index is the fork's, 0-based, into its own list of difficulties
+-- (UpgradeFinderFront.js:106, `raidDifficulty = ["Raid Finder", "Normal",
+-- "Heroic", "Mythic"]`); the words below are that list, transported. They are
+-- the rating page's names and not the client's: the client's own label for a
+-- run's difficulty is the run's, and nothing here joins the two.
+UFImport.RAID_DIFFICULTY_NAME = {
+    [0] = "Raid Finder",
+    [1] = "Normal",
+    [2] = "Heroic",
+    [3] = "Mythic",
+}
+
+-- The difficulty one document's raid rows are rated at, as the fork's index,
+-- or nil when the document does not say (no `settings`, or an index outside the
+-- list). Only the FIRST entry, because that is the only one the engine reads.
+function UFImport.RaidDifficultyOf(verdict)
+    local settings = type(verdict) == "table" and type(verdict.settings) == "table" and verdict.settings or nil
+    local raid = settings and type(settings.raid) == "table" and settings.raid or nil
+    local index = raid and raid[1]
+    if type(index) ~= "number" or UFImport.RAID_DIFFICULTY_NAME[index] == nil then
+        return nil
+    end
+    return index
+end
+
+-- Every raid difficulty these documents were rated at, as the fork's words, in
+-- the order the documents arrive and each once; nil when none says. Two can
+-- differ only when documents from two runs share a shelf, and then both are
+-- named rather than one chosen.
+function UFImport.RaidDifficultyNames(documents)
+    if type(documents) ~= "table" then
+        return nil
+    end
+    local names, seen = {}, {}
+    for _, document in ipairs(documents) do
+        local index = UFImport.RaidDifficultyOf(type(document) == "table" and document.verdict or nil)
+        if index ~= nil and not seen[index] then
+            seen[index] = true
+            names[#names + 1] = UFImport.RAID_DIFFICULTY_NAME[index]
+        end
+    end
+    if #names == 0 then
+        return nil
+    end
+    return names
+end
+
 -- Every row of one kind these documents carry, deduplicated by `itemID@level`
 -- and ordered by the percentage HE gave, best first, with the key behind it so
 -- the same documents always produce the same list.
