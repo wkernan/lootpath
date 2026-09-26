@@ -3576,7 +3576,9 @@ describe("the Vault tab's grid over the live client (V-5)", function()
                 string.format("row %d art is %dx%d", index, art:GetWidth(), art:GetHeight())
             )
             assertSameShape(art, atlas)
-            assert.equal("LEFT", firstPoint(frame.gridRows[index].label))
+            -- A client that says no rect keeps V-5a's fit and draws no window.
+            assert.is_nil(art.texCoord)
+            assert.equal("TOPLEFT", firstPoint(frame.gridRows[index].label))
             assert.equal(art, frame.gridRows[index].label.points[1][2])
         end
     end)
@@ -3597,6 +3599,169 @@ describe("the Vault tab's grid over the live client (V-5)", function()
 
     -- Drawing, and nothing but: the one call that must never be on this path
     -- (M3-16a/b) is not on it after V-5a either.
+    -- V-6a (WKE-653). The owner, 2026-09-26: "The vault tab still doesn't to
+    -- me have the best looking graphics that are on the left." V-5a fitted the
+    -- whole painting into the banner by one factor - about a third of its size,
+    -- and soft. Blizzard draws it at its own size (`SetAtlas(atlas, true)` in
+    -- `WeeklyRewardsMixin:SetUpActivity`), so the banner now does too and shows
+    -- a window of it, around each row's anchor. The 326 x 131 below is the
+    -- stub's placeholder (the size of Blizzard's header frame), never a
+    -- measured atlas; the figures were read from busted's output.
+    local CATEGORY = {
+        Raid = "evergreen-weeklyrewards-category-raids",
+        Activities = "evergreen-weeklyrewards-category-dungeons",
+        World = "evergreen-weeklyrewards-category-world",
+    }
+
+    local function withRect(rect)
+        for _, atlas in pairs(CATEGORY) do
+            world.atlases[atlas] = {
+                width = 326,
+                height = 131,
+                leftTexCoord = rect[1],
+                rightTexCoord = rect[2],
+                topTexCoord = rect[3],
+                bottomTexCoord = rect[4],
+            }
+        end
+    end
+
+    local function assertCoords(want, got)
+        assert.equal(#want, #got)
+        for index = 1, #want do
+            assert.is_true(
+                math.abs(want[index] - got[index]) < 1e-6,
+                string.format("coord %d: want %.6f, got %.6f", index, want[index], got[index])
+            )
+        end
+    end
+
+    it("cuts a banner-sized window of the atlas at its own scale, around each row's anchor", function()
+        local Panel = ns.VaultPanel
+        local whole =
+            { width = 326, height = 131, leftTexCoord = 0, rightTexCoord = 1, topTexCoord = 0, bottomTexCoord = 1 }
+        local raid, w, h = Panel.AtlasCropTexCoord(whole, 132, 104, Panel.ROW_ART_ANCHOR.Raid)
+        assert.equal(132, w)
+        assert.equal(104, h)
+        assertCoords({ 0.147546, 0.552454, 0.103053, 0.896947 }, raid)
+        assertCoords(
+            { 0.297546, 0.702454, 0.103053, 0.896947 },
+            (Panel.AtlasCropTexCoord(whole, 132, 104, Panel.ROW_ART_ANCHOR.Activities))
+        )
+        assertCoords(
+            { 0.297546, 0.702454, 0.103053, 0.896947 },
+            (Panel.AtlasCropTexCoord(whole, 132, 104, Panel.ROW_ART_ANCHOR.World))
+        )
+        -- Inside a rect that is not the whole file: the window is cut from the
+        -- atlas's own rect, not from the file around it.
+        local inside = {
+            width = 326,
+            height = 131,
+            leftTexCoord = 0.1,
+            rightTexCoord = 0.6,
+            topTexCoord = 0.2,
+            bottomTexCoord = 0.7,
+        }
+        assertCoords(
+            { 0.173773, 0.376227, 0.251527, 0.648473 },
+            (Panel.AtlasCropTexCoord(inside, 132, 104, Panel.ROW_ART_ANCHOR.Raid))
+        )
+        assertCoords(
+            { 0.248773, 0.451227, 0.251527, 0.648473 },
+            (Panel.AtlasCropTexCoord(inside, 132, 104, Panel.ROW_ART_ANCHOR.Activities))
+        )
+    end)
+
+    it("keeps the window inside the atlas and never draws the art larger than it is", function()
+        local Panel = ns.VaultPanel
+        local whole =
+            { width = 326, height = 131, leftTexCoord = 0, rightTexCoord = 1, topTexCoord = 0, bottomTexCoord = 1 }
+        -- An anchor at the very edge is pulled back so the window stays in.
+        local left = Panel.AtlasCropTexCoord(whole, 132, 104, { x = 0, y = 0 })
+        assert.equal(0, left[1])
+        assert.equal(0, left[3])
+        local right = Panel.AtlasCropTexCoord(whole, 132, 104, { x = 1, y = 1 })
+        assert.equal(1, right[2])
+        assert.equal(1, right[4])
+        -- An atlas smaller than the box is drawn at its own size, whole.
+        local small =
+            { width = 100, height = 50, leftTexCoord = 0, rightTexCoord = 1, topTexCoord = 0, bottomTexCoord = 1 }
+        local coords, w, h = Panel.AtlasCropTexCoord(small, 132, 104, { x = 0.5, y = 0.5 })
+        assert.equal(100, w)
+        assert.equal(50, h)
+        assertCoords({ 0, 1, 0, 1 }, coords)
+        -- Nothing to cut without the rect or the size.
+        assert.is_nil(Panel.AtlasCropTexCoord({ width = 326, height = 131 }, 132, 104, { x = 0.5, y = 0.5 }))
+        assert.is_nil(
+            Panel.AtlasCropTexCoord(
+                { leftTexCoord = 0, rightTexCoord = 1, topTexCoord = 0, bottomTexCoord = 1 },
+                132,
+                104
+            )
+        )
+    end)
+
+    it("draws each row's banner as that window, sharp and banner-sized", function()
+        withRect({ 0.1, 0.6, 0.2, 0.7 })
+        local frame = ns.VaultPanel.Create()
+        frame:Refresh()
+        for index, key in ipairs(ns.VaultPanel.ROW_ORDER) do
+            local art = frame.gridRows[index].art
+            assert.is_true(art:IsShown())
+            assert.equal(CATEGORY[key], art:GetAtlas())
+            -- Not the atlas's own size (it would overflow), not a fit (soft):
+            -- the banner's own box, one atlas pixel to a point.
+            assert.is_false(art.atlasUsedSize)
+            assert.equal(ns.VaultPanel.ROW_BANNER_WIDTH, art:GetWidth())
+            assert.equal(104, art:GetHeight())
+            assertCoords(
+                (
+                    ns.VaultPanel.AtlasCropTexCoord(
+                        C_Texture.GetAtlasInfo(CATEGORY[key]),
+                        ns.VaultPanel.ROW_BANNER_WIDTH,
+                        104,
+                        ns.VaultPanel.ROW_ART_ANCHOR[key]
+                    )
+                ),
+                art.texCoord
+            )
+        end
+        -- The raid's window is its own, not the dungeon's.
+        assert.not_equal(frame.gridRows[1].art.texCoord[1], frame.gridRows[2].art.texCoord[1])
+    end)
+
+    it("puts the row's name at the art's top-left, Blizzard's own insets scaled to the banner", function()
+        withRect({ 0, 1, 0, 1 })
+        local frame = ns.VaultPanel.Create()
+        frame:Refresh()
+        -- 28 of 326 across and 18 of 131 down in Blizzard's header, read to
+        -- 11 and 14 on a 132 x 104 banner.
+        assert.equal(11, ns.VaultPanel.ROW_NAME_X)
+        assert.equal(14, ns.VaultPanel.ROW_NAME_Y)
+        local label = frame.gridRows[1].label
+        assert.same({ "TOPLEFT", frame.gridRows[1].art, "TOPLEFT", 11, -14 }, label.points[1])
+    end)
+
+    it("names the row in Blizzard's banner font and colour when the client has it", function()
+        local frame = ns.VaultPanel.Create()
+        frame:Refresh()
+        for _, gridRow in ipairs(frame.gridRows) do
+            assert.equal("Fancy24Font", gridRow.label.fontObject)
+            assert.same({ 1.000, 0.824, 0.000 }, gridRow.label.textColor)
+        end
+    end)
+
+    it("keeps the plain gold font when the client has no banner font", function()
+        _G.Fancy24Font = nil
+        local frame = ns.VaultPanel.Create()
+        frame:Refresh()
+        for _, gridRow in ipairs(frame.gridRows) do
+            assert.is_nil(gridRow.label.fontObject)
+            assert.is_nil(gridRow.label.textColor)
+            assert.equal(frame.gridRows[1].art, frame.gridRows[1].label.points[1][2])
+        end
+    end)
+
     it("draws all of it without interacting with the vault", function()
         local frame = ns.VaultPanel.Create()
         frame:Refresh()
@@ -3692,7 +3857,7 @@ describe("the Vault tab's content frame tracks its scroll frame (M5-2c)", functi
         panel:Refresh()
         local cell = panel.gridRows[1].cells[1]
         local banner = panel.gridRows[1].label
-        assert.equal(ns.VaultPanel.ROW_BANNER_WIDTH, banner:GetWidth() + ns.VaultPanel.ROW_BANNER_INSET * 2)
+        assert.equal(ns.VaultPanel.ROW_BANNER_WIDTH, banner:GetWidth() + ns.VaultPanel.ROW_NAME_X * 2)
         -- Three cells and two gaps fill what the banner leaves of the content
         -- frame, within the point the integer division drops.
         local left = panel.content:GetWidth() - ns.VaultPanel.ROW_BANNER_WIDTH

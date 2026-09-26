@@ -131,6 +131,27 @@ Panel.ROW_ATLAS = {
     World = "evergreen-weeklyrewards-category-world",
 }
 
+-- V-6a (WKE-653): where in each row's painting the banner's window sits, as
+-- `{ x, y }` fractions of the painting (0 = its left or top edge, 1 = its
+-- right or bottom). The banner draws the art at its OWN scale, as Blizzard
+-- does (`SetAtlas(atlas, useAtlasSize)` in `WeeklyRewardsMixin:SetUpActivity`,
+-- Blizzard_WeeklyRewards.lua), so it can only show a window of it; this is the
+-- window's centre. First guesses from the issue, not measured: the raid boss
+-- sits centre-left, the dungeon door and the world vista centre. The owner's
+-- eye on a real screen settles them.
+Panel.ROW_ART_ANCHOR = {
+    Raid = { x = 0.35, y = 0.5 },
+    Activities = { x = 0.5, y = 0.5 },
+    World = { x = 0.5, y = 0.5 },
+}
+
+-- The row's name in Blizzard's own banner font: the Name FontString of
+-- WeeklyRewardActivityTypeTemplate inherits `Fancy24Font`
+-- (Blizzard_WeeklyRewards.xml; the family is Blizzard_Fonts_Shared/Shared/
+-- GameFonts.xml:1171) and is coloured NORMAL_FONT_COLOR. Asked for by name at
+-- draw time; a client without it keeps GameFontNormal (V-6a, WKE-653).
+Panel.ROW_NAME_FONT = "Fancy24Font"
+
 -- A locked cell's own corner, in the client's own fraction string when it has
 -- one (`GENERIC_FRACTION_STRING`, which is what Blizzard formats
 -- progress/threshold with) and in plain figures when it does not. Never a
@@ -2023,6 +2044,16 @@ local ROW_BANNER_WIDTH = 132
 -- left edge, as Blizzard insets its own header Name (TOPLEFT x=28 of a 326-wide
 -- header, same file).
 local ROW_BANNER_INSET = 8
+-- Blizzard's own header, read from WeeklyRewardActivityTypeTemplate in
+-- Blizzard_WeeklyRewards.xml: the frame is 326x131 and its Name sits at
+-- TOPLEFT x=28 y=-18. The banner is ROW_BANNER_WIDTH x CELL_HEIGHT, so each
+-- inset is scaled by its own axis - x by 132/326, y by 104/131 - which keeps
+-- the name where Blizzard puts it relative to the painting's corner (V-6a,
+-- WKE-653).
+local BLIZZARD_HEADER_WIDTH = 326
+local BLIZZARD_HEADER_HEIGHT = 131
+local BLIZZARD_NAME_X = 28
+local BLIZZARD_NAME_Y = 18
 local CELL_GAP = 8
 local CELL_HEIGHT = 104
 -- The band at the top of every cell that the "the pick" label lives in. It is
@@ -2044,6 +2075,9 @@ local GRID_ROW_GAP = 8
 Panel.SCROLL_INSET = SCROLL_INSET
 Panel.ROW_BANNER_WIDTH = ROW_BANNER_WIDTH
 Panel.ROW_BANNER_INSET = ROW_BANNER_INSET
+-- Where the row's name sits in from the banner's top-left corner (V-6a).
+Panel.ROW_NAME_X = math.floor(BLIZZARD_NAME_X * ROW_BANNER_WIDTH / BLIZZARD_HEADER_WIDTH + 0.5)
+Panel.ROW_NAME_Y = math.floor(BLIZZARD_NAME_Y * CELL_HEIGHT / BLIZZARD_HEADER_HEIGHT + 0.5)
 Panel.CELL_GAP = CELL_GAP
 
 local CELL_ICON_SIZE = 32
@@ -2457,11 +2491,67 @@ end
 -- (`C_Texture.GetAtlasInfo` through `ns.UI.ItemLine.AtlasInfo`); this addon
 -- knows the pixel size of no atlas.
 --
--- Returns true when there was art to draw.
-local function drawAtlas(texture, name, boxWidth, boxHeight, margin)
+-- The window of an atlas a box shows when the art is drawn at its OWN scale
+-- (V-6a, WKE-653): one atlas pixel per point, as Blizzard's `useAtlasSize`
+-- draws it, cut to the box. Returns `{ left, right, top, bottom }` tex coords
+-- in the atlas's FILE plus the width and height to draw at - the box, or the
+-- atlas's own side where the atlas is smaller than the box, so nothing is ever
+-- scaled up. `anchor` = `{ x, y }` in 0..1 is where in the atlas the window's
+-- centre goes, pulled back inside the atlas at its edges. The rect is the
+-- client's own four coords (AtlasInfo's `leftTexCoord` .. `bottomTexCoord`,
+-- TextureUtilsDocumentation.lua:65-68) and the size its `width` / `height`
+-- (:62-63); nil when any of the six is missing, and the caller draws what it
+-- drew before. Pure. UpgradeMapPanel's `AtlasBandTexCoord` (UX-5e) cuts a
+-- band of a RATIO at the atlas's full height; this cuts a window of a SIZE at
+-- scale 1, which is the difference the owner saw.
+function Panel.AtlasCropTexCoord(info, boxWidth, boxHeight, anchor)
+    boxWidth, boxHeight = tonumber(boxWidth), tonumber(boxHeight)
+    if type(info) ~= "table" or not boxWidth or not boxHeight or boxWidth <= 0 or boxHeight <= 0 then
+        return nil
+    end
+    local left, right = tonumber(info.leftTexCoord), tonumber(info.rightTexCoord)
+    local top, bottom = tonumber(info.topTexCoord), tonumber(info.bottomTexCoord)
+    local width, height = tonumber(info.width), tonumber(info.height)
+    if not (left and right and top and bottom and width and height) then
+        return nil
+    end
+    if width <= 0 or height <= 0 or right <= left or bottom <= top then
+        return nil
+    end
+    local ax = type(anchor) == "table" and tonumber(anchor.x) or 0.5
+    local ay = type(anchor) == "table" and tonumber(anchor.y) or 0.5
+    local drawWidth, drawHeight = math.min(boxWidth, width), math.min(boxHeight, height)
+    local x0 = math.max(0, math.min(width - drawWidth, ax * width - drawWidth / 2))
+    local y0 = math.max(0, math.min(height - drawHeight, ay * height - drawHeight / 2))
+    local spanX, spanY = right - left, bottom - top
+    return {
+        left + spanX * x0 / width,
+        left + spanX * (x0 + drawWidth) / width,
+        top + spanY * y0 / height,
+        top + spanY * (y0 + drawHeight) / height,
+    },
+        drawWidth,
+        drawHeight
+end
+
+-- Returns true when there was art to draw. With `crop` (an anchor, V-6a) the
+-- art is drawn at its own scale and cut to the box when the client says where
+-- the atlas sits and how big it is; without those it is fitted as before.
+local function drawAtlas(texture, name, boxWidth, boxHeight, margin, crop)
     local info = ns.UI.ItemLine.AtlasInfo(name)
     if not info then
         return false
+    end
+    if crop then
+        local coords, drawWidth, drawHeight = Panel.AtlasCropTexCoord(info, boxWidth, boxHeight, crop)
+        if coords then
+            -- SetAtlas first: it sets the atlas's own rect, and the tex coords
+            -- after it replace that rect with the window inside it.
+            texture:SetAtlas(info.name)
+            texture:SetSize(math.max(1, math.floor(drawWidth or 1)), math.max(1, math.floor(drawHeight or 1)))
+            texture:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
+            return true
+        end
     end
     local inset = margin or 0
     local roomWidth = math.max(1, (boxWidth or 0) - inset * 2)
@@ -2726,8 +2816,21 @@ local function gridRow(frame, index)
     rowFrame.art:SetPoint("CENTER", rowFrame, "LEFT", ROW_BANNER_WIDTH / 2, 0)
     rowFrame.art:Hide()
     rowFrame.label = rowFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    rowFrame.label:SetPoint("LEFT", rowFrame.art, "LEFT", ROW_BANNER_INSET, 0)
-    rowFrame.label:SetWidth(ROW_BANNER_WIDTH - ROW_BANNER_INSET * 2)
+    -- Blizzard's banner font when the client has it (V-6a, WKE-653), in
+    -- Blizzard's colour for it; GameFontNormal, already gold, when it does not.
+    local nameFont = _G[Panel.ROW_NAME_FONT]
+    if type(nameFont) == "table" or type(nameFont) == "userdata" then
+        rowFrame.label:SetFontObject(Panel.ROW_NAME_FONT)
+        local color = _G.NORMAL_FONT_COLOR
+        local r = type(color) == "table" and tonumber(color.r) or nil
+        local g = type(color) == "table" and tonumber(color.g) or nil
+        local b = type(color) == "table" and tonumber(color.b) or nil
+        if r and g and b then
+            rowFrame.label:SetTextColor(r, g, b)
+        end
+    end
+    rowFrame.label:SetPoint("TOPLEFT", rowFrame.art, "TOPLEFT", Panel.ROW_NAME_X, -Panel.ROW_NAME_Y)
+    rowFrame.label:SetWidth(ROW_BANNER_WIDTH - Panel.ROW_NAME_X * 2)
     rowFrame.label:SetJustifyH("LEFT")
     rowFrame.label:SetWordWrap(false)
     rowFrame.cells = {}
@@ -3020,11 +3123,22 @@ function Panel.Refresh(self, opts)
             -- own aspect (V-5a), or the name alone. The name hangs off the
             -- art's left edge, so a row with no art anchors it to the row
             -- instead of to a texture that was never given a size.
-            local rowArt = drawAtlas(rowFrame.art, data.atlas, ROW_BANNER_WIDTH, CELL_HEIGHT, ROW_BANNER_INSET)
+            -- Since V-6a (WKE-653) the art is drawn at its own scale and cut
+            -- to the banner around this row's anchor, the name at its top-left
+            -- as Blizzard places it; a client that will not say where the
+            -- atlas sits keeps V-5a's fit.
+            local rowArt = drawAtlas(
+                rowFrame.art,
+                data.atlas,
+                ROW_BANNER_WIDTH,
+                CELL_HEIGHT,
+                ROW_BANNER_INSET,
+                Panel.ROW_ART_ANCHOR[data.key] or { x = 0.5, y = 0.5 }
+            )
             rowFrame.label:ClearAllPoints()
             if rowArt then
                 rowFrame.art:Show()
-                rowFrame.label:SetPoint("LEFT", rowFrame.art, "LEFT", ROW_BANNER_INSET, 0)
+                rowFrame.label:SetPoint("TOPLEFT", rowFrame.art, "TOPLEFT", Panel.ROW_NAME_X, -Panel.ROW_NAME_Y)
             else
                 rowFrame.art:Hide()
                 rowFrame.label:SetPoint("LEFT", rowFrame, "LEFT", ROW_BANNER_INSET, 0)
