@@ -157,6 +157,13 @@ Panel.ROW_NAME_FONT = "Fancy24Font"
 -- progress/threshold with) and in plain figures when it does not. Never a
 -- number this addon worked out: both figures are the client's.
 Panel.FRACTION_GLOBAL = "GENERIC_FRACTION_STRING"
+
+-- How far a cell's corner text sits in from the badge's bottom-right corner:
+-- Blizzard's own, the Progress FontString of WeeklyRewardActivityTemplate at
+-- BOTTOMRIGHT x=-15 y=15 (Blizzard_WeeklyRewards.xml:98-101 under `.luals/`).
+-- V-5a named that figure and drew 6; the owner read 6 as "too far in the
+-- bottom right corner" (V-6b, WKE-654).
+Panel.CORNER_INSET = 15
 Panel.FRACTION_FALLBACK = "%d/%d"
 
 -- What an UNLOCKED cell says where the fraction was, per row, exactly as
@@ -2917,7 +2924,7 @@ local function paintCell(cell, data)
     -- footer and extras are not (V-5a, WKE-607).
     cell.corner:ClearAllPoints()
     if data.kind == "locked" then
-        cell.corner:SetPoint("BOTTOMRIGHT", cell.background, "BOTTOMRIGHT", -6, 6)
+        cell.corner:SetPoint("BOTTOMRIGHT", cell.background, "BOTTOMRIGHT", -Panel.CORNER_INSET, Panel.CORNER_INSET)
     else
         cell.corner:SetPoint("TOPRIGHT", cell.tick, "TOPLEFT", -2, 0)
     end

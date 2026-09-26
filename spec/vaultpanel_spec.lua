@@ -3762,6 +3762,33 @@ describe("the Vault tab's grid over the live client (V-5)", function()
         end
     end)
 
+    -- V-6b (WKE-654). The owner, 2026-09-26: "the 0/2, Mythic 10 text in the
+    -- boxes is too far in the bottom right corner." Blizzard's own Progress
+    -- sits at BOTTOMRIGHT -15, 15 of its cell (Blizzard_WeeklyRewards.xml
+    -- :98-101); V-5a named that and drew -6, 6.
+    it("sets a cell's corner text in from the badge's corner by Blizzard's own 15", function()
+        assert.equal(15, ns.VaultPanel.CORNER_INSET)
+        local frame = ns.VaultPanel.Create()
+        frame:Refresh()
+        -- The locked cell's fraction, and the unlocked cell's level (which
+        -- holds no reward, so nothing else is along its bottom either).
+        local unlocked = frame.gridRows[1].cells[1]
+        local locked = frame.gridRows[1].cells[2]
+        assert.same({ "BOTTOMRIGHT", locked.background, "BOTTOMRIGHT", -15, 15 }, locked.corner.points[1])
+        assert.same({ "BOTTOMRIGHT", unlocked.background, "BOTTOMRIGHT", -15, 15 }, unlocked.corner.points[1])
+        assert.equal("2/4", locked.corner:GetText())
+        assert.equal("PLACEHOLDER Mythic raid", unlocked.corner:GetText())
+    end)
+
+    it("leaves a reward cell's corner in the top band beside the tick", function()
+        generateReward(world, 1, COVERED_ITEM.id, COVERED_ITEM.bonusIDs, COVERED_ITEM.name, 272)
+        local frame = ns.VaultPanel.Create()
+        frame:Refresh()
+        local reward = frame.gridRows[1].cells[1]
+        assert.equal("reward", reward.data.kind)
+        assert.same({ "TOPRIGHT", reward.tick, "TOPLEFT", -2, 0 }, reward.corner.points[1])
+    end)
+
     it("draws all of it without interacting with the vault", function()
         local frame = ns.VaultPanel.Create()
         frame:Refresh()
