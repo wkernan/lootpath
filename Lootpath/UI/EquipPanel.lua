@@ -261,6 +261,14 @@ EquipPanel.NOT_OWNED_PHRASE = "you don't own this"
 -- What the second line joins the slot word to.
 EquipPanel.SECOND_SEPARATOR = " · "
 
+-- M2-5 (WKE-647): a row whose piece was matched to a copy crested ABOVE the
+-- rated level. The second line says the two levels once - `crested to 321 ·
+-- rated at 311` - and the hint icon says the one thing to do about it. Both
+-- levels are read off the row (`heldAt`, `ratedAt`); nothing is computed.
+EquipPanel.CRESTED_WORDS = "crested to %s"
+EquipPanel.RATED_WORDS = "rated at %s"
+EquipPanel.CRESTED_HINT = "Refresh rates the crested copy"
+
 -- The answer sentence's fixed parts. The sentence is the whole tab in one
 -- line, in the words a guildmate would type; the clauses in between are built
 -- from the rows.
@@ -410,6 +418,20 @@ function EquipPanel.ItemFromVerdict(item)
     return { itemID = item.itemID, itemLevel = item.level }
 end
 
+-- The two levels of a crested match as one clause (M2-5), or nil for any other
+-- row - including a crested row whose levels the match did not keep.
+function EquipPanel.CrestedText(row)
+    if not (type(row) == "table" and row.matchedBy == ns.Match.MATCHED_BY_ID_ABOVE) then
+        return nil
+    end
+    if row.heldAt == nil or row.ratedAt == nil then
+        return nil
+    end
+    return string.format(EquipPanel.CRESTED_WORDS, tostring(row.heldAt))
+        .. EquipPanel.SECOND_SEPARATOR
+        .. string.format(EquipPanel.RATED_WORDS, tostring(row.ratedAt))
+end
+
 -- One row as { slot, text, note, status, actionable, name, second, badge,
 -- tags, item, worn }. `text` is the whole row as one string and is what
 -- `/lootpath status` and the text tests read; `note` is a whole second line or
@@ -482,6 +504,11 @@ function EquipPanel.Describe(row)
     if row.matchedBy == ns.Match.MATCHED_BY_ID_LEVEL then
         text = text .. " |cff909296[matched by itemID and item level]|r"
         second = second .. " |cff909296[matched by itemID and item level]|r"
+    end
+    local crested = EquipPanel.CrestedText(row)
+    if crested then
+        text = text .. " " .. EquipPanel.NOTE_COLOR .. crested .. "|r"
+        second = second .. " " .. EquipPanel.NOTE_COLOR .. crested .. "|r"
     end
     local badge = EquipPanel.STATUS_BADGE[status]
     return {
@@ -578,6 +605,12 @@ function EquipPanel.Drawn(row, match)
     end
     if row.matchedBy == ns.Match.MATCHED_BY_ID_LEVEL and drawn.second then
         drawn.second = drawn.second .. " " .. EquipPanel.NOTE_COLOR .. "[matched by itemID and item level]|r"
+    end
+    -- M2-5: the rated piece, crested since. Said once, last, in the row's own
+    -- run of facts; the Refresh sentence is the hint icon's, not the row's.
+    local crested = EquipPanel.CrestedText(row)
+    if crested then
+        drawn.second = drawn.second and (drawn.second .. EquipPanel.SECOND_SEPARATOR .. crested) or crested
     end
     -- A refusal from the last Equip click stands as the row's note until the
     -- row is built again (E-1), and outranks the not-owned reason: it is the
@@ -1197,6 +1230,15 @@ function EquipPanel.NoteText(match, unrated)
     local excluded = EquipPanel.ExcludedText(match)
     if excluded then
         parts[#parts + 1] = EquipPanel.NOTE_COLOR .. excluded .. "|r"
+    end
+    -- M2-5 (WKE-647): a piece matched to its crested copy is drawn at the
+    -- copy's level beside the level it was rated at; the one thing to do about
+    -- that is a condition on the answer, so it is the hint icon's.
+    for _, row in ipairs(type(match.rows) == "table" and match.rows or {}) do
+        if EquipPanel.CrestedText(row) then
+            parts[#parts + 1] = EquipPanel.NOTE_COLOR .. EquipPanel.CRESTED_HINT .. "|r"
+            break
+        end
     end
     return table.concat(parts, "  ")
 end
