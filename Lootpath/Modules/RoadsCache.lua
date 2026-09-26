@@ -52,6 +52,7 @@ local function emptyMap(reason)
         reason = reason,
         byKey = {},
         byItemLevel = {},
+        byItemID = {},
         bySlot = {},
         glow = {},
         slots = {},
@@ -100,7 +101,16 @@ end
 -- test one function precisely so the glow and the rows' "do:" lines cannot come
 -- apart: a road the Upgrade Map will not tell you to take is a road the bag
 -- will not mark.
-function Cache.RoadWantsGlow(road)
+--
+-- R-2c (WKE-646): a held copy no road carries the key of, answered by the road
+-- his documents rate its item ID by at another level, glows exactly when the
+-- row that answer wears is above what you wear - `otherLevel.upgrade`, which
+-- is ns.Roads.WornRow's row put through the test the cards are drawn by. The
+-- road's own rating is not asked then: it is about the level it was rated at.
+function Cache.RoadWantsGlow(road, otherLevel)
+    if type(otherLevel) == "table" then
+        return otherLevel.upgrade == true
+    end
     return ns.Roads.IsForward(road)
 end
 
@@ -180,6 +190,22 @@ function Cache.Build(model)
                         map.byItemLevel[at] = road.keys[1]
                     end
                 end
+                -- The third way in (R-2c, WKE-646): the item ID alone, for a
+                -- link at a level no road arrives at - a party member's drop
+                -- clicked in chat. One answer per item ID, the one
+                -- ns.Roads.OtherLevelRoad chooses (UX-6b's row), built here so
+                -- the hover stays one index.
+                local id = tonumber(itemID)
+                if road.kind == ns.Roads.KIND_DROP and id and map.byItemID[id] == nil then
+                    local answer = ns.Roads.ForItemIDIn(slotRoads, id, inputs)
+                    if answer then
+                        answer.sentence = ns.Roads.ItemSentence(answer)
+                        answer.exportedAt = map.exportedAt
+                        map.byItemID[id] = answer
+                    else
+                        map.byItemID[id] = false
+                    end
+                end
             end
         end
     end
@@ -199,6 +225,12 @@ function Cache.Build(model)
             answer.exportedAt = map.exportedAt
             map.byKey[key] = answer
             map.counts.keys = map.counts.keys + 1
+            -- A copy answered at another level (R-2c) glows by that answer's
+            -- row; every other carried piece no road names stays dark.
+            if answer.otherLevel and Cache.RoadWantsGlow(answer.own, answer.otherLevel) and not map.glow[key] then
+                map.glow[key] = true
+                map.counts.glowing = map.counts.glowing + 1
+            end
         end
     end
     return map
@@ -227,6 +259,19 @@ function Cache.LookupAtLevel(itemID, level)
     end
     local key = map.byItemLevel[string.format("%d@%d", id, at)]
     return key and map.byKey[key] or nil
+end
+
+-- The same, by the item ID alone (R-2c, WKE-646): the answer the map built for
+-- a drop his documents rate at another level, for a link at a level no road
+-- arrives at. One table index. nil when the map has nothing for the item ID at
+-- any level - and then the block is not drawn, R-2's rule for those.
+function Cache.LookupItem(itemID)
+    local map = state.map
+    local id = tonumber(itemID)
+    if not map or not id or type(map.byItemID) ~= "table" then
+        return nil
+    end
+    return map.byItemID[id] or nil
 end
 
 function Cache.Map()

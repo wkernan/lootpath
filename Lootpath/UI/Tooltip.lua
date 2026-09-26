@@ -9,7 +9,10 @@
 --   Better: Coiled Hex Legguards (344), +1.41% · The Venomous Abyss, Mythic raid
 --   Rated 1h ago · /lootpath map
 --
--- and nothing else. **Four lines at most, one road, no sub-header.**
+-- and nothing else. **Four lines at most, one road, no sub-header** - with one
+-- exception since R-2c (WKE-646): a piece you hold that the documents rate at
+-- another level carries that figure and both levels on a line under the
+-- sentence, and keeps its Better: line, so it is five.
 --
 -- That shape is the owner's, 2026-09-16, hovering his own leggings: "there is a
 -- lot of text and this sounds very AI written. It needs to be short, concise,
@@ -65,8 +68,11 @@
 -- post-calls in 133 s, avg 0.015 ms each - room to spare for a lookup - but
 -- only 250 of them were `GameTooltip`. 1,490 were `ShoppingTooltip1`, 706
 -- `ShoppingTooltip2` and 120 `PawnPrivateTooltip1`. **So the handler answers
--- `GameTooltip` and nothing else**, or the block is drawn three times beside
--- one hover and once inside another addon's scratch tooltip.
+-- `GameTooltip` and, since R-2c (WKE-646), the `ItemRefTooltip` a clicked chat
+-- link opens - and nothing else**, or the block is drawn three times beside one
+-- hover and once inside another addon's scratch tooltip. The chat link's cost
+-- was never in R-0's count: a click, not a hover, and unmeasured in the client
+-- until the owner's next session (ARCHITECTURE.md §11).
 --
 -- Every client function this file calls, named rather than discovered:
 --
@@ -263,6 +269,20 @@ function Tooltip.BetterText(road, previewLevel)
     return text
 end
 
+-- The line an answer at another level carries (R-2c, WKE-646), in
+-- ns.Roads' words: `+1.83% rated at 305 · you hold it at 311 · Refresh rates
+-- this one` on a piece you carry, `+1.83% rated at 305 · this one is 308` on a
+-- link. nil for every other answer.
+function Tooltip.OtherLevelText(answer, itemLevel)
+    local other = type(answer) == "table" and answer.otherLevel or nil
+    if type(other) ~= "table" then
+        return nil
+    end
+    local held = answer.held == true
+    local level = held and other.heldAt or itemLevel
+    return ns.Roads.OtherLevelText(other, level, held)
+end
+
 -- The whole block as lines, in order, each with the tone it is drawn in. Pure:
 -- what the tooltip says is a headless assertion over a cache entry, and no
 -- frame is touched anywhere in here.
@@ -285,6 +305,10 @@ function Tooltip.Lines(answer, opts)
 
     add(Tooltip.HeaderText(answer), Tooltip.HEADER_HEX, true)
     add(answer.sentence)
+    -- A copy the documents rate at another level (R-2c, WKE-646): the rated
+    -- figure and its level beside the copy's own, under the sentence. The
+    -- held copy's level is the record's; a link's is the one the hover read.
+    add(Tooltip.OtherLevelText(answer, opts.itemLevel))
 
     -- Line 3. A road to something you do NOT hold spends it on its own where,
     -- because that is what a reader who cannot act on it needs; everything you
@@ -357,14 +381,28 @@ function Tooltip.Answer(link)
             return answer, key
         end
     end
+    -- The third lookup, one more index (R-2c, WKE-646): the item ID alone,
+    -- for a copy at a level no road arrives at. **The owner reversed R-2's
+    -- rule here** (2026-09-25, a party member's Band of the Amani Warlord
+    -- clicked in chat, Pawn's line and no Lootpath block: "I'm not sure if
+    -- it's an upgrade from the LootPath app, only from Pawn"). A rated drop
+    -- linked in chat is exactly when he wants the answer, so it gets the
+    -- rated figure with its level beside the link's own; the third return is
+    -- that level, for the line that says it.
+    if itemID then
+        answer = ns.RoadsCache.LookupItem(itemID)
+        if answer then
+            return answer, key, level
+        end
+    end
     -- Nothing. **The block appears only for an item the map has an entry
-    -- for**, which is every piece in your bags, every vault reward, every drop
-    -- the journal walk found and every row the export carries - exactly the
-    -- three surfaces the brief names. A chat link, a merchant's stock and an
-    -- auction house row get no block at all, because the addon has nothing to
-    -- say about them and "not rated" would be a sentence about a question
-    -- nobody asked. The phrase belongs on an item you HOLD, and the cache puts
-    -- it there.
+    -- for**: every piece in your bags, every vault reward, every drop the
+    -- journal walk found, every row the export carries, and since R-2c any
+    -- copy of a drop his documents rate at some level. A merchant's stock or
+    -- a link to an item the map has NOTHING for gets no block at all, because
+    -- the addon has nothing to say about it and "not rated" would be a
+    -- sentence about a question nobody asked. The phrase belongs on an item
+    -- you HOLD, and the cache puts it there.
     return nil
 end
 
@@ -423,8 +461,19 @@ end
 -- owner's client came from the two shopping tooltips and another addon's
 -- private one, and a block on those is the same block drawn three times beside
 -- one hover.
+--
+-- And `ItemRefTooltip`, since R-2c (WKE-646): the frame a clicked chat link
+-- opens (Blizzard_UIPanels_Game/Mainline/ItemRef.xml:5, a GameTooltip;
+-- `ItemRefTooltipMixin:ItemRefSetHyperlink` calls `SetHyperlink`,
+-- ItemRef.lua:381-383, which is one of the data handler's accessors,
+-- TooltipDataHandler.lua:590, so the Item post-call reaches it). Those two and
+-- no other: the shopping tooltips and other addons' scratch tooltips are still
+-- what R-0 counted.
 function Tooltip.IsOurs(tooltip)
-    return tooltip ~= nil and GameTooltip ~= nil and tooltip == GameTooltip
+    if tooltip == nil then
+        return false
+    end
+    return (GameTooltip ~= nil and tooltip == GameTooltip) or (ItemRefTooltip ~= nil and tooltip == ItemRefTooltip)
 end
 
 function Tooltip.Enabled()
@@ -450,11 +499,11 @@ function Tooltip.OnItemTooltip(tooltip)
     if not ok then
         return
     end
-    local answer = Tooltip.Answer(hyperlink)
+    local answer, _, itemLevel = Tooltip.Answer(hyperlink)
     if not answer then
         return
     end
-    Tooltip.Append(tooltip, answer, { previewMythicPlusLevel = Tooltip.PreviewLevel() })
+    Tooltip.Append(tooltip, answer, { previewMythicPlusLevel = Tooltip.PreviewLevel(), itemLevel = itemLevel })
 end
 
 -- The key level the client previews for the player, which is what a Mythic+

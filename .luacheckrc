@@ -139,6 +139,8 @@ read_globals = {
     "BankFrame",
     "CLASS_ICON_TCOORDS",
     "GameTooltip",
+    -- The tooltip a clicked chat link opens (R-2c, WKE-646; ItemRef.xml:5).
+    "ItemRefTooltip",
     -- The minimap frame the launcher hangs off (M5-2); read through a nil check,
     -- because a client without one is a client with no minimap button.
     "Minimap",
