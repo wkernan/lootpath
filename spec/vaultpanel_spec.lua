@@ -3947,6 +3947,8 @@ describe("the Vault tab's grid over the live client (V-5)", function()
         assert.equal("GameFontNormalSmall", Panel.ProgressFont({ progress = 0, threshold = 2 }))
         assert.equal("GameFontGreen", Panel.ProgressFont({ progress = 5, threshold = 8 }))
         assert.equal("GameFontGreen", Panel.ProgressFont({ progress = 2, threshold = 2, unlocked = true }))
+        -- An unlocked cell is green on its own word, whatever count it carries.
+        assert.equal("GameFontGreen", Panel.ProgressFont({ unlocked = true }))
         assert.equal("GameFontNormalSmall", Panel.ProgressFont(nil))
         -- And drawn: the raid's 2/4, its unlocked cell's level, the world's 0/2.
         local frame = Panel.Create()
