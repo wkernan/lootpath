@@ -2047,7 +2047,13 @@ local SCROLL_INSET = 26
 -- 132 wide against this row's 104 is the widest this window can give it and
 -- still leave three cells that can be read. The trade the issue asked for is
 -- taken here and only here: the cells give way, and they give way in WIDTH.
-local ROW_BANNER_WIDTH = 132
+-- V-7 (WKE-658): 200. The owner, 2026-09-26, beside Blizzard's own Great
+-- Vault: "we should be able to mimic something very close to this within
+-- Lootpath Vault, without needing to change the window size" - and of the
+-- three mockups he chose A, a 200-wide banner and three narrower cells. That
+-- answers V-6a's open question (should the banner be wider). The band ratio
+-- follows from this and CELL_HEIGHT (V-6c): 200 / 110.
+local ROW_BANNER_WIDTH = 200
 -- The air inside the banner. Also where the row's name sits in from the art's
 -- left edge, as Blizzard insets its own header Name (TOPLEFT x=28 of a 326-wide
 -- header, same file).
@@ -2057,13 +2063,17 @@ local ROW_BANNER_INSET = 8
 -- TOPLEFT x=28 y=-18. The banner is ROW_BANNER_WIDTH x CELL_HEIGHT, so each
 -- inset is scaled by its own axis - x by 132/326, y by 104/131 - which keeps
 -- the name where Blizzard puts it relative to the painting's corner (V-6a,
--- WKE-653).
+-- WKE-653). Since V-7 (WKE-658) the banner is 200 x 110, so the same rule
+-- reads 17 and 15.
 local BLIZZARD_HEADER_WIDTH = 326
 local BLIZZARD_HEADER_HEIGHT = 131
 local BLIZZARD_NAME_X = 28
 local BLIZZARD_NAME_Y = 18
 local CELL_GAP = 8
-local CELL_HEIGHT = 104
+-- V-7 (WKE-658): 110, the owner's Option A, closer to Blizzard's own 126-tall
+-- cell (WeeklyRewardActivityTemplate) than 104 was, and the row's height with
+-- it: the banner is ROW_BANNER_WIDTH x CELL_HEIGHT.
+local CELL_HEIGHT = 110
 -- The band at the top of every cell that the "the pick" label lives in. It is
 -- reserved on every cell, not only the one that has a label: a label drawn
 -- above the cell's top edge sat on the bottom of the row above it on the
@@ -2076,6 +2086,27 @@ local LABEL_BAND = 12
 -- cell below it moves.
 local CELL_TICK_SIZE = 12
 local GRID_ROW_GAP = 8
+-- V-7 (WKE-658): Blizzard's own cell, read from WeeklyRewardActivityTemplate
+-- in Blizzard_WeeklyRewards.xml under `.luals/`: the frame is 219 x 126; its
+-- Threshold FontString (`GameFontNormalSmall2`, justifyH LEFT) is 172 wide at
+-- TOPLEFT x=36 y=-16, which leaves 11 on its right; its CompletedIcon
+-- (`activities-icon-checkmark`, useAtlasSize) sits at TOPLEFT x=9 y=-12. A
+-- Lootpath cell is not 219 x 126, so every one of these is scaled to the cell
+-- it is drawn in - x by the cell's width over 219, y by its height over 126 -
+-- by `Panel.CellPlace`.
+local BLIZZARD_CELL_WIDTH = 219
+local BLIZZARD_CELL_HEIGHT = 126
+local BLIZZARD_THRESHOLD_X = 36
+local BLIZZARD_THRESHOLD_Y = 16
+local BLIZZARD_THRESHOLD_WIDTH = 172
+local BLIZZARD_TICK_X = 9
+local BLIZZARD_TICK_Y = 12
+-- The corner's height when it carries the progress along the badge's bottom:
+-- `GameFontGreen` is 12 point (GameFontNormal -> SystemFont_Shadow_Med1,
+-- Blizzard_Fonts_Shared/Shared/FontStyles.xml and GameFonts.xml), two more
+-- than the top band's 10, so it gets the band's own two points of air over
+-- its own size rather than being cut to 10.
+local PROGRESS_HEIGHT = 14
 -- The four widths above, published for spec/vaultpanel_spec.lua: the guard that
 -- the row spends the window's width on its cells has to name them, and naming
 -- them a second time in the test would be a second copy of each (M5-2c,
@@ -2087,6 +2118,80 @@ Panel.ROW_BANNER_INSET = ROW_BANNER_INSET
 Panel.ROW_NAME_X = math.floor(BLIZZARD_NAME_X * ROW_BANNER_WIDTH / BLIZZARD_HEADER_WIDTH + 0.5)
 Panel.ROW_NAME_Y = math.floor(BLIZZARD_NAME_Y * CELL_HEIGHT / BLIZZARD_HEADER_HEIGHT + 0.5)
 Panel.CELL_GAP = CELL_GAP
+Panel.CELL_HEIGHT = CELL_HEIGHT
+
+-- V-7 (WKE-658): the cell's words, tick and progress where Blizzard's own cell
+-- puts them, scaled to a Lootpath cell. Pure: `cellWidth` and `cellHeight` in,
+-- a table of whole points out -
+--   x, y      the words' TOPLEFT (Blizzard's 36/219 and 16/126 of the cell)
+--   width     the cell less the words' two insets (Blizzard's 36 and 11)
+--   tickX/Y   the tick's TOPLEFT (Blizzard's 9/219 and 12/126)
+--   tickRoom  the room between the tick's left and the words' left, so a tick
+--             drawn at its own size never covers the first letter
+-- Rounded to the nearest point. Nil for a cell with no size.
+local function roundPoint(value)
+    return math.floor(value + 0.5)
+end
+
+function Panel.CellPlace(cellWidth, cellHeight)
+    cellWidth, cellHeight = tonumber(cellWidth), tonumber(cellHeight)
+    if not cellWidth or not cellHeight or cellWidth <= 0 or cellHeight <= 0 then
+        return nil
+    end
+    local sx = cellWidth / BLIZZARD_CELL_WIDTH
+    local sy = cellHeight / BLIZZARD_CELL_HEIGHT
+    local x = roundPoint(BLIZZARD_THRESHOLD_X * sx)
+    local right = roundPoint((BLIZZARD_CELL_WIDTH - BLIZZARD_THRESHOLD_X - BLIZZARD_THRESHOLD_WIDTH) * sx)
+    local tickX = roundPoint(BLIZZARD_TICK_X * sx)
+    return {
+        x = x,
+        y = roundPoint(BLIZZARD_THRESHOLD_Y * sy),
+        width = math.max(1, cellWidth - x - right),
+        tickX = tickX,
+        tickY = roundPoint(BLIZZARD_TICK_Y * sy),
+        tickRoom = math.max(1, x - tickX),
+    }
+end
+
+-- The words' font: Blizzard's Threshold inherits `GameFontNormalSmall2` (11
+-- point, SystemFont_Shadow_Small2); a client without it keeps
+-- `GameFontNormalSmall` (10 point). Both are gold on their own
+-- (Blizzard_Fonts_Shared/Shared/FontStyles.xml).
+Panel.THRESHOLD_FONT = "GameFontNormalSmall2"
+Panel.THRESHOLD_FONT_FALLBACK = "GameFontNormalSmall"
+-- Blizzard's Refresh colours the words `DISABLED_FONT_COLOR` (grey) on a
+-- locked cell and `NORMAL_FONT_COLOR` (gold) once it is unlocked
+-- (WeeklyRewardsActivityMixin:Refresh, Blizzard_WeeklyRewards.lua). The
+-- globals are named, never their figures: a client without one leaves the
+-- font's own gold.
+Panel.THRESHOLD_COLOR = {
+    locked = "DISABLED_FONT_COLOR",
+    unlocked = "NORMAL_FONT_COLOR",
+}
+-- The progress's two fonts: Blizzard's own Progress (`GameFontGreen`, 12
+-- point) and the gold one V-6b drew every corner in (`GameFontNormalSmall`).
+Panel.PROGRESS_FONT_GREEN = "GameFontGreen"
+Panel.PROGRESS_FONT_GOLD = "GameFontNormalSmall"
+
+-- Which font a cell's progress is drawn in - the owner's answer, 2026-09-26
+-- (V-7, WKE-658): "green when there is progress, gold when there is none".
+-- Green when the cell is unlocked (its corner is the level it reached) or its
+-- count is above zero (`5/8`); gold when the count is zero (`0/2`). One rule,
+-- here and nowhere else. Blizzard greys the whole corner on a locked cell; the
+-- owner chose to show a started row in green instead.
+function Panel.ProgressFont(cell)
+    if type(cell) ~= "table" then
+        return Panel.PROGRESS_FONT_GOLD
+    end
+    if cell.unlocked == true then
+        return Panel.PROGRESS_FONT_GREEN
+    end
+    local progress = tonumber(cell.progress)
+    if progress and progress > 0 then
+        return Panel.PROGRESS_FONT_GREEN
+    end
+    return Panel.PROGRESS_FONT_GOLD
+end
 
 local CELL_ICON_SIZE = 32
 local CHIP_ICON_SIZE = 14
@@ -2571,6 +2676,37 @@ local function drawAtlas(texture, name, boxWidth, boxHeight, margin, crop)
     return true
 end
 
+-- Sets a font object by name when the client has it, else the fallback when
+-- the client has that; returns the name set, or nil when it had neither and
+-- the font string keeps its template's (V-7, WKE-658).
+local function hasFont(name)
+    local font = type(name) == "string" and _G[name] or nil
+    return type(font) == "table" or type(font) == "userdata"
+end
+
+local function setFont(fontString, name, fallback)
+    local chosen = (hasFont(name) and name) or (hasFont(fallback) and fallback) or nil
+    if chosen then
+        fontString:SetFontObject(chosen)
+    end
+    return chosen
+end
+
+-- The colour of a cell's words by its state, from the client's own colour
+-- global (`Panel.THRESHOLD_COLOR`); nil when the client has none.
+local function thresholdRGB(state)
+    local name = Panel.THRESHOLD_COLOR[state == "locked" and "locked" or "unlocked"]
+    local color = name and _G[name] or nil
+    if type(color) ~= "table" then
+        return nil
+    end
+    local r, g, b = tonumber(color.r), tonumber(color.g), tonumber(color.b)
+    if r and g and b then
+        return r, g, b
+    end
+    return nil
+end
+
 -- One option cell. Its regions are created once and re-bound on every refresh,
 -- the way every list in this addon works: a cell that stops being the pick must
 -- lose its glow, and a cell that stops holding an item must cancel what that
@@ -2589,9 +2725,10 @@ local function createCell(parent)
     cell.background:SetTexture(WHITE_TEXTURE)
     cell.background:SetVertexColor(0.07, 0.07, 0.08, 0.8)
 
-    -- The tick on an unlocked cell, in Blizzard's own art, in the corner band so
-    -- it never sits on the item's name. Blizzard's own CompletedIcon is drawn at
-    -- the atlas's size; here it is fitted to the band, at its own aspect.
+    -- The tick on an unlocked cell, in Blizzard's own art. On a cell holding a
+    -- reward it stays in the corner band so it never sits on the item's name,
+    -- fitted to the band at its own aspect; on an unlocked cell with no reward
+    -- `paintCell` moves it to Blizzard's own place, beside the words (V-7).
     cell.tick = cell:CreateTexture(nil, "OVERLAY")
     cell.tick:SetSize(CELL_TICK_SIZE, CELL_TICK_SIZE)
     cell.tick:SetPoint("TOPRIGHT", cell, "TOPRIGHT", -4, -2)
@@ -2695,19 +2832,18 @@ local function createCell(parent)
     cell.footer:SetJustifyH("LEFT")
     cell.footer:SetWordWrap(false)
 
-    -- The locked cell's own words, centred, where the item line would be.
-    cell.locked = cell:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-    -- Inside the badge rather than inside the cell (V-5a, WKE-607): the art is
-    -- now drawn at its own size and centred, so a sentence anchored to the cell
-    -- would hang off the art it is written on. Anchored to the background it
-    -- follows whatever was drawn - and on a client with no atlas the background
-    -- still covers the whole cell, which is where this sentence used to be. A
-    -- band is left at the top for the corner and one at the bottom for the
-    -- fraction, so the sentence shares a line with neither (V-5, WKE-600).
-    cell.locked:SetPoint("TOPLEFT", cell.background, "TOPLEFT", 6, -(LABEL_BAND + 4))
-    cell.locked:SetPoint("BOTTOMRIGHT", cell.background, "BOTTOMRIGHT", -6, LABEL_BAND + 4)
-    cell.locked:SetJustifyH("CENTER")
-    cell.locked:SetJustifyV("MIDDLE")
+    -- The cell's own words - what unlocks it - where Blizzard writes its
+    -- Threshold (V-7, WKE-658): top-left, left-justified, wrapping, in
+    -- Blizzard's small font, grey while locked and gold once unlocked. Inside
+    -- the badge rather than inside the cell (V-5a, WKE-607): anchored to the
+    -- background it follows whatever was drawn - and on a client with no atlas
+    -- the background still covers the whole cell. The anchor, the width and
+    -- the colour are set in `bindCell`, because they follow the cell's width
+    -- and its state.
+    cell.locked = cell:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    setFont(cell.locked, Panel.THRESHOLD_FONT, Panel.THRESHOLD_FONT_FALLBACK)
+    cell.locked:SetJustifyH("LEFT")
+    cell.locked:SetJustifyV("TOP")
     cell.locked:SetWordWrap(true)
     cell.locked:Hide()
 
@@ -2912,16 +3048,36 @@ local function paintCell(cell, data)
         cell.background:SetTexture(WHITE_TEXTURE)
         cell.background:SetVertexColor(0.07, 0.07, 0.08, 0.8)
     end
-    local tick = data.tick and drawAtlas(cell.tick, Panel.COMPLETED_ATLAS, CELL_TICK_SIZE, CELL_TICK_SIZE, 0)
+    -- The tick. On a cell with no reward (V-7, WKE-658) it is Blizzard's
+    -- CompletedIcon: top-left of the badge at Blizzard's 9, -12 scaled to the
+    -- cell, beside the words, at the atlas's own size when that fits in the
+    -- room left of the words and fitted at its own aspect when it does not. A
+    -- reward cell keeps V-5's corner band, where it never sits on the item.
+    local place = Panel.CellPlace(cell:GetWidth() or 0, CELL_HEIGHT)
+    cell.tick:ClearAllPoints()
+    local tick
+    if data.kind == "locked" and place then
+        cell.tick:SetPoint("TOPLEFT", cell.background, "TOPLEFT", place.tickX, -place.tickY)
+        tick = data.tick and drawAtlas(cell.tick, Panel.COMPLETED_ATLAS, place.tickRoom, place.tickRoom, 0)
+    else
+        cell.tick:SetPoint("TOPRIGHT", cell, "TOPRIGHT", -4, -2)
+        tick = data.tick and drawAtlas(cell.tick, Panel.COMPLETED_ATLAS, CELL_TICK_SIZE, CELL_TICK_SIZE, 0)
+    end
     cell.tick:SetShown(tick and true or false)
     -- A locked cell puts the fraction bottom-right inside the badge, as
     -- Blizzard does; a cell with a reward keeps it in the top band, where its
-    -- footer and extras are not (V-5a, WKE-607).
+    -- footer and extras are not (V-5a, WKE-607). Along the bottom it is
+    -- green when there is progress and gold when there is none
+    -- (`Panel.ProgressFont`, V-7).
     cell.corner:ClearAllPoints()
     if data.kind == "locked" then
         cell.corner:SetPoint("BOTTOMRIGHT", cell.background, "BOTTOMRIGHT", -Panel.CORNER_INSET, Panel.CORNER_INSET)
+        cell.corner:SetHeight(PROGRESS_HEIGHT)
+        setFont(cell.corner, Panel.ProgressFont(data), Panel.PROGRESS_FONT_GOLD)
     else
         cell.corner:SetPoint("TOPRIGHT", cell.tick, "TOPLEFT", -2, 0)
+        cell.corner:SetHeight(LABEL_BAND - 2)
+        setFont(cell.corner, Panel.PROGRESS_FONT_GOLD)
     end
     cell.corner:SetText(data.cornerText or "")
     cell.corner:SetShown(data.cornerText ~= nil)
@@ -2946,6 +3102,19 @@ local function bindCell(cell, data, cellWidth)
         cell.tags:SetText("")
         cell.verdict:SetText("")
         cell.footer:SetText("")
+        -- Blizzard's Threshold, placed and coloured as its Refresh does (V-7).
+        local place = Panel.CellPlace(cellWidth, CELL_HEIGHT)
+        cell.locked:ClearAllPoints()
+        if place then
+            cell.locked:SetPoint("TOPLEFT", cell.background, "TOPLEFT", place.x, -place.y)
+            cell.locked:SetWidth(place.width)
+        else
+            cell.locked:SetPoint("TOPLEFT", cell.background, "TOPLEFT", 0, 0)
+        end
+        local r, g, b = thresholdRGB(data.state)
+        if r then
+            cell.locked:SetTextColor(r, g, b)
+        end
         cell.locked:SetText(data.text or "")
         cell.locked:Show()
         cell.label:Hide()
@@ -2997,10 +3166,10 @@ function Panel.Refresh(self, opts)
     local gaps = CELL_GAP * (Panel.ROW_CELLS - 1)
     -- What three cells across are left after the banner. At the width this
     -- content frame now gets on a 760-wide window (a 734-point panel less the
-    -- 26 the scrollbar takes = 708) that is (708 - 132 - 16) / 3 = 186 each,
-    -- against the 124 it drew at while the content frame was frozen at 520.
-    -- The banner keeps the 132 V-5a gave it: the room the window gained goes to
-    -- the cells, which is the side V-5a had to squeeze.
+    -- 26 the scrollbar takes = 708) that was (708 - 132 - 16) / 3 = 186 each
+    -- while the banner was V-5a's 132. Since V-7 (WKE-658) the banner is 200 -
+    -- the owner's Option A - and the same formula gives (708 - 200 - 16) / 3 =
+    -- 164: Blizzard's proportions, at the window's own width.
     local cellWidth = math.max(60, math.floor((width - ROW_BANNER_WIDTH - gaps) / Panel.ROW_CELLS))
 
     local lines = Panel.NoteLines(model)

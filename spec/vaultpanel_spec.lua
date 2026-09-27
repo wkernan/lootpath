@@ -3538,15 +3538,20 @@ describe("the Vault tab's grid over the live client (V-5)", function()
         assertSameShape(unlocked.background, "evergreen-weeklyrewards-reward-unlocked")
         assertSameShape(locked.background, "evergreen-weeklyrewards-reward-locked")
         -- And no longer the cell's own box, which is what it used to be handed.
-        -- Which side decides the fit moved with the window (M5-2c, WKE-609): at
-        -- 620 the cell was narrower than the art was tall in proportion and the
-        -- art came out shorter than the cell, with words above and below it; at
-        -- 760 the cell is wide enough that the HEIGHT is what binds, so the art
-        -- fills the cell's height and stops short of its width. Either way one
-        -- scale factor did both sides - `assertSameShape` above is what proves
-        -- that - and the art never runs past the cell it is drawn in.
-        assert.not_equal(unlocked.background:GetWidth(), unlocked:GetWidth())
-        assert.is_true(unlocked.background:GetWidth() < unlocked:GetWidth())
+        -- Which side decides the fit moved with the window (M5-2c, WKE-609) and
+        -- again with the banner (V-7, WKE-658): at 760 with a 132 banner the
+        -- cell was wide enough that the HEIGHT bound, so the art filled the
+        -- cell's height and stopped short of its width; with the 200 banner the
+        -- 164 x 110 cell is narrower than the art in proportion, so the WIDTH
+        -- binds and the art stops short of its height. Either way one scale
+        -- factor did both sides - `assertSameShape` above is what proves that -
+        -- the art is never the cell's own box, and it never runs past the cell
+        -- it is drawn in.
+        assert.is_false(
+            unlocked.background:GetWidth() == unlocked:GetWidth()
+                and unlocked.background:GetHeight() == unlocked:GetHeight()
+        )
+        assert.is_true(unlocked.background:GetWidth() <= unlocked:GetWidth())
         assert.is_true(unlocked.background:GetHeight() <= unlocked:GetHeight())
     end)
 
@@ -3730,12 +3735,12 @@ describe("the Vault tab's grid over the live client (V-5)", function()
             -- the banner's own box, the painting's full height in it.
             assert.is_false(art.atlasUsedSize)
             assert.equal(ns.VaultPanel.ROW_BANNER_WIDTH, art:GetWidth())
-            assert.equal(104, art:GetHeight())
+            assert.equal(ns.VaultPanel.CELL_HEIGHT, art:GetHeight())
             assertCoords(
                 (
                     ns.UpgradeMapPanel.AtlasBandTexCoord(
                         C_Texture.GetAtlasInfo(CATEGORY[key]),
-                        ns.VaultPanel.ROW_BANNER_WIDTH / 104,
+                        ns.VaultPanel.ROW_BANNER_WIDTH / ns.VaultPanel.CELL_HEIGHT,
                         ns.VaultPanel.ROW_ART_ANCHOR[key]
                     )
                 ),
@@ -3753,11 +3758,13 @@ describe("the Vault tab's grid over the live client (V-5)", function()
         local frame = ns.VaultPanel.Create()
         frame:Refresh()
         -- 28 of 326 across and 18 of 131 down in Blizzard's header, read to
-        -- 11 and 14 on a 132 x 104 banner.
-        assert.equal(11, ns.VaultPanel.ROW_NAME_X)
-        assert.equal(14, ns.VaultPanel.ROW_NAME_Y)
+        -- 11 and 14 on V-6a's 132 x 104 banner and to 17 and 15 on V-7's
+        -- 200 x 110 one (WKE-658).
+        assert.equal(17, ns.VaultPanel.ROW_NAME_X)
+        assert.equal(15, ns.VaultPanel.ROW_NAME_Y)
         local label = frame.gridRows[1].label
-        assert.same({ "TOPLEFT", frame.gridRows[1].art, "TOPLEFT", 11, -14 }, label.points[1])
+        assert.same({ "TOPLEFT", frame.gridRows[1].art, "TOPLEFT", 17, -15 }, label.points[1])
+        assert.equal(200 - 17 * 2, label:GetWidth())
     end)
 
     it("names the row in Blizzard's banner font and colour when the client has it", function()
@@ -3805,6 +3812,171 @@ describe("the Vault tab's grid over the live client (V-5)", function()
         local reward = frame.gridRows[1].cells[1]
         assert.equal("reward", reward.data.kind)
         assert.same({ "TOPRIGHT", reward.tick, "TOPLEFT", -2, 0 }, reward.corner.points[1])
+    end)
+
+    -- V-7 (WKE-658). The owner, 2026-09-26, with Blizzard's Great Vault and
+    -- this tab side by side: "we should be able to mimic something very close
+    -- to this within Lootpath Vault, without needing to change the window
+    -- size." He chose Option A of the mockup: a 200-wide banner, 110-tall
+    -- cells, the words top-left in Blizzard's small font, the big check beside
+    -- them, the progress green when there is any and gold when there is none,
+    -- no dividers. Every Blizzard figure below is read from
+    -- WeeklyRewardActivityTemplate in Blizzard_WeeklyRewards.xml under
+    -- `.luals/`; every Lootpath figure is what busted drew.
+    it("lays the grid out as Option A: a 200-wide banner, 110-tall cells, the window unchanged", function()
+        local Panel = ns.VaultPanel
+        assert.equal(200, Panel.ROW_BANNER_WIDTH)
+        assert.equal(110, Panel.CELL_HEIGHT)
+        local frame = Panel.Create()
+        frame:Refresh()
+        -- The window is the width it was; the three cells take what the
+        -- banner leaves of the 708-point content frame: (708 - 200 - 16) / 3.
+        assert.equal(ns.UI.PANEL_WIDTH - Panel.SCROLL_INSET, frame.content:GetWidth())
+        for _, gridRow in ipairs(frame.gridRows) do
+            assert.equal(110, gridRow:GetHeight())
+            for _, cell in ipairs(gridRow.cells) do
+                assert.equal(164, cell:GetWidth())
+                assert.equal(110, cell:GetHeight())
+            end
+            -- The first cell starts where the banner ends.
+            assert.same({ "TOPLEFT", gridRow, "TOPLEFT", 200, 0 }, gridRow.cells[1].points[1])
+        end
+    end)
+
+    it("draws the banner as the painting's band at 200:110", function()
+        withRect({ 0, 1, 0, 1 })
+        local Panel = ns.VaultPanel
+        local frame = Panel.Create()
+        frame:Refresh()
+        for index, key in ipairs(Panel.ROW_ORDER) do
+            local art = frame.gridRows[index].art
+            assert.equal(200, art:GetWidth())
+            assert.equal(110, art:GetHeight())
+            assertCoords(
+                (
+                    ns.UpgradeMapPanel.AtlasBandTexCoord(
+                        C_Texture.GetAtlasInfo(CATEGORY[key]),
+                        200 / 110,
+                        Panel.ROW_ART_ANCHOR[key]
+                    )
+                ),
+                art.texCoord
+            )
+        end
+        -- Over the stub's PLACEHOLDER 326 x 131 (Blizzard's header frame, never
+        -- a measured atlas; WKE-656's /run line was not pasted when this was
+        -- built), read from busted: the full height, and the band 200:110 wide.
+        assertCoords({ 0.094283, 0.824902, 0, 1 }, frame.gridRows[1].art.texCoord)
+        assertCoords({ 0.134690, 0.865310, 0, 1 }, frame.gridRows[2].art.texCoord)
+        assertCoords({ 0.134690, 0.865310, 0, 1 }, frame.gridRows[3].art.texCoord)
+    end)
+
+    it("places the words, the tick and the progress at Blizzard's own insets, scaled to the cell", function()
+        local Panel = ns.VaultPanel
+        -- On Blizzard's own 219 x 126 cell the rule gives Blizzard's figures back.
+        assert.same({ x = 36, y = 16, width = 172, tickX = 9, tickY = 12, tickRoom = 27 }, Panel.CellPlace(219, 126))
+        -- On a 164 x 110 cell: 36 x 164/219 = 26.96, 16 x 110/126 = 13.97, the
+        -- right inset 11 x 164/219 = 8.24, the tick 9 x 164/219 = 6.74 and
+        -- 12 x 110/126 = 10.48, each to the nearest point.
+        assert.same({ x = 27, y = 14, width = 129, tickX = 7, tickY = 10, tickRoom = 20 }, Panel.CellPlace(164, 110))
+        assert.is_nil(Panel.CellPlace(0, 110))
+        assert.is_nil(Panel.CellPlace(164, nil))
+    end)
+
+    it("writes a locked cell's words top-left in Blizzard's small font, grey, wrapping", function()
+        local frame = ns.VaultPanel.Create()
+        frame:Refresh()
+        local locked = frame.gridRows[1].cells[2]
+        assert.equal("locked", locked.data.state)
+        local words = locked.locked
+        assert.is_true(words:IsShown())
+        assert.equal("PLACEHOLDER defeat 4 bosses", words:GetText())
+        assert.same({ "TOPLEFT", locked.background, "TOPLEFT", 27, -14 }, words.points[1])
+        assert.equal(1, #words.points)
+        assert.equal(129, words:GetWidth())
+        assert.equal("GameFontNormalSmall2", words:GetFontObject())
+        assert.equal("LEFT", words:GetJustifyH())
+        assert.is_true(words.wordWrap)
+        -- DISABLED_FONT_COLOR, as Blizzard's Refresh colours a locked Threshold.
+        assert.same({ 0.502, 0.502, 0.502 }, words.textColor)
+        -- No tick on a locked cell.
+        assert.is_false(locked.tick:IsShown())
+    end)
+
+    it("writes an unlocked cell's words in gold with the tick beside them", function()
+        local frame = ns.VaultPanel.Create()
+        frame:Refresh()
+        local unlocked = frame.gridRows[1].cells[1]
+        assert.equal("unlocked", unlocked.data.state)
+        local words = unlocked.locked
+        assert.is_true(words:IsShown())
+        assert.same({ "TOPLEFT", unlocked.background, "TOPLEFT", 27, -14 }, words.points[1])
+        assert.equal("GameFontNormalSmall2", words:GetFontObject())
+        -- NORMAL_FONT_COLOR, as Blizzard's Refresh colours an unlocked one.
+        assert.same({ 1.000, 0.824, 0.000 }, words.textColor)
+        -- The tick: Blizzard's 9, -12 scaled, top-left of the badge, left of
+        -- the words; at the atlas's own size, which fits the 20 points there.
+        local tick = unlocked.tick
+        assert.is_true(tick:IsShown())
+        assert.equal("activities-icon-checkmark", tick:GetAtlas())
+        assert.same({ "TOPLEFT", unlocked.background, "TOPLEFT", 7, -10 }, tick.points[1])
+        assert.is_true(tick.atlasUsedSize)
+        assert.is_true(7 + tick:GetWidth() <= 27)
+    end)
+
+    it("fits a tick larger than its room at its own aspect, never over the words", function()
+        world.atlases["activities-icon-checkmark"] = { width = 40, height = 30 }
+        local frame = ns.VaultPanel.Create()
+        frame:Refresh()
+        local tick = frame.gridRows[1].cells[1].tick
+        assert.is_true(tick:IsShown())
+        assert.equal(20, tick:GetWidth())
+        assert.equal(15, tick:GetHeight())
+    end)
+
+    it("keeps the plain small font on a client without Blizzard's small font", function()
+        _G.GameFontNormalSmall2 = nil
+        local frame = ns.VaultPanel.Create()
+        frame:Refresh()
+        assert.equal("GameFontNormalSmall", frame.gridRows[1].cells[2].locked:GetFontObject())
+    end)
+
+    it("draws the progress green when there is any and gold when there is none", function()
+        local Panel = ns.VaultPanel
+        -- The rule, on its own.
+        assert.equal("GameFontNormalSmall", Panel.ProgressFont({ progress = 0, threshold = 2 }))
+        assert.equal("GameFontGreen", Panel.ProgressFont({ progress = 5, threshold = 8 }))
+        assert.equal("GameFontGreen", Panel.ProgressFont({ progress = 2, threshold = 2, unlocked = true }))
+        -- An unlocked cell is green on its own word, whatever count it carries.
+        assert.equal("GameFontGreen", Panel.ProgressFont({ unlocked = true }))
+        assert.equal("GameFontNormalSmall", Panel.ProgressFont(nil))
+        -- And drawn: the raid's 2/4, its unlocked cell's level, the world's 0/2.
+        local frame = Panel.Create()
+        frame:Refresh()
+        local started = frame.gridRows[1].cells[2]
+        local unlocked = frame.gridRows[1].cells[1]
+        local untouched = frame.gridRows[3].cells[1]
+        assert.equal("2/4", started.corner:GetText())
+        assert.equal("GameFontGreen", started.corner:GetFontObject())
+        assert.equal("PLACEHOLDER Mythic raid", unlocked.corner:GetText())
+        assert.equal("GameFontGreen", unlocked.corner:GetFontObject())
+        assert.equal("0/2", untouched.corner:GetText())
+        assert.equal("GameFontNormalSmall", untouched.corner:GetFontObject())
+        -- Still V-6b's inset, and tall enough for the 12-point green font.
+        assert.same({ "BOTTOMRIGHT", untouched.background, "BOTTOMRIGHT", -15, 15 }, untouched.corner.points[1])
+        assert.equal(14, started.corner:GetHeight())
+    end)
+
+    it("leaves a reward cell's tick and item where V-5 put them", function()
+        generateReward(world, 1, COVERED_ITEM.id, COVERED_ITEM.bonusIDs, COVERED_ITEM.name, 272)
+        local frame = ns.VaultPanel.Create()
+        frame:Refresh()
+        local reward = frame.gridRows[1].cells[1]
+        assert.equal("reward", reward.data.kind)
+        assert.is_true(reward.tick:IsShown())
+        assert.same({ "TOPRIGHT", reward, "TOPRIGHT", -4, -2 }, reward.tick.points[1])
+        assert.is_false(reward.locked:IsShown())
+        assert.same({ "TOPLEFT", reward, "TOPLEFT", 6, -18 }, reward.line.points[1])
     end)
 
     it("draws all of it without interacting with the vault", function()
