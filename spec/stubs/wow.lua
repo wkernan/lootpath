@@ -260,6 +260,16 @@ local function attachFontSurface(r)
     function r:GetFontObject()
         return self.fontObject
     end
+    -- Which way a FontString's lines are justified is a choice too: the vault
+    -- cell's words went from centred to Blizzard's LEFT in V-7 (WKE-658). The
+    -- real widget has a getter (`FontString:GetJustifyH`, Core/Widget/Font/
+    -- FontString.lua:67 under .luals/); it answers what was set.
+    function r:SetJustifyH(value)
+        self.justifyH = value
+    end
+    function r:GetJustifyH()
+        return self.justifyH
+    end
 end
 
 -- A Texture's own surface (Base/TextureBase.lua and Texture/Texture.lua).
@@ -1941,6 +1951,18 @@ function Stub.install()
     -- The colour Blizzard gives that Name, read from Core/Type/GlobalColors.lua
     -- :155 under .luals/ (`CreateColor(1.000, 0.824, 0.000, 1.000)`).
     define("NORMAL_FONT_COLOR", { r = 1.000, g = 0.824, b = 0.000, a = 1.000 })
+    -- V-7 (WKE-658): the grey Blizzard's vault gives a locked cell's words,
+    -- read from Core/Type/GlobalColors.lua:53 under .luals/
+    -- (`CreateColor(0.502, 0.502, 0.502, 1.000)`).
+    define("DISABLED_FONT_COLOR", { r = 0.502, g = 0.502, b = 0.502, a = 1.000 })
+    -- And the three font objects the vault cell asks for by name since V-7:
+    -- its Threshold's `GameFontNormalSmall2`, its Progress's `GameFontGreen`,
+    -- and the `GameFontNormalSmall` both fall back to (Blizzard_Fonts_Shared/
+    -- Shared/FontStyles.xml:287, :70, :56). Identities, like the ones above; a
+    -- test that wants a client without one sets it to nil before building.
+    define("GameFontNormalSmall2", { fontName = "GameFontNormalSmall2" })
+    define("GameFontGreen", { fontName = "GameFontGreen" })
+    define("GameFontNormalSmall", { fontName = "GameFontNormalSmall" })
     define("UIParent", newFrame("Frame", world))
     define("UISpecialFrames", {})
     -- The minimap, for the launcher to hang off (M5-2). 140 points across at
