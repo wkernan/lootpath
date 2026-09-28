@@ -14,6 +14,8 @@ The loop can go from two reloads per drop to **zero reloads per refresh** by car
 
 Two layers that stand, each on its own, and a third recorded as not worth building. Build order is the owner's; the memo's recommendation is foresight first (it removes the most refreshes and needs no new client behaviour) and the clipboard courier second (it removes both reloads from the refreshes that remain: one Ctrl+C to send the gear, one Ctrl+V to load the rating). The one thing no layer gives is a send with no keystroke at all - the only API that would (`CopyToClipboard`) is protected to Blizzard's code, and the only other zero-keystroke channel is a screenshot pixel block, recorded under the dead ends with its optics.
 
+**Added 2026-09-27, small hours, after the owner asked for the Raider.IO shape - "just updates each evening", no `/reload`, no `/lootpath refresh`, ever:** there is a fourth layer that gives exactly that, with no keystroke at all, and it is the cheapest of the four. See "Layer 2b: capture on change" below. The rating is then always as of the last logout, foresight covers the session in between, and the clipboard courier becomes the optional "I want it tonight" hatch rather than the loop.
+
 ---
 
 ## Layer 1: foresight. Rate the future before it drops, so the drop moment needs no refresh.
@@ -135,6 +137,47 @@ Both hops of the round trip can ride the Windows clipboard. Nothing else outside
 
 ---
 
+## Layer 2b: capture on change. The Raider.IO shape - it updates while you are logged out, and the login is the load. No command, no reload, no keystroke.
+
+The owner, 2026-09-27: "What would it take to make the addon more like raider.io that just updates each evening? ... not needing to do a /reload or a /lootpath refresh. Is there a world at all where we can make this happen?" There is, and most of it is already built.
+
+### Why it works where R-7 could not
+
+R-7 (WKE-579) captured gear AT `PLAYER_LOGOUT` and R-7c (WKE-594) measured that the item layer is torn down before either `PLAYER_LEAVING_WORLD` or `PLAYER_LOGOUT` fires: four real logouts, four empty reads, `equipped 0` in 0.07 ms. So the flush carried whatever the last MANUAL capture held, and the promise "log out and the rating is current next login" was retired. **The read at logout is impossible; a read at the moment the gear CHANGES is not.** `Drift` already listens to `PLAYER_EQUIPMENT_CHANGED` and `BAG_UPDATE_DELAYED` for the nudge (`Drift.lua:352-375`), the Roads cache already rebuilds on those events plus `WEEKLY_REWARDS_UPDATE` and `CURRENCY_DISPLAY_UPDATE` (ROADS-UX buildability), and an `inventory` capture costs 14-30 ms on the owner's real bags (§9). If those same events also refresh the stored `inventory`, `vault` and `currencies` snapshots - out of combat, debounced to one scan per few seconds, a change in combat taken at `PLAYER_REGEN_ENABLED` - then what SavedVariables hold in memory is always the character's current gear, and the logout flush, which already writes `env`, `vault` and `currencies` correctly (R-7b), writes it to disk with no command from the player. The `env` snapshot at the flush still names no spec (C-16a), and the companion's newest-named-spec walk already covers that.
+
+### The evening
+
+1. Log in. The rating the companion wrote after last night's logout is loaded by the login itself (`Companion.Startup`, the character gate, every pin) - the login IS reload 2, and it was always going to happen.
+2. Play. Drops are answered by foresight (layer 1). Every equip, loot, vault claim and currency change refreshes the snapshot in memory. Nothing to do.
+3. Log out. The client writes SavedVariables. The watcher wakes (as today), the fingerprint says the profile changed (C-4), QE Live runs for the measured 92-135 s plus foresight's estimated 2-4 minutes, the verdict file is written (C-17's rename retry has no reload to collide with), the companion sleeps.
+4. Next login loads it. Repeat.
+
+Zero reloads, zero commands, zero keystrokes. The companion runs at logon like Raider.IO's client; that is the one thing no design removes (§"The question").
+
+### The trade, stated plainly
+
+The rating is always **as of the last logout**. Foresight covers the drops of the session in between. What arrives a login late is what foresight does not predict: the vault options once the window generates them (the Upgrade Finder's `bonus` rows stand in until then, labelled `against what you wear`), the craft and Catalyst questions, and a drop nobody foresaw. For any of those wanted TONIGHT, the clipboard courier (layer 2) is the two-keystroke hatch; without it the answer is tomorrow's login - exactly as a Raider.IO score waits for the next login after the run is uploaded. Two healers in one evening: the verdict file is one per machine and the last to log out owns it (C-15), so the second character loads the first's file, is refused by the character gate, and keeps its own last import; carrying several characters' documents in one file is the contract change that fixes it, and it is modest.
+
+### What it costs
+
+- **Addon, one small issue:** capture-on-change. The three captures already exist as functions; the new part is the event wiring, the debounce, the combat deferral, and the rule that a snapshot taken this way is stored like a refresh's (`trigger = "change"`), inside `ns.CAPTURE_HISTORY`'s ring of four so nothing grows. The bank stays readable only while its frame is open, as today. Every read passes `ns.Safe`, as today. **Nothing new is called**: the same `C_Container`, `C_Item`, `C_WeeklyRewards` and `C_CurrencyInfo` reads the captures make now, on events the addon already registers.
+- **Companion:** nothing for this layer; foresight (issues 3 and 4) is what makes the login-loaded rating cover the session.
+- **Words on screen:** `Drift.Decide` already says the rating's age; the strip says when it was rated and the login line says what loaded. R-7c's guard in `spec/drift_spec.lua` forbids any string that puts "logout" beside "captured" or "current" - and this layer does not need one: the honest sentence is `rated at your last logout, 14 hours ago`, which names the time and no promise. Whether that sentence is allowed past the guard is a wording decision for the issue, not a reason against the layer.
+- **What the verification ladder owes:** one real logout on the built branch with a gear change in the session, then `tools\sync.ps1 -Pull`, and the transcript's newest `inventory` snapshot carrying `trigger = "change"` with the changed piece in it and a stamp before the flush. That is the whole proof, and it is the owner's.
+
+### How the four layers now fit
+
+| Layer | Removes | Keystrokes per refresh | Reloads |
+|---|---|---|---|
+| 1 Foresight | the refresh after every drop | - | - |
+| 2 Clipboard courier | both reloads from a refresh you ask for tonight | 2 | 0 |
+| 2b Capture on change | the refresh itself: the logout is the send, the login is the load | 0 | 0 |
+| 3 Load-on-demand stubs | (not recommended) | | |
+
+With 1 and 2b built, the owner never types `/lootpath refresh` and never reloads; with 2 beside them he can also have tonight's vault rated tonight for two keystrokes.
+
+---
+
 ## Layer 3: load-on-demand stubs. A zero-keystroke inbound on paper; its ready flag is gone and its optics are worse than the paste. Not recommended.
 
 - **Mechanism.** Ship N small addons `LootpathVerdict1..N`, each a `.toc` with `## LoadOnDemand: 1`, `## Group: Lootpath` (the AddOn list groups them under Lootpath; the Group value "must EXACTLY match the name of the parent addon", `AddonList.lua.annotated.lua:437-439` **(i)**) and a placeholder `Verdict.lua`. The companion writes the verdict into the next unused stub (temp file + rename), then raises a ready flag. The addon, out of combat, calls `C_AddOns.LoadAddOn("LootpathVerdictK")`, reads the payload through `C_AddOns.GetAddOnLocalTable`, imports it through the Companion path, and wipes the table.
@@ -183,5 +226,7 @@ The EULA's data-mining clause literally covers any external program that "reads 
 6. **Clipboard outbound** - the refresh ends in the highlighted export box and the player's Ctrl+C instead of `ReloadUI`; the companion's clipboard listener. With 5, zero reloads.
 7. **Load-on-demand stub spike** - only if the owner wants it after reading layer 3; the memo's own recommendation is to leave it.
 8. **Upstream ask on the fork PR** - have `processItem` export the displaced item (`UpgradeFinderEngine.js:365`), so "which ring does it replace" is QE Live's own answer.
+9. **Capture on change (layer 2b)** - the `inventory`, `vault` and `currencies` captures re-run on the gear, vault and currency events the addon already registers, out of combat, debounced, stored as `trigger = "change"` in the ring of four; the logout flush then carries current gear with no command. Small; the first issue to build if the owner wants the Raider.IO shape, beside issue 1.
+10. **Several characters in one verdict file** - the contract change that lets two healers in one evening each load their own rating at login. Only needed with 9.
 
 Every issue filed from this list carries the worktree and rebase commands and a reading list (this memo, §0, §5, §7 of the brain), as the working rules require.
