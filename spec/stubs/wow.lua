@@ -331,6 +331,16 @@ local function attachTextureSurface(r)
         end
         self.texCoord = { ... }
     end
+    -- `TextureBase:SetBlendMode(blendMode)` and `GetBlendMode()` (Core/Widget/
+    -- Base/TextureBase.lua:109 and :20): recorded and answered back, so a test
+    -- can read that the Vault banner's lift is drawn additively (UX-5h,
+    -- WKE-659). The real default is "BLEND".
+    function r:SetBlendMode(blendMode)
+        self.blendMode = blendMode
+    end
+    function r:GetBlendMode()
+        return self.blendMode or "BLEND"
+    end
     -- TextureBase:SetMask(file) (Core/Widget/Base/TextureBase.lua:142): the
     -- one-file form of a MaskTexture, which crops the texture to the mask's
     -- alpha over the texture's own bounds. Recorded, never drawn - a test can

@@ -3246,20 +3246,35 @@ function Panel.ListWidth(width)
 end
 
 -- The part of an atlas a box of `ratio` (width / height) shows, as `{ left,
--- right, top, bottom }` tex coords in the atlas's FILE (UX-5e, WKE-649). An
--- atlas is a rect inside a larger file; `SetAtlas` draws that rect and a
--- later `SetTexCoord` replaces it, so the band is cut from the client's own
--- four coords - AtlasInfo's `leftTexCoord`, `rightTexCoord`, `topTexCoord`,
--- `bottomTexCoord` (TextureUtilsDocumentation.lua:65-68) - and its proportion
--- is read off the same answer's `width` and `height` (:62-63), never a size
--- this addon guessed. A wider atlas keeps its full height and a stretch of
--- its width; a taller one its full width and a stretch of its height (V-5a's
--- rule: cropped, never stretched). WHERE that stretch sits is `anchor`
--- (UX-5f, WKE-650): `{ x = 0..1, y = 0..1 }`, 0 the rect's left or top edge,
--- 0.5 its centre, 1 its right or bottom - clamped, so the band never leaves
--- the rect; without one it is centred, as every call before UX-5f drew it.
--- Nil when any of the six is missing - the caller then draws the atlas as the
--- client cut it. Pure: nothing here reads a frame or the client.
+-- right, top, bottom }` tex coords RELATIVE TO THE ATLAS'S OWN RECT: 0 its
+-- left or top edge, 1 its right or bottom, whatever the sheet around it
+-- (UX-5h, WKE-659). Every caller draws it with `SetAtlas(name)` and then
+-- `SetTexCoord(unpack(coords))`, and on this client a `SetTexCoord` after
+-- `SetAtlas` is read across the atlas, not across the sheet. The deciding
+-- capture, 2026-09-29, on the owner's own screen: two 200 x 110 textures of
+-- `evergreen-weeklyrewards-category-raids`, the top given the band in SHEET
+-- coords as this function returned them then (0.0163, 0.1685, 0.6733,
+-- 0.7573), the bottom the same band relative to the atlas (0.08, 0.85, 0, 1).
+-- The owner: "looks like the bottom" - the bottom showed the painting, the
+-- top a dark corner. UX-5e's (WKE-649) sheet coordinates were therefore
+-- wrong for every atlas that is a sub-rect of a sheet; they only looked right
+-- where the atlas spans most of its sheet. The Ketho annotations say neither
+-- way (TextureBase.lua:105 SetAtlas, :167 SetTexCoord); the capture is the
+-- fact.
+--
+-- Its proportion is read off AtlasInfo's `width` and `height`
+-- (TextureUtilsDocumentation.lua:62-63), never a size this addon guessed. A
+-- wider atlas keeps its full height and a stretch of its width; a taller one
+-- its full width and a stretch of its height (V-5a's rule: cropped, never
+-- stretched). WHERE that stretch sits is `anchor` (UX-5f, WKE-650): `{ x =
+-- 0..1, y = 0..1 }`, 0 the rect's left or top edge, 0.5 its centre, 1 its
+-- right or bottom - clamped, so the band never leaves the rect; without one
+-- it is centred. The four sheet coords (`leftTexCoord` .. `bottomTexCoord`,
+-- :65-68) no longer enter the arithmetic, but they are still required: a
+-- client that does not give them is one whose atlas cannot be trusted to be
+-- cropped at all, and their presence is the guard. Nil when any of the six is
+-- missing - the caller then draws the atlas as the client cut it. Pure:
+-- nothing here reads a frame or the client.
 local function anchorAt(anchor, key)
     local at = type(anchor) == "table" and tonumber(anchor[key]) or nil
     if not at or at ~= at then
@@ -3284,13 +3299,13 @@ function Panel.AtlasBandTexCoord(info, ratio, anchor)
     end
     local own = width / height
     if own > ratio then
-        local cut = (right - left) * (ratio / own)
-        local start = left + (right - left - cut) * anchorAt(anchor, "x")
-        return { start, start + cut, top, bottom }
+        local cut = ratio / own
+        local start = (1 - cut) * anchorAt(anchor, "x")
+        return { start, start + cut, 0, 1 }
     end
-    local cut = (bottom - top) * (own / ratio)
-    local start = top + (bottom - top - cut) * anchorAt(anchor, "y")
-    return { left, right, start, start + cut }
+    local cut = own / ratio
+    local start = (1 - cut) * anchorAt(anchor, "y")
+    return { 0, 1, start, start + cut }
 end
 
 -- Which profession a crafted piece names for sure, from the client's own item
