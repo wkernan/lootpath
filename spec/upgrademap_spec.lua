@@ -3571,93 +3571,123 @@ describe("UpgradeMapPanel tiles on the frames", function()
     end)
 
     -- UX-5e (WKE-649): the Delves and Crafting tiles draw the client's own
-    -- painted backdrops. The band is the tile's 174:96 cut out of the atlas's
-    -- OWN rect, centred, from the four tex coords and the size AtlasInfo
-    -- answers (TextureUtilsDocumentation.lua:62-68) - never a guessed size.
+    -- painted backdrops, the band cut at the tile's 174:96 from the size
+    -- AtlasInfo answers (TextureUtilsDocumentation.lua:62-63) - never a
+    -- guessed size. UX-5h (WKE-659): the band is RELATIVE TO THE ATLAS'S OWN
+    -- RECT, 0..1 across the atlas, because on the owner's client a SetTexCoord
+    -- after SetAtlas is read that way (the capture of 2026-09-29: "looks like
+    -- the bottom"). The four sheet coords are still required and no longer
+    -- enter the figures.
     local function bandRatio(info, band)
         -- The band's proportion in the atlas's own pixels: its share of the
-        -- rect across times the width, over its share down times the height.
-        local across = (band[2] - band[1]) / (info.rightTexCoord - info.leftTexCoord) * info.width
-        local down = (band[4] - band[3]) / (info.bottomTexCoord - info.topTexCoord) * info.height
-        return across / down
+        -- atlas across times the width, over its share down times the height.
+        return ((band[2] - band[1]) * info.width) / ((band[4] - band[3]) * info.height)
     end
 
-    it("cuts a centred 174:96 band out of an atlas's own rect, and nothing when the client gave no coords", function()
+    it("cuts a 174:96 band relative to the atlas's own rect, and nothing when the client gave no coords", function()
         local P = ns.UpgradeMapPanel
         local ratio = P.TILE_ART_RATIO
+        local near = function(a, b)
+            return math.abs(a - b) < 1e-9
+        end
 
-        -- A square atlas: the whole width, the middle 96/174 of the height.
-        local square = {
-            name = "square",
-            width = 256,
-            height = 256,
-            leftTexCoord = 0.1,
-            rightTexCoord = 0.6,
-            topTexCoord = 0.2,
-            bottomTexCoord = 0.7,
-        }
-        local band = P.AtlasBandTexCoord(square, ratio)
-        assert.is_table(band)
-        assert.equal(0.1, band[1])
-        assert.equal(0.6, band[2])
-        assert.is_true(math.abs((band[3] + band[4]) / 2 - 0.45) < 1e-12)
-        assert.is_true(band[3] > 0.2 and band[4] < 0.7)
-        io.write(
-            string.format(
-                "UX-5e square band %.6f %.6f %.6f %.6f ratio %.6f tile %.6f\n",
-                band[1],
-                band[2],
-                band[3],
-                band[4],
-                bandRatio(square, band),
-                ratio
-            )
-        )
-        assert.is_true(math.abs(bandRatio(square, band) - ratio) < 1e-9)
-
-        -- A wide atlas: the whole height, the middle of the width.
+        -- A wide atlas that is a small strip of its sheet: the whole height
+        -- (0..1), a stretch of the width, and the sheet rect nowhere in it.
         local wide = {
             name = "wide",
             width = 1000,
             height = 300,
-            leftTexCoord = 0,
-            rightTexCoord = 0.9765625,
-            topTexCoord = 0.25,
-            bottomTexCoord = 0.54,
+            leftTexCoord = 0.25,
+            rightTexCoord = 0.5,
+            topTexCoord = 0.6,
+            bottomTexCoord = 0.7,
         }
-        band = P.AtlasBandTexCoord(wide, ratio)
-        assert.is_table(band)
-        assert.equal(0.25, band[3])
-        assert.equal(0.54, band[4])
-        assert.is_true(math.abs((band[1] + band[2]) / 2 - 0.9765625 / 2) < 1e-12)
-        assert.is_true(band[1] > 0 and band[2] < 0.9765625)
-        io.write(
-            string.format(
-                "UX-5e wide band %.6f %.6f %.6f %.6f ratio %.6f tile %.6f\n",
-                band[1],
-                band[2],
-                band[3],
-                band[4],
-                bandRatio(wide, band),
-                ratio
+        local bands = {}
+        for _, x in ipairs({ 0, 0.5, 1 }) do
+            local band = P.AtlasBandTexCoord(wide, ratio, { x = x, y = 0.5 })
+            bands[#bands + 1] = band
+            assert.equal(0, band[3])
+            assert.equal(1, band[4])
+            assert.is_true(band[1] >= 0 and band[2] <= 1)
+            assert.is_true(near(bandRatio(wide, band), ratio))
+            io.write(
+                string.format(
+                    "UX-5h wide x=%.1f band %.6f %.6f %.6f %.6f ratio %.6f tile %.6f\n",
+                    x,
+                    band[1],
+                    band[2],
+                    band[3],
+                    band[4],
+                    bandRatio(wide, band),
+                    ratio
+                )
             )
-        )
-        assert.is_true(math.abs(bandRatio(wide, band) - ratio) < 1e-9)
+        end
+        -- 0: the band starts at the atlas's left edge; 1: ends at its right;
+        -- 0.5: centred on the atlas's own middle.
+        assert.equal(0, bands[1][1])
+        assert.is_true(near(1, bands[3][2]))
+        assert.is_true(near(0.5, (bands[2][1] + bands[2][2]) / 2))
+        -- No anchor is the centre, to the last bit.
+        assert.same(bands[2], P.AtlasBandTexCoord(wide, ratio))
+        -- The three, as busted printed them (1000 x 300 into 174:96).
+        for index, want in ipairs({ { 0, 0.543750 }, { 0.228125, 0.771875 }, { 0.456250, 1 } }) do
+            assert.is_true(math.abs(bands[index][1] - want[1]) < 1e-6)
+            assert.is_true(math.abs(bands[index][2] - want[2]) < 1e-6)
+        end
 
-        -- A tall one crops the height too, and stays inside the rect.
+        -- A tall atlas: the whole width (0..1), a stretch of the height.
         local tall = {
             width = 100,
             height = 400,
             leftTexCoord = 0.5,
             rightTexCoord = 0.6,
+            topTexCoord = 0.1,
+            bottomTexCoord = 0.9,
+        }
+        bands = {}
+        for _, y in ipairs({ 0, 0.5, 1 }) do
+            local band = P.AtlasBandTexCoord(tall, ratio, { x = 0.5, y = y })
+            bands[#bands + 1] = band
+            assert.equal(0, band[1])
+            assert.equal(1, band[2])
+            assert.is_true(band[3] >= 0 and band[4] <= 1)
+            assert.is_true(near(bandRatio(tall, band), ratio))
+            io.write(
+                string.format(
+                    "UX-5h tall y=%.1f band %.6f %.6f %.6f %.6f ratio %.6f\n",
+                    y,
+                    band[1],
+                    band[2],
+                    band[3],
+                    band[4],
+                    bandRatio(tall, band)
+                )
+            )
+        end
+        assert.equal(0, bands[1][3])
+        assert.is_true(near(1, bands[3][4]))
+        assert.is_true(near(0.5, (bands[2][3] + bands[2][4]) / 2))
+        -- As busted printed them (100 x 400 into 174:96).
+        for index, want in ipairs({ { 0, 0.137931 }, { 0.431034, 0.568966 }, { 0.862069, 1 } }) do
+            assert.is_true(math.abs(bands[index][3] - want[1]) < 1e-6)
+            assert.is_true(math.abs(bands[index][4] - want[2]) < 1e-6)
+        end
+
+        -- The sheet rect does not move the band: the same atlas anywhere in
+        -- any sheet answers the same fractions.
+        local elsewhere = {
+            width = 1000,
+            height = 300,
+            leftTexCoord = 0,
+            rightTexCoord = 1,
             topTexCoord = 0,
             bottomTexCoord = 1,
         }
-        band = P.AtlasBandTexCoord(tall, ratio)
-        assert.equal(0.5, band[1])
-        assert.equal(0.6, band[2])
-        assert.is_true(band[3] > 0 and band[4] < 1)
-        assert.is_true(math.abs(bandRatio(tall, band) - ratio) < 1e-9)
+        assert.same(
+            P.AtlasBandTexCoord(elsewhere, ratio, { x = 0.65, y = 0.5 }),
+            P.AtlasBandTexCoord(wide, ratio, { x = 0.65, y = 0.5 })
+        )
 
         -- No coords, no size, nothing at all: no band, and the caller draws
         -- the atlas as the client cut it rather than a guess.
@@ -3670,73 +3700,31 @@ describe("UpgradeMapPanel tiles on the frames", function()
             bottomTexCoord = 1,
         }, ratio))
         assert.is_nil(P.AtlasBandTexCoord(nil, ratio))
-        assert.is_nil(P.AtlasBandTexCoord(square, nil))
+        assert.is_nil(P.AtlasBandTexCoord(wide, nil))
     end)
 
     -- UX-5f (WKE-650): the owner, 2026-09-26, "Images don't look centered."
-    -- Where the band sits along the rect is the picture's own anchor: 0 its
-    -- left or top edge, 0.5 the centre UX-5e drew, 1 its right or bottom.
-    it("slides the band along the rect by an anchor, and never out of it (UX-5f)", function()
+    -- Where the band sits along the atlas is the picture's own anchor, clamped.
+    it("keeps the band inside the atlas whatever the anchor (UX-5f)", function()
         local P = ns.UpgradeMapPanel
         local ratio = P.TILE_ART_RATIO
         local wide = {
             width = 1000,
             height = 300,
-            leftTexCoord = 0,
-            rightTexCoord = 0.9765625,
-            topTexCoord = 0.25,
-            bottomTexCoord = 0.54,
-        }
-        local centred = P.AtlasBandTexCoord(wide, ratio)
-        local near = function(a, b)
-            return math.abs(a - b) < 1e-12
-        end
-
-        -- 0.5 is where the band sat before: the default, to the last bit.
-        assert.same(centred, P.AtlasBandTexCoord(wide, ratio, { x = 0.5, y = 0.5 }))
-        -- 0: the band's left is the rect's left.
-        local leftmost = P.AtlasBandTexCoord(wide, ratio, { x = 0, y = 0.5 })
-        assert.equal(0, leftmost[1])
-        -- 1: the band's right is the rect's right.
-        local rightmost = P.AtlasBandTexCoord(wide, ratio, { x = 1, y = 0.5 })
-        assert.is_true(near(0.9765625, rightmost[2]))
-        -- Past either edge the band stays inside the rect.
-        assert.same(leftmost, P.AtlasBandTexCoord(wide, ratio, { x = -3, y = 0.5 }))
-        assert.same(rightmost, P.AtlasBandTexCoord(wide, ratio, { x = 7, y = 0.5 }))
-        -- The band's proportion and its full height never change.
-        for _, band in ipairs({ leftmost, rightmost, P.AtlasBandTexCoord(wide, ratio, { x = 0.65, y = 0 }) }) do
-            assert.equal(0.25, band[3])
-            assert.equal(0.54, band[4])
-            assert.is_true(near(band[2] - band[1], centred[2] - centred[1]))
-            assert.is_true(math.abs(bandRatio(wide, band) - ratio) < 1e-9)
-        end
-        io.write(
-            string.format(
-                "UX-5f wide band x=0 %.6f %.6f  x=0.5 %.6f %.6f  x=1 %.6f %.6f\n",
-                leftmost[1],
-                leftmost[2],
-                centred[1],
-                centred[2],
-                rightmost[1],
-                rightmost[2]
-            )
-        )
-
-        -- A taller atlas slides along its height by y, and keeps its width.
-        local square = {
-            width = 256,
-            height = 256,
-            leftTexCoord = 0.1,
-            rightTexCoord = 0.6,
-            topTexCoord = 0.2,
+            leftTexCoord = 0.25,
+            rightTexCoord = 0.5,
+            topTexCoord = 0.6,
             bottomTexCoord = 0.7,
         }
-        local top = P.AtlasBandTexCoord(square, ratio, { x = 0.9, y = 0 })
-        local bottom = P.AtlasBandTexCoord(square, ratio, { x = 0.9, y = 1 })
-        assert.same({ 0.1, 0.6 }, { top[1], top[2] })
-        assert.equal(0.2, top[3])
-        assert.is_true(near(0.7, bottom[4]))
-        assert.is_true(math.abs(bandRatio(square, bottom) - ratio) < 1e-9)
+        local leftmost = P.AtlasBandTexCoord(wide, ratio, { x = 0, y = 0.5 })
+        local rightmost = P.AtlasBandTexCoord(wide, ratio, { x = 1, y = 0.5 })
+        assert.same(leftmost, P.AtlasBandTexCoord(wide, ratio, { x = -3, y = 0.5 }))
+        assert.same(rightmost, P.AtlasBandTexCoord(wide, ratio, { x = 7, y = 0.5 }))
+        -- y does nothing to an atlas wider than the box.
+        assert.same(
+            P.AtlasBandTexCoord(wide, ratio, { x = 0.65, y = 0.5 }),
+            P.AtlasBandTexCoord(wide, ratio, { x = 0.65, y = 0 })
+        )
 
         -- The two pictures' anchors: plain numbers inside 0..1.
         for _, anchor in ipairs({ P.DELVE_ART_ANCHOR, P.CRAFT_ART_ANCHOR }) do

@@ -146,6 +146,18 @@ Panel.ROW_ART_ANCHOR = {
     World = { x = 0.5, y = 0.5 },
 }
 
+-- UX-5h (WKE-659): the banner's lift. Blizzard ships the three paintings dim,
+-- fading to transparent on their left, so over the banner's art the tab draws
+-- the same atlas again, same size, same band, `SetBlendMode("ADD")` at this
+-- alpha, this many times, on the layer above the art and below the row's name.
+-- The owner's choice, 2026-09-29, off an in-game preview of one pass at a time
+-- over the three banners: one pass "a nudge", two "seems like 2 is correct",
+-- three "starts to glow". Only the Vault's banners are lifted; the Delves and
+-- Crafting tiles are not (not asked).
+Panel.ROW_ART_LIFT_PASSES = 2
+Panel.ROW_ART_LIFT_ALPHA = 0.3
+Panel.ROW_ART_LIFT_BLEND = "ADD"
+
 -- The row's name in Blizzard's own banner font: the Name FontString of
 -- WeeklyRewardActivityTypeTemplate inherits `Fancy24Font`
 -- (Blizzard_WeeklyRewards.xml; the family is Blizzard_Fonts_Shared/Shared/
@@ -2610,8 +2622,9 @@ end
 -- `AtlasBandTexCoord(info, ratio, anchor)` (UX-5e/5f) at the box's own ratio,
 -- called here, never copied: a band of `boxWidth / boxHeight` at the atlas's
 -- full height, `anchor.x` 0 its left edge, 0.5 its centre, 1 its right edge,
--- clamped inside the rect. Returns `{ left, right, top, bottom }` tex coords in
--- the atlas's FILE plus the width and height to draw at, which are always the
+-- clamped inside the rect. Returns `{ left, right, top, bottom }` tex coords
+-- relative to the atlas's own rect (UX-5h, WKE-659: that is how the client
+-- reads a SetTexCoord after SetAtlas) plus the width and height to draw at, which are always the
 -- box's own - never taller than the banner, never wider. Nil when the client
 -- gives no rect or size, and the caller keeps V-5a's fit.
 --
@@ -2643,7 +2656,10 @@ end
 
 -- Returns true when there was art to draw. With `crop` (an anchor, V-6a) the
 -- art is drawn as the banner's band (V-6c) when the client says where the
--- atlas sits and how big it is; without those it is fitted as before.
+-- atlas sits and how big it is; without those it is fitted as before. When it
+-- drew a band it also returns the band and the size it was drawn at, so the
+-- banner's lift (UX-5h) can draw the very same piece; after a fit it returns
+-- true alone.
 local function drawAtlas(texture, name, boxWidth, boxHeight, margin, crop)
     local info = ns.UI.ItemLine.AtlasInfo(name)
     if not info then
@@ -2653,11 +2669,14 @@ local function drawAtlas(texture, name, boxWidth, boxHeight, margin, crop)
         local coords, drawWidth, drawHeight = Panel.RowBannerTexCoord(info, boxWidth, boxHeight, crop)
         if coords then
             -- SetAtlas first: it sets the atlas's own rect, and the tex coords
-            -- after it replace that rect with the band inside it.
+            -- after it pick the band inside that rect, 0..1 across the atlas
+            -- (UX-5h, WKE-659).
+            local sizeWidth = math.max(1, math.floor(drawWidth or 1))
+            local sizeHeight = math.max(1, math.floor(drawHeight or 1))
             texture:SetAtlas(info.name)
-            texture:SetSize(math.max(1, math.floor(drawWidth or 1)), math.max(1, math.floor(drawHeight or 1)))
+            texture:SetSize(sizeWidth, sizeHeight)
             texture:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
-            return true
+            return true, info.name, coords, sizeWidth, sizeHeight
         end
     end
     local inset = margin or 0
@@ -2953,6 +2972,17 @@ local function gridRow(frame, index)
     rowFrame.art = rowFrame:CreateTexture(nil, "BACKGROUND")
     rowFrame.art:SetPoint("CENTER", rowFrame, "LEFT", ROW_BANNER_WIDTH / 2, 0)
     rowFrame.art:Hide()
+    -- The banner's lift (UX-5h, WKE-659): made once per row, on the layer
+    -- above the art and below the name, each over the art's own centre.
+    rowFrame.artLift = {}
+    for pass = 1, Panel.ROW_ART_LIFT_PASSES do
+        local lift = rowFrame:CreateTexture(nil, "BORDER")
+        lift:SetPoint("CENTER", rowFrame.art, "CENTER", 0, 0)
+        lift:SetBlendMode(Panel.ROW_ART_LIFT_BLEND)
+        lift:SetAlpha(Panel.ROW_ART_LIFT_ALPHA)
+        lift:Hide()
+        rowFrame.artLift[pass] = lift
+    end
     rowFrame.label = rowFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     -- Blizzard's banner font when the client has it (V-6a, WKE-653), in
     -- Blizzard's colour for it; GameFontNormal, already gold, when it does not.
@@ -3299,7 +3329,7 @@ function Panel.Refresh(self, opts)
             -- this row's anchor, the name at its top-left as Blizzard places
             -- it (V-6a); a client that will not say where the atlas sits keeps
             -- V-5a's fit.
-            local rowArt = drawAtlas(
+            local rowArt, liftAtlas, liftCoords, liftWidth, liftHeight = drawAtlas(
                 rowFrame.art,
                 data.atlas,
                 ROW_BANNER_WIDTH,
@@ -3314,6 +3344,19 @@ function Panel.Refresh(self, opts)
             else
                 rowFrame.art:Hide()
                 rowFrame.label:SetPoint("LEFT", rowFrame, "LEFT", ROW_BANNER_INSET, 0)
+            end
+            -- The lift (UX-5h): the same atlas, band and size as the art on
+            -- every draw, shown only over a band - V-5a's fit and a row with
+            -- no art are not lifted.
+            for _, lift in ipairs(rowFrame.artLift) do
+                if liftCoords then
+                    lift:SetAtlas(liftAtlas)
+                    lift:SetSize(liftWidth, liftHeight)
+                    lift:SetTexCoord(liftCoords[1], liftCoords[2], liftCoords[3], liftCoords[4])
+                    lift:Show()
+                else
+                    lift:Hide()
+                end
             end
             for cellIndex, cell in ipairs(rowFrame.cells) do
                 bindCell(cell, data.cells[cellIndex], cellWidth)

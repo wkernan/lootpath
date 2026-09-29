@@ -3670,8 +3670,9 @@ describe("the Vault tab's grid over the live client (V-5)", function()
                 (Panel.RowBannerTexCoord(whole, 132, 104, Panel.ROW_ART_ANCHOR[key]))
             )
         end
-        -- Inside a rect that is not the whole file: the band is cut from the
-        -- atlas's own rect, not from the file around it.
+        -- Inside a rect that is not the whole file: the band is relative to
+        -- the atlas's own rect (UX-5h, WKE-659), so the file around it does
+        -- not move it - the same fractions as the whole-file atlas.
         local inside = {
             width = 326,
             height = 131,
@@ -3681,11 +3682,11 @@ describe("the Vault tab's grid over the live client (V-5)", function()
             bottomTexCoord = 0.7,
         }
         assertCoords(
-            { 0.185745, 0.440759, 0.2, 0.7 },
+            { 0.171490, 0.681518, 0, 1 },
             (Panel.RowBannerTexCoord(inside, 132, 104, Panel.ROW_ART_ANCHOR.Raid))
         )
         assertCoords(
-            { 0.222493, 0.477507, 0.2, 0.7 },
+            { 0.244986, 0.755014, 0, 1 },
             (Panel.RowBannerTexCoord(inside, 132, 104, Panel.ROW_ART_ANCHOR.Activities))
         )
         -- The anchor's x slides the band along the painting, edge to edge.
@@ -3746,8 +3747,9 @@ describe("the Vault tab's grid over the live client (V-5)", function()
                 ),
                 art.texCoord
             )
-            assert.equal(0.2, art.texCoord[3])
-            assert.equal(0.7, art.texCoord[4])
+            -- The full height of the ATLAS, not of the sheet rect (UX-5h).
+            assert.equal(0, art.texCoord[3])
+            assert.equal(1, art.texCoord[4])
         end
         -- The raid's band is its own, not the dungeon's.
         assert.not_equal(frame.gridRows[1].art.texCoord[1], frame.gridRows[2].art.texCoord[1])
@@ -3869,6 +3871,136 @@ describe("the Vault tab's grid over the live client (V-5)", function()
         assertCoords({ 0.094283, 0.824902, 0, 1 }, frame.gridRows[1].art.texCoord)
         assertCoords({ 0.134690, 0.865310, 0, 1 }, frame.gridRows[2].art.texCoord)
         assertCoords({ 0.134690, 0.865310, 0, 1 }, frame.gridRows[3].art.texCoord)
+    end)
+
+    -- UX-5h (WKE-659). The three paintings as the owner's client answered
+    -- `C_Texture.GetAtlasInfo` for them on 2026-09-29 (his pastes on WKE-659:
+    -- width, height, left, right, top, bottom, file) - the only measured
+    -- figures here. Each is a strip of one sheet, file 5948234.
+    local MEASURED = {
+        ["evergreen-weeklyrewards-category-raids"] = {
+            width = 405,
+            height = 172,
+            leftTexCoord = 0.00048828125,
+            rightTexCoord = 0.1982421875,
+            topTexCoord = 0.67333984375,
+            bottomTexCoord = 0.75732421875,
+        },
+        ["evergreen-weeklyrewards-category-dungeons"] = {
+            width = 422,
+            height = 177,
+            leftTexCoord = 0.5551757812,
+            rightTexCoord = 0.76123046875,
+            topTexCoord = 0.251953125,
+            bottomTexCoord = 0.33837890625,
+        },
+        ["evergreen-weeklyrewards-category-world"] = {
+            width = 400,
+            height = 165,
+            leftTexCoord = 0.00048828125,
+            rightTexCoord = 0.19580078125,
+            topTexCoord = 0.75830078125,
+            bottomTexCoord = 0.8388671875,
+        },
+    }
+
+    local function withMeasured()
+        for atlas, info in pairs(MEASURED) do
+            world.atlases[atlas] = info
+        end
+    end
+
+    it("cuts each measured painting's band relative to its own atlas, at its row's anchor (UX-5h)", function()
+        withMeasured()
+        local Panel = ns.VaultPanel
+        local frame = Panel.Create()
+        frame:Refresh()
+        for index, key in ipairs(Panel.ROW_ORDER) do
+            local art = frame.gridRows[index].art
+            assert.equal(CATEGORY[key], art:GetAtlas())
+            assert.equal(200, art:GetWidth())
+            assert.equal(110, art:GetHeight())
+            io.write(
+                string.format(
+                    "UX-5h %s x=%.2f band %.6f %.6f %.6f %.6f\n",
+                    CATEGORY[key],
+                    Panel.ROW_ART_ANCHOR[key].x,
+                    art.texCoord[1],
+                    art.texCoord[2],
+                    art.texCoord[3],
+                    art.texCoord[4]
+                )
+            )
+        end
+        -- Read from busted's output over the owner's figures: the painting's
+        -- full height, 0..1 of the atlas, never the sheet's 0.67..0.76.
+        assertCoords({ 0.079742, 0.851908, 0, 1 }, frame.gridRows[1].art.texCoord)
+        assertCoords({ 0.118699, 0.881301, 0, 1 }, frame.gridRows[2].art.texCoord)
+        assertCoords({ 0.125000, 0.875000, 0, 1 }, frame.gridRows[3].art.texCoord)
+    end)
+
+    -- The lift: the owner's choice off the in-game preview, 2026-09-29 - two
+    -- additive passes at 0.3 ("seems like 2 is correct").
+    it("lifts each banner with two additive passes of the same band (UX-5h)", function()
+        withMeasured()
+        local Panel = ns.VaultPanel
+        assert.equal(2, Panel.ROW_ART_LIFT_PASSES)
+        assert.equal(0.3, Panel.ROW_ART_LIFT_ALPHA)
+        assert.equal("ADD", Panel.ROW_ART_LIFT_BLEND)
+        local frame = Panel.Create()
+        frame:Refresh()
+        for _, gridRow in ipairs(frame.gridRows) do
+            local art = gridRow.art
+            assert.equal(2, #gridRow.artLift)
+            for _, lift in ipairs(gridRow.artLift) do
+                assert.is_true(lift:IsShown())
+                assert.equal("ADD", lift:GetBlendMode())
+                assert.equal(0.3, lift:GetAlpha())
+                assert.equal(art:GetAtlas(), lift:GetAtlas())
+                assert.same(art.texCoord, lift.texCoord)
+                assert.equal(art:GetWidth(), lift:GetWidth())
+                assert.equal(art:GetHeight(), lift:GetHeight())
+                assert.same({ "CENTER", art, "CENTER", 0, 0 }, lift.points[1])
+                -- Above the art (the name is ARTWORK, above both).
+                assert.equal("BACKGROUND", art:GetDrawLayer())
+                assert.equal("BORDER", lift:GetDrawLayer())
+            end
+        end
+        -- Made once per row: a second draw reuses them.
+        local first = frame.gridRows[1].artLift[1]
+        frame:Refresh()
+        assert.equal(first, frame.gridRows[1].artLift[1])
+        assert.equal(2, #frame.gridRows[1].artLift)
+    end)
+
+    it("hides the lift when the banner falls back to V-5a's fit, or has no art (UX-5h)", function()
+        withMeasured()
+        local Panel = ns.VaultPanel
+        local frame = Panel.Create()
+        frame:Refresh()
+        assert.is_true(frame.gridRows[1].artLift[1]:IsShown())
+        -- No rect from the client: V-5a's fit, and no lift over it.
+        for atlas in pairs(MEASURED) do
+            world.atlases[atlas] = { width = 405, height = 172 }
+        end
+        frame:Refresh()
+        for _, gridRow in ipairs(frame.gridRows) do
+            assert.is_true(gridRow.art:IsShown())
+            for _, lift in ipairs(gridRow.artLift) do
+                assert.is_false(lift:IsShown())
+            end
+        end
+        -- No atlas at all: neither art nor lift.
+        for atlas in pairs(MEASURED) do
+            world.atlases[atlas] = nil
+        end
+        frame:Refresh()
+        for _, gridRow in ipairs(frame.gridRows) do
+            assert.is_false(gridRow.art:IsShown())
+            for _, lift in ipairs(gridRow.artLift) do
+                assert.is_false(lift:IsShown())
+            end
+        end
     end)
 
     it("places the words, the tick and the progress at Blizzard's own insets, scaled to the cell", function()
