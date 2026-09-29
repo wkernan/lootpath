@@ -2189,6 +2189,10 @@ local ROW_HEIGHT = 14
 -- is ns.UI.PANEL_WIDTH, read at Create time. See the same note in
 -- UI/UpgradeMapPanel.lua.
 local PANEL_HEIGHT = 420
+-- The header row and the gap under it, which the scroll frame starts below:
+-- the header's own line and the -12 the scroll is anchored at in Create. Only
+-- used before the client has laid the scroll frame out (M5-5, WKE-661).
+local HEADER_ROOM = 60
 -- The room this panel's scroll frame leaves on its right for the scrollbar. It
 -- is already in the scroll frame's own BOTTOMRIGHT anchor below, which is why
 -- the scroll frame's width IS the width the grid may use and nothing subtracts
@@ -2671,6 +2675,19 @@ function Panel.ContentWidth(frame)
     return math.max(1, width)
 end
 
+-- M5-5 (WKE-661): the height the panel shows, read the way the width is -
+-- the scroll frame's own, or the panel's less the header row when the client
+-- has not laid the scroll frame out yet. Before the window became resizable
+-- this was PANEL_HEIGHT, a fixed 420, which the corner anchors overrode
+-- anyway; now it is a reading, so a taller window is a taller tab.
+function Panel.ContentHeight(frame)
+    local height = frame.scroll and frame.scroll:GetHeight() or 0
+    if not height or height <= 0 then
+        height = (frame:GetHeight() or 0) - HEADER_ROOM
+    end
+    return math.max(1, height)
+end
+
 function Panel.Create(parent)
     local frame = CreateFrame("Frame", "LootpathVaultPanel", parent or UIParent)
     frame:SetSize(ns.UI.PANEL_WIDTH, PANEL_HEIGHT)
@@ -2691,7 +2708,7 @@ function Panel.Create(parent)
     frame.scroll:SetPoint("TOPLEFT", frame.header, "BOTTOMLEFT", 0, -12)
     frame.scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -SCROLL_INSET, 4)
     frame.content = CreateFrame("Frame", nil, frame.scroll)
-    frame.content:SetSize(Panel.ContentWidth(frame), PANEL_HEIGHT - 60)
+    frame.content:SetSize(Panel.ContentWidth(frame), Panel.ContentHeight(frame))
     frame.scroll:SetScrollChild(frame.content)
     frame.gridRows = {}
     frame.chips = {}
@@ -3330,7 +3347,10 @@ function Panel.Refresh(self, opts)
     if not self then
         return nil
     end
-    local model = Panel.Model(Panel.Gather(opts))
+    -- M5-5 (WKE-661): a re-layout after the window was resized hands back the
+    -- model already on screen, so nothing is gathered and nothing is asked of
+    -- the client; only the widths and the height below are read again.
+    local model = (type(opts) == "table" and opts.model) or Panel.Model(Panel.Gather(opts))
     self.model = model
 
     -- The scroll child takes its width from the scroll frame that holds it,
@@ -3491,6 +3511,9 @@ function Panel.Refresh(self, opts)
     local stripHeight = layout.rows > 0 and layout.height or CHIP_ICON_SIZE
     used = used + stripHeight + GRID_ROW_GAP * 2
 
-    self.content:SetHeight(math.max(1, used))
+    -- At least as tall as the room the panel shows (M5-5, WKE-661): read off
+    -- the scroll frame, never a figure of this file's, so a taller window is a
+    -- taller scroll child and a shorter grid never leaves it short.
+    self.content:SetHeight(math.max(1, used, Panel.ContentHeight(self)))
     return model
 end

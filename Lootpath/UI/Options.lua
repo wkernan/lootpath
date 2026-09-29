@@ -86,6 +86,12 @@ Options.SCALE_MIN = 0.7
 Options.SCALE_MAX = 1.3
 Options.SCALE_STEP = 0.05
 
+-- M5-5 (WKE-661): the window's size, set by dragging its corner and kept
+-- here beside the scale as `windowWidth` / `windowHeight`. Nil is the default
+-- size (ns.UI.WIDTH x ns.UI.HEIGHT), which is also the smallest the window may
+-- be. The one word the page gains is the reset button's.
+Options.RESET_SIZE_LABEL = "Reset size"
+
 Options.COMPACT_VARIABLE = "LootpathCompactRows"
 Options.COMPACT_LABEL = "Compact rows"
 Options.COMPACT_TOOLTIP = "Draw the item rows in a shorter line, so more of them fit without scrolling."
@@ -132,6 +138,41 @@ function Options.SetScale(value)
         UI.frame:SetScale(value)
     end
     return value
+end
+
+-- The stored size, clamped to the bounds the window has now (never trusted:
+-- a SavedVariables file edited by hand, or written on a larger screen, must
+-- not be able to make the window smaller than today's or larger than the
+-- screen). With nothing stored, the default size.
+function Options.GetWindowSize(frame)
+    local settings = ns.db and ns.db.profile and ns.db.profile.settings
+    local width = settings and tonumber(settings.windowWidth) or UI.WIDTH
+    local height = settings and tonumber(settings.windowHeight) or UI.HEIGHT
+    return UI.ClampWindowSize(width, height, UI.WindowBounds(frame or UI.frame))
+end
+
+-- Stores a size, clamped the same way, as whole points. Returns what it kept.
+function Options.SetWindowSize(width, height, frame)
+    width, height = UI.ClampWindowSize(width, height, UI.WindowBounds(frame or UI.frame))
+    if ns.db and ns.db.profile and ns.db.profile.settings then
+        ns.db.profile.settings.windowWidth = width
+        ns.db.profile.settings.windowHeight = height
+    end
+    return width, height
+end
+
+-- `Reset size`: the stored size is forgotten, the window goes back to the
+-- default, and the open tab is laid out again at it.
+function Options.ResetSize()
+    if ns.db and ns.db.profile and ns.db.profile.settings then
+        ns.db.profile.settings.windowWidth = nil
+        ns.db.profile.settings.windowHeight = nil
+    end
+    if UI.frame then
+        UI.frame:SetSize(UI.WIDTH, UI.HEIGHT)
+        UI.Relayout(UI.frame)
+    end
+    return UI.WIDTH, UI.HEIGHT
 end
 
 function Options.GetCompactRows()
@@ -270,6 +311,22 @@ function Options.Register()
         end
         Settings.CreateSlider(category, scaleSetting, sliderOptions, Options.SCALE_TOOLTIP)
         Options.scaleSetting = scaleSetting
+    end
+    -- `Reset size` (M5-5, WKE-661), beside the scale. A button row is
+    -- `CreateSettingsButtonInitializer(name, buttonText, buttonClick, tooltip,
+    -- addSearchTags)` added to the category's layout
+    -- (Blizzard_Settings_Shared/Blizzard_SettingControls.lua:762, and the
+    -- `SettingsPanel:GetLayout(category):AddInitializer` pair Blizzard_Settings
+    -- .lua:377-379 uses for its own controls). Guarded like the slider: a
+    -- client without them keeps the page and loses the button.
+    local panel = _G.SettingsPanel
+    if type(_G.CreateSettingsButtonInitializer) == "function" and panel and type(panel.GetLayout) == "function" then
+        local layout = panel:GetLayout(category)
+        if layout and type(layout.AddInitializer) == "function" then
+            Options.resetSizeInitializer = layout:AddInitializer(
+                _G.CreateSettingsButtonInitializer("", Options.RESET_SIZE_LABEL, Options.ResetSize, nil, false)
+            )
+        end
     end
     if Settings.CreateCheckbox then
         local compactSetting = Settings.RegisterProxySetting(

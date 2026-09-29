@@ -5428,19 +5428,28 @@ function Panel.Refresh(self, opts)
     opts.difficultyIDs = opts.difficultyIDs or self.difficultyIDs
     local mode = opts.mode or self.mode or Panel.MODE_SLOT
     local runSort = opts.runSort or self.runSort or Panel.SORT_BEST
-    local gathered = Panel.Gather(opts)
-    gathered.runSort = runSort
-    -- Two models over one gather. The slot view is the one M3-3 shipped and
-    -- nothing here changes what it renders; the run view is its sibling.
-    local model
-    if mode == Panel.MODE_RUN then
-        model = Panel.RunModel(gathered)
+    -- M5-5 (WKE-661): a re-layout after the window was resized hands back the
+    -- model already on screen, so nothing is gathered - no scan, no read of
+    -- the client - and only the widths are asked again below.
+    local model = opts.model
+    if model then
+        mode = self.mode or mode
+        runSort = self.runSort or runSort
     else
-        model = Panel.Model(gathered)
+        local gathered = Panel.Gather(opts)
+        gathered.runSort = runSort
+        -- Two models over one gather. The slot view is the one M3-3 shipped and
+        -- nothing here changes what it renders; the run view is its sibling.
+        if mode == Panel.MODE_RUN then
+            model = Panel.RunModel(gathered)
+        else
+            model = Panel.Model(gathered)
+        end
+        -- Which difficulties the reader asked for, carried on the model so the
+        -- dropdown's rows and the rows on screen are answering one question.
+        model.filteredDifficultyIDs = opts.difficultyIDs
+        self.inCombat = gathered.inCombat
     end
-    -- Which difficulties the reader asked for, carried on the model so the
-    -- dropdown's rows and the rows on screen are answering one question.
-    model.filteredDifficultyIDs = opts.difficultyIDs
     self.model = model
     self.mode = mode
     self.runSort = runSort
@@ -5495,7 +5504,7 @@ function Panel.Refresh(self, opts)
     -- - and headless - Panel.ListWidth does the same arithmetic ahead of it.
     state.listWidth = self.scrollBox:GetWidth()
     local elements = (mode == Panel.MODE_RUN) and Panel.RunElements(model, state) or Panel.Elements(model, state)
-    if gathered.inCombat then
+    if self.inCombat then
         lines = { "Lootpath does not read the client in combat. Leave combat and reopen this panel." }
         elements = {
             { kind = Panel.ELEMENT_NOTE, text = lines[1], height = Panel.NoteHeight(lines[1]) },

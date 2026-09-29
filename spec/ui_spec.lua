@@ -5084,3 +5084,241 @@ describe("Equip Now on a crested copy of the rated piece (M2-5)", function()
         assert.is_falsy(panel.barKey:GetText():find("not owned", 1, true))
     end)
 end)
+
+-- ---------------------------------------------------------------------------
+-- M5-5 (WKE-661): the window resizes by its corner.
+--
+-- The owner, 2026-09-29, the Vault's chips row cut off at the window's bottom
+-- edge: "How difficult would it be to make the screen dynamic, so that players
+-- can set size by enlarging/shrinking in any direction?" - "do the resize
+-- also". The drag itself is the client's; what is held here is everything
+-- Lootpath decides around it: the bounds, the memory, the reflow, the reset.
+describe("the window resizes by its corner (M5-5)", function()
+    local ns, world, frame
+
+    -- A 1920 x 1080 UIParent: a screen, set by the test rather than read,
+    -- because the stub lays nothing out.
+    local SCREEN_W, SCREEN_H = 1920, 1080
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        _G.UIParent:SetSize(SCREEN_W, SCREEN_H)
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function build()
+        frame = ns.UI.Frame()
+        return frame
+    end
+
+    it("is resizable from a grip in its bottom-right corner, and today's size is the minimum", function()
+        build()
+        assert.is_true(frame:IsResizable())
+        assert.equal(760, ns.UI.WIDTH)
+        assert.equal(640, ns.UI.HEIGHT)
+        local minW, minH, maxW, maxH = frame:GetResizeBounds()
+        assert.equal(ns.UI.WIDTH, minW)
+        assert.equal(ns.UI.HEIGHT, minH)
+        assert.equal(SCREEN_W, maxW)
+        assert.equal(SCREEN_H, maxH)
+        -- Blizzard's own grip, where Blizzard hangs it.
+        local grip = frame.resizeGrip
+        assert.equal("PanelResizeButtonTemplate", grip.template)
+        assert.same({ "BOTTOMRIGHT", frame, "BOTTOMRIGHT", -4, 4 }, grip.points[1])
+        assert.is_true(grip:GetFrameLevel() > frame:GetFrameLevel())
+        -- With nothing stored, the window is today's size.
+        assert.equal(ns.UI.WIDTH, frame:GetWidth())
+        assert.equal(ns.UI.HEIGHT, frame:GetHeight())
+    end)
+
+    it("reads the screen when the drag starts, in the window's own units", function()
+        build()
+        ns.UI.Options.SetScale(1.25)
+        _G.UIParent:SetSize(2560, 1440)
+        frame.resizeGrip:GetScript("OnMouseDown")(frame.resizeGrip)
+        assert.equal("BOTTOMRIGHT", frame.sizingPoint)
+        assert.is_true(frame.sizingFromMouse)
+        assert.is_true(frame.stubSizing)
+        local minW, minH, maxW, maxH = frame:GetResizeBounds()
+        assert.equal(ns.UI.WIDTH, minW)
+        assert.equal(ns.UI.HEIGHT, minH)
+        -- 2560 / 1.25 and 1440 / 1.25.
+        assert.equal(2048, maxW)
+        assert.equal(1152, maxH)
+    end)
+
+    it("never lets the screen bound fall under the minimum, and has none when the screen cannot be read", function()
+        local tiny = ns.UI.WindowBounds(nil)
+        assert.equal(SCREEN_W, tiny.maxWidth)
+        _G.UIParent:SetSize(640, 480)
+        local small = ns.UI.WindowBounds(nil)
+        assert.equal(ns.UI.WIDTH, small.maxWidth)
+        assert.equal(ns.UI.HEIGHT, small.maxHeight)
+        _G.UIParent:SetSize(nil, nil)
+        local unknown = ns.UI.WindowBounds(nil)
+        assert.is_nil(unknown.maxWidth)
+        assert.is_nil(unknown.maxHeight)
+        assert.equal(ns.UI.WIDTH, unknown.minWidth)
+    end)
+
+    it("keeps the size the drag ended at, and applies it when the window is built again", function()
+        build()
+        frame:Show()
+        frame.resizeGrip:GetScript("OnMouseDown")(frame.resizeGrip)
+        frame:SetSize(1000.4, 800.6)
+        frame.resizeGrip:GetScript("OnMouseUp")(frame.resizeGrip)
+        assert.is_false(frame.stubSizing)
+        assert.equal(1000, ns.db.profile.settings.windowWidth)
+        assert.equal(801, ns.db.profile.settings.windowHeight)
+        -- A new session: the same stored size, applied after the scale.
+        local stored = ns.db.profile.settings
+        H.unload()
+        ns, world = H.load()
+        withInventory(world)
+        _G.UIParent:SetSize(SCREEN_W, SCREEN_H)
+        ns.db.profile.settings.windowWidth = stored.windowWidth
+        ns.db.profile.settings.windowHeight = stored.windowHeight
+        build()
+        assert.equal(1000, frame:GetWidth())
+        assert.equal(801, frame:GetHeight())
+    end)
+
+    it("clamps a stored size both ways rather than trusting it", function()
+        ns.db.profile.settings.windowWidth = 500
+        ns.db.profile.settings.windowHeight = 99999
+        build()
+        assert.equal(ns.UI.WIDTH, frame:GetWidth())
+        assert.equal(SCREEN_H, frame:GetHeight())
+        assert.same({ ns.UI.WIDTH, SCREEN_H }, { ns.UI.Options.GetWindowSize(frame) })
+        ns.db.profile.settings.windowWidth = "wide"
+        ns.db.profile.settings.windowHeight = -3
+        assert.same({ ns.UI.WIDTH, ns.UI.HEIGHT }, { ns.UI.Options.GetWindowSize(frame) })
+        -- And on the way in.
+        assert.same({ SCREEN_W, ns.UI.HEIGHT }, { ns.UI.Options.SetWindowSize(5000, 10, frame) })
+        assert.equal(SCREEN_W, ns.db.profile.settings.windowWidth)
+        assert.equal(ns.UI.HEIGHT, ns.db.profile.settings.windowHeight)
+    end)
+
+    -- The reflow: the open tab, through its own Refresh, with the model it is
+    -- showing - once per size, and not during the drag.
+    local function spy(target, name)
+        local calls = {}
+        local original = target[name]
+        target[name] = function(...)
+            calls[#calls + 1] = { ... }
+            return original(...)
+        end
+        return calls
+    end
+
+    local function drag(width, height)
+        frame.resizeGrip:GetScript("OnMouseDown")(frame.resizeGrip)
+        frame:SetSize(width, height)
+        -- The client fires OnSizeChanged all through a drag.
+        frame:GetScript("OnSizeChanged")(frame, width, height)
+        frame:GetScript("OnSizeChanged")(frame, width, height)
+        frame.resizeGrip:GetScript("OnMouseUp")(frame.resizeGrip)
+        -- ...and may fire it once more as the drag ends.
+        frame:GetScript("OnSizeChanged")(frame, width, height)
+    end
+
+    it("lays the Vault tab out again once per size, with the model it is showing", function()
+        build()
+        frame.pasteBox:SetText(readFile(REAL_EXPORT))
+        frame.importButton:Click()
+        R.vault(world, R.snapshot("vault", 3, R.JOURNAL))
+        frame:Show()
+        frame.tabs[3]:Click()
+        local model = frame.vaultPanel.model
+        local refreshes = spy(ns.VaultPanel, "Refresh")
+        local gathers = spy(ns.VaultPanel, "Gather")
+        local scans = spy(ns.Inventory, "Scan")
+        drag(1100, 900)
+        assert.equal(1, #refreshes)
+        assert.equal(model, refreshes[1][2].model)
+        assert.equal(model, frame.vaultPanel.model)
+        -- Nothing gathered, nothing scanned.
+        assert.equal(0, #gathers)
+        assert.equal(0, #scans)
+        -- The same size again is not a change.
+        frame:GetScript("OnSizeChanged")(frame, 1100, 900)
+        assert.equal(1, #refreshes)
+        drag(1200, 900)
+        assert.equal(2, #refreshes)
+    end)
+
+    it("lays Equip Now out again with the match it is showing, and the Upgrade Map with its model", function()
+        build()
+        frame.pasteBox:SetText(readFile(REAL_EXPORT))
+        frame.importButton:Click()
+        frame:Show()
+        frame.tabs[1]:Click()
+        local match = frame.equipPanel.match
+        assert.is_table(match)
+        local equip = spy(ns.UI.EquipPanel, "Refresh")
+        local scans = spy(ns.Inventory, "Scan")
+        drag(1000, 700)
+        assert.equal(1, #equip)
+        assert.equal(match, equip[1][2])
+        assert.equal(0, #scans)
+
+        frame.tabs[2]:Click()
+        local map = frame.upgradeMapPanel
+        local mapModel = map.model
+        local mapRefresh = spy(ns.UpgradeMapPanel, "Refresh")
+        local mapGather = spy(ns.UpgradeMapPanel, "Gather")
+        -- Opening the tab drew it, and that drawing scanned; the drag must not.
+        local scannedBefore = #scans
+        drag(1300, 700)
+        assert.equal(1, #mapRefresh)
+        assert.equal(mapModel, mapRefresh[1][2].model)
+        assert.equal(mapModel, map.model)
+        assert.equal(0, #mapGather)
+        assert.equal(scannedBefore, #scans)
+    end)
+
+    it("does not lay out a window that is closed, or behind the healing gate's screen", function()
+        build()
+        local refreshes = spy(ns.VaultPanel, "Refresh")
+        frame.selectedTab = 3
+        frame:SetSize(900, 700)
+        assert.is_nil(ns.UI.Relayout(frame))
+        assert.equal(0, #refreshes)
+    end)
+
+    it("puts a Reset size button beside the scale, and it takes the window back to today's size", function()
+        build()
+        frame:Show()
+        assert.equal(1, #world.settings.buttons)
+        local button = world.settings.buttons[1]
+        assert.equal("Reset size", button.buttonText)
+        assert.equal(ns.UI.Options.RESET_SIZE_LABEL, button.buttonText)
+        assert.equal(ns.UI.Options.category, button.category)
+        assert.is_false(button.addSearchTags)
+        drag(1400, 1000)
+        assert.equal(1400, ns.db.profile.settings.windowWidth)
+        button.buttonClick()
+        assert.is_nil(ns.db.profile.settings.windowWidth)
+        assert.is_nil(ns.db.profile.settings.windowHeight)
+        assert.equal(ns.UI.WIDTH, frame:GetWidth())
+        assert.equal(ns.UI.HEIGHT, frame:GetHeight())
+        assert.same({ ns.UI.WIDTH, ns.UI.HEIGHT }, { ns.UI.Options.GetWindowSize(frame) })
+    end)
+
+    it("draws the grip by hand, with the template's own art, on a client without the template", function()
+        world.missingTemplates = { PanelResizeButtonTemplate = true }
+        build()
+        local grip = frame.resizeGrip
+        assert.is_nil(grip.template)
+        assert.equal(16, grip:GetWidth())
+        assert.equal([[Interface\ChatFrame\UI-ChatIM-SizeGrabber-Up]], grip.normalTextureAsset)
+        assert.equal([[Interface\ChatFrame\UI-ChatIM-SizeGrabber-Down]], grip.pushedTextureAsset)
+        assert.same({ "BOTTOMRIGHT", frame, "BOTTOMRIGHT", -4, 4 }, grip.points[1])
+        grip:GetScript("OnMouseDown")(grip)
+        assert.equal("BOTTOMRIGHT", frame.sizingPoint)
+    end)
+end)

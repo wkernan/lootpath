@@ -2078,6 +2078,194 @@ local function onEvent(frame, event)
     end
 end
 
+-- ---------------------------------------------------------------------------
+-- M5-5 (WKE-661): the window resizes by its corner. The owner, 2026-09-29, the
+-- chips row cut off at the window's bottom edge on the Vault: "How difficult
+-- would it be to make the screen dynamic, so that players can set size by
+-- enlarging/shrinking in any direction?" - then "do the resize also".
+--
+-- Every call is the client's own, read in Ketho's annotations under `.luals/`
+-- (Core/Widget/Frame/Frame.lua: SetResizable :498, SetResizeBounds :505,
+-- StartSizing :541, StopMovingOrSizing :544) and in the grip Blizzard ships,
+-- `PanelResizeButtonTemplate` (Blizzard_SharedXML/Mainline/
+-- SharedUIPanelTemplates.xml:1549, a 16 x 16 Button with the chat frame's
+-- size-grabber art) whose `PanelResizeButtonMixin` does exactly these things
+-- (SharedUIPanelTemplates.lua:1555-1597: `StartSizing("BOTTOMRIGHT", true)` on
+-- mouse down, `StopMovingOrSizing()` on mouse up).
+
+-- Where Blizzard hangs its own grip: `BOTTOMRIGHT x=-4 y=4` of the Event
+-- Trace window (Blizzard_EventTrace.xml:183-187).
+UI.RESIZE_GRIP_TEMPLATE = "PanelResizeButtonTemplate"
+UI.RESIZE_GRIP_SIZE = 16
+UI.RESIZE_GRIP_INSET = 4
+-- The template's own three textures, for a client without the template.
+UI.RESIZE_GRIP_ART = {
+    normal = [[Interface\ChatFrame\UI-ChatIM-SizeGrabber-Up]],
+    highlight = [[Interface\ChatFrame\UI-ChatIM-SizeGrabber-Highlight]],
+    pushed = [[Interface\ChatFrame\UI-ChatIM-SizeGrabber-Down]],
+}
+
+-- The window's bounds, in its own units: today's 760 x 640 is the minimum, so
+-- nothing is ever drawn smaller than it was before this issue; the maximum is
+-- the screen - `UIParent`'s size, read through `ns.Safe` at the moment it is
+-- asked (the drag's start) - divided by the window's own scale, because the
+-- window is drawn at `SetScale` on top of UIParent. An unreadable screen is no
+-- maximum rather than a guessed one, and a screen smaller than the minimum
+-- leaves the minimum standing.
+function UI.WindowBounds(frame)
+    local bounds = { minWidth = UI.WIDTH, minHeight = UI.HEIGHT }
+    local parent = _G.UIParent
+    if not (parent and type(parent.GetWidth) == "function" and type(parent.GetHeight) == "function") then
+        return bounds
+    end
+    local screenWidth = tonumber((ns.Safe(parent:GetWidth())))
+    local screenHeight = tonumber((ns.Safe(parent:GetHeight())))
+    local scale = frame and type(frame.GetScale) == "function" and tonumber((ns.Safe(frame:GetScale()))) or 1
+    if not scale or scale <= 0 then
+        scale = 1
+    end
+    if screenWidth and screenWidth > 0 then
+        bounds.maxWidth = math.max(bounds.minWidth, math.floor(screenWidth / scale))
+    end
+    if screenHeight and screenHeight > 0 then
+        bounds.maxHeight = math.max(bounds.minHeight, math.floor(screenHeight / scale))
+    end
+    return bounds
+end
+
+-- A size, clamped into `bounds` and rounded to whole points. Pure. A missing
+-- or unreadable figure is the minimum.
+function UI.ClampWindowSize(width, height, bounds)
+    bounds = bounds or { minWidth = UI.WIDTH, minHeight = UI.HEIGHT }
+    local function clamp(value, low, high)
+        value = tonumber(value) or low
+        value = math.floor(value + 0.5)
+        if value < low then
+            value = low
+        end
+        if high and value > high then
+            value = high
+        end
+        return value
+    end
+    return clamp(width, bounds.minWidth, bounds.maxWidth), clamp(height, bounds.minHeight, bounds.maxHeight)
+end
+
+-- The re-layout (M5-5). The tab on screen is drawn again through its own
+-- Refresh with what it is already showing: Equip Now with its match, the
+-- Upgrade Map and the Vault with `{ model = ... }`. No rescan, no reload,
+-- nothing asked of the client - the size is what changed, and every panel
+-- already reads its width at layout time (M5-2c). Once per size: a size the
+-- open tab has already been laid out at is not laid out again, so the grip's
+-- release and the window's own OnSizeChanged cannot both draw it. Returns the
+-- tab it drew, or nil.
+function UI.Relayout(frame)
+    frame = frame or UI.frame
+    if not frame then
+        return nil
+    end
+    local width, height = frame:GetWidth(), frame:GetHeight()
+    local selected = frame.selectedTab or 1
+    local laid = frame.laidOut
+    if laid and laid.width == width and laid.height == height and laid.tab == selected then
+        return nil
+    end
+    frame.laidOut = { width = width, height = height, tab = selected }
+    if not frame:IsShown() or (frame.comingSoon and frame.comingSoon:IsShown()) then
+        return nil
+    end
+    if selected == 2 then
+        local panel = frame.upgradeMapPanel
+        if not (panel and panel.model) then
+            return nil
+        end
+        ns.UpgradeMapPanel.Refresh(panel, { model = panel.model })
+        return selected
+    end
+    if selected == 3 then
+        local panel = frame.vaultPanel
+        if not (panel and panel.model) then
+            return nil
+        end
+        ns.VaultPanel.Refresh(panel, { model = panel.model })
+        return selected
+    end
+    local panel = frame.equipPanel
+    if not (panel and panel.match ~= nil) then
+        return nil
+    end
+    UI.EquipPanel.Refresh(panel, panel.match)
+    return 1
+end
+
+-- The drag. The bounds are read as it starts, so a screen or a scale that
+-- changed since the window was built is the one that counts; the size is kept
+-- and the open tab laid out once, as it ends.
+function UI.StartResize(frame)
+    frame = frame or UI.frame
+    if not (frame and type(frame.StartSizing) == "function") then
+        return false
+    end
+    local bounds = UI.WindowBounds(frame)
+    frame:SetResizeBounds(bounds.minWidth, bounds.minHeight, bounds.maxWidth, bounds.maxHeight)
+    frame.sizing = true
+    frame:StartSizing("BOTTOMRIGHT", true)
+    return true
+end
+
+function UI.StopResize(frame)
+    frame = frame or UI.frame
+    if not frame then
+        return nil
+    end
+    frame:StopMovingOrSizing()
+    frame.sizing = false
+    local width, height = UI.Options.SetWindowSize(frame:GetWidth(), frame:GetHeight(), frame)
+    if width ~= frame:GetWidth() or height ~= frame:GetHeight() then
+        frame:SetSize(width, height)
+    end
+    UI.Relayout(frame)
+    return width, height
+end
+
+local function buildResizeGrip(frame)
+    frame:SetResizable(true)
+    local bounds = UI.WindowBounds(frame)
+    frame:SetResizeBounds(bounds.minWidth, bounds.minHeight, bounds.maxWidth, bounds.maxHeight)
+    local ok, grip = pcall(CreateFrame, "Button", nil, frame, UI.RESIZE_GRIP_TEMPLATE)
+    if not ok or type(grip) ~= "table" then
+        grip = CreateFrame("Button", nil, frame)
+        grip:SetSize(UI.RESIZE_GRIP_SIZE, UI.RESIZE_GRIP_SIZE)
+        grip:SetNormalTexture(UI.RESIZE_GRIP_ART.normal)
+        grip:SetHighlightTexture(UI.RESIZE_GRIP_ART.highlight)
+        grip:SetPushedTexture(UI.RESIZE_GRIP_ART.pushed)
+    end
+    grip:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -UI.RESIZE_GRIP_INSET, UI.RESIZE_GRIP_INSET)
+    -- Above the tab panels, whose rectangle runs to within 12 points of this
+    -- corner: a grip under a scroll frame cannot be grabbed.
+    if type(grip.SetFrameLevel) == "function" and type(frame.GetFrameLevel) == "function" then
+        grip:SetFrameLevel((frame:GetFrameLevel() or 0) + 10)
+    end
+    -- The template's own mouse-down and mouse-up are replaced by the same two
+    -- calls made here, so the bounds are read at the drag's start and the size
+    -- is kept at its end on either path (with the template or without it).
+    grip:SetScript("OnMouseDown", function()
+        UI.StartResize(frame)
+    end)
+    grip:SetScript("OnMouseUp", function()
+        UI.StopResize(frame)
+    end)
+    -- A size the window was given any other way - Reset size, a clamp - is
+    -- laid out as it lands; during a drag the release does it, once.
+    frame:SetScript("OnSizeChanged", function(self)
+        if not self.sizing then
+            UI.Relayout(self)
+        end
+    end)
+    frame.resizeGrip = grip
+    return grip
+end
+
 function UI.Frame()
     if UI.frame then
         return UI.frame
@@ -2164,6 +2352,10 @@ function UI.Frame()
     -- The scale the owner chose (M5-2). Applied to the window only: the dialog
     -- and the minimap button are Blizzard-sized and are not part of it.
     frame:SetScale(UI.Options.GetScale())
+    -- The corner grip and the size the player last dragged it to (M5-5),
+    -- after the scale, because the screen's bounds are in the window's units.
+    buildResizeGrip(frame)
+    frame:SetSize(UI.Options.GetWindowSize(frame))
 
     frame:RegisterEvent("PLAYER_REGEN_DISABLED")
     frame:RegisterEvent("PLAYER_REGEN_ENABLED")

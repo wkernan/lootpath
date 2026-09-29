@@ -1055,7 +1055,34 @@ function newFrame(kind, world, parent, template)
         self.dragButtons = { ... }
     end
     f.StartMoving = function() end
-    f.StopMovingOrSizing = function() end
+    -- M5-5 (WKE-661): the corner resize, as Frame.lua declares it
+    -- (Core/Widget/Frame/Frame.lua: SetResizable :498, IsResizable :316,
+    -- SetResizeBounds :505, GetResizeBounds :229, StartSizing :541,
+    -- StopMovingOrSizing :544). Nothing is sized by the mouse here: the calls
+    -- are recorded (`resizable`, `resizeBounds`, `sizingPoint`, `stubSizing`), and
+    -- a test that drags sets the size itself.
+    function f:SetResizable(value)
+        self.resizable = value and true or false
+    end
+    function f:IsResizable()
+        return self.resizable == true
+    end
+    function f:SetResizeBounds(minWidth, minHeight, maxWidth, maxHeight)
+        self.resizeBounds = { minWidth, minHeight, maxWidth, maxHeight }
+    end
+    function f:GetResizeBounds()
+        local b = self.resizeBounds or {}
+        return b[1], b[2], b[3], b[4]
+    end
+    function f:StartSizing(point, alwaysStartFromMouse)
+        self.sizingPoint = point
+        self.sizingFromMouse = alwaysStartFromMouse
+        self.stubSizing = true
+    end
+    function f:StopMovingOrSizing()
+        self.stubSizing = false
+        self.stoppedSizing = (self.stoppedSizing or 0) + 1
+    end
     function f:SetClampedToScreen(value)
         self.clamped = value
     end
@@ -1161,6 +1188,14 @@ function newFrame(kind, world, parent, template)
         end
         function f:GetHighlightTexture()
             return self.highlightTexture
+        end
+        -- Its two siblings (Button.lua), for a button that draws its own art
+        -- when the template that would have is missing (M5-5, WKE-661).
+        function f:SetNormalTexture(asset)
+            self.normalTextureAsset = asset
+        end
+        function f:SetPushedTexture(asset)
+            self.pushedTextureAsset = asset
         end
         -- `Button:SetNormalFontObject` (Button.lua:178) is not appearance-only
         -- any more: since R-6c (WKE-629) the Refresh button wears Blizzard's
@@ -1917,6 +1952,11 @@ function Stub.install()
         world.printed[#world.printed + 1] = table.concat(parts, " ")
     end)
     define("CreateFrame", function(kind, name, parent, template)
+        -- A template this client does not have is an error in the real one;
+        -- a test names the templates to refuse (M5-5, WKE-661).
+        if template and world.missingTemplates and world.missingTemplates[template] then
+            error("stub: no template " .. tostring(template))
+        end
         local f = newFrame(kind, world, parent, template)
         if type(name) == "string" and name ~= "" then
             f.frameName = name
@@ -2244,6 +2284,33 @@ function Stub.install()
             local entry = { category = category, setting = setting, tooltip = tooltipText }
             world.settings.checkboxes[#world.settings.checkboxes + 1] = entry
             return entry
+        end,
+    })
+    -- M5-5 (WKE-661): a button row on the options page -
+    -- `CreateSettingsButtonInitializer(name, buttonText, buttonClick, tooltip,
+    -- addSearchTags)` (Blizzard_SettingControls.lua:762) added to the
+    -- category's layout through `SettingsPanel:GetLayout(category)` and
+    -- `layout:AddInitializer` (Blizzard_Settings.lua:377-379,
+    -- Blizzard_SettingsLayouts.lua:33). Recorded in world.settings.buttons.
+    world.settings.buttons = {}
+    define("CreateSettingsButtonInitializer", function(name, buttonText, buttonClick, tooltipText, addSearchTags)
+        return {
+            name = name,
+            buttonText = buttonText,
+            buttonClick = buttonClick,
+            tooltip = tooltipText,
+            addSearchTags = addSearchTags,
+        }
+    end)
+    define("SettingsPanel", {
+        GetLayout = function(_, category)
+            return {
+                AddInitializer = function(_, initializer)
+                    initializer.category = category
+                    world.settings.buttons[#world.settings.buttons + 1] = initializer
+                    return initializer
+                end,
+            }
         end,
     })
     define("MinimalSliderWithSteppersMixin", {

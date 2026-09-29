@@ -2637,6 +2637,31 @@ describe("UpgradeMapPanel run cards", function()
         end
     end)
 
+    -- M5-5 (WKE-661): the window is resizable, and the one rule for a wider
+    -- list is wider tiles, four to a row - never a fifth column. A fifth would
+    -- reorder every row of runs as the corner is dragged, and the tile's art
+    -- band is already cut at the tile's own proportion, so a wider tile is the
+    -- same picture larger.
+    it("keeps four tiles to a row on a wider window and makes each one wider", function()
+        local Panel = ns.UpgradeMapPanel
+        local width = Panel.TileSize()
+        local wideList = Panel.ListWidth() * 2
+        local wide, wideHeight = Panel.TileSize(wideList)
+        assert.is_true(wide > width)
+        assert.equal(math.floor(wide / Panel.TILE_ART_RATIO + 0.5), wideHeight)
+        local elements = Panel.RunElements(runModel(), { listWidth = wideList })
+        local rows = 0
+        for _, element in ipairs(elements) do
+            if element.kind == Panel.ELEMENT_RUN_ROW then
+                rows = rows + 1
+                assert.is_true(#element.runs <= Panel.TILES_PER_ROW)
+                assert.equal(wide, element.tileWidth)
+            end
+        end
+        assert.is_true(rows > 0)
+        assert.equal(4, Panel.TILES_PER_ROW)
+    end)
+
     -- One pip per drop the journal lists, lit per rated drop, capped at twelve.
     -- Nothing here is arithmetic on a rating: it is two counts, drawn.
     it("draws one pip per drop and lights one per rated drop, capped", function()
