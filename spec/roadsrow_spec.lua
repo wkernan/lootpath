@@ -2747,13 +2747,16 @@ describe("Roads on the window, over the owner's week of 2026-09-08", function()
             plan.sentence
         )
         assert.equal("You could catalyst the Hide chest too, but you've only got one charge.", plan.footnote)
-        -- Drawn above the pick, and the pick is still there under it.
-        assert.equal(plan.sentence, panel.headline.plan:GetText())
-        assert.equal(plan.footnote, panel.headline.planFootnote:GetText())
-        assert.equal(panel.model.headline.text, panel.headline.text:GetText())
-        -- The first thing the tab says after its own notes (this transcript's
-        -- export predates the reset, so there is one), and the pick's line is
-        -- the one under it.
+        -- V-8 (WKE-660): this transcript's export predates the reset, so the
+        -- one line the tab draws is the stale answer, not the sentence - the
+        -- rating does not know this week's vault. The footnote and the
+        -- paste-path wording are on the hint icon; the sentence and the
+        -- headline are in the printed lines, as before.
+        assert.is_true(panel.model.stale)
+        assert.equal(ns.VaultPanel.REFRESH_ANSWER, panel.answer:GetText())
+        local hint = table.concat(panel.hintLines, "\n")
+        assert.is_truthy(hint:find(plan.footnote, 1, true))
+        assert.is_truthy(hint:find(ns.VaultPanel.STALE_NOTE, 1, true))
         local printed = ns.VaultPanel.Lines(panel.model)
         local at
         for index, line in ipairs(printed) do
@@ -2778,14 +2781,14 @@ describe("Roads on the window, over the owner's week of 2026-09-08", function()
         assert.equal(28, ns.VaultPanel.PlanHeight(one .. "b", 14))
         assert.equal(0, ns.VaultPanel.PlanHeight(nil, 14))
         assert.equal(0, ns.VaultPanel.PlanHeight("", 14))
-        -- ...and the block on screen is given at least that much room, on top
-        -- of the pick's icon, for the two sentences it is really carrying.
+        -- ...and since V-8 (WKE-660) the grid hangs off the one answer line,
+        -- so however many lines it wraps to, the first row starts under it.
         frame.tabs[3]:Click()
-        local plan = frame.vaultPanel.model.headline.plan
-        local needed = ns.VaultPanel.PlanHeight(plan.sentence, 18) + ns.VaultPanel.PlanHeight(plan.footnote, 14)
-        -- Three lines for the sentence and two for the footnote, over this week.
-        assert.equal(54 + 28, needed)
-        assert.is_true(frame.vaultPanel.headline:GetHeight() >= 32 + needed)
+        local panel = frame.vaultPanel
+        assert.is_true(panel.answer:IsShown())
+        local first = panel.gridRows[1].points[1]
+        assert.equal(panel.answer, first[2])
+        assert.equal("BOTTOMLEFT", first[3])
     end)
 
     -- -----------------------------------------------------------------------

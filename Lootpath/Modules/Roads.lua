@@ -2849,7 +2849,13 @@ Roads.NOT_RATED_YET_SENTENCE = "Not rated yet - refresh."
 -- profile with no vault section at all (R-3d, WKE-584). Not a pick, because
 -- every pick it could name was chosen without the week's vault in front of it.
 -- One imperative, the only one there is.
-Roads.VAULT_UNRATED_SENTENCE = "Your vault was generated after this rating. Refresh."
+--
+-- V-8 (WKE-660) reworded it to the Vault tab's own stale line: on the owner's
+-- screen of 2026-09-29 this sentence ("Your vault was generated after this
+-- rating. Refresh.") stood under a note that said "Re-export it." about the
+-- same staleness. The two signals now read as one sentence with one verb, and
+-- `ns.VaultPanel.REFRESH_ANSWER` says exactly these words.
+Roads.VAULT_UNRATED_SENTENCE = "Refresh to rate this week's vault."
 
 -- The pick's own sentences (UX-3, WKE-599), one per kind, each in the register
 -- the owner set with his own draft: the verb first, the reason after a dash, two

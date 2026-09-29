@@ -615,6 +615,7 @@ end)
 -- column of font strings and `panel.lines` was the whole of it; it is a grid
 -- now, so a test that asks "is this on screen" asks the widgets. The rows are
 -- the notes, the headline block is its own frame, and every option is a cell.
+-- Since V-8 (WKE-660) the notes and the headline block are one answer line.
 local function drawnTexts(panel)
     local out = {}
     local function add(region)
@@ -626,15 +627,8 @@ local function drawnTexts(panel)
             out[#out + 1] = text
         end
     end
-    for _, region in ipairs(panel.rows) do
-        add(region)
-    end
-    if panel.headline:IsShown() then
-        add(panel.headline.text)
-        for _, region in ipairs(panel.headline.lines) do
-            add(region)
-        end
-    end
+    -- V-8 (WKE-660): one line above the grid, and nothing else there.
+    add(panel.answer)
     for _, gridRow in ipairs(panel.gridRows) do
         if gridRow:IsShown() then
             add(gridRow.label)
@@ -647,9 +641,8 @@ local function drawnTexts(panel)
                     end
                     add(cell.label)
                     add(cell.tags)
-                    add(cell.verdict)
+                    add(cell.badge)
                     add(cell.extras)
-                    add(cell.footer)
                     add(cell.locked)
                 end
             end
@@ -660,7 +653,6 @@ local function drawnTexts(panel)
             add(entry.text)
         end
     end
-    add(panel.other)
     add(panel.currencyNote)
     return out
 end
@@ -687,16 +679,14 @@ describe("VaultPanel frames", function()
         H.unload()
     end)
 
-    it("renders the notes into the panel's rows and the options into the grid", function()
+    it("renders the answer above the grid and the options into the grid", function()
         generateReward(world, 1, COVERED_ITEM.id, COVERED_ITEM.bonusIDs, COVERED_ITEM.name, 298)
         ns.QEImport.Store(realVerdict(ns))
         local frame = ns.VaultPanel.Create()
         local model = frame:Refresh()
-        local notes = ns.VaultPanel.NoteLines(model)
-        for i, line in ipairs(notes) do
-            assert.equal(line, frame.rows[i]:GetText())
-        end
-        assert.equal(#notes, #frame.lines)
+        -- V-8 (WKE-660): one line, the answer, and it is `VaultAnswer`'s.
+        assert.equal(ns.VaultPanel.VaultAnswer(model), frame.answer:GetText())
+        assert.is_true(frame.answer:IsShown())
         assert.equal("in your best set", model.best.value)
         -- Three rows of three cells, and the option the export covers is drawn
         -- in one of them with QE Live's own line on it (M5-4).
@@ -777,21 +767,20 @@ describe("VaultPanel frames", function()
         assert.equal(1, labelled)
     end)
 
-    it("hides the rows and the cells a shorter render does not use", function()
+    it("hides the hint and the cells a shorter render does not use", function()
         ns.QEImport.Store(realVerdict(ns))
         local frame = ns.VaultPanel.Create()
-        -- Two weeks past the export, so the tab carries the stale note as well
-        -- as the no-rewards one and there is more than one row to lose.
+        -- Two weeks past the export, so the tab carries the stale condition on
+        -- its hint as well as the no-rewards answer.
         frame:Refresh({ now = ns.VaultPanel.EpochFromISO(EXPORTED_AT) + 2 * ns.VaultPanel.WEEK_SECONDS })
-        local long = #frame.lines
-        assert.is_true(long >= 2)
+        assert.is_true(frame.hint:IsShown())
+        assert.is_true(#frame.hintLines >= 1)
         world.inCombat = true
         frame:Refresh()
-        assert.equal(1, #frame.lines)
-        for i = 2, long do
-            assert.equal("", frame.rows[i]:GetText())
-            assert.is_false(frame.rows[i]:IsShown())
-        end
+        -- The refusal is the one line, and nothing is left on the hint.
+        assert.equal("The vault could not be read: combat", frame.answer:GetText())
+        assert.equal(0, #frame.hintLines)
+        assert.is_false(frame.hint:IsShown())
         -- A vault that could not be read draws no cells at all, rather than
         -- nine cells left over from the last time it could.
         for _, gridRow in ipairs(frame.gridRows) do
@@ -834,8 +823,11 @@ describe("the Vault tab carries no pinned legend (WKE-530 finding 3, V-5)", func
         if frame.header:GetText():find(LEGEND, 1, true) then
             seen = seen + 1
         end
-        for _, text in ipairs(frame.rows) do
-            if text:GetText():find(LEGEND, 1, true) then
+        if (frame.answer:GetText() or ""):find(LEGEND, 1, true) then
+            seen = seen + 1
+        end
+        for _, line in ipairs(frame.hintLines or {}) do
+            if line:find(LEGEND, 1, true) then
                 seen = seen + 1
             end
         end
@@ -862,7 +854,7 @@ describe("the Vault tab carries no pinned legend (WKE-530 finding 3, V-5)", func
         assert.is_false(frame.model.ok)
         assert.equal(0, legendCount(frame))
         -- And the refusal itself is still the first thing in the list.
-        assert.equal("The vault could not be read: combat", frame.rows[1]:GetText())
+        assert.equal("The vault could not be read: combat", frame.answer:GetText())
     end)
 end)
 
@@ -1649,15 +1641,18 @@ describe("VaultPanel over the fresh-login vault (M3-12, WKE-547)", function()
         -- grid; it is still the client's number and it is still on screen.
         assert.is_not_nil(contains(texts, "305"))
         assert.is_not_nil(contains(texts, "308"))
-        assert.is_not_nil(contains(texts, "+ Thalassian Token of Merit"))
+        -- V-8 (WKE-660): a reward cell is badge only, so the token that rides
+        -- on it is on its hover and in the printed lines, not on the cell.
+        assert.is_nil(contains(texts, "+ Thalassian Token of Merit"))
+        assert.is_not_nil(contains(ns.VaultPanel.Lines(panel.model), "+ Thalassian Token of Merit"))
         assertNoBracketsOrNil(texts)
         assert.equal(0, ns.Vault.PendingCount())
 
         -- On another tab the Vault panel is left alone (M3-3's rule).
         ns.UI.SelectTab(frame, 1)
-        local before = panel.lines
+        local before = panel.hintLines
         assert.is_false(ns.UI.RefreshVault())
-        assert.equal(before, panel.lines)
+        assert.equal(before, panel.hintLines)
         -- And with the window closed.
         ns.UI.SelectTab(frame, ns.UI.VAULT_TAB)
         frame:Hide()
@@ -2451,7 +2446,13 @@ describe("VaultPanel's grid (WKE-553)", function()
         -- His own answer is about his catalyzed clone, so the cell says so in
         -- his own tag words.
         assert.same({ "catalyst", "tier" }, spaulders.tags)
-        assert.is_truthy(spaulders.footer:find("hover for the other scenarios", 1, true))
+        -- V-8 (WKE-660): no footer at all - neither `rewards ready` nor the
+        -- invitation to hover; the hover itself is unchanged above.
+        assert.is_nil(spaulders.footer)
+        assert.is_nil(weapon.footer)
+        -- The badge carries the highlighted scenario's figure in its place.
+        assert.equal("in your best set", weapon.badge.text)
+        assert.equal("in your best set", spaulders.badge.text)
     end)
 
     -- The whole point of building the tooltip out of `Panel.ScenarioLine`'s own
@@ -2490,21 +2491,29 @@ describe("VaultPanel's grid (WKE-553)", function()
             end
         end
         assert.is_not_nil(unranked)
-        assert.equal("no rating in any scenario", unranked.verdictText)
+        -- V-8 (WKE-660): not `no rating in any scenario` - nothing at all, and
+        -- no badge.
+        assert.is_nil(unranked.verdictText)
+        assert.is_nil(unranked.badge)
+        assert.is_nil(ns.VaultPanel.CELL_NO_VERDICT_TEXT)
         assert.equal("none", unranked.verdictTone)
         assert.same({}, unranked.tags)
     end)
 
-    -- Nothing the client hands over is dropped by the grid: the rows Blizzard
-    -- does not draw keep their place under it, in the words the text list
-    -- already gives them.
-    it("names the options that sit outside the three rows rather than losing them", function()
+    -- Nothing the client hands over is dropped: the rows Blizzard does not
+    -- draw are no longer listed under the grid (V-8, WKE-660: the owner's
+    -- answer 3, "gone"), and the printed lines still name every one of them in
+    -- the words they always had.
+    it("keeps the options that sit outside the three rows in the printed lines", function()
         local m = model("asOffered")
         assert.equal(2, #m.grid.other)
+        assert.is_nil(m.grid.otherText)
+        assert.is_nil(ns.VaultPanel.OTHER_OPTIONS_TEXT)
+        local printed = table.concat(ns.VaultPanel.Lines(m), "\n")
         for _, option in ipairs(m.grid.other) do
-            assert.is_truthy(m.grid.otherText:find(option.headerText, 1, true))
+            assert.is_truthy(printed:find(option.headerText, 1, true))
         end
-        assert.is_truthy(m.grid.otherText:find("Concession", 1, true))
+        assert.is_truthy(printed:find("Concession", 1, true))
         -- Every option is either in a cell or in that list.
         local placed = 0
         for _, gridRow in ipairs(m.grid.rows) do
@@ -2717,12 +2726,23 @@ describe("VaultPanel's grid, drawn (WKE-553)", function()
         assert.equal("305", drawn.line.level:GetText())
         assert.is_true(drawn.line.border:IsShown())
         assert.is_truthy(drawn.line.name:GetText():find("Lightgrasp Worldroot", 1, true))
-        assert.is_truthy(drawn.verdict:GetText():find("everything upgraded: in your best set", 1, true))
-        -- QE Live's gold on his own "better" answer; the same hex M5-1 gives
-        -- every badge on every tab.
-        assert.is_truthy(drawn.verdict:GetText():find(ns.UI.ItemLine.TONE.better.hex, 1, true))
-        -- The keystone that rode in with it, in words and at no level.
-        assert.equal("+ Mythic Keystone", drawn.extras:GetText())
+        -- V-8 (WKE-660): badge only. The figure bottom-right, green because
+        -- this is the pick under `maxed`; no scenario sentence, no footer, and
+        -- the keystone that rode in with it is on the hover, not the cell.
+        assert.is_true(cell.selected)
+        assert.is_true(drawn.badge:IsShown())
+        assert.equal("in your best set", drawn.badge:GetText())
+        assert.equal("GameFontGreenSmall", drawn.badge:GetFontObject())
+        local point = drawn.badge.points[1]
+        assert.equal("BOTTOMRIGHT", point[1])
+        assert.equal(drawn.background, point[2])
+        assert.equal(-ns.VaultPanel.CORNER_INSET, point[4])
+        assert.equal(ns.VaultPanel.CORNER_INSET, point[5])
+        assert.is_nil(rawget(drawn, "verdict"))
+        assert.is_nil(rawget(drawn, "footer"))
+        assert.equal("", drawn.extras:GetText())
+        drawn:GetScript("OnEnter")(drawn)
+        assert.is_truthy(world.tooltip.stub:Text():find("+ Mythic Keystone", 1, true))
     end)
 
     it("draws a locked cell with the client's own threshold sentence and no item", function()
@@ -2732,7 +2752,7 @@ describe("VaultPanel's grid, drawn (WKE-553)", function()
         assert.is_false(raid.line:IsShown())
         assert.is_true(raid.locked:IsShown())
         assert.equal("Defeat 2 Midnight Season 2 |4Boss:Bosses", raid.locked:GetText())
-        assert.equal("", raid.verdict:GetText())
+        assert.is_false(raid.badge:IsShown())
     end)
 
     it("hovers a cell with every scenario's line, and the item line with the item", function()
@@ -2940,6 +2960,120 @@ describe("VaultPanel's grid, drawn (WKE-553)", function()
             assert.is_true(#label * Stub.CHAR_WIDTH <= dropdown:GetWidth())
         end
     end)
+    -- -----------------------------------------------------------------------
+    -- V-8 (WKE-660): the header is one line, and the cells carry the state.
+    -- The owner, 2026-09-29, reset day: "'rewards ready' doesn't need to be
+    -- there" and "there is way too much copy/text at the top". His answers to
+    -- the mockup: one line above the grid; the scenario lines gone; "Also in
+    -- this vault" gone; a reward cell badge only.
+
+    -- Every word the old header and cells drew, and none of it may be drawn.
+    local GONE = {
+        "The pick this week",
+        "none of these options is in this answer",
+        "nothing in the vault beats your set",
+        "as offered:",
+        "catalyzed:",
+        "everything upgraded:",
+        "rewards ready",
+        "unlocked",
+        "no rating in any scenario",
+        "hover for the other scenarios",
+        "+ Mythic Keystone",
+        "Also in this vault",
+        "Re-export",
+    }
+
+    local function assertNoneDrawn(texts)
+        for _, needle in ipairs(GONE) do
+            assert.is_nil(containsText(texts, needle), "still drawn: " .. needle)
+        end
+    end
+
+    it("draws one line above the grid, and nothing the header and cells used to say", function()
+        for _, scenario in ipairs(ns.QEImport.SCENARIOS) do
+            local model = refresh(scenario)
+            -- The fixture is the kind of week the owner read: rewards waiting,
+            -- keystones riding on them, two options outside the rows, and every
+            -- scenario with something to say.
+            assert.is_true(model.counts.rewards > 0)
+            assert.is_true(model.counts.extras > 0)
+            assert.equal(2, #model.grid.other)
+            assert.is_true(#model.headline.lines >= 4)
+            local texts = drawnTexts(frame)
+            assertNoneDrawn(texts)
+            assert.equal(ns.VaultPanel.VaultAnswer(model), frame.answer:GetText())
+            -- ...and all of it is still in the printed lines, where
+            -- `/lootpath status` reads it.
+            local printed = table.concat(ns.VaultPanel.Lines(model), "\n")
+            assert.is_truthy(printed:find("+ Mythic Keystone", 1, true))
+            assert.is_truthy(printed:find(ns.VaultPanel.CLAIMABLE_TEXT, 1, true))
+            assert.is_truthy(printed:find(model.headline.lines[1].text, 1, true))
+        end
+        -- And the headline's frame is gone rather than hidden.
+        assert.is_nil(rawget(frame, "headline"))
+        assert.is_nil(rawget(frame, "other"))
+        assert.is_nil(rawget(frame, "rows"))
+    end)
+
+    it("wears the export's own figure as a badge on a rated option, and none on an unrated one", function()
+        local model = refresh("maxed")
+        local rated, unrated, alternative = 0, 0, 0
+        for rowIndex, gridRow in ipairs(model.grid.rows) do
+            for cellIndex, cell in ipairs(gridRow.cells) do
+                if cell.kind == "reward" then
+                    local drawn = frame.gridRows[rowIndex].cells[cellIndex]
+                    local coverage = cell.scenarioLine and cell.scenarioLine.coverage or nil
+                    if coverage then
+                        rated = rated + 1
+                        assert.is_true(drawn.badge:IsShown())
+                        if coverage.where == "topSet" then
+                            -- The export gives a top-set item no percentage.
+                            assert.equal("in your best set", drawn.badge:GetText())
+                        else
+                            -- Its own scorePercent, magnitude as given, and the
+                            -- direction its sign means (positive = behind).
+                            alternative = alternative + 1
+                            assert.is_true(tonumber(coverage.scorePercent) > 0)
+                            assert.equal(string.format("%.2f%% behind", coverage.scorePercent), drawn.badge:GetText())
+                            io.write(
+                                string.format(
+                                    "V-8 badge %s: scorePercent %s -> %s\n",
+                                    cell.name,
+                                    tostring(coverage.scorePercent),
+                                    drawn.badge:GetText()
+                                )
+                            )
+                        end
+                        local font = cell.selected and "GameFontGreenSmall" or "GameFontDisableSmall"
+                        assert.equal(font, drawn.badge:GetFontObject())
+                    else
+                        unrated = unrated + 1
+                        assert.is_nil(cell.badge)
+                        assert.is_false(drawn.badge:IsShown())
+                    end
+                end
+            end
+        end
+        assert.is_true(rated > 0)
+        assert.is_true(unrated > 0)
+        assert.is_true(alternative > 0)
+    end)
+
+    it("lights the badge on the pick alone, never on the closest", function()
+        -- Under `asOffered` nothing beats the set: the weapon is the closest,
+        -- labelled so, and its badge stays grey.
+        local offered = refresh("asOffered")
+        local drawn, cell = cellFor(offered, WEAPON_KEY)
+        assert.is_true(cell.closest)
+        assert.is_false(cell.badge.pick)
+        assert.equal("GameFontDisableSmall", drawn.badge:GetFontObject())
+        local catalyzed = refresh("catalyzed")
+        local pick, pickCell = cellFor(catalyzed, SPAULDERS_KEY)
+        assert.is_true(pickCell.selected)
+        assert.is_true(pickCell.badge.pick)
+        assert.equal("GameFontGreenSmall", pick.badge:GetFontObject())
+    end)
 end)
 
 -- ---------------------------------------------------------------------------
@@ -2991,17 +3125,19 @@ describe("VaultPanel and the items QE Live never saw", function()
         end
     end)
 
-    it("draws the line as one of the panel's own rows", function()
+    -- V-8 (WKE-660): a condition on the answer, so it is on the hint icon's
+    -- hover beside the title, verbatim, and not a line above the grid.
+    it("puts the line on the hint icon, not above the grid", function()
         local verdict = realVerdict(ns)
         verdict.excluded = EXCLUDED
         ns.QEImport.Store(verdict)
         local frame = ns.VaultPanel.Create()
         local model = frame:Refresh()
-        local notes = ns.VaultPanel.NoteLines(model)
-        for i, line in ipairs(notes) do
-            assert.equal(line, frame.rows[i]:GetText())
-        end
-        assert.is_truthy(containsText(drawnTexts(frame), "weren't rated this time"))
+        assert.is_nil(containsText(drawnTexts(frame), "weren't rated this time"))
+        assert.is_truthy(containsText(frame.hintLines, "weren't rated this time"))
+        assert.is_true(frame.hint:IsShown())
+        assert.is_true(ns.VaultPanel.ShowHint(frame))
+        assert.is_truthy(world.tooltip.stub:Text():find(model.excludedNote, 1, true))
     end)
 
     -- C-11a (WKE-586): the line counts what NO pass was shown.
@@ -3200,9 +3336,11 @@ describe("the Vault tab after this week's reward is claimed (V-3)", function()
         -- sentence that state chooses.
         assert.is_nil(ns.VaultPanel.NO_REWARDS_NOTE:find("Open the Great Vault", 1, true))
         assert.is_truthy(ns.VaultPanel.OPEN_VAULT_NOTE:find("Great Vault", 1, true))
-        -- It points at the grid instead, which since V-5 has every cell's own
-        -- progress on it.
-        assert.is_truthy(ns.VaultPanel.NO_REWARDS_NOTE:find("cell", 1, true))
+        -- V-8 (WKE-660): cut to its first sentence. It is the tab's one line
+        -- in this state, and the cells under it already show their progress,
+        -- so the second sentence pointing at them went.
+        assert.equal("Nothing to take from the vault yet this week.", ns.VaultPanel.NO_REWARDS_NOTE)
+        assert.equal(ns.VaultPanel.NO_REWARDS_NOTE, ns.VaultPanel.VaultAnswer(nothing))
         assert.is_nil(nothing.headline)
     end)
 
@@ -3260,10 +3398,13 @@ describe("the Vault tab after this week's reward is claimed (V-3)", function()
         local frame = ns.VaultPanel.Create()
         local drawn = frame:Refresh({ now = NOW })
         assert.is_true(drawn.claimed)
-        local notes = ns.VaultPanel.NoteLines(drawn)
-        assert.equal(drawn.rewardsNote, frame.rows[#notes]:GetText())
-        -- No pick line where the vault has nothing to pick.
-        assert.equal("", frame.headline.text:GetText())
+        -- V-8 (WKE-660): the one line is the week's road sentence, and the
+        -- "taken" line, countdown and all, is on the hint icon's hover.
+        local sentence = drawn.headline.plan.sentence
+        assert.is_string(sentence)
+        assert.equal(sentence, frame.answer:GetText())
+        assert.is_truthy(containsText(frame.hintLines, drawn.rewardsNote))
+        assert.is_nil(containsText(drawnTexts(frame), "You've taken this week's reward"))
     end)
 end)
 
@@ -4212,5 +4353,117 @@ describe("the Vault tab's content frame tracks its scroll frame (M5-2c)", functi
         local left = panel.content:GetWidth() - ns.VaultPanel.ROW_BANNER_WIDTH
         local used = cell:GetWidth() * 3 + ns.VaultPanel.CELL_GAP * 2
         assert.is_true(left - used < 3, string.format("%d points of the row unused", left - used))
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
+-- V-8 (WKE-660): `Panel.VaultAnswer` and `Panel.HintLines`, pure, over the
+-- states the owner's week passes through. Hand-built models, because what is
+-- asserted is the choice and the words, not the reading that led to them.
+describe("the Vault tab's one line (V-8)", function()
+    local ns
+
+    before_each(function()
+        ns = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local ROAD = "Catalyst the helm. Skip the vault ring."
+
+    local function model(fields)
+        local m = {
+            ok = true,
+            hasVerdict = true,
+            counts = { rewards = 2, extras = 2 },
+            headline = { plan = { sentence = ROAD } },
+        }
+        for key, value in pairs(fields or {}) do
+            m[key] = value
+        end
+        return m
+    end
+
+    it("says Refresh when the export predates this week's vault", function()
+        local stale = model({ stale = true, staleNote = ns.VaultPanel.STALE_NOTE })
+        assert.equal("Refresh to rate this week's vault.", ns.VaultPanel.VaultAnswer(stale))
+        -- The paste path's wording is the hint's, not the screen's.
+        assert.same(
+            { "This export predates this week's vault reset. Re-export, or Refresh with the companion running." },
+            ns.VaultPanel.HintLines(stale)
+        )
+    end)
+
+    it("says the same Refresh when the run that rated it had no vault", function()
+        local unrated = model({ headline = { plan = { sentence = ns.Roads.VAULT_UNRATED_SENTENCE } } })
+        assert.equal("Refresh to rate this week's vault.", ns.VaultPanel.VaultAnswer(unrated))
+        -- One sentence for both signals.
+        assert.equal(ns.VaultPanel.REFRESH_ANSWER, ns.Roads.VAULT_UNRATED_SENTENCE)
+    end)
+
+    it("says the road sentence once the week is rated, and nothing else", function()
+        local rated = model()
+        assert.equal(ROAD, ns.VaultPanel.VaultAnswer(rated))
+        assert.same({}, ns.VaultPanel.HintLines(rated))
+    end)
+
+    it("says the road sentence after the claim, and puts the taken line on the hint", function()
+        local taken = "You've taken this week's reward. The next vault opens in 6d 17h."
+        local claimed = model({
+            claimed = true,
+            counts = { rewards = 0, extras = 0 },
+            rewardsNote = taken,
+            headline = { plan = { sentence = ROAD }, planOnly = true, lines = {} },
+        })
+        assert.equal(ROAD, ns.VaultPanel.VaultAnswer(claimed))
+        assert.same({ taken }, ns.VaultPanel.HintLines(claimed))
+        -- A claimed week with no sentence to read out says the taken line.
+        claimed.headline.plan.sentence = nil
+        assert.equal(taken, ns.VaultPanel.VaultAnswer(claimed))
+        assert.same({}, ns.VaultPanel.HintLines(claimed))
+    end)
+
+    it("says there is nothing yet when nothing has been earned, however old the export", function()
+        local empty = model({
+            counts = { rewards = 0, extras = 0 },
+            rewardsNote = ns.VaultPanel.NO_REWARDS_NOTE,
+            headline = nil,
+            stale = true,
+            staleNote = ns.VaultPanel.STALE_NOTE,
+        })
+        assert.equal("Nothing to take from the vault yet this week.", ns.VaultPanel.VaultAnswer(empty))
+        assert.same({ ns.VaultPanel.STALE_NOTE }, ns.VaultPanel.HintLines(empty))
+    end)
+
+    it("keeps each remedy as the line in its own state", function()
+        for _, note in ipairs({ ns.VaultPanel.OPEN_VAULT_NOTE, ns.VaultPanel.WITHHELD_REWARDS_NOTE }) do
+            local m = model({ counts = { rewards = 0, extras = 0 }, rewardsNote = note, stale = true })
+            assert.equal(note, ns.VaultPanel.VaultAnswer(m))
+        end
+        assert.equal(ns.VaultPanel.NO_VERDICT_NOTE, ns.VaultPanel.VaultAnswer(model({ hasVerdict = false })))
+        assert.equal(
+            "The vault could not be read: combat",
+            ns.VaultPanel.VaultAnswer({ ok = false, reason = "combat" })
+        )
+        assert.same({}, ns.VaultPanel.HintLines({ ok = false, reason = "combat" }))
+    end)
+
+    it("moves the conditions that stood above the grid onto the hint, verbatim", function()
+        local m = model({
+            headline = { plan = { sentence = ROAD, footnote = "You could catalyst the chest too." } },
+            highlightNote = "highlight note",
+            previousPeriodNote = ns.VaultPanel.PREVIOUS_PERIOD_NOTE,
+            pendingNote = "pending note",
+            excludedNote = "excluded note",
+        })
+        assert.same({
+            "You could catalyst the chest too.",
+            "highlight note",
+            ns.VaultPanel.PREVIOUS_PERIOD_NOTE,
+            "pending note",
+            "excluded note",
+        }, ns.VaultPanel.HintLines(m))
     end)
 end)

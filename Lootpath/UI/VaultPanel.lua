@@ -198,20 +198,30 @@ Panel.LEVEL_GLOBAL = {
 Panel.PICK_LABEL = "the pick"
 Panel.CLOSEST_LABEL = "closest"
 
--- The cell's own last line. A cell whose option has more than one scenario to
--- report says where the rest of them are; the tooltip carries exactly the
--- lines `Panel.ScenarioLine` built, so the cell and the text panel cannot
--- disagree about what QE Live said.
-Panel.CELL_HOVER_TEXT = "hover for the other scenarios"
-Panel.CELL_NO_VERDICT_TEXT = "no rating in any scenario"
+-- V-8 (WKE-660): a reward cell draws its item and ONE badge, and nothing else
+-- in words. The owner, 2026-09-29: "this app should be visual and players
+-- should know what to do without needing to read it so much" - and of the
+-- mockup, "inside a reward cell: badge only". So the lines that sat under the
+-- item went: the highlighted scenario's sentence (the badge says it shorter),
+-- `no rating in any scenario` (an unrated option simply wears no badge), the
+-- `rewards ready` / `unlocked` footer (the check and the item are the state),
+-- the `hover for the other scenarios` invitation, and `+ Mythic Keystone`.
+-- Every one of them is still on the cell's hover (`tooltipLines`, the
+-- extras, `moreText`) and in the printed lines `/lootpath status` reads.
 Panel.CELL_SECOND_SEPARATOR = " - "
 -- A row the client generated more than one gear reward for. Not measured on
 -- any transcript (every rewarded activity carried exactly one), so the cell
 -- draws the first and says how many it is not drawing rather than pretending
 -- the others are not there.
 Panel.CELL_MORE_TEXT = "+%d more in this option"
--- The options the client lists outside the three rows Blizzard draws.
-Panel.OTHER_OPTIONS_TEXT = "Also in this vault: %s"
+
+-- V-8 (WKE-660): the badge's two fonts, both the client's own (FontStyles.xml
+-- under `.luals/`: GameFontGreenSmall at :120, GameFontDisableSmall at :112).
+-- Green on the pick, grey on every other rated option - UX-6c's rule that a
+-- figure is lit only where it is the thing to do. Named, never a colour of
+-- this addon's.
+Panel.BADGE_FONT_PICK = "GameFontGreenSmall"
+Panel.BADGE_FONT = "GameFontDisableSmall"
 
 -- The currency strip under the grid. The scenario lines above it already say
 -- how many of a thing the player has, in words; this names each currency with
@@ -490,7 +500,11 @@ Panel.PENDING_NOTE = "%d reward(s) are waiting for the client to load their item
 -- is true and points at the cells rather than sending anyone to a window that
 -- would change nothing. The remedy for the state that does have one still
 -- lives on OPEN_VAULT_NOTE below, which is chosen first.
-Panel.NO_REWARDS_NOTE = "Nothing to take from the vault yet this week. Each cell below shows what it still needs."
+--
+-- V-8 (WKE-660) cut it to its first sentence: it is now the tab's one line
+-- above the grid in this state, and the second sentence only pointed at the
+-- cells the reader is already looking at.
+Panel.NO_REWARDS_NOTE = "Nothing to take from the vault yet this week."
 
 -- V-5 (WKE-600): rewards the client is holding that belong to an earlier week.
 -- Blizzard's own frame puts its PreviousRewardNotification up on exactly this
@@ -540,7 +554,19 @@ Panel.WITHHELD_REWARDS_NOTE = "The client says vault rewards are waiting but did
 Panel.OPEN_VAULT_NOTE = "This week's vault rewards have not been generated yet. "
     .. "Open the Great Vault, then refresh: opening it is what makes the client fetch them."
 Panel.NO_VERDICT_NOTE = "No import yet, so no option carries a value. Paste a Top Gear export to change that."
-Panel.STALE_NOTE = "This export predates this week's vault reset, so it does not know these options. Re-export it."
+-- V-8 (WKE-660): the export predates this week's reset. On the owner's screen
+-- of 2026-09-29 this sentence said "Re-export it." and the road sentence under
+-- it said "Refresh." - two verbs about one staleness. The screen now says one
+-- (`Panel.REFRESH_ANSWER`, the companion's path, which is his); this wording,
+-- which also names the paste path, is the hint icon's and the printed lines'.
+Panel.STALE_NOTE = "This export predates this week's vault reset. Re-export, or Refresh with the companion running."
+
+-- V-8 (WKE-660): the tab's one line above the grid when the rating does not
+-- know this week's vault - an export older than the reset, or a run whose
+-- profile carried no vault (R-3d's `Roads.VAULT_UNRATED_SENTENCE`, which says
+-- these same words, so the two signals read as one). One sentence, one verb.
+Panel.REFRESH_ANSWER = "Refresh to rate this week's vault."
+Panel.UNREADABLE_TEXT = "The vault could not be read: %s"
 
 -- A reset week, in seconds. Used only to place an export before or after the
 -- most recent reset; the client's own GetSecondsUntilWeeklyReset supplies the
@@ -1310,6 +1336,48 @@ function Panel.CellTags(line)
     return {}
 end
 
+-- V-8 (WKE-660): the badge a rated reward cell wears bottom-right, in place of
+-- the sentence it used to carry. The export's own figure for this option under
+-- the highlighted scenario, in the words the By slot cards already use for a
+-- whole-set rating (`ns.Roads.SetBadge`), so a vault option and a card say one
+-- thing one way:
+--   in the best set     `in your best set` - the export gives a top-set item
+--                       no percentage at all (QEImport.Coverage), so there is
+--                       none to print, and none is made up;
+--   an alternative      its `scorePercent`, magnitude as given, `behind` -
+--                       the export's sign is "positive means worse"
+--                       (QEImport.ALT_WORSE_SCORE_PERCENT_SIGN), so printing it
+--                       as `+0.95%` would call a downgrade a gain;
+--   called better       `ns.UpgradeMapPanel.ValueText`'s own words, should the
+--                       export ever say it (a Top Gear alternative never has).
+-- nil for an option no scenario rated: no badge, and no words about it either.
+-- `pick` is set by `Panel.Grid`, which is where the pick is known.
+function Panel.CellBadge(coverage)
+    if type(coverage) ~= "table" then
+        return nil
+    end
+    local text
+    if coverage.where == "topSet" then
+        text = ns.Roads.SetBadge({ inTopSet = true })
+    elseif coverage.isBetter == true then
+        text = ns.UpgradeMapPanel.ValueText(coverage)
+    else
+        text = ns.Roads.SetBadge({ scorePercent = coverage.scorePercent })
+    end
+    if type(text) ~= "string" or text == "" then
+        return nil
+    end
+    return { text = text, pick = false }
+end
+
+-- The font a badge is drawn in: green on the pick, grey everywhere else.
+function Panel.BadgeFont(badge)
+    if type(badge) == "table" and badge.pick == true then
+        return Panel.BADGE_FONT_PICK
+    end
+    return Panel.BADGE_FONT
+end
+
 -- One cell of the grid, as plain data. `option` is a model option, `enumName`
 -- its row's Blizzard enum name, `highlight` the scenario the pick follows, and
 -- `state` the one fact about the WEEK a single cell cannot see: `claiming`,
@@ -1403,22 +1471,16 @@ function Panel.Cell(option, enumName, highlight, state)
         end
     end
     cell.scenarioLine = highlighted
-    cell.verdictText = highlighted and highlighted.text or Panel.CELL_NO_VERDICT_TEXT
+    -- The highlighted scenario's sentence, kept on the data for the hover's
+    -- first line and the tests; since V-8 (WKE-660) it is not drawn on the
+    -- cell - the badge is. An option no scenario rated has neither.
+    cell.verdictText = highlighted and highlighted.text or nil
     cell.verdictTone = Panel.VerdictTone(highlighted and highlighted.coverage or nil)
+    cell.badge = Panel.CellBadge(highlighted and highlighted.coverage or nil)
     cell.tags = Panel.CellTags(highlighted)
     -- Exactly the strings the text panel indents under this option, so the
     -- hover and `Panel.Lines` can never say different things about one item.
     cell.tooltipLines = reward.verdictLines or {}
-    local footer = {}
-    if cell.claimable then
-        footer[#footer + 1] = Panel.CLAIMABLE_TEXT
-    elseif cell.unlocked then
-        footer[#footer + 1] = Panel.UNLOCKED_TEXT
-    end
-    if #cell.tooltipLines > 1 then
-        footer[#footer + 1] = Panel.CELL_HOVER_TEXT
-    end
-    cell.footer = table.concat(footer, Panel.CELL_SECOND_SEPARATOR)
     local more = #option.rewards - 1
     if more > 0 then
         cell.moreText = string.format(Panel.CELL_MORE_TEXT, more)
@@ -1464,30 +1526,28 @@ function Panel.Grid(model, highlight, best, closest)
                     cell.closest = closest and true or false
                     cell.label = closest and Panel.CLOSEST_LABEL or Panel.PICK_LABEL
                 end
+                -- Lit only on the pick; the closest-but-not-a-pick stays grey,
+                -- the same refusal its label makes (V-8, WKE-660).
+                if cell.badge then
+                    cell.badge.pick = cell.selected == true
+                end
                 row.cells[slot] = cell
                 placed[option] = true
             end
         end
         rows[#rows + 1] = row
     end
+    -- The options the client lists outside the three rows (a Concession, the
+    -- token). Kept on the grid for the tests; since V-8 (WKE-660) nothing
+    -- draws them - the owner's answer 3, "gone" - and the printed lines still
+    -- carry every one of them with its header and its extras.
     local other = {}
     for _, option in ipairs(model.options or {}) do
         if not placed[option] and ((#option.rewards > 0) or (#option.extras > 0)) then
             other[#other + 1] = option
         end
     end
-    local otherText
-    if #other > 0 then
-        local names = {}
-        for _, option in ipairs(other) do
-            -- The header AND what the row hands over: a Concession row that is
-            -- only ever a Mythic Keystone must still say so, or the grid has
-            -- quietly dropped something the client offered.
-            names[#names + 1] = option.headerText .. (option.extrasText and (" " .. option.extrasText) or "")
-        end
-        otherText = string.format(Panel.OTHER_OPTIONS_TEXT, table.concat(names, "; "))
-    end
-    return { rows = rows, other = other, otherText = otherText }
+    return { rows = rows, other = other }
 end
 
 -- The currency strip: one chip per currency a scenario above assumed, with the
@@ -1951,7 +2011,7 @@ end
 function Panel.NoteLines(model)
     local lines = {}
     if not model.ok then
-        lines[1] = string.format("The vault could not be read: %s", tostring(model.reason))
+        lines[1] = string.format(Panel.UNREADABLE_TEXT, tostring(model.reason))
         return lines
     end
     if model.verdictNote then
@@ -1977,6 +2037,88 @@ function Panel.NoteLines(model)
     if model.excludedNote then
         lines[#lines + 1] = Panel.NOTE_COLOR .. model.excludedNote .. "|r"
     end
+    return lines
+end
+
+-- V-8 (WKE-660): the ONE line the drawn tab puts above the grid - the answer,
+-- in the state the week is in. The owner, 2026-09-29, reset day: "there is way
+-- too much copy/text at the top - this app should be visual and players should
+-- know what to do without needing to read it so much". Eight lines stood there
+-- (the stale note, the road sentence, the headline, four scenario lines); his
+-- answers to the mockup made it one. Pure: a model in, a string (or nil) out.
+--
+-- In order, the first that holds:
+--   the vault could not be read       why, as before;
+--   rewards the client will not give  OPEN_VAULT_NOTE / WITHHELD_REWARDS_NOTE,
+--                                     because each IS the thing to do;
+--   nothing earned yet                NO_REWARDS_NOTE, cut to one sentence;
+--   no rating stored                  NO_VERDICT_NOTE, as before;
+--   the reward already taken          the road sentence (the rest of the week:
+--                                     the charge, the crests) - the "taken" line
+--                                     is the hint icon's, with its countdown;
+--   the rating does not know this     REFRESH_ANSWER, for BOTH signals - an
+--     week's vault                    export older than the reset, and a run
+--                                     whose profile had no vault;
+--   rated                             the road sentence, which already reads
+--                                     right ("Catalyst the helm. Skip the vault
+--                                     ring." on the owner's screen that day).
+-- The headline (`The pick this week (...)`) and the four scenario lines are not
+-- here and not moved: the owner's answer 2 was "gone". They stay in the model
+-- and in `Panel.Lines`, which is what `/lootpath status` prints.
+function Panel.VaultAnswer(model)
+    if type(model) ~= "table" then
+        return nil
+    end
+    if not model.ok then
+        return string.format(Panel.UNREADABLE_TEXT, tostring(model.reason))
+    end
+    local note = model.rewardsNote
+    if note == Panel.OPEN_VAULT_NOTE or note == Panel.WITHHELD_REWARDS_NOTE or note == Panel.NO_REWARDS_NOTE then
+        return note
+    end
+    if not model.hasVerdict then
+        return model.verdictNote or Panel.NO_VERDICT_NOTE
+    end
+    local plan = model.headline and model.headline.plan or nil
+    local sentence = type(plan) == "table" and plan.sentence or nil
+    if model.claimed then
+        return sentence or note
+    end
+    if model.stale or (ns.Roads and sentence == ns.Roads.VAULT_UNRATED_SENTENCE) then
+        return Panel.REFRESH_ANSWER
+    end
+    return sentence
+end
+
+-- V-8 (WKE-660): what the hint icon beside the tab's title says on hover - the
+-- conditions on the answer, one hover away, the pattern M5-1b built for Equip
+-- Now and UX-5 for the Upgrade Map. Nothing here is a new sentence but the
+-- stale one, whose paste-path wording ("Re-export") left the screen for it;
+-- the rest are the notes that stood above the grid, verbatim, minus the one
+-- that is now the answer. Empty when there is nothing to say, and then the icon
+-- is not drawn.
+function Panel.HintLines(model)
+    local lines = {}
+    if type(model) ~= "table" or not model.ok then
+        return lines
+    end
+    local answer = Panel.VaultAnswer(model)
+    local function add(text)
+        if type(text) == "string" and text ~= "" and text ~= answer then
+            lines[#lines + 1] = text
+        end
+    end
+    add(model.staleNote)
+    -- The taken line, with the client's own countdown (V-3).
+    if model.claimed then
+        add(model.rewardsNote)
+    end
+    local plan = model.headline and model.headline.plan or nil
+    add(type(plan) == "table" and plan.footnote or nil)
+    add(model.highlightNote)
+    add(model.previousPeriodNote)
+    add(model.pendingNote)
+    add(model.excludedNote)
     return lines
 end
 
@@ -2038,6 +2180,9 @@ end
 -- Blizzard's own selected glow when the client still has the atlas; each cell
 -- says the highlighted scenario's line and keeps the rest one hover away.
 -- `Panel.Lines` is untouched and is still the pure text the tests read.
+-- Since V-8 (WKE-660) the headline block is one line (`Panel.VaultAnswer`),
+-- the notes are on the hint icon beside the title (`Panel.HintLines`), and a
+-- reward cell carries its item and one badge (`Panel.CellBadge`).
 
 local ROW_HEIGHT = 14
 -- Only a default; the window anchors this panel by two corners, and the default
@@ -2233,13 +2378,35 @@ end
 -- A flat 1-pixel texture Blizzard ships and every addon tints; used for the
 -- fallback border, and only ever with SetVertexColor over it.
 local WHITE_TEXTURE = [[Interface\Buttons\WHITE8X8]]
--- The gap under the plan sentence, which is the only thing above the pick, and
--- roughly how many characters of the headline's large font fit on one line of
--- the panel. Headless there is no font to ask, and a two-sentence plan that
--- wrapped onto the pick would be the one way this block can overlap itself, so
--- the estimate is deliberate and generous rather than absent.
-local PLAN_GAP = 6
+-- Roughly how many characters of the answer's large font fit on one line of
+-- the panel. Headless there is no font to ask, and an answer that wrapped onto
+-- the grid would be the one way the top of this tab can overlap itself, so the
+-- estimate is deliberate and generous rather than absent.
 Panel.PLAN_CHARS_PER_LINE = 56
+
+-- V-8 (WKE-660): the hint icon beside the title, and the art it wears - the
+-- Upgrade Map's own figures (UX-5), because it is the same icon.
+Panel.HINT_SIZE = 12
+Panel.HINT_ATLAS = "transmog-icon-warning-small"
+Panel.HINT_HEX = ns.UI.ItemLine.GREY
+
+-- The hint's tooltip: every line of `Panel.HintLines`, the first as the title.
+function Panel.ShowHint(frame, owner)
+    local lines = Panel.HintLines(frame and frame.model)
+    if not (GameTooltip and #lines > 0) then
+        return false
+    end
+    GameTooltip:SetOwner(owner or frame.hint, "ANCHOR_RIGHT")
+    for index, line in ipairs(lines) do
+        if index == 1 then
+            GameTooltip:SetText(line, 1, 1, 1, 1, true)
+        else
+            GameTooltip:AddLine(line, 1, 1, 1, true)
+        end
+    end
+    GameTooltip:Show()
+    return true
+end
 
 function Panel.PlanHeight(text, rowHeight)
     if type(text) ~= "string" or text == "" then
@@ -2526,45 +2693,38 @@ function Panel.Create(parent)
     frame.content = CreateFrame("Frame", nil, frame.scroll)
     frame.content:SetSize(Panel.ContentWidth(frame), PANEL_HEIGHT - 60)
     frame.scroll:SetScrollChild(frame.content)
-    frame.rows = {}
     frame.gridRows = {}
     frame.chips = {}
 
-    -- The headline block (M3-9), drawn: the pick's icon, the first line in
-    -- GameFontNormalLarge, and one small line per scenario under it, each of
-    -- them exactly what `Panel.HeadlineLine` produced.
-    local headline = CreateFrame("Frame", nil, frame.content)
-    headline:SetPoint("TOPLEFT", frame.content, "TOPLEFT", 0, 0)
-    headline:SetPoint("RIGHT", frame.content, "RIGHT", 0, 0)
-    headline:SetHeight(1)
-    -- The week's plan, above everything (R-3): one or two short sentences in
-    -- chat voice, then the footnote when a resource is wanted twice. Nothing
-    -- below them moved; they were put in front.
-    headline.plan = headline:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    headline.plan:SetPoint("TOPLEFT", headline, "TOPLEFT", 0, 0)
-    headline.plan:SetPoint("RIGHT", headline, "RIGHT", 0, 0)
-    headline.plan:SetJustifyH("LEFT")
-    headline.plan:SetWordWrap(true)
-    headline.planFootnote = headline:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-    headline.planFootnote:SetPoint("TOPLEFT", headline.plan, "BOTTOMLEFT", 0, -2)
-    headline.planFootnote:SetPoint("RIGHT", headline, "RIGHT", 0, 0)
-    headline.planFootnote:SetJustifyH("LEFT")
-    headline.planFootnote:SetWordWrap(true)
+    -- V-8 (WKE-660): the conditions on the answer, as an icon beside the title
+    -- with the words on hover - the same glyph and grey the Upgrade Map's hint
+    -- wears (UX-5), because it is the same thing on a third tab. Drawn only
+    -- when `Panel.HintLines` has something to say.
+    frame.hint = CreateFrame("Button", nil, frame)
+    frame.hint:SetSize(Panel.HINT_SIZE, Panel.HINT_SIZE)
+    frame.hint:SetPoint("LEFT", frame.header, "RIGHT", 6, 0)
+    frame.hint.icon = frame.hint:CreateTexture(nil, "ARTWORK")
+    frame.hint.icon:SetAllPoints()
+    frame.hint:SetScript("OnEnter", function(button)
+        Panel.ShowHint(frame, button)
+    end)
+    frame.hint:SetScript("OnLeave", function()
+        if GameTooltip then
+            GameTooltip:Hide()
+        end
+    end)
+    frame.hint:Hide()
 
-    headline.icon = ns.UI.ItemLine.CreateIcon(headline, { size = CELL_ICON_SIZE })
-    headline.icon:SetPoint("TOPLEFT", headline, "TOPLEFT", 0, 0)
-    headline.text = headline:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    headline.text:SetPoint("TOPLEFT", headline.icon, "TOPRIGHT", 8, -2)
-    headline.text:SetPoint("RIGHT", headline, "RIGHT", 0, 0)
-    headline.text:SetJustifyH("LEFT")
-    headline.text:SetWordWrap(true)
-    headline.lines = {}
-    frame.headline = headline
-
-    frame.other = frame.content:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-    frame.other:SetJustifyH("LEFT")
-    frame.other:SetWordWrap(true)
-    frame.other:Hide()
+    -- V-8 (WKE-660): the one line above the grid - `Panel.VaultAnswer` - in the
+    -- gold large font the road sentence was already drawn in. It replaces the
+    -- note rows, the road sentence, the pick's icon and headline, and the
+    -- scenario lines that stood here: one line, and no second one.
+    frame.answer = frame.content:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    frame.answer:SetPoint("TOPLEFT", frame.content, "TOPLEFT", 0, 0)
+    frame.answer:SetPoint("RIGHT", frame.content, "RIGHT", 0, 0)
+    frame.answer:SetJustifyH("LEFT")
+    frame.answer:SetWordWrap(true)
+    frame.answer:Hide()
 
     frame.currencyNote = frame.content:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
     frame.currencyNote:SetJustifyH("LEFT")
@@ -2573,26 +2733,6 @@ function Panel.Create(parent)
     frame.Refresh = Panel.Refresh
     Panel.frame = frame
     return frame
-end
-
-local function row(frame, index)
-    local text = frame.rows[index]
-    if not text then
-        text = frame.content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-        text:SetJustifyH("LEFT")
-        -- As wide as the frame it wraps inside, rather than a number of its own
-        -- (M5-2c, WKE-609).
-        text:SetWidth(Panel.ContentWidth(frame))
-        text:SetWordWrap(true)
-        if index == 1 then
-            text:SetPoint("TOPLEFT", frame.content, "TOPLEFT", 0, 0)
-        else
-            text:SetPoint("TOPLEFT", frame.rows[index - 1], "BOTTOMLEFT", 0, -2)
-        end
-        frame.rows[index] = text
-    end
-    text:Show()
-    return text
 end
 
 -- One atlas, drawn at its own aspect inside the box it was given (V-5a,
@@ -2828,28 +2968,28 @@ local function createCell(parent)
     cell.tags:SetJustifyH("LEFT")
     cell.tags:SetWordWrap(false)
 
-    cell.verdict = cell:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    cell.verdict:SetPoint("TOPLEFT", cell.tags, "BOTTOMLEFT", 0, -2)
-    cell.verdict:SetPoint("RIGHT", cell, "RIGHT", -6, 0)
-    cell.verdict:SetJustifyH("LEFT")
-    cell.verdict:SetWordWrap(true)
+    -- V-8 (WKE-660): the badge, bottom-right inside the cell's art, where
+    -- Blizzard's own cell puts its progress (`Panel.CORNER_INSET`) - the one
+    -- thing a reward cell says in words. The export's own figure under the
+    -- highlighted scenario (`Panel.CellBadge`), green on the pick and grey
+    -- elsewhere (`Panel.BadgeFont`); an unrated option has none. It replaces
+    -- the scenario sentence and the `rewards ready` footer that were here.
+    cell.badge = cell:CreateFontString(nil, "OVERLAY", Panel.BADGE_FONT)
+    cell.badge:SetJustifyH("RIGHT")
+    cell.badge:SetWordWrap(false)
+    cell.badge:Hide()
 
     -- Everything the client hands over on this row that is not gear - the
     -- Mythic Keystone every rewarded activity carries, a Token of Merit - in
     -- the words the text list already gives it (finding 1, WKE-538). It has no
-    -- level and never a value; it is here so nothing the vault offers is off
-    -- the screen.
+    -- level and never a value. Since V-8 (WKE-660) a REWARD cell does not draw
+    -- it (the owner's answer 4, "badge only"); its hover and the printed lines
+    -- still say it.
     cell.extras = cell:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-    cell.extras:SetPoint("TOPLEFT", cell.verdict, "BOTTOMLEFT", 0, -2)
+    cell.extras:SetPoint("TOPLEFT", cell.tags, "BOTTOMLEFT", 0, -2)
     cell.extras:SetPoint("RIGHT", cell, "RIGHT", -6, 0)
     cell.extras:SetJustifyH("LEFT")
     cell.extras:SetWordWrap(false)
-
-    cell.footer = cell:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-    cell.footer:SetPoint("BOTTOMLEFT", cell, "BOTTOMLEFT", 6, 4)
-    cell.footer:SetPoint("RIGHT", cell, "RIGHT", -6, 0)
-    cell.footer:SetJustifyH("LEFT")
-    cell.footer:SetWordWrap(false)
 
     -- The cell's own words - what unlocks it - where Blizzard writes its
     -- Threshold (V-7, WKE-658): top-left, left-justified, wrapping, in
@@ -3122,16 +3262,17 @@ local function bindCell(cell, data, cellWidth)
         markCell(cell, false)
         cell.tick:Hide()
         cell.corner:Hide()
+        cell.badge:Hide()
         return
     end
     cell:Show()
     paintCell(cell, data)
-    cell.extras:SetText(data.extrasText or "")
     if data.kind == "locked" then
+        cell.extras:SetText(data.extrasText or "")
+        cell.badge:SetText("")
+        cell.badge:Hide()
         ns.UI.ItemLine.Clear(cell.line)
         cell.tags:SetText("")
-        cell.verdict:SetText("")
-        cell.footer:SetText("")
         -- Blizzard's Threshold, placed and coloured as its Refresh does (V-7).
         local place = Panel.CellPlace(cellWidth, CELL_HEIGHT)
         cell.locked:ClearAllPoints()
@@ -3163,8 +3304,13 @@ local function bindCell(cell, data, cellWidth)
         tags = {},
     })
     cell.tags:SetText(ns.UI.ItemLine.TagText(data.tags))
-    cell.verdict:SetText(colored(toneHex(data.verdictTone), data.verdictText))
-    cell.footer:SetText(data.footer or "")
+    -- Badge only (V-8): no extras line on a reward cell.
+    cell.extras:SetText("")
+    cell.badge:ClearAllPoints()
+    cell.badge:SetPoint("BOTTOMRIGHT", cell.background, "BOTTOMRIGHT", -Panel.CORNER_INSET, Panel.CORNER_INSET)
+    setFont(cell.badge, Panel.BadgeFont(data.badge), Panel.BADGE_FONT)
+    cell.badge:SetText(data.badge and data.badge.text or "")
+    cell.badge:SetShown(data.badge ~= nil)
     if data.label then
         cell.label:SetText(colored(data.selected and Panel.SELECTED_HEX or toneHex("none"), data.label))
         cell.label:Show()
@@ -3202,114 +3348,33 @@ function Panel.Refresh(self, opts)
     -- 164: Blizzard's proportions, at the window's own width.
     local cellWidth = math.max(60, math.floor((width - ROW_BANNER_WIDTH - gaps) / Panel.ROW_CELLS))
 
-    local lines = Panel.NoteLines(model)
-    for i, line in ipairs(lines) do
-        row(self, i):SetText(line)
-    end
-    for i = #lines + 1, #self.rows do
-        self.rows[i]:SetText("")
-        self.rows[i]:Hide()
-    end
-    self.lines = lines
-    local used = #lines * ROW_HEIGHT
-
-    -- The headline block, under whatever notes there were.
-    local headline = self.headline
-    headline:ClearAllPoints()
-    headline:SetPoint("RIGHT", self.content, "RIGHT", 0, 0)
-    if #lines > 0 then
-        headline:SetPoint("TOPLEFT", self.rows[#lines], "BOTTOMLEFT", 0, -8)
-        used = used + 8
-    else
-        headline:SetPoint("TOPLEFT", self.content, "TOPLEFT", 0, 0)
-    end
-    local block = model.headline
-    if block then
-        headline:Show()
-        -- The plan first, then the icon under it. The icon's anchor is set on
-        -- every refresh rather than once, because whether there is a sentence
-        -- above it is a fact about the week and not about the frame.
-        local plan = block.plan or {}
-        headline.plan:SetText(plan.sentence or "")
-        headline.plan:SetShown(plan.sentence ~= nil)
-        headline.planFootnote:SetText(plan.footnote or "")
-        headline.planFootnote:SetShown(plan.footnote ~= nil)
-        headline.icon:ClearAllPoints()
-        if plan.footnote then
-            headline.icon:SetPoint("TOPLEFT", headline.planFootnote, "BOTTOMLEFT", 0, -PLAN_GAP)
-        elseif plan.sentence then
-            headline.icon:SetPoint("TOPLEFT", headline.plan, "BOTTOMLEFT", 0, -PLAN_GAP)
+    -- V-8 (WKE-660): one line above the grid, the answer, and the conditions
+    -- on it behind the hint icon beside the title.
+    local answer = Panel.VaultAnswer(model)
+    self.answerText = answer
+    self.answer:SetText(answer or "")
+    self.answer:SetShown(answer ~= nil)
+    self.hintLines = Panel.HintLines(model)
+    if #self.hintLines > 0 then
+        local hintAtlas = ns.UI.ItemLine.Atlas(Panel.HINT_ATLAS)
+        if hintAtlas then
+            self.hint.icon:SetAtlas(hintAtlas)
         else
-            headline.icon:SetPoint("TOPLEFT", headline, "TOPLEFT", 0, 0)
+            self.hint.icon:SetColorTexture(ns.UI.ItemLine.RGB(Panel.HINT_HEX))
         end
-        if block.pick then
-            ns.UI.ItemLine.SetIcon(headline.icon, {
-                itemID = block.pick.itemID,
-                link = block.pick.link,
-                name = block.pick.displayName,
-                quality = block.pick.quality,
-                itemLevel = block.pick.itemLevel,
-                icon = block.pick.icon,
-            })
-        else
-            ns.UI.ItemLine.ClearIcon(headline.icon)
-        end
-        headline.text:SetText(block.text or "")
-        -- A plan-only block (V-3) reserves no icon row: there is no pick line
-        -- under the sentence, so the space one would take is not taken.
-        local height = block.text and CELL_ICON_SIZE or 0
-        for index, line in ipairs(block.lines) do
-            local fontString = headline.lines[index]
-            if not fontString then
-                fontString = headline:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-                fontString:SetJustifyH("LEFT")
-                fontString:SetWordWrap(true)
-                if index == 1 then
-                    fontString:SetPoint("TOPLEFT", headline.icon, "BOTTOMLEFT", 0, -4)
-                else
-                    fontString:SetPoint("TOPLEFT", headline.lines[index - 1], "BOTTOMLEFT", 0, -2)
-                end
-                fontString:SetPoint("RIGHT", headline, "RIGHT", 0, 0)
-                headline.lines[index] = fontString
-            end
-            fontString:SetText(line.text)
-            fontString:Show()
-            height = height + ROW_HEIGHT + 2
-        end
-        for index = #block.lines + 1, #headline.lines do
-            headline.lines[index]:SetText("")
-            headline.lines[index]:Hide()
-        end
-        if plan.sentence then
-            height = height + Panel.PlanHeight(plan.sentence, ROW_HEIGHT + 4) + PLAN_GAP
-        end
-        if plan.footnote then
-            height = height + Panel.PlanHeight(plan.footnote, ROW_HEIGHT) + 2
-        end
-        headline:SetHeight(height + 8)
-        used = used + height + 8
+        self.hint.icon:SetVertexColor(ns.UI.ItemLine.RGB(Panel.HINT_HEX))
+        self.hint:Show()
     else
-        headline:Hide()
-        ns.UI.ItemLine.ClearIcon(headline.icon)
-        headline.plan:SetText("")
-        headline.planFootnote:SetText("")
-        headline.text:SetText("")
-        for _, fontString in ipairs(headline.lines) do
-            fontString:SetText("")
-            fontString:Hide()
-        end
-        headline:SetHeight(1)
+        self.hint:Hide()
+    end
+    local used = 0
+    local anchor, anchorPoint = self.content, "TOPLEFT"
+    if answer then
+        used = Panel.PlanHeight(answer, ROW_HEIGHT + 4)
+        anchor, anchorPoint = self.answer, "BOTTOMLEFT"
     end
 
     -- The grid.
-    local anchor, anchorPoint = headline, "BOTTOMLEFT"
-    if not block then
-        if #lines > 0 then
-            anchor, anchorPoint = self.rows[#lines], "BOTTOMLEFT"
-        else
-            anchor, anchorPoint = self.content, "TOPLEFT"
-        end
-    end
     local grid = model.grid or { rows = {} }
     for index = 1, #Panel.ROW_ORDER do
         local rowFrame = gridRow(self, index)
@@ -3425,19 +3490,6 @@ function Panel.Refresh(self, opts)
     -- it is the one row the note sits on, which is what it was before.
     local stripHeight = layout.rows > 0 and layout.height or CHIP_ICON_SIZE
     used = used + stripHeight + GRID_ROW_GAP * 2
-
-    -- Everything the client offers outside the three rows Blizzard draws.
-    self.other:ClearAllPoints()
-    self.other:SetPoint("TOPLEFT", anchor, anchorPoint, 0, -GRID_ROW_GAP - stripHeight - GRID_ROW_GAP)
-    self.other:SetPoint("RIGHT", self.content, "RIGHT", 0, 0)
-    if grid.otherText then
-        self.other:SetText(grid.otherText)
-        self.other:Show()
-        used = used + ROW_HEIGHT * 2
-    else
-        self.other:SetText("")
-        self.other:Hide()
-    end
 
     self.content:SetHeight(math.max(1, used))
     return model

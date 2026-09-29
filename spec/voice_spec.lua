@@ -390,6 +390,18 @@ describe("the source-free voice (V-1, WKE-569)", function()
         for _, line in ipairs(ns.VaultPanel.Lines(vault.model) or {}) do
             c.check("Vault.line", line)
         end
+        -- V-8 (WKE-660): the one line above the grid, the hint beside the
+        -- title, and the badge a reward cell wears - the three things the tab
+        -- says in words now, drawn and as the pure functions build them.
+        c.check("Vault.answer", vault.answer:GetText())
+        c.check("Vault.answerFn", ns.VaultPanel.VaultAnswer(vault.model))
+        for _, line in ipairs(ns.VaultPanel.HintLines(vault.model)) do
+            c.check("Vault.hint", line)
+        end
+        c.check("Vault.REFRESH_ANSWER", ns.VaultPanel.REFRESH_ANSWER)
+        c.check("Vault.STALE_NOTE", ns.VaultPanel.STALE_NOTE)
+        c.check("Vault.NO_REWARDS_NOTE", ns.VaultPanel.NO_REWARDS_NOTE)
+        c.check("Roads.VAULT_UNRATED_SENTENCE", ns.Roads.VAULT_UNRATED_SENTENCE)
         local grid = vault.model and vault.model.grid or { rows = {} }
         for _, row in ipairs(grid.rows or {}) do
             c.check("Vault.grid.row.label", row.label)
@@ -398,7 +410,7 @@ describe("the source-free voice (V-1, WKE-569)", function()
                 c.check("Vault.cell.second", cell.second)
                 c.check("Vault.cell.verdictText", cell.verdictText)
                 c.check("Vault.cell.thresholdText", cell.thresholdText)
-                c.check("Vault.cell.footer", cell.footer)
+                c.check("Vault.cell.badge", cell.badge and cell.badge.text)
                 c.check("Vault.cell.moreText", cell.moreText)
                 c.check("Vault.cell.label", cell.label)
                 for _, tag in ipairs(cell.tags or {}) do
@@ -409,7 +421,6 @@ describe("the source-free voice (V-1, WKE-569)", function()
                 end
             end
         end
-        c.check("Vault.grid.otherOptions", grid.otherText)
 
         c.report(1200)
     end)
