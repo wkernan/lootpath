@@ -4354,6 +4354,47 @@ describe("the Vault tab's content frame tracks its scroll frame (M5-2c)", functi
         local used = cell:GetWidth() * 3 + ns.VaultPanel.CELL_GAP * 2
         assert.is_true(left - used < 3, string.format("%d points of the row unused", left - used))
     end)
+
+    -- M5-5 (WKE-661): the window is resizable now, so the tab's height is a
+    -- reading too. Before it, PANEL_HEIGHT (420) was the only height this file
+    -- knew, and nothing read the panel's.
+    it("reads its height off the scroll frame, and fills a taller window", function()
+        local panel = ns.VaultPanel.Create()
+        -- Unlaid-out: the panel's own height less the header row.
+        assert.equal(0, panel.scroll:GetHeight() or 0)
+        assert.equal(panel:GetHeight() - 60, ns.VaultPanel.ContentHeight(panel))
+        panel:SetHeight(900)
+        assert.equal(840, ns.VaultPanel.ContentHeight(panel))
+        -- Laid out by the window's corners: the scroll frame's own height, and
+        -- the scroll child is at least that tall even when the grid is not.
+        panel.scroll:SetHeight(1200)
+        assert.equal(1200, ns.VaultPanel.ContentHeight(panel))
+        panel:Refresh()
+        assert.is_true(panel.content:GetHeight() >= 1200)
+        panel.scroll:SetHeight(300)
+        panel:Refresh()
+        assert.is_true(panel.content:GetHeight() >= 300)
+        assert.is_true(panel.content:GetHeight() < 1200)
+    end)
+
+    it("lays out again with the model it is showing, reading nothing", function()
+        local panel = ns.VaultPanel.Create()
+        local model = panel:Refresh()
+        local gathered = 0
+        local original = ns.VaultPanel.Gather
+        ns.VaultPanel.Gather = function(...)
+            gathered = gathered + 1
+            return original(...)
+        end
+        panel.scroll:SetWidth(1000)
+        local again = panel:Refresh({ model = model })
+        ns.VaultPanel.Gather = original
+        assert.equal(model, again)
+        assert.equal(0, gathered)
+        assert.equal(1000, panel.content:GetWidth())
+        -- The cells took the new width: (1000 - 200 - 16) / 3.
+        assert.equal(261, panel.gridRows[1].cells[1]:GetWidth())
+    end)
 end)
 
 -- ---------------------------------------------------------------------------

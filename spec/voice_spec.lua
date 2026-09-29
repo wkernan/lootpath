@@ -533,6 +533,13 @@ describe("the source-free voice (V-1, WKE-569)", function()
         end
 
         walkStrings(c.check, "Options", ns.UI.Options)
+        -- M5-5 (WKE-661): the one word the options page gained, and the
+        -- button row it is drawn on.
+        c.check("Options.RESET_SIZE_LABEL", ns.UI.Options.RESET_SIZE_LABEL)
+        for _, button in ipairs(world.settings.buttons or {}) do
+            c.check("Options.button", button.buttonText)
+            c.check("Options.button.name", button.name)
+        end
         -- 29 until R-2 (WKE-563) removed R-0's `/lootpath spike` help line with
         -- the module it drove.
         c.report(28)
