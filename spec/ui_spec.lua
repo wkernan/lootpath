@@ -2280,15 +2280,15 @@ describe("the Vault tab", function()
         H.unload()
     end)
 
-    it("renders the week's notes into the window and its options into the grid", function()
+    it("renders the week's answer into the window and its options into the grid", function()
         -- No legend under the header since V-5 (WKE-600).
         assert.is_nil(rawget(panel, "note"))
         assert.equal("Vault", panel.header:GetText())
         assert.equal(10, panel.model.counts.options)
-        local notes = ns.VaultPanel.NoteLines(panel.model)
-        for i, line in ipairs(notes) do
-            assert.equal(line, panel.rows[i]:GetText())
-        end
+        -- One line above the grid since V-8 (WKE-660), and the rest of the
+        -- notes on the hint beside the title.
+        assert.equal(ns.VaultPanel.VaultAnswer(panel.model), panel.answer:GetText())
+        assert.same(ns.VaultPanel.HintLines(panel.model), panel.hintLines)
         -- Since M5-4 the options are the grid, in Blizzard's own order.
         assert.equal(3, #panel.gridRows)
         assert.equal("Raids", panel.gridRows[1].label:GetText())
@@ -2308,13 +2308,7 @@ describe("the Vault tab", function()
 
     it("says the vault has generated nothing yet rather than showing an empty list", function()
         assert.equal(0, panel.model.counts.rewards)
-        local sawNote = false
-        for i = 1, #panel.lines do
-            if panel.rows[i]:GetText() == ns.VaultPanel.NO_REWARDS_NOTE then
-                sawNote = true
-            end
-        end
-        assert.is_true(sawNote)
+        assert.equal(ns.VaultPanel.NO_REWARDS_NOTE, panel.answer:GetText())
     end)
 
     it("shows the vault's own refusal when the client cannot be read", function()
@@ -2322,7 +2316,7 @@ describe("the Vault tab", function()
         frame.tabs[3]:Click()
         assert.is_false(panel.model.ok)
         assert.equal("combat", panel.model.reason)
-        assert.equal("The vault could not be read: combat", panel.rows[1]:GetText())
+        assert.equal("The vault could not be read: combat", panel.answer:GetText())
     end)
 end)
 

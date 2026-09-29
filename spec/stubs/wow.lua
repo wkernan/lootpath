@@ -1973,6 +1973,10 @@ function Stub.install()
     define("GameFontNormalSmall2", { fontName = "GameFontNormalSmall2" })
     define("GameFontGreen", { fontName = "GameFontGreen" })
     define("GameFontNormalSmall", { fontName = "GameFontNormalSmall" })
+    -- V-8 (WKE-660): the reward cell's badge - green on the pick, grey on the
+    -- rest (FontStyles.xml:120 and :112, same folder). Identities as above.
+    define("GameFontGreenSmall", { fontName = "GameFontGreenSmall" })
+    define("GameFontDisableSmall", { fontName = "GameFontDisableSmall" })
     define("UIParent", newFrame("Frame", world))
     define("UISpecialFrames", {})
     -- The minimap, for the launcher to hang off (M5-2). 140 points across at

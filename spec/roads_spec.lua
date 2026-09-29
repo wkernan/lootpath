@@ -2162,8 +2162,11 @@ describe("Roads over a vault the rating never imported (R-3d)", function()
         assert.not_equal(ns.Roads.VAULT_UNRATED_SENTENCE, before.sentence)
         verdict().profileVaultCount = 0
         local plan = ns.Roads.PlanSentence(inputs)
-        assert.equal("Your vault was generated after this rating. Refresh.", plan.sentence)
+        -- V-8 (WKE-660): the Vault tab's own stale line, word for word, so the
+        -- two signals of one staleness read as one sentence with one verb.
+        assert.equal("Refresh to rate this week's vault.", plan.sentence)
         assert.equal(ns.Roads.VAULT_UNRATED_SENTENCE, plan.sentence)
+        assert.equal(ns.VaultPanel.REFRESH_ANSWER, plan.sentence)
         assert.equal("this week's picks", plan.plan)
     end)
 end)
