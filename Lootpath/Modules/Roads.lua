@@ -2517,6 +2517,13 @@ end
 -- not knowing is not a difference. The enchant is never compared: the export
 -- names it and the link numbers it, and nothing the annotations carry joins
 -- the two (ARCHITECTURE.md §11).
+--
+-- Its ABSENCE needs no join (R-2g, WKE-665). The owner, 2026-09-30: "any item
+-- I have on that is missing a gem or enchant, we are ensuring we state that to
+-- the player." When the rating names an enchant for the piece and the copy's
+-- link carries no enchant ID at all, the copy is missing one, and the rating's
+-- own name says which: `enchantMissing` is true. A link carrying SOME enchant
+-- ID is never marked - nothing can say whether it is the rated one.
 function Roads.CompareFinish(rated, own)
     if type(rated) ~= "table" then
         return nil
@@ -2533,6 +2540,9 @@ function Roads.CompareFinish(rated, own)
         end
     end
     local out = { enchant = rated.enchant, gems = {} }
+    if carried and type(rated.enchant) == "string" and own.enchantID == nil then
+        out.enchantMissing = true
+    end
     for _, id in ipairs(gems) do
         local missing = nil
         if carried then

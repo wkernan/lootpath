@@ -798,10 +798,14 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
     -- Lootpath should also tell me what the best gem/enchant or whatever
     -- consumable I can purchase to use on it." On this week the set keeps his
     -- worn ring 251136, and the thisWeek document rates it with Zul'jin's
-    -- Mastery and gem 240892 - which his worn link carries (and no enchant: the
-    -- enchant is never compared, ARCHITECTURE.md §11). The worn neck 272228 is
+    -- Mastery and gem 240892. His worn link carries the gem and NO enchant (its
+    -- enchant field is empty in the 2026-09-08 capture), so since R-2g
+    -- (WKE-665) the rated enchant is marked missing: absence needs no join.
+    -- The other worn ring, 259912, carries enchant 7968, and an enchant that is
+    -- present is never compared (ARCHITECTURE.md §11). The worn neck 272228 is
     -- rated with gem 240983 and no enchant, and carries 240983.
     local RING = "251136:6652:12698:12822:13438:13668"
+    local OTHER_RING = "259912:6652:12790:13668"
     local NECK = "272228:6652:12846:13668"
 
     local function ringPick()
@@ -823,11 +827,14 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
             assert.equal(2, ns.RoadsCache.NameGems(ns.RoadsCache.Map()))
             local ring = lines(RING)
             assert.equal("Keep this on.", ring[2])
-            assert.equal("rated with: Zul'jin's Mastery · Stub Gem", ring[3])
+            assert.equal("rated with: Zul'jin's Mastery (missing) · Stub Gem", ring[3])
             assert.same({ { id = 240892, missing = false, name = "Stub Gem" } }, ns.RoadsCache.Lookup(RING).finish.gems)
             -- A gem the client has not named yet, and no enchant.
             assert.equal("rated with: a gem", lines(NECK)[3])
-            assert.is_nil(hover(RING):find("(missing)", 1, true))
+            assert.is_nil(hover(RING):find("Stub Gem (missing)", 1, true))
+            -- A ring carrying an enchant ID is never marked, whichever it is.
+            assert.is_nil(ns.RoadsCache.Lookup(OTHER_RING).finish.enchantMissing)
+            assert.equal("rated with: Zul'jin's Mastery · Stub Gem", lines(OTHER_RING)[3])
         end
     )
 
@@ -838,9 +845,31 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         ns.RoadsCache.SetMap(ns.RoadsCache.Build(model))
         local answer = ns.RoadsCache.Lookup(RING)
         assert.same({ { id = 240892, missing = false }, { id = 240983, missing = true } }, answer.finish.gems)
-        assert.equal("rated with: Zul'jin's Mastery · a gem, a gem (missing)", lines(RING)[3])
+        assert.equal("rated with: Zul'jin's Mastery (missing) · a gem, a gem (missing)", lines(RING)[3])
         local better = ns.UI.ItemLine.TONE.better.hex
         assert.is_truthy(hover(RING):find("|cff" .. better .. "a gem (missing)|r", 1, true))
+    end)
+
+    -- R-2g (WKE-665). The owner, 2026-09-30: "any item I have on that is
+    -- missing a gem or enchant, we are ensuring we state that to the player."
+    -- His own worn ring is the case: rated with Zul'jin's Mastery, and its
+    -- link carries no enchant at all. PROVEN RED: without the mark this line
+    -- reads `rated with: Zul'jin's Mastery · Stub Gem`.
+    it("marks the rated enchant on a worn copy that carries none, in the better tone and in a word", function()
+        world.items[240892] = { info = { "Stub Gem", "|Hitem:240892|h[Stub Gem]|h", 3, n = 3 } }
+        ns.RoadsCache.NameGems(ns.RoadsCache.Map())
+        local answer = ns.RoadsCache.Lookup(RING)
+        assert.equal("Zul'jin's Mastery", answer.finish.enchant)
+        assert.is_true(answer.finish.enchantMissing)
+        local text, parts = ns.UI.Tooltip.FinishText(answer)
+        assert.equal("rated with: Zul'jin's Mastery (missing) · Stub Gem", text)
+        local better = ns.UI.ItemLine.TONE.better.hex
+        assert.same({ text = "Zul'jin's Mastery (missing)", hex = better }, parts[2])
+        assert.equal(ns.UI.Tooltip.NOTE_HEX, parts[4].hex)
+        assert.is_truthy(hover(RING):find("|cff" .. better .. "Zul'jin's Mastery (missing)|r", 1, true))
+        -- One shape for a gem and an enchant alike.
+        assert.equal(ns.UI.Tooltip.FINISH_MISSING, "%s (missing)")
+        assert.is_nil(ns.UI.Tooltip.GEM_MISSING)
     end)
 
     it("says nothing about the finish of a piece outside the set, or of one the set converts", function()
@@ -1977,7 +2006,8 @@ describe("The tooltip over the worn vault pick after the claim (R-2f)", function
             "Lootpath · Head",
             "Refresh - you're already wearing it.",
             -- The rated finish comes with it (R-2d): the helm is the pick now.
-            "rated with: Empowered Hex of Leeching · a gem (missing)",
+            -- The test link carries neither an enchant nor a gem (R-2g).
+            "rated with: Empowered Hex of Leeching (missing) · a gem (missing)",
             "Rated 5m ago · /lootpath refresh",
         }, lines)
         for _, text in ipairs(lines) do
