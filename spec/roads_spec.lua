@@ -2384,5 +2384,9 @@ describe("Roads over a claimed vault reward the pick catalyzes (R-2e)", function
         clone.setId = 2057
         source.slot = "Chest"
         assert.is_false(ns.Roads.IsPickSource(source, road))
+        -- And the tier piece itself, on the clone's own bonus IDs, is what the
+        -- pick becomes and never what it is made from.
+        source.slot, source.itemID = "Shoulder", 271526
+        assert.is_false(ns.Roads.IsPickSource(source, road))
     end)
 end)
