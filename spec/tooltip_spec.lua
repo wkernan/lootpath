@@ -1905,3 +1905,85 @@ describe("The tooltip over a claimed vault reward the pick catalyzes (R-2e)", fu
         assert.equal("Catalyst this - tier helm.", lines[2])
     end)
 end)
+
+-- R-2f (WKE-664): the block over the tier helm on the owner's head after the
+-- claim, the Catalyst and one crest (318), the old 308 copy in his bags and
+-- the vault empty. His screen of 2026-09-30 read `Swap this - take the vault
+-- Dreamwatcher helm.` under the header. The document is R-2e's Dungeon one;
+-- the two copies are the tier link with the upgrade bonus ID replaced by
+-- invented ones (spec/roads_spec.lua's R-2f block says why).
+describe("The tooltip over the worn vault pick after the claim (R-2f)", function()
+    local ns
+    local CATALYZED_DUNGEON = "spec/fixtures/qe/qe-droptimizer-Hotornot-esdfxjozstkc.json"
+    local TIER_LINK = "|cnIQ4:|Hitem:271528::::::::90:105::35:7:6652:12844:13440:13695:13692:13698:1568"
+        .. ":1:64:239033:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    -- Five minutes after the document's own `exportedAt` (R-2e's figure).
+    local FIVE_MINUTES_LATER = 1790727723
+
+    local function copyAt(bonusID, level, location)
+        local link = (TIER_LINK:gsub(":12844:", ":" .. bonusID .. ":"))
+        local parsed = ns.ParseItemLink(link)
+        return {
+            key = parsed.key,
+            itemID = parsed.itemID,
+            bonusIDs = parsed.bonusIDs,
+            link = link,
+            name = "Enigmatic Dreamwatcher's Somnolent Stare",
+            slot = "Head",
+            itemLevel = level,
+            location = location,
+        }
+    end
+
+    local function block(worn, others)
+        local parsed = ns.QEImport.Parse(readFile(CATALYZED_DUNGEON))
+        assert.is_true(parsed.ok, parsed.reason)
+        parsed.verdict.scenario = "catalyzed"
+        parsed.verdict.qeSettings = { autoUpgradeVault = false, autoUpgradeAll = false, autoCatalyze = true }
+        local records = { worn }
+        for _, record in ipairs(others or {}) do
+            records[#records + 1] = record
+        end
+        local inputs = {
+            verdicts = { { verdict = parsed.verdict, scenario = "catalyzed" } },
+            highlightedScenario = "catalyzed",
+            inventory = { records = records },
+            -- The client's vault after the claim: no gear.
+            vault = { ok = true, options = { { rewards = {} } } },
+        }
+        local answer = ns.Roads.ForItemIn(ns.Roads.ForSlot("Head", inputs), worn.key, inputs)
+        answer.sentence = ns.Roads.ItemSentence(answer)
+        answer.exportedAt = parsed.verdict.exportedAt
+        local out = {}
+        for index, line in ipairs(ns.UI.Tooltip.Lines(answer, { now = FIVE_MINUTES_LATER })) do
+            out[index] = line.text
+        end
+        return out
+    end
+
+    before_each(function()
+        ns = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- PROVEN RED: without `wornIsPick` the second line is `Swap this - take
+    -- the vault helm.`
+    it("answers the worn helm as the pick, and never as a swap", function()
+        local lines = block(copyAt(12845, 318, "equipped"), { copyAt(12838, 308, "bag") })
+        assert.same({
+            "Lootpath · Head",
+            "Refresh - you're already wearing it.",
+            -- The rated finish comes with it (R-2d): the helm is the pick now.
+            "rated with: Empowered Hex of Leeching · a gem (missing)",
+            "Rated 5m ago · /lootpath refresh",
+        }, lines)
+        for _, text in ipairs(lines) do
+            assert.is_nil(text:find("Swap", 1, true), text)
+            assert.is_nil(text:find("take the vault", 1, true), text)
+            assert.is_nil(usesForbidden(text), text)
+        end
+    end)
+end)

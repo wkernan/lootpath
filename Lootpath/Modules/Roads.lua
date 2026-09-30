@@ -804,6 +804,7 @@ end
 ---@field catalyzed boolean|nil  true when the road spends a Catalyst charge
 ---@field planPick boolean|nil   true when this is the plan's own pick
 ---@field verdictItem table|nil  the document's own item behind a set road (R-2d)
+---@field wornIsPick boolean|nil  a worn copy can be this vault or Catalyst pick (R-2f)
 ---@field openNow string|nil     "open now", for a vault road
 ---@field resetSeconds number|nil the client's own countdown to the reset
 ---@field rankedAtAnotherLevel table|nil the levels it IS rated at, when not this one
@@ -2002,17 +2003,35 @@ end
 --   * an item whose key the pick's road already carries - the vault reward
 --     itself, or the bag piece a Catalyst road converts. Those are the road's
 --     own item, and the road speaks for them.
---   * a WORN copy, when the pick is a vault reward or a Catalyst clone. That
---     is the 308 Worldroot he has worn all along, which shares the vault
---     copy's item ID, and NOTHING the client says tells the two apart: the
---     vault offered that staff at 305 while he wore 308, and cresting replaces
---     the upgrade bonus ID rather than adding to it, so neither the level nor
---     the bonus IDs can say which copy is on the character. R-3b's refusal
---     stands exactly where the evidence runs out and no further. For a pick the
---     plan took out of your own BAGS or off your character there is no such
---     doubt: a bag pick was not on the character when the plan was written, and
---     a worn twin above its level would have been the pick instead, so a worn
---     copy is the pick, put on.
+--   * a WORN copy, when the pick is a vault reward or a Catalyst clone, while
+--     the reward is still to be had. That is the 308 Worldroot he has worn
+--     all along, which shares the vault copy's item ID, and NOTHING the client
+--     says tells the two apart: the vault offered that staff at 305 while he
+--     wore 308, and cresting replaces the upgrade bonus ID rather than adding
+--     to it, so neither the level nor the bonus IDs can say which copy is on
+--     the character. R-3b's refusal stands exactly where the evidence runs out
+--     and no further. For a pick the plan took out of your own BAGS or off
+--     your character there is no such doubt: a bag pick was not on the
+--     character when the plan was written, and a worn twin above its level
+--     would have been the pick instead, so a worn copy is the pick, put on.
+--
+-- **R-2f (WKE-664) found where that evidence comes back: the claim.** The
+-- owner, 2026-09-30, the Druid: the vault Hood taken, catalyzed into his tier
+-- helm and crested once to 318, worn, the old 308 copy in his bags - and the
+-- hover over the helm on his head said `Swap this - take the vault
+-- Dreamwatcher helm.` "Now that I've taken the helm from the vault and
+-- catalyzed it, when hovering over it, it's still telling me to swap this
+-- item." R-3c's doubt is a doubt about which copy is the one still in the
+-- VAULT. Once the client's vault holds no gear for the slot and says nothing
+-- is waiting (`Roads.WornCanBePick`), the reward is out, and a worn copy of
+-- the pick's item ID is that reward on the character - unless a copy at or
+-- above the pick's level sits in the bags or bank, which is then the pick
+-- (R-3b) and the worn one its old twin, or the road's own item is still held
+-- (a Catalyst source not converted yet). So the refusal is narrowed to the
+-- unclaimed reward, and `MarkArrived` records the answer on the pick as
+-- `wornIsPick` because it is the one caller holding the inputs; everything
+-- that asks this question afterwards reads the same road. The level decides
+-- only which of two copies it is; the sentence is still R-3c's worn form.
 --
 -- **R-3e (WKE-585) took the LEVEL out of the identity.** The owner claimed the
 -- Legs pick from his vault, crested it one step of the two the run had
@@ -2055,8 +2074,67 @@ function Roads.IsArrivedPick(held, pick)
     if not matches then
         return false
     end
-    if held.location == "equipped" and pick.kind ~= Roads.KIND_SET and pick.kind ~= Roads.KIND_KEEP then
+    if
+        held.location == "equipped"
+        and pick.kind ~= Roads.KIND_SET
+        and pick.kind ~= Roads.KIND_KEEP
+        and pick.wornIsPick ~= true
+    then
         return false
+    end
+    return true
+end
+
+-- Whether a worn copy of a vault or Catalyst pick can be the pick (R-2f,
+-- WKE-664; the reasoning is in the block above `IsArrivedPick`). Only on what
+-- the client has said, and false wherever it has not said it:
+--
+--   * the vault was read (`inputs.vault` is `Vault.Options`' answer, nil when
+--     the read failed), it does not say rewards are waiting
+--     (`hasAvailableRewards` - true on reset day before the window generates
+--     them, when no activity carries one: the 2026-09-15 11:29 snapshots of
+--     `Lootpath-20260915-142722-vault.lua`), and no activity's `rewards` holds
+--     gear for this slot (all ten empty and `hasAvailableRewards` false after
+--     the claim: the 15:37 snapshot in `Lootpath-20260915-162015.lua`);
+--   * nothing held carries one of the pick's own keys - the road's own item,
+--     a Catalyst source not converted yet, is still in hand;
+--   * no copy of the pick's item ID at or above the level the pick arrives at
+--     sits in the bags or bank - that copy is the pick.
+function Roads.WornCanBePick(pick, inputs)
+    if type(pick) ~= "table" or type(inputs) ~= "table" then
+        return false
+    end
+    local vault = inputs.vault
+    if type(vault) ~= "table" or vault.ok == false or vault.hasAvailableRewards == true then
+        return false
+    end
+    for _, entry in ipairs(vaultRewards(vault)) do
+        if entry.reward.slot == pick.slot then
+            return false
+        end
+    end
+    local own = {}
+    for _, key in ipairs(pick.keys or {}) do
+        own[key] = true
+    end
+    local becomes = type(pick.becomes) == "table" and tonumber(pick.becomes.itemID) or nil
+    local wanted = pick.kind ~= Roads.KIND_CATALYST and type(pick.item) == "table" and tonumber(pick.item.itemID) or nil
+    local level = tonumber(pick.arrivesAt) or tonumber(type(pick.rating) == "table" and pick.rating.level or nil)
+    for _, record in ipairs(records(inputs.inventory)) do
+        if record.key ~= nil and own[record.key] then
+            return false
+        end
+        local itemID = tonumber(record.itemID)
+        local held = tonumber(record.itemLevel or record.level)
+        if
+            record.location ~= "equipped"
+            and record.slot == pick.slot
+            and itemID ~= nil
+            and (itemID == becomes or itemID == wanted)
+            and (level == nil or (held ~= nil and held >= level))
+        then
+            return false
+        end
     end
     return true
 end
@@ -2164,6 +2242,9 @@ function Roads.MarkArrived(slotRoads, inputs)
     if not pick then
         return slotRoads
     end
+    -- Whether a worn copy can be this pick at all (R-2f), recorded on the road
+    -- so the hover, which holds no inputs, asks the same question.
+    pick.wornIsPick = Roads.WornCanBePick(pick, inputs) or nil
     -- Every key the set group already speaks for, not just the pick's own
     -- (R-3c). Two worn rings of one item ID are two rated roads on this screen,
     -- and the second of them has not "arrived" anywhere: the document knows it
