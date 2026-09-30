@@ -2726,6 +2726,13 @@ describe("Roads over a worn copy of the pick below the pick's level (R-2h)", fun
         road.arrivesAt = nil
         assert.is_false(ns.Roads.WornUnderCrested(worn, road))
         road.arrivesAt = arrivesAt
+        -- A pick that BECOMES this item is matched by `IsArrivedPick`, but its
+        -- own item is another one, and the branch is for the pick's own item.
+        local item = road.item
+        road.item, road.becomes = { itemID = 239033 }, { itemID = 271528 }
+        assert.is_true(ns.Roads.IsArrivedPick(worn, road))
+        assert.is_false(ns.Roads.WornUnderCrested(worn, road))
+        road.item, road.becomes = item, nil
         assert.is_true(ns.Roads.WornUnderCrested(worn, road))
     end)
 end)
