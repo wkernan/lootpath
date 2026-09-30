@@ -246,6 +246,32 @@ dungeon documents, and delve `272273 @321` is `+2.176%` and `+2.171%`.
 `spec/ufimport_spec.lua`, `spec/upgrademap_spec.lua` and `spec/roadsrow_spec.lua`
 read these rows in their R-4 blocks.
 
+## A catalyzed vault reward as the pick (R-2e, WKE-663)
+
+Two documents **written by the companion** on reset day, 2026-09-30 00:16-00:17
+UTC (2026-09-29 evening, the owner's time), extracted unedited from the
+`Data/QEVerdict.lua` it wrote into his addon folder (the `json` string of
+exports 12 and 18 of 22; sha256 checked equal to the extracted text):
+
+- `qe-droptimizer-Hotornot-esdfxjozstkc.json` - Dungeon, scenario `catalyzed`,
+  pass 2 (`autoUpgradeVault` false, `autoUpgradeAll` false, `autoCatalyze`
+  true), exported 2026-09-30T00:16:22.471Z, score 6202.955.
+- `qe-droptimizer-Hotornot-mjiycadonbqq.json` - Raid, scenario `thisWeek`,
+  pass 2 (`autoUpgradeVault` true, `autoUpgradeAll` false, `autoCatalyze`
+  true), exported 2026-09-30T00:17:03.103Z, score 6410.056.
+
+The one item either top set flags `isVault` is the Head: **271528** (Enigmatic
+Dreamwatcher's Somnolent Stare, set 2057) carrying bonus IDs
+`12844, 13440, 6652, 13695, 13662, 12699` - exactly the bonus IDs of the vault
+reward it was made from, Hood of the Slithering Loa **239033**, whose link the
+owner's vault capture of 2026-09-29 21:49 UTC reads as
+`|Hitem:239033::::::::90:105::35:6:12844:13440:6652:13695:13662:12699::::::|h`.
+At level **315** in the first document and **321** in the second (the vault
+checkbox). His profile still listed the Hood as a vault option at 19:15 his
+time, after he had claimed and converted it, which is why these late documents
+still carry the pick his 17:00 hover was about; the document behind that hover
+was not kept.
+
 ## `sample-upgradefinder-v1.json` - hand-built, not from QE Live
 
 Written for M3-6 (WKE-535) by mirroring the fork's exporter field for field.

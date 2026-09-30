@@ -2061,6 +2061,55 @@ function Roads.IsArrivedPick(held, pick)
     return true
 end
 
+-- Whether a held item is what the pick is MADE FROM: the vault reward the
+-- rating catalyzed, claimed and not converted yet (R-2e, WKE-663).
+--
+-- The owner, 2026-09-29, reset day: he took the Hood of the Slithering Loa out
+-- of the vault, which his export catalyzed into his tier helm, and the hover
+-- over it in his bags said `Pass - take the vault Dreamwatcher helm.` - while
+-- the Vault tab had said `Catalyst the helm.` before the claim. "It's not
+-- telling me what I should do to it to make it better and wearable."
+--
+-- Why `IsArrivedPick` never caught it. Once the reward has left the vault the
+-- client's vault holds no gear, so nothing can say which reward the clone was
+-- made from (`QEImport.CatalyzedVault` keeps the charge and names nobody), and
+-- the slot's pick is a plain vault road about the tier clone itself: its item
+-- is the clone's item ID, it `becomes` nothing, and its only key is the
+-- clone's. The Hood's item ID is neither, so nothing matched it - it was not
+-- the "own keys" rule. (While the vault still offers the reward, the road is a
+-- Catalyst road whose own key IS the reward's, and the hover already read the
+-- Catalyst sentence off that road.)
+--
+-- The identity is the document's own join, the one `QEImport.CatalyzedCoverage`
+-- and `vaultRewardFor` already make: `Item.convertToTier` copies everything but
+-- the item ID, so the piece the clone was made from is the one in the same slot
+-- with the clone's bonus IDs on another item ID. That join reads the same
+-- either side of the claim, and it is what tells the reward from a second copy
+-- of the same item held beside it: the second copy is another drop with other
+-- bonus IDs, and it keeps its pass. What it gives up: a reward crested before it
+-- is converted has a new upgrade bonus ID and is no longer recognised, and its
+-- hover keeps the old sentence until the next refresh names it.
+--
+-- Only for a pick the rating took out of the vault: a bag Catalyst pick carries
+-- its own key on its own road, and nothing about it was wrong.
+function Roads.IsPickSource(held, pick)
+    if type(held) ~= "table" or type(pick) ~= "table" or pick.planPick ~= true then
+        return false
+    end
+    local clone = pick.verdictItem
+    if type(clone) ~= "table" or clone.isVault ~= true or (tonumber(clone.setId) or 0) == 0 then
+        return false
+    end
+    local itemID = tonumber(held.itemID)
+    if not itemID or itemID == tonumber(clone.itemID) then
+        return false
+    end
+    if held.slot == nil or held.slot ~= (clone.slot or pick.slot) then
+        return false
+    end
+    return sameBonusIDs(held.bonusIDs, clone.bonusIDs)
+end
+
 -- Whether the pick has arrived short of the level the plan picked it at: the
 -- crest the plan assumed has not all been spent yet (R-3e, WKE-585). The other
 -- half of `ArrivedCrested`, read off the same two figures - the held item's own
@@ -2867,6 +2916,12 @@ Roads.WEAR_SENTENCE = "Wear %s."
 -- nothing to name, and the sentence is the verb alone.
 Roads.WEAR_OVER_SENTENCE = "Wear %s - better than your %s."
 Roads.CATALYST_SENTENCE = "Catalyst %s - tier %s."
+-- The same, over the vault reward it is made from, when the rating put the tier
+-- piece above the level the reward is at (R-2e, WKE-663). The crest clause is
+-- the Grab sentence's own ("crest it after"), so the step after the Catalyst
+-- reads the way the step after the vault already did; the level stays on the
+-- road's badge, where it has always been.
+Roads.CATALYST_CREST_SENTENCE = "Catalyst %s - tier %s, crest %s after."
 Roads.GRAB_SENTENCE = "Grab %s from the vault."
 Roads.GRAB_CREST_SENTENCE = "Grab %s - crest it after."
 
@@ -2904,6 +2959,26 @@ function Roads.ArrivedSentence(held, pick)
         return string.format(Roads.ARRIVED_WORN_SENTENCE, Roads.ItWord(slot))
     end
     return string.format(Roads.ARRIVED_PUT_ON_SENTENCE, Roads.ThisWord(slot))
+end
+
+-- The sentence for the reward the pick is made from (R-2e, WKE-663): the words
+-- the slot's own Catalyst pick already says, `Catalyst this - tier helm.`, so
+-- the reward reads the same whether the vault still offers it or you have
+-- taken it. The crest clause comes when the piece in your hands is below the
+-- level the rating put the tier piece at - both figures read, the held one off
+-- its own link and the other off the road's rating; nothing is worked out.
+function Roads.PickSourceSentence(held, pick)
+    if type(held) ~= "table" or type(pick) ~= "table" then
+        return nil
+    end
+    local slot = held.slot or pick.slot
+    local this, word = Roads.ThisWord(slot), Roads.SlotWord(slot) or "piece"
+    local level = tonumber(held.itemLevel or held.level)
+    local rated = tonumber(type(pick.rating) == "table" and pick.rating.level or nil)
+    if level and rated and level < rated then
+        return string.format(Roads.CATALYST_CREST_SENTENCE, this, word, Roads.ItWord(slot))
+    end
+    return string.format(Roads.CATALYST_SENTENCE, this, word)
 end
 
 -- What the plan takes in this slot instead of the hovered piece, as the second
@@ -2972,6 +3047,16 @@ function Roads.ItemSentence(answer)
     -- facts that would otherwise leave it sentence-less.
     if type(own) == "table" and own.kind == Roads.KIND_VAULT and own.phrase == Roads.PHRASE_NOT_RATED_NEW then
         return Roads.NOT_RATED_YET_SENTENCE
+    end
+    -- R-2e (WKE-663): the vault reward the pick is made from, in your hands.
+    -- Asked before every road below, because once the reward has left the vault
+    -- no road carries its key, and the one sentence left for it was a pass on
+    -- itself.
+    if answer.held == true then
+        local pick = Roads.PlanPick(answer.slotRoads)
+        if pick and Roads.IsPickSource(answer.heldItem, pick) then
+            return Roads.PickSourceSentence(answer.heldItem, pick)
+        end
     end
     if type(own) == "table" and own.group == Roads.GROUP_SET then
         if own.planPick then

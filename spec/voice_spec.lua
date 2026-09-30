@@ -545,6 +545,59 @@ describe("the source-free voice (V-1, WKE-569)", function()
         c.report(28)
     end)
 
+    -- R-2e (WKE-663): the sentence over the vault reward the pick catalyzes,
+    -- in both of its forms and on both a singular and a plural slot, formatted
+    -- the way the hover formats it. The documents' own Head pick and the
+    -- owner's Hood (spec/roads_spec.lua's R-2e block) give the first two; a
+    -- hand-built pick gives the plural words, which no document of his has.
+    it("says nothing of a source over the reward the pick catalyzes", function()
+        local c = collector()
+        local hoodLink = "|cnIQ4:|Hitem:239033::::::::90:105::35:6:12844:13440:6652:13695:13662:12699::::::"
+            .. "|h[Hood of the Slithering Loa]|h|r"
+        local parsedLink = ns.ParseItemLink(hoodLink)
+        local hood = {
+            key = parsedLink.key,
+            itemID = parsedLink.itemID,
+            bonusIDs = parsedLink.bonusIDs,
+            link = hoodLink,
+            slot = "Head",
+            itemLevel = 315,
+            location = "bag",
+        }
+        local sentences = {}
+        for _, file in ipairs({
+            "spec/fixtures/qe/qe-droptimizer-Hotornot-esdfxjozstkc.json",
+            "spec/fixtures/qe/qe-droptimizer-Hotornot-mjiycadonbqq.json",
+        }) do
+            local parsed = ns.QEImport.Parse(readFile(file))
+            assert.is_true(parsed.ok, parsed.reason)
+            parsed.verdict.scenario = "thisWeek"
+            parsed.verdict.qeSettings = { autoCatalyze = true }
+            local inputs = {
+                verdicts = { { verdict = parsed.verdict, scenario = "thisWeek" } },
+                highlightedScenario = "thisWeek",
+                inventory = { records = { hood } },
+                vault = { ok = true, options = { { rewards = {} } } },
+            }
+            local answer = ns.Roads.ForItemIn(ns.Roads.ForSlot("Head", inputs), hood.key, inputs)
+            sentences[#sentences + 1] = ns.Roads.ItemSentence(answer)
+        end
+        assert.same({ "Catalyst this - tier helm.", "Catalyst this - tier helm, crest it after." }, sentences)
+        local road = {
+            planPick = true,
+            slot = "Shoulder",
+            verdictItem = { itemID = 271526, slot = "Shoulder", setId = 2057, isVault = true, bonusIDs = { 6652 } },
+            rating = { level = 321 },
+        }
+        sentences[#sentences + 1] = ns.Roads.PickSourceSentence({ slot = "Shoulder", itemLevel = 315 }, road)
+        sentences[#sentences + 1] = ns.Roads.PickSourceSentence({ slot = "Shoulder", itemLevel = 321 }, road)
+        for _, text in ipairs(sentences) do
+            c.check("Roads.PickSourceSentence", text)
+        end
+        c.check("Roads.CATALYST_CREST_SENTENCE", ns.Roads.CATALYST_CREST_SENTENCE)
+        c.report(5)
+    end)
+
     it("says nothing of a source in any panel's string table", function()
         local c = collector()
         walkStrings(c.check, "EquipPanel", ns.UI.EquipPanel)

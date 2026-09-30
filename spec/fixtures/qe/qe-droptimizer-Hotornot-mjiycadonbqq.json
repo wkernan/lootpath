@@ -1,0 +1,1052 @@
+{
+  "schema": "qe-live-droptimizer",
+  "version": 1,
+  "exportedAt": "2026-09-30T00:17:03.103Z",
+  "player": {
+    "name": "Hotornot",
+    "realm": "Arthas",
+    "region": "US",
+    "spec": "Restoration Druid",
+    "gameType": "Retail"
+  },
+  "contentType": "Raid",
+  "reportId": "mjiycadonbqq",
+  "topSet": {
+    "score": 6410.056,
+    "stats": {
+      "intellect": 3155.817,
+      "haste": 1665.057118547724,
+      "crit": 949,
+      "mastery": 1215,
+      "versatility": 660,
+      "leech": 286,
+      "hps": 853.6712988193442,
+      "dps": 0,
+      "mana": 0,
+      "manaPerc": 1.04,
+      "allyStats": 0,
+      "bonusHPS": 0.08499999999999999
+    },
+    "items": [
+      {
+        "slot": "Head",
+        "id": 271528,
+        "level": 321,
+        "bonusIDs": [
+          12844,
+          13440,
+          6652,
+          13695,
+          13662,
+          12699
+        ],
+        "gems": [
+          240983
+        ],
+        "enchant": "Empowered Hex of Leeching",
+        "tertiary": "",
+        "setId": 2057,
+        "isVault": true,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -1,
+          "encounterId": 1030
+        }
+      },
+      {
+        "slot": "Neck",
+        "id": 272228,
+        "level": 321,
+        "bonusIDs": [
+          6652,
+          13668,
+          12846
+        ],
+        "gems": [
+          240892
+        ],
+        "enchant": "",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -98,
+          "encounterId": -98
+        }
+      },
+      {
+        "slot": "Shoulder",
+        "id": 271526,
+        "level": 295,
+        "bonusIDs": [
+          6652,
+          12830,
+          13694,
+          13697,
+          1548
+        ],
+        "gems": [],
+        "enchant": "Silvermoon's Mending",
+        "tertiary": "",
+        "setId": 2057,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {}
+      },
+      {
+        "slot": "Back",
+        "id": 251190,
+        "level": 302,
+        "bonusIDs": [
+          6652,
+          13662,
+          12699,
+          11215,
+          12836
+        ],
+        "gems": [],
+        "enchant": "",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -1,
+          "encounterId": 1309
+        }
+      },
+      {
+        "slot": "Chest",
+        "id": 271531,
+        "level": 308,
+        "bonusIDs": [
+          6652,
+          13440,
+          13690,
+          13698,
+          12838
+        ],
+        "gems": [],
+        "enchant": "Mark of the Worldsoul",
+        "tertiary": "",
+        "setId": 2057,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -1,
+          "encounterId": 1313
+        }
+      },
+      {
+        "slot": "Wrist",
+        "id": 275512,
+        "level": 321,
+        "bonusIDs": [
+          6652,
+          13696,
+          13662,
+          12846
+        ],
+        "gems": [],
+        "enchant": "",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -99,
+          "encounterId": -99
+        }
+      },
+      {
+        "slot": "Hands",
+        "id": 244575,
+        "level": 305,
+        "bonusIDs": [
+          12214,
+          13667,
+          12497,
+          13751,
+          14001,
+          13767,
+          8960,
+          8793
+        ],
+        "gems": [],
+        "enchant": "",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -4,
+          "encounterId": 2
+        }
+      },
+      {
+        "slot": "Waist",
+        "id": 277781,
+        "level": 302,
+        "bonusIDs": [
+          6652,
+          13696,
+          13662,
+          12836
+        ],
+        "gems": [],
+        "enchant": "",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {}
+      },
+      {
+        "slot": "Legs",
+        "id": 271527,
+        "level": 321,
+        "bonusIDs": [
+          13693,
+          13440,
+          6652,
+          13698,
+          12846
+        ],
+        "gems": [],
+        "enchant": "Arcanoweave Spellthread",
+        "tertiary": "",
+        "setId": 2057,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": 1320,
+          "encounterId": 2871
+        }
+      },
+      {
+        "slot": "Feet",
+        "id": 251153,
+        "level": 302,
+        "bonusIDs": [
+          13440,
+          6652,
+          13662,
+          12699,
+          12836
+        ],
+        "gems": [],
+        "enchant": "Shaladrassil's Roots",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -1,
+          "encounterId": 1311
+        }
+      },
+      {
+        "slot": "Finger",
+        "id": 252258,
+        "level": 321,
+        "bonusIDs": [
+          13440,
+          6652,
+          13668,
+          12699,
+          12846
+        ],
+        "gems": [
+          240892
+        ],
+        "enchant": "Silvermoon's Alacrity",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -1,
+          "encounterId": 1313
+        }
+      },
+      {
+        "slot": "Finger",
+        "id": 279010,
+        "level": 292,
+        "bonusIDs": [
+          12833,
+          41,
+          13668
+        ],
+        "gems": [
+          240892
+        ],
+        "enchant": "Silvermoon's Alacrity",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {}
+      },
+      {
+        "slot": "Trinket",
+        "id": 250215,
+        "level": 328,
+        "bonusIDs": [
+          13440,
+          6652,
+          12699,
+          12852
+        ],
+        "gems": [],
+        "enchant": "",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -1,
+          "encounterId": 1304
+        }
+      },
+      {
+        "slot": "Trinket",
+        "id": 274495,
+        "level": 308,
+        "bonusIDs": [
+          6652,
+          12838
+        ],
+        "gems": [],
+        "enchant": "",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -98,
+          "encounterId": -98
+        }
+      },
+      {
+        "slot": "2H Weapon",
+        "id": 251935,
+        "level": 321,
+        "bonusIDs": [
+          6652,
+          12846
+        ],
+        "gems": [],
+        "enchant": "Berserker's Rage",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -98,
+          "encounterId": -98
+        }
+      }
+    ]
+  },
+  "differentials": [
+    {
+      "scorePercent": 0.04680146320094552,
+      "hpsDifference": -183,
+      "items": [
+        {
+          "slot": "Head",
+          "id": 271528,
+          "level": 315,
+          "bonusIDs": [
+            6652,
+            12844,
+            13440,
+            13695,
+            13692,
+            13698,
+            1568
+          ],
+          "gems": [],
+          "enchant": "Empowered Hex of Leeching",
+          "tertiary": "",
+          "setId": 2057,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Finger",
+          "id": 162544,
+          "level": 334,
+          "bonusIDs": [
+            12849,
+            13440,
+            6652,
+            13668,
+            12699
+          ],
+          "gems": [],
+          "enchant": "Silvermoon's Alacrity",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": true,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Finger",
+          "id": 252258,
+          "level": 321,
+          "bonusIDs": [
+            13440,
+            6652,
+            13668,
+            12699,
+            12846
+          ],
+          "gems": [],
+          "enchant": "Silvermoon's Alacrity",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.04680146320094552,
+      "hpsDifference": -191,
+      "items": [
+        {
+          "slot": "Trinket",
+          "id": 250256,
+          "level": 282,
+          "bonusIDs": [
+            13440,
+            6652,
+            12699,
+            12804
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Trinket",
+          "id": 250215,
+          "level": 328,
+          "bonusIDs": [
+            13440,
+            6652,
+            12699,
+            12852
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.09360292640189104,
+      "hpsDifference": -356,
+      "items": [
+        {
+          "slot": "Head",
+          "id": 271528,
+          "level": 315,
+          "bonusIDs": [
+            6652,
+            12844,
+            13440,
+            13695,
+            13692,
+            13698,
+            1568
+          ],
+          "gems": [],
+          "enchant": "Empowered Hex of Leeching",
+          "tertiary": "",
+          "setId": 2057,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Finger",
+          "id": 162544,
+          "level": 334,
+          "bonusIDs": [
+            12849,
+            13440,
+            6652,
+            13668,
+            12699
+          ],
+          "gems": [],
+          "enchant": "Silvermoon's Alacrity",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": true,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Finger",
+          "id": 252258,
+          "level": 321,
+          "bonusIDs": [
+            13440,
+            6652,
+            13668,
+            12699,
+            12846
+          ],
+          "gems": [],
+          "enchant": "Silvermoon's Alacrity",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Trinket",
+          "id": 250256,
+          "level": 282,
+          "bonusIDs": [
+            13440,
+            6652,
+            12699,
+            12804
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Trinket",
+          "id": 250215,
+          "level": 328,
+          "bonusIDs": [
+            13440,
+            6652,
+            12699,
+            12852
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.23400731600472757,
+      "hpsDifference": -817,
+      "items": [
+        {
+          "slot": "Trinket",
+          "id": 274495,
+          "level": 308,
+          "bonusIDs": [
+            6652,
+            12838
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Trinket",
+          "id": 250256,
+          "level": 282,
+          "bonusIDs": [
+            13440,
+            6652,
+            12699,
+            12804
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.2808087792056731,
+      "hpsDifference": -987,
+      "items": [
+        {
+          "slot": "Head",
+          "id": 271528,
+          "level": 315,
+          "bonusIDs": [
+            6652,
+            12844,
+            13440,
+            13695,
+            13692,
+            13698,
+            1568
+          ],
+          "gems": [],
+          "enchant": "Empowered Hex of Leeching",
+          "tertiary": "",
+          "setId": 2057,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Finger",
+          "id": 162544,
+          "level": 334,
+          "bonusIDs": [
+            12849,
+            13440,
+            6652,
+            13668,
+            12699
+          ],
+          "gems": [],
+          "enchant": "Silvermoon's Alacrity",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": true,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Finger",
+          "id": 252258,
+          "level": 321,
+          "bonusIDs": [
+            13440,
+            6652,
+            13668,
+            12699,
+            12846
+          ],
+          "gems": [],
+          "enchant": "Silvermoon's Alacrity",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Trinket",
+          "id": 274495,
+          "level": 308,
+          "bonusIDs": [
+            6652,
+            12838
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Trinket",
+          "id": 250256,
+          "level": 282,
+          "bonusIDs": [
+            13440,
+            6652,
+            12699,
+            12804
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.3276102424066186,
+      "hpsDifference": -1136,
+      "items": [
+        {
+          "slot": "Head",
+          "id": 271528,
+          "level": 315,
+          "bonusIDs": [
+            6652,
+            12844,
+            13440,
+            13695,
+            13692,
+            13698,
+            1568
+          ],
+          "gems": [],
+          "enchant": "Empowered Hex of Leeching",
+          "tertiary": "",
+          "setId": 2057,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.37441170560756415,
+      "hpsDifference": -1327,
+      "items": [
+        {
+          "slot": "Head",
+          "id": 271528,
+          "level": 315,
+          "bonusIDs": [
+            6652,
+            12844,
+            13440,
+            13695,
+            13692,
+            13698,
+            1568
+          ],
+          "gems": [],
+          "enchant": "Empowered Hex of Leeching",
+          "tertiary": "",
+          "setId": 2057,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Trinket",
+          "id": 250256,
+          "level": 282,
+          "bonusIDs": [
+            13440,
+            6652,
+            12699,
+            12804
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Trinket",
+          "id": 250215,
+          "level": 328,
+          "bonusIDs": [
+            13440,
+            6652,
+            12699,
+            12852
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.5616175584113462,
+      "hpsDifference": -1952,
+      "items": [
+        {
+          "slot": "Head",
+          "id": 271528,
+          "level": 315,
+          "bonusIDs": [
+            6652,
+            12844,
+            13440,
+            13695,
+            13692,
+            13698,
+            1568
+          ],
+          "gems": [],
+          "enchant": "Empowered Hex of Leeching",
+          "tertiary": "",
+          "setId": 2057,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Trinket",
+          "id": 274495,
+          "level": 308,
+          "bonusIDs": [
+            6652,
+            12838
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Trinket",
+          "id": 250256,
+          "level": 282,
+          "bonusIDs": [
+            13440,
+            6652,
+            12699,
+            12804
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.6318197532127645,
+      "hpsDifference": -2211,
+      "items": [
+        {
+          "slot": "Back",
+          "id": 275525,
+          "level": 298,
+          "bonusIDs": [
+            6652,
+            13662,
+            12835
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.67862121641371,
+      "hpsDifference": -2377,
+      "items": [
+        {
+          "slot": "Back",
+          "id": 279220,
+          "level": 295,
+          "bonusIDs": [
+            6652,
+            13662,
+            12830
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.67862121641371,
+      "hpsDifference": -2402,
+      "items": [
+        {
+          "slot": "Back",
+          "id": 275525,
+          "level": 298,
+          "bonusIDs": [
+            6652,
+            13662,
+            12835
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Trinket",
+          "id": 250256,
+          "level": 282,
+          "bonusIDs": [
+            13440,
+            6652,
+            12699,
+            12804
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Trinket",
+          "id": 250215,
+          "level": 328,
+          "bonusIDs": [
+            13440,
+            6652,
+            12699,
+            12852
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.67862121641371,
+      "hpsDifference": -2402,
+      "items": [
+        {
+          "slot": "Head",
+          "id": 271528,
+          "level": 315,
+          "bonusIDs": [
+            6652,
+            12844,
+            13440,
+            13695,
+            13692,
+            13698,
+            1568
+          ],
+          "gems": [],
+          "enchant": "Empowered Hex of Leeching",
+          "tertiary": "",
+          "setId": 2057,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Back",
+          "id": 275525,
+          "level": 298,
+          "bonusIDs": [
+            6652,
+            13662,
+            12835
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Finger",
+          "id": 162544,
+          "level": 334,
+          "bonusIDs": [
+            12849,
+            13440,
+            6652,
+            13668,
+            12699
+          ],
+          "gems": [],
+          "enchant": "Silvermoon's Alacrity",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": true,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Finger",
+          "id": 252258,
+          "level": 321,
+          "bonusIDs": [
+            13440,
+            6652,
+            13668,
+            12699,
+            12846
+          ],
+          "gems": [],
+          "enchant": "Silvermoon's Alacrity",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    }
+  ]
+}
