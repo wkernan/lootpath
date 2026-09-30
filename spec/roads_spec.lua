@@ -2697,6 +2697,25 @@ describe("Roads over a worn copy of the pick below the pick's level (R-2h)", fun
         assert.equal("Swap this - take the vault helm.", (sentenceFor(worn)))
     end)
 
+    -- R-3c's two worn rings, on this slot: when the pick is the copy you
+    -- already wear (a Keep road), a second worn copy of the item below it is a
+    -- twin and not the pick short of its crest - R-2f never reads a Keep pick
+    -- as worn, because its own key is held. The 308 is moved onto the
+    -- character for it; the `thisWeek` document rates that copy by its own key.
+    -- PROVEN RED: drop `wornIsPick` from the branch and this reads the crest.
+    it("keeps a lower worn twin of a Keep pick on its own road's words", function()
+        highlight("thisWeek")
+        bag.location = "equipped"
+        local road = pick()
+        assert.equal(ns.Roads.KIND_KEEP, road.kind)
+        assert.is_nil(road.wornIsPick)
+        assert.is_true(ns.Roads.IsArrivedPick(bag, road))
+        assert.is_false(ns.Roads.WornUnderCrested(bag, road))
+        local sentence, answer = sentenceFor(bag)
+        assert.equal(ns.Roads.GROUP_SET, answer.own.group)
+        assert.equal("Swap this - use your Dreamwatcher helm.", sentence)
+    end)
+
     -- The bag copy is not worn: its sentence is the one it had before R-2h (the
     -- document rates it by its own key, so the set road speaks for it).
     it("leaves the bag copy's sentence alone", function()
