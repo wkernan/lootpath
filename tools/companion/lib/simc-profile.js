@@ -437,9 +437,9 @@ function chooseVaultSnapshot(list, index) {
   if (spoken.length > 0) {
     const last = spoken.reduce(byNewest);
     const data = last.data || {};
+    // Newer than every read with links, so it carries none itself.
     if (
       (last.capturedAt || 0) > (newestWithLinks.capturedAt || 0) &&
-      luaArray(snapshotRewardLinks(last)).length === 0 &&
       probe(data.hasAvailableRewards) === false &&
       probe(data.canClaimRewards) !== true
     ) {
