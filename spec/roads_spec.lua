@@ -2755,3 +2755,155 @@ describe("Roads over a worn copy of the pick below the pick's level (R-2h)", fun
         assert.is_true(ns.Roads.WornUnderCrested(worn, road))
     end)
 end)
+
+-- R-2i (WKE-669). The owner, 2026-09-30, Equip Now after the watcher restart
+-- and a refresh: `Head · gem missing`, `Neck · gem missing`, `You're set - 2
+-- pieces want finishing.` "Lootpath still saying I need gems on head and neck,
+-- but I already have them in." His worn helm carries gem 240892 and his worn
+-- neck 240983; the rating put 240983 on the helm and 240892 on the neck - the
+-- same two gems, swapped, because it deals one gem list out over the whole set
+-- (fork `TopGearEngine.ts:85-94`, `:799`). A gem is missing only when its
+-- socket is empty.
+--
+-- The document is his own Dungeon `asOffered` of 22:18:09Z, unedited
+-- (spec/fixtures/qe/README.md); the links are his inventory capture of
+-- 2026-09-30 22:20:53 UTC, the four worn pieces that carry a gem.
+describe("Roads over a worn set whose gems the rating dealt out elsewhere (R-2i)", function()
+    local ns, inputs
+    local DOCUMENT = "spec/fixtures/qe/qe-droptimizer-Hotornot-fummnzrekbwq.json"
+    local META, MASTERY = 240983, 240892
+    local HELM_LINK = "|cnIQ4:|Hitem:271528:7961:240892::::::90:105::35:6:6652:13440:13695:13692:13698:12845"
+        .. ":1:64:239033:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    local NECK_LINK =
+        "|cnIQ4:|Hitem:272228::240983::::::90:105::110:3:6652:13668:12846:1:28:6014:::::|h[Whispering Periapt]|h|r"
+    local RING_LINK = "|cnIQ4:|Hitem:252258:7969:240892::::::90:105::33:5:13440:6652:13668:12699:12846"
+        .. ":1:28:1279:::::|h[Sickening Signet of Atroxus]|h|r"
+    local OTHER_RING_LINK =
+        "|cnIQ4:|Hitem:279010:7969:240892::::::90:105::42:3:12833:41:13668:1:28:5381:::::|h[Ula'tek's Bind]|h|r"
+    local helm, neck
+
+    local function wear(link, slot, level)
+        local parsed = ns.ParseItemLink(link)
+        assert.is_table(parsed)
+        local record = {
+            key = parsed.key,
+            itemID = parsed.itemID,
+            bonusIDs = parsed.bonusIDs,
+            link = link,
+            name = "Worn Piece",
+            slot = slot,
+            itemLevel = level,
+            location = "equipped",
+        }
+        table.insert(inputs.inventory.records, record)
+        return record
+    end
+
+    local function finishOf(record)
+        return ns.Roads.ForItemIn(ns.Roads.ForSlot(record.slot, inputs), record.key, inputs).finish
+    end
+
+    local function ratedSet()
+        local topSet = ns.QEImport.Parse(readFile(DOCUMENT)).verdict.topSet
+        local items = {}
+        for _, key in ipairs(topSet.order) do
+            items[#items + 1] = topSet.items[key]
+        end
+        return items, topSet
+    end
+
+    before_each(function()
+        ns = H.load()
+        local parsed = ns.QEImport.Parse(readFile(DOCUMENT))
+        assert.is_true(parsed.ok, parsed.reason)
+        parsed.verdict.scenario = "asOffered"
+        parsed.verdict.qeSettings = { autoUpgradeVault = false, autoUpgradeAll = false, autoCatalyze = false }
+        inputs = {
+            verdicts = { { verdict = parsed.verdict, scenario = "asOffered" } },
+            highlightedScenario = "asOffered",
+            inventory = { records = {} },
+            vault = { ok = true, hasAvailableRewards = false, options = { { rewards = {} } } },
+        }
+        helm = wear(HELM_LINK, "Head", 318)
+        neck = wear(NECK_LINK, "Neck", 321)
+        wear(RING_LINK, "Finger", 321)
+        wear(OTHER_RING_LINK, "Finger", 292)
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- The premise, off the fixture: the rating's helm and neck gems are his
+    -- neck's and helm's.
+    it("reads the rating's gems for his helm and neck as each other's", function()
+        local _, topSet = ratedSet()
+        assert.same({ MASTERY }, ns.ItemData.LinkFinish(HELM_LINK).gems)
+        assert.same({ META }, ns.ItemData.LinkFinish(NECK_LINK).gems)
+        assert.same({ META }, ns.Roads.RatedFinish(topSet.items[helm.key]).gems)
+        assert.same({ MASTERY }, ns.Roads.RatedFinish(topSet.items[neck.key]).gems)
+    end)
+
+    -- PROVEN RED: under R-2d's per-ID rule both are `{ id, missing = true }`.
+    it("calls neither gem missing: each socket is filled, and the set carries both", function()
+        assert.same({ { id = META, missing = false, differs = true, inSet = true } }, finishOf(helm).gems)
+        assert.same({ { id = MASTERY, missing = false, differs = true, inSet = true } }, finishOf(neck).gems)
+        assert.equal("Empowered Hex of Leeching", finishOf(helm).enchant)
+        assert.is_nil(finishOf(helm).enchantMissing)
+    end)
+
+    -- An empty socket is an empty socket, even when the gem sits elsewhere in
+    -- the set: the per-piece count decides `missing`, the set only `inSet`.
+    it("calls a gem missing from an empty socket, whether or not the set carries it elsewhere", function()
+        helm.link = "|cnIQ4:|Hitem:271528:7961:::::::90:105::35:6:6652:13440:13695:13692:13698:12845"
+            .. ":1:64:239033:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+        assert.same({ { id = META, missing = true, inSet = true } }, finishOf(helm).gems)
+        -- Nothing in the worn set carries the meta gem: missing, as before R-2i.
+        neck.link = "|cnIQ4:|Hitem:272228::240892::::::90:105::110:3:6652:13668:12846:1:28:6014:::::"
+            .. "|h[Whispering Periapt]|h|r"
+        assert.same({ { id = META, missing = true } }, finishOf(helm).gems)
+        -- And the neck, now carrying its own rated gem, is matched by ID.
+        assert.same({ { id = MASTERY, missing = false } }, finishOf(neck).gems)
+    end)
+
+    -- The count rule on its own, one piece at a time.
+    it("counts sockets: a gem is missing only where the link carries fewer than the rating", function()
+        local compare = ns.Roads.CompareFinish
+        -- One rated, one on the link, whatever its ID: none missing.
+        assert.same(
+            { { id = META, missing = false, differs = true } },
+            compare({ gems = { META } }, { gems = { MASTERY } }).gems
+        )
+        assert.same({ { id = META, missing = false } }, compare({ gems = { META } }, { gems = { META } }).gems)
+        -- One rated, an empty socket: missing.
+        assert.same({ { id = META, missing = true } }, compare({ gems = { META } }, { gems = {} }).gems)
+        -- Two rated, one on the link: one missing - and never the one it carries.
+        assert.same(
+            { { id = META, missing = true }, { id = MASTERY, missing = false } },
+            compare({ gems = { META, MASTERY } }, { gems = { MASTERY } }).gems
+        )
+        assert.same(
+            { { id = META, missing = false, differs = true }, { id = MASTERY, missing = true } },
+            compare({ gems = { META, MASTERY } }, { gems = { 1 } }).gems
+        )
+        -- A copy that cannot be read still marks nothing.
+        assert.same({ { id = META } }, compare({ gems = { META } }, nil).gems)
+    end)
+
+    -- The set rule on its own: the rating's count of each ID over its whole
+    -- set, beside the worn set's.
+    it("says the set carries a rated gem when the worn set has as many of it as the rating", function()
+        local rated = ratedSet()
+        local worn = {}
+        for _, link in ipairs({ HELM_LINK, NECK_LINK, RING_LINK, OTHER_RING_LINK }) do
+            worn[#worn + 1] = ns.ItemData.LinkFinish(link)
+        end
+        -- His set: one meta gem and three of 240892, rated and worn alike.
+        assert.same({ [META] = true, [MASTERY] = true }, ns.Roads.SetHasGems(rated, worn))
+        -- Without the neck the worn set has no meta gem.
+        assert.same({ [MASTERY] = true }, ns.Roads.SetHasGems(rated, { worn[1], worn[3], worn[4] }))
+        -- Without a ring it has two of 240892 where the rating has three.
+        assert.same({ [META] = true }, ns.Roads.SetHasGems(rated, { worn[1], worn[2], worn[3] }))
+        assert.same({}, ns.Roads.SetHasGems(nil, nil))
+    end)
+end)

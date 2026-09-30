@@ -2533,13 +2533,25 @@ function Roads.RatedFinish(verdictItem)
     return { enchant = enchant, gems = gems }
 end
 
--- The rated choice beside the copy's own: `{ enchant, gems = { { id, missing
--- } } }`, or nil when the rating chose nothing for the piece. A gem the rating
--- used is `missing` when the copy's link carries no unmatched gem of that ID;
--- two of one gem need two. With no copy to read (`own` nil) nothing is marked -
--- not knowing is not a difference. The enchant is never compared: the export
--- names it and the link numbers it, and nothing the annotations carry joins
--- the two (ARCHITECTURE.md §11).
+-- The rated choice beside the copy's own: `{ enchant, gems = { { id, missing,
+-- differs } } }`, or nil when the rating chose nothing for the piece. With no
+-- copy to read (`own` nil) nothing is marked - not knowing is not a
+-- difference. The enchant is never compared: the export names it and the link
+-- numbers it, and nothing the annotations carry joins the two (ARCHITECTURE.md
+-- §11).
+--
+-- A gem is `missing` only when its socket is EMPTY (R-2i, WKE-669): when the
+-- copy's link carries fewer gems than the rating put on the piece. The owner,
+-- 2026-09-30, with Equip Now reading `Head · gem missing` and `Neck · gem
+-- missing`: "Lootpath still saying I need gems on head and neck, but I already
+-- have them in." The rating deals ONE gem list out over the whole set, socket
+-- by socket (`getMidnightGemOptions`, fork `TopGearEngine.ts:85-94`; `.slice(0,
+-- setSockets)` at `:799`): it says WHICH gems, not which socket holds which, so
+-- his helm and neck carry each other's rated gem. A link gem of the rated ID
+-- answers that gem first; a filled socket left over answers another rated gem
+-- as `differs` - said by the name alone, never marked; only the gems left after
+-- that are `missing`. Two rated and one on the link: one missing, whatever its
+-- ID. One rated and one on the link: none.
 --
 -- Its ABSENCE needs no join (R-2g, WKE-665). The owner, 2026-09-30: "any item
 -- I have on that is missing a gem or enchant, we are ensuring we state that to
@@ -2555,30 +2567,104 @@ function Roads.CompareFinish(rated, own)
     if rated.enchant == nil and #gems == 0 then
         return nil
     end
-    local carried
+    local carried, filled
     if type(own) == "table" then
-        carried = {}
+        carried, filled = {}, 0
         for _, id in ipairs(type(own.gems) == "table" and own.gems or {}) do
             carried[id] = (carried[id] or 0) + 1
+            filled = filled + 1
         end
     end
     local out = { enchant = rated.enchant, gems = {} }
     if carried and type(rated.enchant) == "string" and own.enchantID == nil then
         out.enchantMissing = true
     end
-    for _, id in ipairs(gems) do
-        local missing = nil
-        if carried then
-            if (carried[id] or 0) > 0 then
-                carried[id] = carried[id] - 1
-                missing = false
+    -- The link's gems of the rated IDs first, so a gem the copy does carry is
+    -- never the one called missing.
+    for index, id in ipairs(gems) do
+        out.gems[index] = { id = id }
+        if carried and (carried[id] or 0) > 0 then
+            carried[id] = carried[id] - 1
+            filled = filled - 1
+            out.gems[index].missing = false
+        end
+    end
+    -- Then the sockets left: filled with another gem, or empty.
+    for _, gem in ipairs(out.gems) do
+        if carried and gem.missing == nil then
+            if filled > 0 then
+                filled = filled - 1
+                gem.missing = false
+                gem.differs = true
             else
-                missing = true
+                gem.missing = true
             end
         end
-        out.gems[#out.gems + 1] = { id = id, missing = missing }
     end
     return out
+end
+
+-- Which of the rated set's gems the WORN set carries as many of (R-2i,
+-- WKE-669): `{ [gemID] = true }`. The rating's count of an ID is read off every
+-- item of its set (`Roads.RatedFinish`), the worn count off every worn copy's
+-- link (`ItemData.LinkFinish`, handed in); an ID is here when the worn count
+-- is at least the rated one - the set has it, wherever it sits. Pure over what
+-- it is given. It never decides `missing` (an empty socket is an empty socket,
+-- `CompareFinish`); it only says whether a rated gem this piece does not carry
+-- is carried elsewhere, which no line draws yet.
+function Roads.SetHasGems(ratedItems, wornFinishes)
+    local rated, worn = {}, {}
+    for _, item in ipairs(type(ratedItems) == "table" and ratedItems or {}) do
+        local finish = Roads.RatedFinish(item)
+        for _, id in ipairs(finish and finish.gems or {}) do
+            rated[id] = (rated[id] or 0) + 1
+        end
+    end
+    for _, finish in ipairs(type(wornFinishes) == "table" and wornFinishes or {}) do
+        for _, id in ipairs(type(finish) == "table" and type(finish.gems) == "table" and finish.gems or {}) do
+            worn[id] = (worn[id] or 0) + 1
+        end
+    end
+    local has = {}
+    for id, count in pairs(rated) do
+        if (worn[id] or 0) >= count then
+            has[id] = true
+        end
+    end
+    return has
+end
+
+-- Marks each rated gem this copy does not carry by ID with `inSet` when the
+-- worn set carries it (R-2i). Read only when some gem needs it, so a piece
+-- that carries every rated gem costs no walk of the set.
+local function markSetGems(finish, inputs)
+    local asked = false
+    for _, gem in ipairs(type(finish) == "table" and finish.gems or {}) do
+        if gem.missing == true or gem.differs == true then
+            asked = true
+        end
+    end
+    local itemData = ns.ItemData
+    if not asked or not (itemData and itemData.LinkFinish) then
+        return
+    end
+    local entry = Roads.Plan(inputs)
+    if not entry then
+        return
+    end
+    local _, ratedItems = topSetBySlot(entry.verdict)
+    local worn = {}
+    for _, record in ipairs(records(inputs.inventory)) do
+        if record.location == "equipped" then
+            worn[#worn + 1] = itemData.LinkFinish(record.link)
+        end
+    end
+    local has = Roads.SetHasGems(ratedItems, worn)
+    for _, gem in ipairs(finish.gems) do
+        if (gem.missing == true or gem.differs == true) and has[gem.id] then
+            gem.inSet = true
+        end
+    end
 end
 
 -- Which document item speaks for a piece you hold, if any: the set group's own
@@ -2718,6 +2804,7 @@ function Roads.ForItemIn(slotRoads, key, inputs)
     if finishItem then
         local copy = item and ns.ItemData and ns.ItemData.LinkFinish and ns.ItemData.LinkFinish(item.link) or nil
         answer.finish = Roads.CompareFinish(Roads.RatedFinish(finishItem), copy)
+        markSetGems(answer.finish, inputs)
     end
     return answer
 end

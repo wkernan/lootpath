@@ -5523,3 +5523,71 @@ describe("Equip Now marks a settled piece that wants its rated gem or enchant (M
         assert.is_truthy(withSwap:find(EP.ANSWER_TAIL, 1, true))
     end)
 end)
+
+-- R-2i (WKE-669): the owner's Equip Now of 2026-09-30 read `Head · gem
+-- missing`, `Neck · gem missing` and `You're set - 2 pieces want finishing.`
+-- over a helm carrying gem 240892 and a neck carrying 240983, when the rating
+-- had put 240983 on the helm and 240892 on the neck (it deals one gem list out
+-- over the set, fork `TopGearEngine.ts:85-94`). A gem is missing only when its
+-- socket is empty. The rated items are his Dungeon `asOffered` document of
+-- 22:18:09Z and the links his inventory capture of 22:20:53 UTC
+-- (spec/fixtures/qe/README.md).
+describe("Equip Now over a worn set whose gems the rating dealt out elsewhere (R-2i)", function()
+    local ns
+    local DOCUMENT = "spec/fixtures/qe/qe-droptimizer-Hotornot-fummnzrekbwq.json"
+    local HELM_LINK = "|cnIQ4:|Hitem:271528:7961:240892::::::90:105::35:6:6652:13440:13695:13692:13698:12845"
+        .. ":1:64:239033:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    local BARE_HELM_LINK = "|cnIQ4:|Hitem:271528:7961:::::::90:105::35:6:6652:13440:13695:13692:13698:12845"
+        .. ":1:64:239033:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    local NECK_LINK =
+        "|cnIQ4:|Hitem:272228::240983::::::90:105::110:3:6652:13668:12846:1:28:6014:::::|h[Whispering Periapt]|h|r"
+
+    local function row(slot, link)
+        local parsed = ns.QEImport.Parse(readFile(DOCUMENT))
+        assert.is_true(parsed.ok, parsed.reason)
+        local key = ns.ParseItemLink(link).key
+        local verdictItem = parsed.verdict.topSet.items[key]
+        assert.is_table(verdictItem, key)
+        local worn = { itemID = verdictItem.itemID, name = "Worn Piece", location = "equipped", link = link }
+        return { slot = slot, status = "equipped_is_best", verdictItem = verdictItem, best = worn, equipped = worn }
+    end
+
+    local function matchOf(rows)
+        local counts = { equipped_is_best = #rows, swap = 0, best_in_vault = 0, best_not_owned = 0, no_verdict = 0 }
+        return { ok = true, rows = rows, counts = counts }
+    end
+
+    before_each(function()
+        ns = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- PROVEN RED: under R-2d's per-ID rule both rows read `gem missing` and the
+    -- answer is `You're set - 2 pieces want finishing.`
+    it("marks neither his helm nor his neck, and says he is set", function()
+        local EP = ns.UI.EquipPanel
+        local helm, neck = row("Head", HELM_LINK), row("Neck", NECK_LINK)
+        assert.same({ enchant = false, gem = false }, EP.FinishWanted(helm))
+        assert.same({ enchant = false, gem = false }, EP.FinishWanted(neck))
+        assert.is_nil(EP.FinishWords(helm))
+        assert.is_nil(EP.FinishWords(neck))
+        assert.equal("Head", EP.Drawn(helm).second)
+        assert.equal("Neck", EP.Drawn(neck).second)
+        local match = matchOf({ helm, neck })
+        assert.equal(0, EP.FinishCount(match))
+        assert.equal("You're set - every slot is your best.", EP.AnswerText(match))
+        assert.equal("|cff" .. EP.STATUS_HEX.no_verdict .. "2 already best|r", EP.BarKeyText(match))
+    end)
+
+    -- A helm with its one socket empty still wants its gem.
+    it("still marks a piece whose socket is empty", function()
+        local EP = ns.UI.EquipPanel
+        local helm, neck = row("Head", BARE_HELM_LINK), row("Neck", NECK_LINK)
+        assert.same({ enchant = false, gem = true }, EP.FinishWanted(helm))
+        assert.equal(EP.FINISH_GEM_WORDS, EP.FinishWords(helm))
+        assert.equal("You're set - 1 piece wants finishing.", EP.AnswerText(matchOf({ helm, neck })))
+    end)
+end)
