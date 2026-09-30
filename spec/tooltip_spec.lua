@@ -2094,3 +2094,102 @@ describe("The tooltip over a worn copy of the pick below the pick's level (R-2h)
         end
     end)
 end)
+
+-- R-2i (WKE-669): the block over the owner's worn helm and neck, whose gems
+-- the rating dealt out the other way round (his helm carries 240892 and is
+-- rated with 240983, his neck the reverse; fork `TopGearEngine.ts:85-94`).
+-- Each socket is filled, so neither is marked: the line repeats the rating's
+-- own names and says nothing else. The document is his Dungeon `asOffered` of
+-- 22:18:09Z and the links his inventory capture of 22:20:53 UTC
+-- (spec/fixtures/qe/README.md; spec/roads_spec.lua's R-2i block).
+describe("The tooltip over a worn piece whose rated gem sits in another worn piece (R-2i)", function()
+    local ns, world
+    local DOCUMENT = "spec/fixtures/qe/qe-droptimizer-Hotornot-fummnzrekbwq.json"
+    local HELM_LINK = "|cnIQ4:|Hitem:271528:7961:240892::::::90:105::35:6:6652:13440:13695:13692:13698:12845"
+        .. ":1:64:239033:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    local BARE_HELM_LINK = "|cnIQ4:|Hitem:271528:7961:::::::90:105::35:6:6652:13440:13695:13692:13698:12845"
+        .. ":1:64:239033:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    local NECK_LINK =
+        "|cnIQ4:|Hitem:272228::240983::::::90:105::110:3:6652:13668:12846:1:28:6014:::::|h[Whispering Periapt]|h|r"
+    -- Five minutes after the document's own `exportedAt`, 2026-09-30T22:18:09.961Z.
+    local FIVE_MINUTES_LATER = 1790806990
+
+    local function record(link, slot, level)
+        local parsed = ns.ParseItemLink(link)
+        return {
+            key = parsed.key,
+            itemID = parsed.itemID,
+            bonusIDs = parsed.bonusIDs,
+            link = link,
+            name = "Worn Piece",
+            slot = slot,
+            itemLevel = level,
+            location = "equipped",
+        }
+    end
+
+    local function block(worn, records)
+        local parsed = ns.QEImport.Parse(readFile(DOCUMENT))
+        assert.is_true(parsed.ok, parsed.reason)
+        parsed.verdict.scenario = "asOffered"
+        parsed.verdict.qeSettings = { autoUpgradeVault = false, autoUpgradeAll = false, autoCatalyze = false }
+        local inputs = {
+            verdicts = { { verdict = parsed.verdict, scenario = "asOffered" } },
+            highlightedScenario = "asOffered",
+            inventory = { records = records },
+            vault = { ok = true, hasAvailableRewards = false, options = { { rewards = {} } } },
+        }
+        local answer = ns.Roads.ForItemIn(ns.Roads.ForSlot(worn.slot, inputs), worn.key, inputs)
+        answer.sentence = ns.Roads.ItemSentence(answer)
+        answer.exportedAt = parsed.verdict.exportedAt
+        ns.RoadsCache.NameGems({ byKey = { [worn.key] = answer } })
+        local out = {}
+        for index, line in ipairs(ns.UI.Tooltip.Lines(answer, { now = FIVE_MINUTES_LATER })) do
+            out[index] = line.text
+        end
+        return out, answer
+    end
+
+    before_each(function()
+        ns, world = H.load()
+        -- The client's names for the two gems, as stubs: the client's own name
+        -- for the meta gem 240983 is unread (the engine's comment and its gem
+        -- table name it two ways, `TopGearEngine.ts:86`, `GemDB.ts:20-22`).
+        world.items[240983] = { info = { "Stub Meta Gem", "|Hitem:240983|h[Stub Meta Gem]|h", 3, n = 3 } }
+        world.items[240892] = { info = { "Stub Gem", "|Hitem:240892|h[Stub Gem]|h", 3, n = 3 } }
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- PROVEN RED: under R-2d's per-ID rule the third lines read `rated with:
+    -- Empowered Hex of Leeching · Stub Meta Gem (missing)` and `rated with:
+    -- Stub Gem (missing)`.
+    it("names the rated gem on his helm and neck, and marks neither", function()
+        local helm, neck = record(HELM_LINK, "Head", 318), record(NECK_LINK, "Neck", 321)
+        local helmLines = block(helm, { helm, neck })
+        assert.equal("Keep this on.", helmLines[2])
+        assert.equal("rated with: Empowered Hex of Leeching · Stub Meta Gem", helmLines[3])
+        local neckLines = block(neck, { helm, neck })
+        assert.equal("Keep this on.", neckLines[2])
+        assert.equal("rated with: Stub Gem", neckLines[3])
+        for _, text in ipairs({ helmLines[3], neckLines[3] }) do
+            assert.is_nil(text:find("(missing)", 1, true), text)
+            assert.is_nil(usesForbidden(text), text)
+        end
+        -- The whole line in the note tone: nothing drawn in the mark's colour.
+        local _, answer = block(helm, { helm, neck })
+        local _, parts = ns.UI.Tooltip.FinishText(answer)
+        for _, part in ipairs(parts) do
+            assert.equal(ns.UI.Tooltip.NOTE_HEX, part.hex)
+        end
+    end)
+
+    -- An empty socket still says so, even with the meta gem on his neck.
+    it("still marks a gem whose socket is empty", function()
+        local helm, neck = record(BARE_HELM_LINK, "Head", 318), record(NECK_LINK, "Neck", 321)
+        local lines = block(helm, { helm, neck })
+        assert.equal("rated with: Empowered Hex of Leeching · Stub Meta Gem (missing)", lines[3])
+    end)
+end)

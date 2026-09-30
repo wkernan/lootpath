@@ -297,6 +297,27 @@ projects it to, in its first differential, `scorePercent` 0 and `hpsDifference`
 inventory capture of 2026-09-30 16:56:21 UTC: the worn 318 and the 308 in his
 bags.
 
+## A worn set whose gems the rating dealt out elsewhere (R-2i, WKE-669)
+
+One document **written by the companion** on 2026-09-30, extracted unedited
+from the `Data/QEVerdict.lua` it wrote into his addon folder (written
+22:20:06Z; the `json` string of export 1 of 22 - the pass-1 Dungeon
+`asOffered` document). The file is that string byte for byte:
+
+| File | Scenario | Exported | Top-set score | Head / Neck gems in the top set | sha256 |
+|---|---|---|---|---|---|
+| `qe-droptimizer-Hotornot-fummnzrekbwq.json` | `asOffered` | 22:18:09.961Z | 6214.538 | 271528 @318 `[240983]` / 272228 @321 `[240892]` | `826fa9e6c17fefe69da85d38836a9466f899cb3536706f286dfd0fedd562920c` |
+
+His worn helm carries 240892 and his worn neck 240983 - the same two gems,
+swapped. Every droptimizer document of that run whose top set wears the 318
+(or its 321 projection) rates the helm `[240983]` and the neck `[240892]`; the
+three Raid pass-1 documents wear the 308 copy with no gem and put 240983 on the
+neck. The top set's gems in all: one 240983 (Head) and three
+240892 (Neck and both rings, 252258 and 279010), which is what his four
+gemmed worn pieces carry. The links in `spec/roads_spec.lua`'s,
+`spec/tooltip_spec.lua`'s and `spec/ui_spec.lua`'s R-2i blocks are his
+inventory capture of 2026-09-30 22:20:53 UTC.
+
 ## `sample-upgradefinder-v1.json` - hand-built, not from QE Live
 
 Written for M3-6 (WKE-535) by mirroring the fork's exporter field for field.
