@@ -742,14 +742,28 @@ describe("the Equip Now tab drawn as item lines", function()
         assert.equal(#panel.match.rows, #bar.segments)
         for index, segment in ipairs(bar.segments) do
             assert.equal(panel.match.rows[index].status, segment.status)
-            assert.equal(ns.UI.EquipPanel.STATUS_HEX[segment.status], segment.hex)
+            -- M5-1h (WKE-666): a settled slot that wants its rated gem or
+            -- enchant keeps its status and is drawn in the finish amber.
+            if segment.finish then
+                assert.equal("equipped_is_best", segment.status)
+                assert.equal(ns.UI.EquipPanel.FINISH_HEX, segment.hex)
+            else
+                assert.equal(ns.UI.EquipPanel.STATUS_HEX[segment.status], segment.hex)
+            end
         end
-        -- Only the states that are actually present carry a count in words.
+        -- Only the states that are actually present carry a count in words;
+        -- since M5-1h a status's count may be split across two entries (the
+        -- settled slots under `already best` and under the amber), and the
+        -- entries of one status still add up to its count.
         local key = ns.UI.EquipPanel.BarKeyText(panel.match)
+        local summed = {}
         for _, entry in ipairs(bar.key) do
             assert.is_true(entry.count > 0)
-            assert.equal(panel.match.counts[entry.status], entry.count)
+            summed[entry.status] = (summed[entry.status] or 0) + entry.count
             assert.is_truthy(key:find(entry.text, 1, true))
+        end
+        for status, count in pairs(summed) do
+            assert.equal(panel.match.counts[status], count)
         end
         assert.equal(key, panel.barKey:GetText())
         -- and a state with nothing in it is not in the key at all

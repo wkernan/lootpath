@@ -52,6 +52,19 @@ local function drawnItems(panel)
     return out
 end
 
+-- A settled row's drawn second line: the slot word, and since M5-1h (WKE-666)
+-- the finish words in their amber after it when the piece wants its rated gem
+-- or enchant. The committed 2026-09-05 inventory against the cxeiassqdyvz
+-- export has three such pieces (Head, Chest, Legs: no enchant where the
+-- rating names one), so the settled tests read the words through this.
+local function settledSecond(ns, row)
+    local words = ns.UI.EquipPanel.FinishWords(row)
+    if not words then
+        return row.slot
+    end
+    return row.slot .. ns.UI.EquipPanel.SECOND_SEPARATOR .. "|cff" .. ns.UI.EquipPanel.FINISH_HEX .. words .. "|r"
+end
+
 local function firstSwapRow(panel)
     for _, row in ipairs(panel.rows) do
         if row.shown and row.matchRow and row.matchRow.status == "swap" then
@@ -341,8 +354,10 @@ describe("the Equip Now panel", function()
             local frameRow = items[#needs + i]
             assert.is_true(frameRow.shown)
             assert.equal(matchRow, frameRow.matchRow)
-            -- Nothing but the slot word: the tick has said the rest.
-            assert.equal(matchRow.slot, frameRow.line.second:GetText())
+            -- Nothing but the slot word: the tick has said the rest - unless
+            -- the piece wants its rated gem or enchant (M5-1h), which the
+            -- slot word is then followed by.
+            assert.equal(settledSecond(ns, matchRow), frameRow.line.second:GetText())
         end
         assert.is_false(panel.overflow:IsShown())
 
@@ -1122,8 +1137,14 @@ describe("the Equip Now panel on a Great Vault option in the top set (WKE-541)",
         -- The same counts, in the bar's key - except that a state with nothing
         -- in it is not drawn at all, because a `0 to swap` is a word spent
         -- saying nothing (M5-1b).
+        -- Since M5-1h (WKE-666) the key counts a settled slot that wants its
+        -- rated gem or enchant under its own amber rather than under `already
+        -- best`: five of the fourteen on this snapshot (Head, Chest, Legs,
+        -- Feet and the Signet of Snarling Servitude carry no enchant where the
+        -- rating names one).
         local key = panel.barKey:GetText()
-        assert.is_truthy(key:find("14 already best", 1, true))
+        assert.is_truthy(key:find("9 already best", 1, true))
+        assert.is_truthy(key:find("5 want a gem or enchant", 1, true))
         assert.is_truthy(key:find("1 in the Great Vault", 1, true))
         assert.is_falsy(key:find("0 to swap", 1, true))
         assert.is_falsy(key:find("0 not owned", 1, true))
@@ -1249,6 +1270,13 @@ describe("Equip Now redrawn (M5-1b)", function()
             end
         end
         assert.is_true(#settled.rows > 0)
+        -- Three of them want their rated enchant on this fixture (M5-1h), so
+        -- the settled sentence says so; with every piece finished it is the
+        -- all-best sentence, as it always was.
+        assert.equal("You're set - 3 pieces want finishing.", ns.UI.EquipPanel.AnswerText(settled))
+        for _, row in ipairs(settled.rows) do
+            row.verdictItem = { itemID = row.verdictItem.itemID, level = row.verdictItem.level }
+        end
         assert.equal(ns.UI.EquipPanel.ANSWER_ALL_BEST, ns.UI.EquipPanel.AnswerText(settled))
         -- Nothing rated at all: the honest state, not a claim that all is well.
         local unrated = { ok = true, rows = {}, counts = { equipped_is_best = 0, no_verdict = 0 } }
@@ -1594,8 +1622,9 @@ describe("Equip Now's settled slots in two columns (M5-1e)", function()
                         assert.is_nil(cell.vault)
                         assert.is_nil(cell.worn)
                         assert.is_nil(cell.arrow)
-                        -- and the second line is today's: the slot word alone
-                        assert.equal(cell.matchRow.slot, cell.line.second:GetText())
+                        -- and the second line is today's: the slot word alone,
+                        -- or with what the piece wants after it (M5-1h)
+                        assert.equal(settledSecond(ns, cell.matchRow), cell.line.second:GetText())
                     end
                 end
             end
@@ -5320,5 +5349,177 @@ describe("the window resizes by its corner (M5-5)", function()
         assert.same({ "BOTTOMRIGHT", frame, "BOTTOMRIGHT", -4, 4 }, grip.points[1])
         grip:GetScript("OnMouseDown")(grip)
         assert.equal("BOTTOMRIGHT", frame.sizingPoint)
+    end)
+end)
+
+-- M5-1h (WKE-666): a settled piece that wants the gem or enchant the rating
+-- gave it. The owner's four answers on the approved mockup (Option C) are the
+-- spec: the words as drawn, the bar and the key, the answer line's clause, and
+-- settled rows only. The finish is the rating's own choice held against the
+-- worn copy's link through `Roads.CompareFinish`; nothing here picks one.
+describe("Equip Now marks a settled piece that wants its rated gem or enchant (M5-1h)", function()
+    local ns, world, panel
+    local GEM = 240892
+    local ENCHANT_ID = 7968
+
+    -- A link whose enchant and first gem fields are the ones given, in the
+    -- client's own shape (item:id:enchant:gem1:...), which is what
+    -- `ns.ParseItemLink` reads.
+    local function link(itemID, enchantID, gemID)
+        return string.format(
+            "|cffa335ee|Hitem:%d:%s:%s::::::90:105::::|h[Test Piece]|h|r",
+            itemID,
+            enchantID and tostring(enchantID) or "",
+            gemID and tostring(gemID) or ""
+        )
+    end
+
+    local function settled(slot, rated, worn)
+        return {
+            slot = slot,
+            status = "equipped_is_best",
+            verdictItem = { itemID = 1000, level = 300, enchant = rated.enchant, gems = rated.gems or {} },
+            best = { itemID = 1000, itemLevel = 300, name = "Test Piece", location = "equipped", link = worn },
+            equipped = { itemID = 1000, itemLevel = 300, name = "Test Piece", location = "equipped", link = worn },
+        }
+    end
+
+    local function matchOf(rows)
+        local counts = { equipped_is_best = 0, swap = 0, best_in_vault = 0, best_not_owned = 0, no_verdict = 0 }
+        for _, row in ipairs(rows) do
+            counts[row.status] = counts[row.status] + 1
+        end
+        return { ok = true, rows = rows, counts = counts }
+    end
+
+    local enchantOnly, gemOnly, both, neither, noLink
+
+    before_each(function()
+        ns, world = H.load()
+        withInventory(world)
+        ns.UI.Frame()
+        ns.UI.frame.pasteBox:SetText(readFile(REAL_EXPORT))
+        ns.UI.frame.importButton:Click()
+        panel = ns.UI.frame.equipPanel
+        enchantOnly = settled("Wrist", { enchant = "Some Enchant" }, link(1000, nil, nil))
+        gemOnly = settled("Finger", { gems = { GEM } }, link(1000, ENCHANT_ID, nil))
+        both = settled("Head", { enchant = "Some Enchant", gems = { GEM } }, link(1000, nil, nil))
+        neither = settled("Legs", { enchant = "Some Enchant", gems = { GEM } }, link(1000, ENCHANT_ID, GEM))
+        noLink = settled("Feet", { enchant = "Some Enchant", gems = { GEM } }, nil)
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("reads what each settled piece wants off the rating and the link, and marks nothing it cannot read", function()
+        local EP = ns.UI.EquipPanel
+        assert.same({ enchant = true, gem = false }, EP.FinishWanted(enchantOnly))
+        assert.same({ enchant = false, gem = true }, EP.FinishWanted(gemOnly))
+        assert.same({ enchant = true, gem = true }, EP.FinishWanted(both))
+        assert.same({ enchant = false, gem = false }, EP.FinishWanted(neither))
+        -- No link: nothing to compare, so nothing is marked.
+        assert.same({ enchant = false, gem = false }, EP.FinishWanted(noLink))
+        assert.is_false(EP.WantsFinish(noLink))
+        -- A piece the rating chose no finish for has nothing to want.
+        assert.is_nil(EP.FinishWanted(settled("Back", {}, link(1000, nil, nil))))
+    end)
+
+    it("leaves a swap row unmarked, by his word", function()
+        local EP = ns.UI.EquipPanel
+        local swap = settled("Wrist", { enchant = "Some Enchant", gems = { GEM } }, link(1000, nil, nil))
+        swap.status = "swap"
+        swap.best.location = "bag"
+        assert.is_nil(EP.FinishWanted(swap))
+        assert.is_nil(EP.FinishWords(swap))
+        local drawn = EP.Drawn(swap, matchOf({ swap }))
+        assert.is_falsy(drawn.second:find(EP.FINISH_ENCHANT_WORDS, 1, true))
+        assert.is_falsy(drawn.second:find(EP.FINISH_GEM_WORDS, 1, true))
+        assert.is_nil(drawn.finish)
+        local bar = EP.Bar(matchOf({ swap }))
+        assert.equal(EP.STATUS_HEX.swap, bar.segments[1].hex)
+    end)
+
+    it("says it after the slot word, in the amber, in the words he approved", function()
+        local EP = ns.UI.EquipPanel
+        local amber = "|cff" .. ns.UI.ItemLine.TONE.worse.hex
+        assert.equal(amber, "|cff" .. EP.FINISH_HEX)
+        local sep = EP.SECOND_SEPARATOR
+        assert.equal("Wrist" .. sep .. amber .. "no enchant|r", EP.Drawn(enchantOnly).second)
+        assert.equal("Finger" .. sep .. amber .. "gem missing|r", EP.Drawn(gemOnly).second)
+        assert.equal("Head" .. sep .. amber .. "no enchant, gem missing|r", EP.Drawn(both).second)
+        assert.equal("Legs", EP.Drawn(neither).second)
+        assert.equal("Feet", EP.Drawn(noLink).second)
+        assert.is_true(EP.Drawn(both).finish)
+        assert.is_nil(EP.Drawn(neither).finish)
+        -- The status stays settled: the tick, the dim and the fold are as they were.
+        local drawn = EP.Drawn(both)
+        assert.equal("equipped_is_best", drawn.status)
+        assert.equal(EP.MARK.equipped_is_best, drawn.mark)
+        assert.is_true(drawn.dim)
+    end)
+
+    it("draws a settled slot that wants finishing in the amber on the bar, its status unchanged", function()
+        local EP = ns.UI.EquipPanel
+        local bar = EP.Bar(matchOf({ enchantOnly, neither, gemOnly }))
+        assert.equal(EP.FINISH_HEX, bar.segments[1].hex)
+        assert.equal(EP.STATUS_HEX.equipped_is_best, bar.segments[2].hex)
+        assert.equal(EP.FINISH_HEX, bar.segments[3].hex)
+        for _, segment in ipairs(bar.segments) do
+            assert.equal("equipped_is_best", segment.status)
+        end
+        -- Drawn, over the committed fixture: the three settled pieces the
+        -- 2026-09-05 inventory wears without the rated enchant (Head, Chest,
+        -- Legs) are the three amber textures, and no other slot is.
+        EP.Refresh(panel, panel.match)
+        local amber = 0
+        for index, row in ipairs(panel.match.rows) do
+            local texture = panel.segments[index]
+            local wants = EP.WantsFinish(row)
+            local r, g, b = ns.UI.ItemLine.RGB(wants and EP.FINISH_HEX or EP.STATUS_HEX[row.status])
+            assert.same({ r, g, b }, { texture.colorTexture[1], texture.colorTexture[2], texture.colorTexture[3] })
+            if wants then
+                amber = amber + 1
+                assert.equal("equipped_is_best", row.status)
+                assert.is_truthy(({ Head = true, Chest = true, Legs = true })[row.slot])
+            end
+        end
+        assert.equal(3, amber)
+    end)
+
+    it("counts them in the key after `already best`, and says nothing at zero", function()
+        local EP = ns.UI.EquipPanel
+        local quiet = "|cff" .. EP.STATUS_HEX.no_verdict
+        local amber = "|cff" .. EP.FINISH_HEX
+        assert.equal(
+            quiet .. "1 already best|r   " .. amber .. "2 want a gem or enchant|r",
+            EP.BarKeyText(matchOf({ enchantOnly, neither, gemOnly }))
+        )
+        assert.equal(
+            quiet .. "1 already best|r   " .. amber .. "1 wants a gem or enchant|r",
+            EP.BarKeyText(matchOf({ enchantOnly, neither }))
+        )
+        -- Nothing wanting finishing: the key is today's.
+        assert.equal(quiet .. "2 already best|r", EP.BarKeyText(matchOf({ neither, noLink })))
+        -- Every piece wanting finishing: no `0 already best`.
+        assert.equal(amber .. "2 want a gem or enchant|r", EP.BarKeyText(matchOf({ enchantOnly, both })))
+        -- Drawn over the committed fixture: seven settled, three of them bare.
+        assert.is_truthy(panel.barKey:GetText():find("4 already best", 1, true))
+        assert.is_truthy(panel.barKey:GetText():find("3 want a gem or enchant", 1, true))
+    end)
+
+    it("says so in the answer when every slot is set, and leaves the swap answer alone", function()
+        local EP = ns.UI.EquipPanel
+        assert.equal(EP.ANSWER_ALL_BEST, EP.AnswerText(matchOf({ neither, noLink })))
+        assert.equal("You're set - 1 piece wants finishing.", EP.AnswerText(matchOf({ enchantOnly, neither })))
+        assert.equal("You're set - 2 pieces want finishing.", EP.AnswerText(matchOf({ enchantOnly, gemOnly, neither })))
+        -- With a swap on screen the sentence is the swap's, word for word.
+        local swap = settled("Neck", {}, link(1000, nil, nil))
+        swap.status = "swap"
+        swap.best.location = "bag"
+        local withSwap = EP.AnswerText(matchOf({ swap, enchantOnly, gemOnly }))
+        assert.equal(EP.AnswerText(matchOf({ swap, neither, noLink })), withSwap)
+        assert.is_falsy(withSwap:find("finishing", 1, true))
+        assert.is_truthy(withSwap:find(EP.ANSWER_TAIL, 1, true))
     end)
 end)

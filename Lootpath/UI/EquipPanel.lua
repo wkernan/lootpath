@@ -269,6 +269,29 @@ EquipPanel.CRESTED_WORDS = "crested to %s"
 EquipPanel.RATED_WORDS = "rated at %s"
 EquipPanel.CRESTED_HINT = "Refresh rates the crested copy"
 
+-- M5-1h (WKE-666): a settled piece that wants the gem or enchant the rating
+-- gave it. The owner, 2026-09-30: "any item I have on that is missing a gem or
+-- enchant, we are ensuring we state that to the player." Mockup Option C, his
+-- four answers as decisions: these words as drawn, the answer line's clause,
+-- the bar and the key, and settled rows only - a swap row is not marked.
+--
+-- Lootpath never chooses a gem or enchant. The mark is the rating's own choice
+-- (`Roads.RatedFinish`) held against the worn copy's link
+-- (`ItemData.LinkFinish`) by `Roads.CompareFinish` - the same join the hover
+-- makes (R-2d, R-2g) - and the hover names what the rating used.
+EquipPanel.FINISH_ENCHANT_WORDS = "no enchant"
+EquipPanel.FINISH_GEM_WORDS = "gem missing"
+EquipPanel.FINISH_SEPARATOR = ", "
+-- The tone it is drawn in: `UI.ItemLine.TONE.worse`, the amber of the badge
+-- palette. Not `better`: that gold sits beside the swap's yellow on the bar
+-- and the key could not tell the two segments apart. Never the only signal -
+-- the words carry it on the row and the count carries it in the key.
+EquipPanel.FINISH_TONE = "worse"
+EquipPanel.FINISH_HEX = UI.ItemLine.TONE[EquipPanel.FINISH_TONE].hex
+-- The key's count, after `already best`.
+EquipPanel.FINISH_KEY_ONE = "%d wants a gem or enchant"
+EquipPanel.FINISH_KEY_MANY = "%d want a gem or enchant"
+
 -- The answer sentence's fixed parts. The sentence is the whole tab in one
 -- line, in the words a guildmate would type; the clauses in between are built
 -- from the rows.
@@ -276,6 +299,10 @@ EquipPanel.ANSWER_PROMPT = "Paste a Top Gear export above to fill this panel."
 EquipPanel.ANSWER_ALL_BEST = "You're set - every slot is your best."
 EquipPanel.ANSWER_NOTHING_RATED = "Nothing you're wearing is rated yet."
 EquipPanel.ANSWER_TAIL = " Everything else is your best set."
+-- M5-1h: every slot settled, and some of them want the rated gem or enchant.
+-- Digits, as the panel counts everywhere else.
+EquipPanel.ANSWER_FINISH_ONE = "You're set - 1 piece wants finishing."
+EquipPanel.ANSWER_FINISH_MANY = "You're set - %d pieces want finishing."
 
 -- C-14b (WKE-627). **The empty tab, when the reason it is empty is known.**
 --
@@ -432,6 +459,75 @@ function EquipPanel.CrestedText(row)
         .. string.format(EquipPanel.RATED_WORDS, tostring(row.ratedAt))
 end
 
+-- M5-1h (WKE-666): does this settled piece want the gem or enchant the rating
+-- gave it? `{ enchant = bool, gem = bool }`, or nil for any row that is not
+-- `equipped_is_best` (his answer 4: settled rows only), and for a piece the
+-- rating chose no finish for. Pure: the rating's choice off the row's own
+-- rated item, the copy's off the worn record's link, joined by
+-- `Roads.CompareFinish` exactly as the hover joins them. `enchant` is R-2g's
+-- mark (the rating names one and the link carries none); `gem` is any rated
+-- gem the link lacks. A record with no link marks nothing - not knowing is not
+-- a difference, which is `CompareFinish`'s own rule.
+function EquipPanel.FinishWanted(row)
+    if not (type(row) == "table" and row.status == "equipped_is_best") then
+        return nil
+    end
+    local roads, itemData = ns.Roads, ns.ItemData
+    if not (roads and roads.RatedFinish and roads.CompareFinish and itemData and itemData.LinkFinish) then
+        return nil
+    end
+    local best = type(row.best) == "table" and row.best or nil
+    local own = best and itemData.LinkFinish(best.link) or nil
+    local finish = roads.CompareFinish(roads.RatedFinish(row.verdictItem), own)
+    if type(finish) ~= "table" then
+        return nil
+    end
+    local gem = false
+    for _, entry in ipairs(type(finish.gems) == "table" and finish.gems or {}) do
+        if entry.missing == true then
+            gem = true
+        end
+    end
+    return { enchant = finish.enchantMissing == true, gem = gem }
+end
+
+-- True when `FinishWanted` marks anything on the row.
+function EquipPanel.WantsFinish(row)
+    local wanted = EquipPanel.FinishWanted(row)
+    return wanted ~= nil and (wanted.enchant or wanted.gem) or false
+end
+
+-- The words the settled cell's slot line carries after the slot, plain, or
+-- nil: `no enchant`, `gem missing`, or both, in that order.
+function EquipPanel.FinishWords(row)
+    local wanted = EquipPanel.FinishWanted(row)
+    if not wanted then
+        return nil
+    end
+    local words = {}
+    if wanted.enchant then
+        words[#words + 1] = EquipPanel.FINISH_ENCHANT_WORDS
+    end
+    if wanted.gem then
+        words[#words + 1] = EquipPanel.FINISH_GEM_WORDS
+    end
+    if #words == 0 then
+        return nil
+    end
+    return table.concat(words, EquipPanel.FINISH_SEPARATOR)
+end
+
+-- How many settled rows want finishing.
+function EquipPanel.FinishCount(match)
+    local count = 0
+    for _, row in ipairs(type(match) == "table" and type(match.rows) == "table" and match.rows or {}) do
+        if EquipPanel.WantsFinish(row) then
+            count = count + 1
+        end
+    end
+    return count
+end
+
 -- One row as { slot, text, note, status, actionable, name, second, badge,
 -- tags, item, worn }. `text` is the whole row as one string and is what
 -- `/lootpath status` and the text tests read; `note` is a whole second line or
@@ -580,6 +676,12 @@ function EquipPanel.Drawn(row, match)
     local tail, replaces
     if status == "equipped_is_best" then
         drawn.dim = true
+        -- M5-1h: the slot word, then what the piece wants, in the amber.
+        local words = EquipPanel.FinishWords(row)
+        if words then
+            drawn.finish = true
+            tail = "|cff" .. EquipPanel.FINISH_HEX .. words .. "|r"
+        end
     elseif status == "swap" then
         tail = row.best and whereText(row.best) or nil
         replaces = EquipPanel.ReplacesText(row.equipped)
@@ -748,6 +850,15 @@ function EquipPanel.AnswerText(match, unrated)
     local best = counts.equipped_is_best or 0
     if #clauses == 0 then
         if best > 0 then
+            -- M5-1h (his answer 3): set, but some pieces want the rated gem
+            -- or enchant. With a swap or a vault clause on screen the sentence
+            -- above is unchanged - a finish mark never moves it.
+            local finishing = EquipPanel.FinishCount(match)
+            if finishing == 1 then
+                return EquipPanel.ANSWER_FINISH_ONE
+            elseif finishing > 1 then
+                return string.format(EquipPanel.ANSWER_FINISH_MANY, finishing)
+            end
             return EquipPanel.ANSWER_ALL_BEST
         end
         return EquipPanel.ANSWER_NOTHING_RATED
@@ -771,10 +882,21 @@ function EquipPanel.Bar(match)
         return { segments = {}, key = {} }
     end
     local segments = {}
+    local finishing = 0
     for _, row in ipairs(match.rows) do
+        -- M5-1h: a settled slot that wants finishing is drawn in the amber.
+        -- Its status stays `equipped_is_best`, so nothing that reads the
+        -- status changes; only the colour and the `finish` flag do.
+        local finish = EquipPanel.WantsFinish(row)
+        if finish then
+            finishing = finishing + 1
+        end
         segments[#segments + 1] = {
             status = row.status,
-            hex = EquipPanel.STATUS_HEX[row.status] or EquipPanel.STATUS_HEX.no_verdict,
+            hex = finish and EquipPanel.FINISH_HEX
+                or EquipPanel.STATUS_HEX[row.status]
+                or EquipPanel.STATUS_HEX.no_verdict,
+            finish = finish or nil,
         }
     end
     local label = {}
@@ -785,6 +907,11 @@ function EquipPanel.Bar(match)
     local key = {}
     for _, status in ipairs(EquipPanel.BAR_KEY_ORDER) do
         local count = counts[status] or 0
+        -- The key names each colour on the bar, so a settled slot in the amber
+        -- is counted under the amber and not under `already best` as well.
+        if status == "equipped_is_best" then
+            count = math.max(count - finishing, 0)
+        end
         if count > 0 then
             key[#key + 1] = {
                 status = status,
@@ -796,6 +923,18 @@ function EquipPanel.Bar(match)
                 quiet = status == "equipped_is_best",
             }
         end
+    end
+    -- M5-1h: the settled slots that want finishing, after `already best`,
+    -- absent at zero.
+    if finishing > 0 then
+        key[#key + 1] = {
+            status = "equipped_is_best",
+            finish = true,
+            count = finishing,
+            text = string.format(finishing == 1 and EquipPanel.FINISH_KEY_ONE or EquipPanel.FINISH_KEY_MANY, finishing),
+            hex = EquipPanel.FINISH_HEX,
+            quiet = false,
+        }
     end
     return { segments = segments, key = key }
 end
