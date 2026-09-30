@@ -2390,3 +2390,164 @@ describe("Roads over a claimed vault reward the pick catalyzes (R-2e)", function
         assert.is_false(ns.Roads.IsPickSource(source, road))
     end)
 end)
+
+-- R-2f (WKE-664). The owner, 2026-09-30, the Druid: the vault Hood claimed,
+-- catalyzed into the tier helm and crested once to 318, WORN; the old 308 copy
+-- of the helm in his bags; the rating from before the Catalyst. The hover over
+-- the helm on his head read `Swap this - take the vault Dreamwatcher helm.`
+-- "Now that I've taken the helm from the vault and catalyzed it, when hovering
+-- over it, it's still telling me to swap this item."
+--
+-- The document is R-2e's own (spec/fixtures/qe/README.md): the pick for Head is
+-- a plain vault road on the tier clone at 315. The copies are the tier link off
+-- his capture with the upgrade bonus ID replaced, and those bonus IDs are
+-- invented: no capture carries the old copy's link or the crested one's, and
+-- all each has to be is another key. The levels are the owner's screen.
+describe("Roads over a worn copy of the vault pick after the claim (R-2f)", function()
+    local ns, inputs
+    local CATALYZED_DUNGEON = "spec/fixtures/qe/qe-droptimizer-Hotornot-esdfxjozstkc.json"
+    local TIER_LINK = "|cnIQ4:|Hitem:271528::::::::90:105::35:7:6652:12844:13440:13695:13692:13698:1568"
+        .. ":1:64:239033:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    local HOOD_LINK = "|cnIQ4:|Hitem:239033::::::::90:105::35:6:12844:13440:6652:13695:13662:12699::::::"
+        .. "|h[Hood of the Slithering Loa]|h|r"
+    local NAME = "Enigmatic Dreamwatcher's Somnolent Stare"
+
+    local function held(link, level, location)
+        local parsed = ns.ParseItemLink(link)
+        assert.is_table(parsed)
+        local record = {
+            key = parsed.key,
+            itemID = parsed.itemID,
+            bonusIDs = parsed.bonusIDs,
+            link = link,
+            name = NAME,
+            slot = "Head",
+            itemLevel = level,
+            location = location,
+        }
+        table.insert(inputs.inventory.records, record)
+        return record
+    end
+
+    local function copyAt(bonusID, level, location)
+        return held((TIER_LINK:gsub(":12844:", ":" .. bonusID .. ":")), level, location)
+    end
+
+    local function vaultHolding(reward)
+        return { ok = true, options = { { rewards = reward and { reward } or {} } } }
+    end
+
+    local function pick()
+        return ns.Roads.PlanPick(ns.Roads.ForSlot("Head", inputs))
+    end
+
+    local function sentenceFor(record)
+        local answer = ns.Roads.ForItemIn(ns.Roads.ForSlot("Head", inputs), record.key, inputs)
+        return ns.Roads.ItemSentence(answer), answer
+    end
+
+    before_each(function()
+        ns = H.load()
+        local parsed = ns.QEImport.Parse(readFile(CATALYZED_DUNGEON))
+        assert.is_true(parsed.ok, parsed.reason)
+        parsed.verdict.scenario = "catalyzed"
+        parsed.verdict.qeSettings = { autoUpgradeVault = false, autoUpgradeAll = false, autoCatalyze = true }
+        inputs = {
+            verdicts = { { verdict = parsed.verdict, scenario = "catalyzed" } },
+            highlightedScenario = "catalyzed",
+            inventory = { records = {} },
+            -- After the claim the client's vault holds no gear (R-2e's reading
+            -- of his 22:01 UTC refresh capture).
+            vault = vaultHolding(nil),
+            now = 1790720000,
+        }
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- PROVEN RED: without `wornIsPick` this is `Swap this - take the vault
+    -- helm.`, the owner's sentence with the clone's name unfilled.
+    it("reads the owner's worn 318 helm as the pick, never a swap", function()
+        copyAt(12838, 308, "bag")
+        local worn = copyAt(12845, 318, "equipped")
+        local road = pick()
+        assert.equal(ns.Roads.KIND_VAULT, road.kind)
+        assert.equal(315, road.arrivesAt)
+        assert.is_true(road.wornIsPick)
+        assert.is_true(ns.Roads.IsArrivedPick(worn, road))
+        local sentence = sentenceFor(worn)
+        assert.equal("Refresh - you're already wearing it.", sentence)
+        assert.is_nil(sentence:find("Swap", 1, true))
+        -- The worn copy is the one the road is marked with.
+        assert.equal(worn, road.arrived)
+        assert.equal(ns.Roads.ARRIVED_CLAIMED_WORN, road.claimed)
+    end)
+
+    -- R-3c's refusal, where its evidence still runs out: the vault still holds
+    -- the reward, so nothing tells the worn copy from the one on offer.
+    it("still refuses a worn copy while the vault holds the reward", function()
+        local hood = ns.ParseItemLink(HOOD_LINK)
+        inputs.vault = vaultHolding({
+            itemID = hood.itemID,
+            key = hood.key,
+            bonusIDs = hood.bonusIDs,
+            link = HOOD_LINK,
+            slot = "Head",
+            itemLevel = 315,
+        })
+        local worn = copyAt(12845, 318, "equipped")
+        local road = pick()
+        assert.is_nil(road.wornIsPick)
+        assert.is_false(ns.Roads.IsArrivedPick(worn, road))
+        assert.is_truthy((sentenceFor(worn)):find("^Swap this"))
+    end)
+
+    -- A copy at the pick's level in the bags is the pick (R-3b), and the worn
+    -- one beside it is its old twin.
+    it("keeps the bag copy at the pick's level as the pick and the worn twin as a swap", function()
+        local bag = copyAt(12843, 315, "bag")
+        local worn = copyAt(12838, 308, "equipped")
+        local road = pick()
+        assert.is_nil(road.wornIsPick)
+        assert.is_true(ns.Roads.IsArrivedPick(bag, road))
+        assert.is_false(ns.Roads.IsArrivedPick(worn, road))
+        assert.is_truthy((sentenceFor(worn)):find("^Swap this"))
+        assert.equal(bag, road.arrived)
+    end)
+
+    -- With nothing else to be the pick, a worn copy under the pick's level is
+    -- the pick not crested all the way: the crest clause, as R-3e words it.
+    it("reads a worn copy under the pick's level as the pick, with the crest", function()
+        local worn = copyAt(12838, 308, "equipped")
+        local road = pick()
+        assert.is_true(road.wornIsPick)
+        assert.is_true(ns.Roads.IsArrivedPick(worn, road))
+        assert.equal("Crest this to 315 - then refresh.", (sentenceFor(worn)))
+    end)
+
+    -- What the client has not said is not read as said.
+    it("answers only on what the vault and the bags have said", function()
+        local road = pick()
+        assert.is_true(ns.Roads.WornCanBePick(road, inputs))
+        -- No vault read at all, or a failed one.
+        assert.is_false(ns.Roads.WornCanBePick(road, { inventory = inputs.inventory }))
+        assert.is_false(ns.Roads.WornCanBePick(road, { vault = { ok = false }, inventory = inputs.inventory }))
+        -- Reset day before the window: rewards waiting, none carried.
+        inputs.vault.hasAvailableRewards = true
+        assert.is_false(ns.Roads.WornCanBePick(road, inputs))
+        inputs.vault.hasAvailableRewards = false
+        -- Gear for another slot does not hold this slot's reward; gear for
+        -- this one does.
+        inputs.vault.options[1].rewards = { { itemID = 1, slot = "Legs" } }
+        assert.is_true(ns.Roads.WornCanBePick(road, inputs))
+        inputs.vault.options[1].rewards = { { itemID = 1, slot = "Head" } }
+        assert.is_false(ns.Roads.WornCanBePick(road, inputs))
+        inputs.vault.options[1].rewards = {}
+        -- The road's own item still in hand (a Catalyst source not converted).
+        table.insert(inputs.inventory.records, { key = road.keys[1], itemID = 1, slot = "Head", location = "bag" })
+        assert.is_false(ns.Roads.WornCanBePick(road, inputs))
+        assert.is_false(ns.Roads.WornCanBePick(nil, inputs))
+    end)
+end)
