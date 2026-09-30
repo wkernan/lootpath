@@ -2017,3 +2017,80 @@ describe("The tooltip over the worn vault pick after the claim (R-2f)", function
         end
     end)
 end)
+
+-- R-2h (WKE-667): the block over the tier helm on the owner's head with
+-- `everything upgraded` highlighted, after R-2f. His screen of 2026-09-30 read
+-- `Swap this - take the vault Dreamwatcher helm.` under the header. The
+-- document is his own `maxed` one of 14:43 UTC and the links are his inventory
+-- capture of 16:56 UTC (spec/fixtures/qe/README.md; spec/roads_spec.lua's R-2h
+-- block reads all four of that morning's documents).
+describe("The tooltip over a worn copy of the pick below the pick's level (R-2h)", function()
+    local ns
+    local MAXED_DUNGEON = "spec/fixtures/qe/qe-droptimizer-Hotornot-ujciztenjvjk.json"
+    local WORN_LINK = "|cnIQ4:|Hitem:271528:7961:240892::::::90:105::35:6:6652:13440:13695:13692:13698:12845"
+        .. ":1:64:239033:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    local BAG_LINK = "|cnIQ4:|Hitem:271528:7960:::::::90:105::23:7:6652:13439:13696:12838:13692:13698:1561"
+        .. ":1:64:251140:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    -- Five minutes after the document's own `exportedAt`, 2026-09-30T14:43:24.983Z.
+    local FIVE_MINUTES_LATER = 1790779705
+
+    local function record(link, level, location)
+        local parsed = ns.ParseItemLink(link)
+        return {
+            key = parsed.key,
+            itemID = parsed.itemID,
+            bonusIDs = parsed.bonusIDs,
+            link = link,
+            name = "Enigmatic Dreamwatcher's Somnolent Stare",
+            slot = "Head",
+            itemLevel = level,
+            location = location,
+        }
+    end
+
+    local function block(worn, bag)
+        local parsed = ns.QEImport.Parse(readFile(MAXED_DUNGEON))
+        assert.is_true(parsed.ok, parsed.reason)
+        parsed.verdict.scenario = "maxed"
+        parsed.verdict.qeSettings = { autoUpgradeVault = true, autoUpgradeAll = true, autoCatalyze = true }
+        local inputs = {
+            verdicts = { { verdict = parsed.verdict, scenario = "maxed" } },
+            highlightedScenario = "maxed",
+            inventory = { records = { worn, bag } },
+            -- The client's vault after the claim: no gear, nothing waiting.
+            vault = { ok = true, hasAvailableRewards = false, options = { { rewards = {} } } },
+        }
+        local answer = ns.Roads.ForItemIn(ns.Roads.ForSlot("Head", inputs), worn.key, inputs)
+        answer.sentence = ns.Roads.ItemSentence(answer)
+        answer.exportedAt = parsed.verdict.exportedAt
+        local out = {}
+        for index, line in ipairs(ns.UI.Tooltip.Lines(answer, { now = FIVE_MINUTES_LATER })) do
+            out[index] = line.text
+        end
+        return out
+    end
+
+    before_each(function()
+        ns = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- PROVEN RED: without the R-2h branch the second line is `Swap this - take
+    -- the vault helm.`
+    it("tells the owner to crest the worn helm to 321, and never to swap it", function()
+        local lines = block(record(WORN_LINK, 318, "equipped"), record(BAG_LINK, 308, "bag"))
+        assert.same({
+            "Lootpath · Head",
+            "Crest this to 321 - then refresh.",
+            "Rated 5m ago · /lootpath map",
+        }, lines)
+        for _, text in ipairs(lines) do
+            assert.is_nil(text:find("Swap", 1, true), text)
+            assert.is_nil(text:find("take the vault", 1, true), text)
+            assert.is_nil(usesForbidden(text), text)
+        end
+    end)
+end)

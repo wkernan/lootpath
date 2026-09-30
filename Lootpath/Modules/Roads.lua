@@ -2208,6 +2208,29 @@ function Roads.ArrivedCrested(held, pick)
     return level ~= nil and arrivesAt ~= nil and level > arrivesAt
 end
 
+-- Whether a worn copy the document rates as itself is still the pick, short of
+-- its crest (R-2h, WKE-667; the reasoning is at `ItemSentence`'s set-road
+-- guard). Every condition is one the client or the document has already said:
+-- the copy is on the character, R-2f read the worn copy as the pick
+-- (`wornIsPick`, which a Keep or bag pick never earns because its own key is
+-- held), `IsArrivedPick` agrees, the pick's own item ID is the held one, and
+-- the held level is under the pick's `arrivesAt`. A twin at the pick's level,
+-- another item, or a bag copy is none of these, and keeps R-3c's answer.
+function Roads.WornUnderCrested(held, pick)
+    if type(held) ~= "table" or type(pick) ~= "table" then
+        return false
+    end
+    if held.location ~= "equipped" or pick.wornIsPick ~= true then
+        return false
+    end
+    local itemID = tonumber(held.itemID)
+    local wanted = type(pick.item) == "table" and tonumber(pick.item.itemID) or nil
+    if itemID == nil or itemID ~= wanted then
+        return false
+    end
+    return Roads.IsArrivedPick(held, pick) and Roads.ArrivedShort(held, pick)
+end
+
 -- The slot's pick, which is the one road the whole set group is arranged
 -- around. At most one exists: his own `ItemSet.ts:205` allows one vault option
 -- per set and `setRoad` marks exactly the top-set entries.
@@ -3202,7 +3225,19 @@ function Roads.ItemSentence(answer)
     -- itself). The one road that speaks louder is a set-group road: a road in
     -- that group carries this very key, which means the document rates this
     -- copy as itself, and then the plan's own words for it are the answer.
+    --
+    -- R-2h (WKE-667) narrows that to the case R-3c wrote it for: two worn
+    -- copies of one item ID at the SAME level, one the pick and one its twin.
+    -- The owner's tier helm, worn at 318 after the claim, is rated as itself
+    -- by the document that also picks the vault copy at 321 - the one item,
+    -- crested further - and the set road's words for it were `Swap this -
+    -- take the vault helm.` A worn copy R-2f already reads as the pick
+    -- (`wornIsPick`), of the pick's own item ID, below the level the pick
+    -- arrives at, is that pick short of its crest, and R-3e has the words.
     local ownsSetRoad = type(own) == "table" and own.group == Roads.GROUP_SET
+    if ownsSetRoad and pick and Roads.WornUnderCrested(answer.heldItem, pick) then
+        return Roads.ArrivedSentence(answer.heldItem, pick)
+    end
     if not ownsSetRoad and pick and Roads.IsArrivedPick(answer.heldItem, pick) then
         return Roads.ArrivedSentence(answer.heldItem, pick)
     end

@@ -2551,3 +2551,181 @@ describe("Roads over a worn copy of the vault pick after the claim (R-2f)", func
         assert.is_false(ns.Roads.WornCanBePick(nil, inputs))
     end)
 end)
+
+-- R-2h (WKE-667). The owner, 2026-09-30, after a `/reload` and no refresh, the
+-- Druid: the tier helm worn at 318, the old 308 copy in his bags, the vault
+-- emptied by the claim, `everything upgraded` highlighted - and the hover over
+-- the helm on his head still read `Swap this - take the vault Dreamwatcher
+-- helm.`
+--
+-- The documents are his own four of that morning, unedited
+-- (spec/fixtures/qe/README.md); the links are his inventory capture of
+-- 2026-09-30 16:56 UTC. The `maxed` document picks the vault copy of the helm
+-- at 321 and rates the worn 318 as itself, as an alternative below it; the
+-- other three keep the 318 on.
+describe("Roads over a worn copy of the pick below the pick's level (R-2h)", function()
+    local ns, inputs, worn, bag
+    local DOCUMENTS = {
+        {
+            scenario = "asOffered",
+            path = "spec/fixtures/qe/qe-droptimizer-Hotornot-hcfixtowysrm.json",
+            settings = { autoUpgradeVault = false, autoUpgradeAll = false, autoCatalyze = false },
+        },
+        {
+            scenario = "catalyzed",
+            path = "spec/fixtures/qe/qe-droptimizer-Hotornot-udrnayvqerxh.json",
+            settings = { autoUpgradeVault = false, autoUpgradeAll = false, autoCatalyze = true },
+        },
+        {
+            scenario = "thisWeek",
+            path = "spec/fixtures/qe/qe-droptimizer-Hotornot-pmdqexzmaerq.json",
+            settings = { autoUpgradeVault = true, autoUpgradeAll = false, autoCatalyze = true },
+        },
+        {
+            scenario = "maxed",
+            path = "spec/fixtures/qe/qe-droptimizer-Hotornot-ujciztenjvjk.json",
+            settings = { autoUpgradeVault = true, autoUpgradeAll = true, autoCatalyze = true },
+        },
+    }
+    local WORN_LINK = "|cnIQ4:|Hitem:271528:7961:240892::::::90:105::35:6:6652:13440:13695:13692:13698:12845"
+        .. ":1:64:239033:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    local BAG_LINK = "|cnIQ4:|Hitem:271528:7960:::::::90:105::23:7:6652:13439:13696:12838:13692:13698:1561"
+        .. ":1:64:251140:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    local VAULT_KEY = "271528:6652:12699:12844:13440:13662:13695"
+
+    local function held(link, level, location)
+        local parsed = ns.ParseItemLink(link)
+        assert.is_table(parsed)
+        local record = {
+            key = parsed.key,
+            itemID = parsed.itemID,
+            bonusIDs = parsed.bonusIDs,
+            link = link,
+            name = "Enigmatic Dreamwatcher's Somnolent Stare",
+            slot = "Head",
+            itemLevel = level,
+            location = location,
+        }
+        table.insert(inputs.inventory.records, record)
+        return record
+    end
+
+    local function highlight(scenario)
+        inputs.highlightedScenario = scenario
+    end
+
+    local function pick()
+        return ns.Roads.PlanPick(ns.Roads.ForSlot("Head", inputs))
+    end
+
+    local function sentenceFor(record)
+        local answer = ns.Roads.ForItemIn(ns.Roads.ForSlot("Head", inputs), record.key, inputs)
+        return ns.Roads.ItemSentence(answer), answer
+    end
+
+    before_each(function()
+        ns = H.load()
+        inputs = {
+            verdicts = {},
+            inventory = { records = {} },
+            -- After the claim the client's vault holds no gear and says
+            -- nothing is waiting.
+            vault = { ok = true, hasAvailableRewards = false, options = { { rewards = {} } } },
+            now = 1790787381,
+        }
+        for _, document in ipairs(DOCUMENTS) do
+            local parsed = ns.QEImport.Parse(readFile(document.path))
+            assert.is_true(parsed.ok, parsed.reason)
+            parsed.verdict.scenario = document.scenario
+            parsed.verdict.qeSettings = document.settings
+            table.insert(inputs.verdicts, { verdict = parsed.verdict, scenario = document.scenario })
+        end
+        worn = held(WORN_LINK, 318, "equipped")
+        bag = held(BAG_LINK, 308, "bag")
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- The premise, off the owner's own documents: under `maxed` the pick is
+    -- the vault copy at 321, R-2f reads the worn 318 as that pick, and the
+    -- document rates the worn copy as itself as well.
+    it("builds the owner's maxed Head: a vault pick at 321 over the worn copy it rates as itself", function()
+        highlight("maxed")
+        local road = pick()
+        assert.equal(ns.Roads.KIND_VAULT, road.kind)
+        assert.equal(271528, road.item.itemID)
+        assert.equal(321, road.arrivesAt)
+        assert.same({ VAULT_KEY }, road.keys)
+        assert.is_true(road.wornIsPick)
+        assert.is_true(ns.Roads.IsArrivedPick(worn, road))
+        local _, answer = sentenceFor(worn)
+        assert.equal(ns.Roads.GROUP_SET, answer.own.group)
+        assert.is_false(answer.own.planPick)
+    end)
+
+    -- PROVEN RED: without the R-2h branch this is `Swap this - take the vault
+    -- helm.`, the owner's sentence with the clone's name unfilled.
+    it("tells the owner to crest the worn helm to 321 under everything upgraded", function()
+        highlight("maxed")
+        assert.is_true(ns.Roads.WornUnderCrested(worn, pick()))
+        local sentence = sentenceFor(worn)
+        assert.equal("Crest this to 321 - then refresh.", sentence)
+        assert.is_nil(sentence:find("Swap", 1, true))
+        assert.is_nil(sentence:find("vault", 1, true))
+    end)
+
+    -- The other three documents keep the 318 on, and that is untouched.
+    it("keeps the worn helm on under the other three highlights", function()
+        for _, scenario in ipairs({ "asOffered", "catalyzed", "thisWeek" }) do
+            highlight(scenario)
+            local road = pick()
+            assert.equal(ns.Roads.KIND_KEEP, road.kind, scenario)
+            assert.is_false(ns.Roads.WornUnderCrested(worn, road), scenario)
+            assert.equal("Keep this on.", (sentenceFor(worn)), scenario)
+        end
+    end)
+
+    -- R-3c's guard, where it was written: a worn copy at the pick's own level
+    -- is a twin the document rates as itself, and its set road's words stand.
+    -- PROVEN RED: drop the level from the branch and this reads the crest.
+    it("keeps the set road's words for a worn copy at the pick's own level", function()
+        highlight("maxed")
+        worn.itemLevel = 321
+        assert.is_false(ns.Roads.WornUnderCrested(worn, pick()))
+        assert.equal("Swap this - take the vault helm.", (sentenceFor(worn)))
+    end)
+
+    -- The bag copy is not worn: its sentence is the one it had before R-2h (the
+    -- document rates it by its own key, so the set road speaks for it).
+    it("leaves the bag copy's sentence alone", function()
+        highlight("maxed")
+        assert.is_false(ns.Roads.WornUnderCrested(bag, pick()))
+        assert.equal("Pass - take the vault helm.", (sentenceFor(bag)))
+    end)
+
+    -- Every condition, one at a time: another item, a copy not on the
+    -- character, a pick R-2f did not read as worn (a Keep or bag pick holds its
+    -- own key, so it never does), and a pick with no level to fall short of.
+    it("answers only for a worn copy of the pick's own item that R-2f read as the pick", function()
+        highlight("maxed")
+        local road = pick()
+        assert.is_true(ns.Roads.WornUnderCrested(worn, road))
+        assert.is_false(ns.Roads.WornUnderCrested(nil, road))
+        assert.is_false(ns.Roads.WornUnderCrested(worn, nil))
+        local other = { itemID = 1, key = "1:2", location = "equipped", itemLevel = 318, slot = "Head" }
+        assert.is_false(ns.Roads.WornUnderCrested(other, road))
+        worn.location = "bag"
+        assert.is_false(ns.Roads.WornUnderCrested(worn, road))
+        worn.location = "equipped"
+        road.wornIsPick = nil
+        assert.is_false(ns.Roads.WornUnderCrested(worn, road))
+        road.wornIsPick = true
+        local arrivesAt = road.arrivesAt
+        road.arrivesAt = nil
+        assert.is_false(ns.Roads.WornUnderCrested(worn, road))
+        road.arrivesAt = arrivesAt
+        assert.is_true(ns.Roads.WornUnderCrested(worn, road))
+    end)
+end)

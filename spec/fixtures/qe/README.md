@@ -272,6 +272,31 @@ time, after he had claimed and converted it, which is why these late documents
 still carry the pick his 17:00 hover was about; the document behind that hover
 was not kept.
 
+## A worn copy of the pick below the pick's level (R-2h, WKE-667)
+
+Four documents **written by the companion** on 2026-09-30 14:41-14:43 UTC,
+extracted unedited from the `Data/QEVerdict.lua` it wrote into his addon folder
+(written 14:43:48Z; the `json` string of exports 1, 11, 17 and 23 of 28 - the
+pass-1 Dungeon document of each scenario, the four his client had imported at
+15:21 UTC). Each file is that string byte for byte:
+
+| File | Scenario | Exported | Top-set score | Head in the top set | sha256 |
+|---|---|---|---|---|---|
+| `qe-droptimizer-Hotornot-hcfixtowysrm.json` | `asOffered` | 14:41:51.753Z | 6209.015 | 271528 @318 | `bf326bd99c9d81cdfa1e9eeef76cbd1113d83c663e83b55337723da38e95e99d` |
+| `qe-droptimizer-Hotornot-udrnayvqerxh.json` | `catalyzed` | 14:42:26.186Z | 6209.015 | 271528 @318 | `1acf08649d07b9faadc3dbc38464d425326941f3c7403601940ffa20d4a4ffc3` |
+| `qe-droptimizer-Hotornot-pmdqexzmaerq.json` | `thisWeek` | 14:42:55.351Z | 6234.591 | 271528 @318 | `4e98c318700d8949e6dfaf6a6d799821c29e9ec3ac81590fe854ffd692915de5` |
+| `qe-droptimizer-Hotornot-ujciztenjvjk.json` | `maxed` | 14:43:24.983Z | 6286.572 | 271528 @321, `isVault` | `86288385c28dd918ad12d7ca2f2b94350779caf9c3efc9e698a9f93993348896` |
+
+The first three keep the worn helm (bonus IDs `6652, 13440, 13695, 13692,
+13698, 12845`, the worn copy's own key); the `maxed` one picks the vault copy
+on the Hood's bonus IDs (`12844, 13440, 6652, 13695, 13662, 12699`) at 321 and
+rates the worn copy by its own key too - at 321, the level `autoUpgradeAll`
+projects it to, in its first differential, `scorePercent` 0 and `hpsDifference`
+0. The two helm links in
+`spec/roads_spec.lua`'s and `spec/tooltip_spec.lua`'s R-2h blocks are his
+inventory capture of 2026-09-30 16:56:21 UTC: the worn 318 and the 308 in his
+bags.
+
 ## `sample-upgradefinder-v1.json` - hand-built, not from QE Live
 
 Written for M3-6 (WKE-535) by mirroring the fork's exporter field for field.
