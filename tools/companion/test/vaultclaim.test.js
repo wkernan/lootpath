@@ -3,14 +3,16 @@
 // after a read that carried rewards, is the claim - not a worse read to be
 // passed over for the older one.
 //
-// The owner's week is `fixtures/Lootpath-20260930-live-vault.lua`: his live
+// The owner's week is `fixtures/Lootpath-20260930-live-vault.txt`: his live
 // SavedVariables of 2026-09-30 11:49 local (sha256
 // fd06f231f7090bee24a007c05c6ebddb8aa57221fe889d493fb12622b8176242), lines
 // 120587-122077 - the `captures` key and the whole `vault` list, byte for byte
 // (sha256 of those lines 04702ec96d0bbeb2e1d98032df291376f6698c6bf12485515775b5fb88406772)
 // - wrapped in `LootpathDB = { ["global"] = {` and three closing braces so the
 // companion's parser reads it. Nothing inside the list is altered; the parsed
-// list deep-equals the one parsed out of the whole live file.
+// list deep-equals the one parsed out of the whole live file. It is `.txt`, not
+// `.lua`, so the Lua gates (luacheck, StyLua), which exclude `spec/fixtures/`
+// but not this folder, leave a transcript alone.
 //
 // Run from tools/companion with `node --test`.
 
@@ -26,7 +28,7 @@ const { buildProfile, chooseVaultSnapshot, readTranscript, snapshotRewardLinks }
 
 const REPO = path.resolve(__dirname, '..', '..', '..');
 const CAPTURES = path.join(REPO, 'spec', 'fixtures', 'captures');
-const OWNER_WEEK = path.join(__dirname, 'fixtures', 'Lootpath-20260930-live-vault.lua');
+const OWNER_WEEK = path.join(__dirname, 'fixtures', 'Lootpath-20260930-live-vault.txt');
 const RESET_DAY = path.join(CAPTURES, 'Lootpath-20260915-142722-vault.lua');
 const AFTER_CLAIM_0915 = path.join(CAPTURES, 'Lootpath-20260915-162015.lua');
 const GEAR = path.join(CAPTURES, 'Lootpath-20260906-200908.lua');
