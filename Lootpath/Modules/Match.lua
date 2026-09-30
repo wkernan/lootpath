@@ -34,6 +34,13 @@
 -- A copy BELOW the rated level is never accepted: it has not been crested to
 -- the rated piece, and two copies of an item at different upgrade levels are
 -- different items to QE Live (decision 2026-09-05).
+--
+-- M2-6 (WKE-662): the worn copy wins. When a rated item's match is a copy in
+-- the bags or the bank, and the character WEARS a copy of the same item ID in
+-- that slot at or above the rated level, the worn copy is the match and the
+-- carried one goes back unclaimed. Equip Now never tells the player to take
+-- off an item for a lower copy of itself. Between two carried copies the
+-- exact match still stands (M2-5's claim is for the unmatched case only).
 
 local _, ns = ...
 
@@ -171,6 +178,36 @@ local function pickAbove(list, level, claimed)
     return best
 end
 
+-- M2-6: the unclaimed copy of this rated item the character is WEARING in the
+-- rated slot, at or above the rated level, or nil. Such a copy is the rated
+-- item, as good or crested since, and it is already on: it satisfies the pick
+-- ahead of any copy carried in the bags or the bank, so the join never says to
+-- take it off for a lower copy of itself. Below the rated level it is not the
+-- rated piece (decision 2026-09-05) and nothing changes. Of two worn copies
+-- that qualify (a pair of rings), the highest level, then the lower slot.
+local function wornCopyOf(item, byID, slot, claimed)
+    local level = tonumber(item.level)
+    local list = byID[item.itemID]
+    if not (level and list) then
+        return nil
+    end
+    local best
+    for i = 1, #list do
+        local record = list[i]
+        local held = tonumber(record.itemLevel)
+        if not claimed[record] and record.location == "equipped" and record.slot == slot and held and held >= level then
+            if
+                not best
+                or held > tonumber(best.itemLevel)
+                or (held == tonumber(best.itemLevel) and (record.slotIndex or 0) < (best.slotIndex or 0))
+            then
+                best = record
+            end
+        end
+    end
+    return best
+end
+
 local function bonusText(bonusIDs)
     if type(bonusIDs) ~= "table" or #bonusIDs == 0 then
         return "none"
@@ -233,16 +270,6 @@ function Match.Build(inventory, verdict)
                 record = level and pick(byIDLevel[levelKey(item.itemID, level)], claimed) or nil
                 if record then
                     row.matchedBy = Match.MATCHED_BY_ID_LEVEL
-                    fallbacks[#fallbacks + 1] = string.format(
-                        "%s: item %d at level %s matched by itemID and item level, not by key - "
-                            .. "the rated bonus IDs are %s, yours are %s",
-                        row.slot,
-                        item.itemID,
-                        tostring(level),
-                        bonusText(item.bonusIDs),
-                        bonusText(record.bonusIDs)
-                    )
-                    logs[#logs + 1] = "matched by itemID and item level, not by bonus IDs - " .. fallbacks[#fallbacks]
                 end
             end
             if record then
@@ -250,6 +277,74 @@ function Match.Build(inventory, verdict)
                 found[row] = record
             end
             rows[#rows + 1] = row
+        end
+    end
+
+    -- M2-6: a rated item pass 1 found only in the bags or the bank takes the
+    -- copy worn in its slot instead, when that copy is the same item at or
+    -- above the rated level (`wornCopyOf`). After pass 1, so a worn record that
+    -- is another rated item's own match is already claimed and never taken;
+    -- before pass 2, so a crested copy is not handed to an unmatched item while
+    -- a matched one is wearing it. The carried copy is released unclaimed.
+    -- Only a row pass 1 matched gets here: an unmatched Great Vault option
+    -- stays pass 2's exclusion and its own status, untouched.
+    local wornInstead = {}
+    for i = 1, #rows do
+        local row = rows[i]
+        local item = row.verdictItem
+        local record = found[row]
+        if record and record.location ~= "equipped" then
+            local worn = wornCopyOf(item, byID, row.slot, claimed)
+            if worn then
+                claimed[record] = nil
+                claimed[worn] = true
+                found[row] = worn
+                wornInstead[row] = record
+                local level = tonumber(item.level)
+                local held = tonumber(worn.itemLevel)
+                if worn.key == item.key then
+                    row.matchedBy = Match.MATCHED_BY_KEY
+                elseif held == level then
+                    row.matchedBy = Match.MATCHED_BY_ID_LEVEL
+                else
+                    row.matchedBy = Match.MATCHED_BY_ID_ABOVE
+                    row.ratedAt = level
+                    row.heldAt = held
+                end
+            end
+        end
+    end
+
+    -- Pass 1's lines, written once each row's match is final, in pass 1's order.
+    for i = 1, #rows do
+        local row = rows[i]
+        local item = row.verdictItem
+        local record = found[row]
+        if row.matchedBy == Match.MATCHED_BY_ID_LEVEL then
+            fallbacks[#fallbacks + 1] = string.format(
+                "%s: item %d at level %s matched by itemID and item level, not by key - "
+                    .. "the rated bonus IDs are %s, yours are %s",
+                row.slot,
+                item.itemID,
+                tostring(tonumber(item.level)),
+                bonusText(item.bonusIDs),
+                bonusText(record.bonusIDs)
+            )
+            logs[#logs + 1] = "matched by itemID and item level, not by bonus IDs - " .. fallbacks[#fallbacks]
+        end
+        local carried = wornInstead[row]
+        if carried then
+            fallbacks[#fallbacks + 1] = string.format(
+                "%s: item %d rated at %s matched to the copy you wear at %s by itemID, "
+                    .. "not the copy at %s in your %s - the same item at or above the rated level",
+                row.slot,
+                item.itemID,
+                tostring(tonumber(item.level)),
+                tostring(tonumber(record.itemLevel)),
+                tostring(tonumber(carried.itemLevel)),
+                carried.location == "bank" and "bank" or "bags"
+            )
+            logs[#logs + 1] = "matched the worn copy at or above the rated level - " .. fallbacks[#fallbacks]
         end
     end
 
