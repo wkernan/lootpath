@@ -598,6 +598,23 @@ describe("the source-free voice (V-1, WKE-569)", function()
         c.report(5)
     end)
 
+    -- R-2g (WKE-665): the rated finish line with an enchant marked missing,
+    -- beside a gem marked the same way - one format, `%s (missing)`.
+    it("says nothing of a source on the rated finish line, with both marks", function()
+        local c = collector()
+        local text = ns.UI.Tooltip.FinishText({
+            finish = {
+                enchant = "Zul'jin's Mastery",
+                enchantMissing = true,
+                gems = { { id = 240892, missing = true, name = "Stub Gem" } },
+            },
+        })
+        assert.equal("rated with: Zul'jin's Mastery (missing) · Stub Gem (missing)", text)
+        c.check("Tooltip.FinishText", text)
+        c.check("Tooltip.FINISH_MISSING", ns.UI.Tooltip.FINISH_MISSING)
+        c.report(2)
+    end)
+
     it("says nothing of a source in any panel's string table", function()
         local c = collector()
         walkStrings(c.check, "EquipPanel", ns.UI.EquipPanel)

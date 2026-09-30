@@ -254,6 +254,21 @@ describe("QEImport.Parse over the hand-built v1 sample", function()
         assert.is_nil(unread.gems[2].missing)
     end)
 
+    -- R-2g (WKE-665): the enchant's ABSENCE is marked, never its identity. A
+    -- rated enchant beside a link with no enchant ID marks; any enchant ID
+    -- present does not, whichever it is; no rated enchant marks nothing; and a
+    -- copy that cannot be read is still not a difference.
+    it("marks a rated enchant only when the copy carries no enchant at all", function()
+        local rated = { enchant = "Crystalline Radiance", gems = {} }
+        assert.is_true(ns.Roads.CompareFinish(rated, { gems = {} }).enchantMissing)
+        assert.is_nil(ns.Roads.CompareFinish(rated, { enchantID = 7000, gems = {} }).enchantMissing)
+        assert.is_nil(ns.Roads.CompareFinish(rated, nil).enchantMissing)
+        local gemsOnly = ns.Roads.CompareFinish({ gems = { 213743 } }, { gems = { 213743 } })
+        assert.is_nil(gemsOnly.enchant)
+        assert.is_nil(gemsOnly.enchantMissing)
+        assert.is_nil(ns.Roads.CompareFinish({ gems = {} }, { gems = {} }))
+    end)
+
     it("reads every differential as an alternative that is worse, in both signs", function()
         local alternatives = result.verdict.alternatives
         assert.equal(2, #alternatives)

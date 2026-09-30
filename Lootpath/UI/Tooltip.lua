@@ -288,11 +288,14 @@ end
 -- The source's own names, repeated; nothing picked, ranked or priced, and no
 -- "buy". A gem the rating used that the copy's link does not carry is drawn in
 -- the badges' better tone AND says so in a word (principle 14: colour is never
--- the only signal). The enchant is never marked: the export names it and the
--- link numbers it, and nothing the annotations carry joins the two (§11).
+-- the only signal). An enchant is marked the same way, in the same words, only
+-- when the copy carries NO enchant (R-2g, WKE-665): which enchant a link
+-- carries is never compared, because the export names it and the link numbers
+-- it, and nothing the annotations carry joins the two (§11). One format for
+-- both, so a gem and an enchant can never be marked in two voices.
 -- A gem the client has not named yet reads `a gem` until it does.
 Tooltip.RATED_WITH = "rated with: "
-Tooltip.GEM_MISSING = "%s (missing)"
+Tooltip.FINISH_MISSING = "%s (missing)"
 Tooltip.GEM_NAMELESS = "a gem"
 Tooltip.GEM_SEPARATOR = ", "
 
@@ -307,11 +310,15 @@ function Tooltip.FinishText(answer)
         parts[#parts + 1] = { text = text, hex = hex or Tooltip.NOTE_HEX }
     end
     local wrote = false
+    local better = ns.UI.ItemLine and ns.UI.ItemLine.TONE and ns.UI.ItemLine.TONE.better
     if type(finish.enchant) == "string" and finish.enchant ~= "" then
-        part(finish.enchant)
+        if finish.enchantMissing == true then
+            part(string.format(Tooltip.FINISH_MISSING, finish.enchant), better and better.hex or nil)
+        else
+            part(finish.enchant)
+        end
         wrote = true
     end
-    local better = ns.UI.ItemLine and ns.UI.ItemLine.TONE and ns.UI.ItemLine.TONE.better
     for index, gem in ipairs(finish.gems or {}) do
         if index == 1 and wrote then
             part(Tooltip.SEPARATOR)
@@ -320,7 +327,7 @@ function Tooltip.FinishText(answer)
         end
         local name = gem.name or Tooltip.GEM_NAMELESS
         if gem.missing == true then
-            part(string.format(Tooltip.GEM_MISSING, name), better and better.hex or nil)
+            part(string.format(Tooltip.FINISH_MISSING, name), better and better.hex or nil)
         else
             part(name)
         end
