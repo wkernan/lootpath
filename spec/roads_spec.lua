@@ -2864,6 +2864,10 @@ describe("Roads over a worn set whose gems the rating dealt out elsewhere (R-2i)
         assert.same({ { id = META, missing = true } }, finishOf(helm).gems)
         -- And the neck, now carrying its own rated gem, is matched by ID.
         assert.same({ { id = MASTERY, missing = false } }, finishOf(neck).gems)
+        -- A copy in the bags is not the worn set.
+        local bagNeck = wear(NECK_LINK, "Neck", 321)
+        bagNeck.location = "bag"
+        assert.same({ { id = META, missing = true } }, finishOf(helm).gems)
     end)
 
     -- The count rule on its own, one piece at a time.
