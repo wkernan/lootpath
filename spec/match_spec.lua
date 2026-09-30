@@ -756,3 +756,154 @@ describe("Match.Build: a crested copy of the rated piece (M2-5)", function()
         assert.is_nil(built.bySlot["Finger"][1].matchedBy)
     end)
 end)
+
+describe("Match.Build: a worn copy at or above the rated level (M2-6)", function()
+    local ns, world
+
+    before_each(function()
+        ns, world = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- The owner's Druid, 2026-09-29: the helm rated at 308 while he wore it;
+    -- the vault piece catalyzed into the same helm at 315 and put on; the 308
+    -- copy in the bags. Synthetic records, the shape Inventory.Record makes.
+    local HELM = 600
+    local function helmAt(level, bonus)
+        return { itemID = HELM, key = "600:" .. bonus, slot = "Head", level = level, bonusIDs = { bonus } }
+    end
+    local function helm(level, bonus, location)
+        return record({
+            itemID = HELM,
+            bonusIDs = { bonus },
+            itemLevel = level,
+            slot = "Head",
+            location = location,
+            slotIndex = location == "equipped" and 1 or nil,
+        })
+    end
+
+    it("keeps the worn 315 as the rated 308 helm, and never says to swap to the bag copy", function()
+        local worn = helm(315, 22, "equipped")
+        local carried = helm(308, 21, "bag")
+        local built = ns.Match.Build(
+            { ok = true, bankAvailable = true, records = { carried, worn } },
+            verdict({ helmAt(308, 21) })
+        )
+        assert.equal(1, #built.rows)
+        local row = built.bySlot["Head"][1]
+        assert.equal("equipped_is_best", row.status)
+        assert.equal(worn, row.best)
+        assert.equal(worn, row.equipped)
+        assert.equal(ns.Match.MATCHED_BY_ID_ABOVE, row.matchedBy)
+        assert.equal(308, row.ratedAt)
+        assert.equal(315, row.heldAt)
+        assert.is_false(ns.Match.IsSwap(row))
+        assert.equal(0, built.counts.swap)
+        assert.equal(1, built.counts.equipped_is_best)
+        assert.equal(0, built.counts.no_verdict)
+        -- Never silent: one line naming both copies, in the chat frame too.
+        assert.equal(1, #built.fallbacks)
+        assert.is_truthy(built.fallbacks[1]:find("the copy you wear at 315", 1, true))
+        assert.is_truthy(built.fallbacks[1]:find("not the copy at 308 in your bags", 1, true))
+        assert.is_truthy(world.output():find("the copy you wear at 315", 1, true))
+    end)
+
+    it("keeps M2-5's behaviour when the rated copy is the worn one and a higher copy is carried", function()
+        local worn = helm(308, 21, "equipped")
+        local carried = helm(315, 22, "bag")
+        local built = ns.Match.Build(
+            { ok = true, bankAvailable = true, records = { carried, worn } },
+            verdict({ helmAt(308, 21) })
+        )
+        local row = built.bySlot["Head"][1]
+        assert.equal("equipped_is_best", row.status)
+        assert.equal(worn, row.best)
+        assert.equal(ns.Match.MATCHED_BY_KEY, row.matchedBy)
+        assert.is_nil(row.heldAt)
+        assert.same({}, built.fallbacks)
+    end)
+
+    it("still swaps to the rated 315 when the worn copy is a lower 308", function()
+        local worn = helm(308, 21, "equipped")
+        local carried = helm(315, 22, "bag")
+        local built = ns.Match.Build(
+            { ok = true, bankAvailable = true, records = { carried, worn } },
+            verdict({ helmAt(315, 22) })
+        )
+        local row = built.bySlot["Head"][1]
+        assert.equal("swap", row.status)
+        assert.equal(carried, row.best)
+        assert.equal(worn, row.equipped)
+        assert.equal(ns.Match.MATCHED_BY_KEY, row.matchedBy)
+        assert.is_true(ns.Match.IsSwap(row))
+        assert.same({}, built.fallbacks)
+    end)
+
+    it("still swaps when the worn copy is below the rated level and the exact copy is carried", function()
+        local worn = helm(301, 20, "equipped")
+        local carried = helm(308, 21, "bank")
+        local built = ns.Match.Build(
+            { ok = true, bankAvailable = true, records = { worn, carried } },
+            verdict({ helmAt(308, 21) })
+        )
+        local row = built.bySlot["Head"][1]
+        assert.equal("swap", row.status)
+        assert.equal(carried, row.best)
+        assert.equal(worn, row.equipped)
+        assert.same({}, built.fallbacks)
+    end)
+
+    it("takes a worn copy at the rated level with other bonus IDs over the exact carried one", function()
+        local worn = helm(308, 23, "equipped")
+        local carried = helm(308, 21, "bag")
+        local built = ns.Match.Build(
+            { ok = true, bankAvailable = true, records = { carried, worn } },
+            verdict({ helmAt(308, 21) })
+        )
+        local row = built.bySlot["Head"][1]
+        assert.equal("equipped_is_best", row.status)
+        assert.equal(worn, row.best)
+        assert.equal(ns.Match.MATCHED_BY_ID_LEVEL, row.matchedBy)
+        assert.is_nil(row.heldAt)
+        assert.equal(2, #built.fallbacks)
+        assert.is_truthy(built.fallbacks[1]:find("matched by itemID and item level", 1, true))
+    end)
+
+    it("never takes a worn copy another rated item matches exactly", function()
+        -- Two rated rings of one item ID: the worn 315 is the second's own
+        -- match, so the first keeps its carried 308.
+        local worn = record({
+            itemID = 500,
+            bonusIDs = { 12 },
+            itemLevel = 315,
+            slot = "Finger",
+            location = "equipped",
+            slotIndex = 11,
+        })
+        local carried = record({ itemID = 500, bonusIDs = { 11 }, itemLevel = 308, slot = "Finger", location = "bag" })
+        local built = ns.Match.Build(
+            { ok = true, bankAvailable = true, records = { carried, worn } },
+            verdict({
+                { itemID = 500, key = "500:11", slot = "Finger", level = 308, bonusIDs = { 11 } },
+                { itemID = 500, key = "500:12", slot = "Finger", level = 315, bonusIDs = { 12 } },
+            })
+        )
+        local fingers = built.bySlot["Finger"]
+        assert.equal("swap", fingers[1].status)
+        assert.equal(carried, fingers[1].best)
+        assert.equal("equipped_is_best", fingers[2].status)
+        assert.equal(worn, fingers[2].best)
+    end)
+
+    it("leaves a Great Vault option alone", function()
+        local worn = helm(315, 22, "equipped")
+        local item = helmAt(308, 21)
+        item.isVault = true
+        local built = ns.Match.Build({ ok = true, bankAvailable = true, records = { worn } }, verdict({ item }))
+        assert.equal("best_in_vault", built.bySlot["Head"][1].status)
+    end)
+end)
