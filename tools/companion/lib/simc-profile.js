@@ -379,7 +379,34 @@ function characterSpec(list, chosen) {
 // on the same reset, within a minute's slack for the two clocks. A snapshot
 // whose client did not answer that question is left with the newest rather than
 // guessed about.
+//
+// C-15 (WKE-668): a claim is not a worse read. The owner's 2026-09-29 week:
+// the 16:49 local refresh carried seven reward links, he took the Hood out of
+// the vault, and the 17:01 refresh and every one after it said
+// `HasAvailableRewards()` false, `CanClaimRewards()` false and carried no link.
+// Under the rule above the 16:49 read kept winning until the next reset, and
+// the profile went on offering a reward that had left the vault. So before
+// that rule: when the newest read of the period that is not an unload read
+// carries no link, says `hasAvailableRewards === false` and does not say
+// `canClaimRewards === true`, and it is NEWER than the newest read with links,
+// the rewards were claimed - rewards do not leave a vault by themselves - and
+// that read is chosen, which gives the profile no vault section. The addon
+// reasons the same way about the same evidence (`VaultPanel.ClaimedThisPeriod`,
+// V-3); the claim read does not need to have asked, because the capture never
+// asks a client that says nothing is waiting (Captures.lua
+// `vaultNeedsInteraction`).
+//
+// An unload read (`logout`, `flush`) is never the claim evidence: on
+// 2026-09-15 two `logout` reads (12:05 and 13:55 local, snapshots 4 and 5 of
+// `Lootpath-20260915-142722-vault.lua`) said `hasAvailableRewards` false while
+// the rewards were still waiting - the 13:57 refresh said true again and the
+// 14:27 capture carried nine of them. The addon stopped reading the vault at
+// the flush (M3-16b), but older transcripts still hold such reads. And a read
+// saying `hasAvailableRewards` TRUE with no link (the 09-15 flush two seconds
+// after the refresh) is the client holding the rewards back, not a claim, and
+// keeps losing to the read with links.
 const REWARD_PERIOD_SLACK_SECONDS = 60;
+const UNLOAD_TRIGGERS = new Set(["logout", "flush"]);
 
 function resetAt(snapshot) {
   const seconds = probe((snapshot.data || {}).secondsUntilWeeklyReset);
@@ -405,6 +432,25 @@ function chooseVaultSnapshot(list, index) {
     return { snapshot: newest, reason: "the newest read; no snapshot this reward period carries a reward link" };
   }
   const byNewest = (best, snapshot) => ((snapshot.capturedAt || 0) >= (best.capturedAt || 0) ? snapshot : best);
+  const newestWithLinks = withLinks.reduce(byNewest);
+  const spoken = samePeriod.filter((snapshot) => !UNLOAD_TRIGGERS.has(snapshot.trigger));
+  if (spoken.length > 0) {
+    const last = spoken.reduce(byNewest);
+    const data = last.data || {};
+    if (
+      (last.capturedAt || 0) > (newestWithLinks.capturedAt || 0) &&
+      luaArray(snapshotRewardLinks(last)).length === 0 &&
+      probe(data.hasAvailableRewards) === false &&
+      probe(data.canClaimRewards) !== true
+    ) {
+      const clock = clockOf(newestWithLinks);
+      const earlier = clock === "an earlier" ? "an earlier read" : `the ${clock} read`;
+      return {
+        snapshot: last,
+        reason: `the newest read says nothing is waiting after ${earlier} carried rewards: claimed; no vault section this week`,
+      };
+    }
+  }
   const asked = withLinks.filter((snapshot) => ((snapshot.data || {}).interact || {}).attempted === true);
   if (asked.length > 0) {
     return { snapshot: asked.reduce(byNewest), reason: "the newest read that asked the client and carries rewards" };
@@ -923,6 +969,7 @@ module.exports = {
   adler32,
   buildProfile,
   characterSpec,
+  chooseVaultSnapshot,
   collectItems,
   diffProfiles,
   itemKey,
