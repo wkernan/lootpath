@@ -1817,3 +1817,91 @@ describe("The tooltip over a vault the rating never imported (R-3d)", function()
         assert.is_false(ns.Glow.Wants(LEGGINGS))
     end)
 end)
+
+-- R-2e (WKE-663): the block over the vault reward the pick catalyzes, claimed
+-- and in the bags. The owner's screen of 2026-09-29 read `Pass - take the vault
+-- Dreamwatcher helm.` under the header. The document and the links are the ones
+-- spec/roads_spec.lua's R-2e block reads (spec/fixtures/qe/README.md); the
+-- block is asked of the answer the cache stores, built the way
+-- `ns.RoadsCache.Build` builds it, and the line order is the one it always had.
+describe("The tooltip over a claimed vault reward the pick catalyzes (R-2e)", function()
+    local ns
+    local THIS_WEEK_RAID = "spec/fixtures/qe/qe-droptimizer-Hotornot-mjiycadonbqq.json"
+    local CATALYZED_DUNGEON = "spec/fixtures/qe/qe-droptimizer-Hotornot-esdfxjozstkc.json"
+    local HOOD_LINK = "|cnIQ4:|Hitem:239033::::::::90:105::35:6:12844:13440:6652:13695:13662:12699::::::"
+        .. "|h[Hood of the Slithering Loa]|h|r"
+    -- Five minutes after the Raid document's own `exportedAt`
+    -- (2026-09-30T00:17:03.103Z is 1790727423 by `date -u +%s`), and after the
+    -- Dungeon one's (00:16:22.471Z, 1790727382).
+    local FIVE_MINUTES_LATER = 1790727723
+
+    local function block(path, scenario, settings)
+        local parsed = ns.QEImport.Parse(readFile(path))
+        assert.is_true(parsed.ok, parsed.reason)
+        parsed.verdict.scenario = scenario
+        parsed.verdict.qeSettings = settings
+        local link = ns.ParseItemLink(HOOD_LINK)
+        local hood = {
+            key = link.key,
+            itemID = link.itemID,
+            bonusIDs = link.bonusIDs,
+            link = HOOD_LINK,
+            name = "Hood of the Slithering Loa",
+            slot = "Head",
+            itemLevel = 315,
+            location = "bag",
+        }
+        local inputs = {
+            verdicts = { { verdict = parsed.verdict, scenario = scenario } },
+            highlightedScenario = scenario,
+            inventory = { records = { hood } },
+            -- The client's vault after the claim: no gear.
+            vault = { ok = true, options = { { rewards = {} } } },
+        }
+        local answer = ns.Roads.ForItemIn(ns.Roads.ForSlot("Head", inputs), hood.key, inputs)
+        answer.sentence = ns.Roads.ItemSentence(answer)
+        answer.exportedAt = parsed.verdict.exportedAt
+        local out = {}
+        for index, line in ipairs(ns.UI.Tooltip.Lines(answer, { now = FIVE_MINUTES_LATER })) do
+            out[index] = line.text
+        end
+        return out
+    end
+
+    before_each(function()
+        ns = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- PROVEN RED: without the R-2e branch the second line is `Pass - take the
+    -- vault helm.`
+    it("answers the claimed Hood as the pick, crest after, and never as a pass", function()
+        local lines = block(THIS_WEEK_RAID, "thisWeek", {
+            autoUpgradeVault = true,
+            autoUpgradeAll = false,
+            autoCatalyze = true,
+        })
+        assert.same({
+            "Lootpath · Head",
+            "Catalyst this - tier helm, crest it after.",
+            "Rated 5m ago · /lootpath refresh",
+        }, lines)
+        for _, text in ipairs(lines) do
+            assert.is_nil(text:find("Pass", 1, true), text)
+            assert.is_nil(text:find("take the vault", 1, true), text)
+            assert.is_nil(usesForbidden(text), text)
+        end
+    end)
+
+    it("says the Catalyst alone when the rating kept the helm at the Hood's level", function()
+        local lines = block(CATALYZED_DUNGEON, "catalyzed", {
+            autoUpgradeVault = false,
+            autoUpgradeAll = false,
+            autoCatalyze = true,
+        })
+        assert.equal("Catalyst this - tier helm.", lines[2])
+    end)
+end)

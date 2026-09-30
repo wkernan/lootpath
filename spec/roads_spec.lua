@@ -2170,3 +2170,219 @@ describe("Roads over a vault the rating never imported (R-3d)", function()
         assert.equal("this week's picks", plan.plan)
     end)
 end)
+
+-- R-2e (WKE-663). The owner, 2026-09-29, reset day, on the Druid: he took the
+-- Hood of the Slithering Loa (Head, 315) out of the vault - the reward his
+-- export catalyzed into the tier helm - and the hover over it in his bags said
+-- `Pass - take the vault Dreamwatcher helm.`, where the Vault tab had said
+-- `Catalyst the helm.` before the claim.
+--
+-- The documents are the companion's own of that evening (spec/fixtures/qe/
+-- README.md): the top set's Head is 271528 flagged `isVault`, on the Hood's
+-- own bonus IDs. The links are the owner's captures: the Hood as his vault
+-- capture of 21:49 UTC reads it, the tier helm as his inventory capture of
+-- 00:09 UTC reads it (converted from the Hood - modifier 64 is 239033). The
+-- inventory is hand-built from those links because no capture caught the Hood
+-- in his bags: his next capture came after the Catalyst.
+describe("Roads over a claimed vault reward the pick catalyzes (R-2e)", function()
+    local ns, inputs
+    local CATALYZED_DUNGEON = "spec/fixtures/qe/qe-droptimizer-Hotornot-esdfxjozstkc.json"
+    local THIS_WEEK_RAID = "spec/fixtures/qe/qe-droptimizer-Hotornot-mjiycadonbqq.json"
+    local HOOD_LINK = "|cnIQ4:|Hitem:239033::::::::90:105::35:6:12844:13440:6652:13695:13662:12699::::::"
+        .. "|h[Hood of the Slithering Loa]|h|r"
+    local TIER_LINK = "|cnIQ4:|Hitem:271528::::::::90:105::35:7:6652:12844:13440:13695:13692:13698:1568"
+        .. ":1:64:239033:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    -- A second Hood that is not the reward: another drop of the same item, on
+    -- a lower track. Invented, and it has to be - its whole point is bonus IDs
+    -- that no document and no capture carries.
+    local OTHER_HOOD_LINK = "|cnIQ4:|Hitem:239033::::::::90:105::35:5:12838:13439:6652:13695:12698::::::"
+        .. "|h[Hood of the Slithering Loa]|h|r"
+    local TIER_CLONE_KEY = "271528:6652:12699:12844:13440:13662:13695"
+
+    local function held(link, name, level, location)
+        local parsed = ns.ParseItemLink(link)
+        assert.is_table(parsed)
+        local record = {
+            key = parsed.key,
+            itemID = parsed.itemID,
+            bonusIDs = parsed.bonusIDs,
+            link = link,
+            name = name,
+            slot = "Head",
+            itemLevel = level,
+            location = location or "bag",
+        }
+        table.insert(inputs.inventory.records, record)
+        return record
+    end
+
+    -- The vault as the client reads it: after the claim it holds no gear
+    -- (his refresh capture of 22:01 UTC), before it, the Hood.
+    local function vaultHolding(reward)
+        return { ok = true, options = { { rewards = reward and { reward } or {} } } }
+    end
+
+    local function world(path, scenario, settings)
+        local parsed = ns.QEImport.Parse(readFile(path))
+        assert.is_true(parsed.ok, parsed.reason)
+        parsed.verdict.scenario = scenario
+        parsed.verdict.qeSettings = settings
+        inputs = {
+            verdicts = { { verdict = parsed.verdict, scenario = scenario } },
+            highlightedScenario = scenario,
+            inventory = { records = {} },
+            vault = vaultHolding(nil),
+            now = 1790720000,
+        }
+    end
+
+    local function catalyzed()
+        world(CATALYZED_DUNGEON, "catalyzed", { autoUpgradeVault = false, autoUpgradeAll = false, autoCatalyze = true })
+    end
+
+    local function thisWeek()
+        world(THIS_WEEK_RAID, "thisWeek", { autoUpgradeVault = true, autoUpgradeAll = false, autoCatalyze = true })
+    end
+
+    local function pick()
+        return ns.Roads.PlanPick(ns.Roads.ForSlot("Head", inputs))
+    end
+
+    local function sentenceFor(record)
+        local answer = ns.Roads.ForItemIn(ns.Roads.ForSlot("Head", inputs), record.key, inputs)
+        return ns.Roads.ItemSentence(answer), answer
+    end
+
+    before_each(function()
+        ns = H.load()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- The premise the issue was filed on, read off the road the owner's hover
+    -- was built from. With the reward out of the vault the pick is a plain
+    -- vault road about the tier clone: nothing it carries is the Hood's.
+    it("builds the pick the owner's hover was about: a vault road on the tier clone", function()
+        catalyzed()
+        local road = pick()
+        assert.equal(ns.Roads.KIND_VAULT, road.kind)
+        assert.equal(271528, road.item.itemID)
+        assert.is_nil(road.becomes)
+        assert.is_nil(road.catalyzed)
+        assert.same({ TIER_CLONE_KEY }, road.keys)
+        assert.equal(315, road.rating.level)
+        -- So the Hood is not "arrived" by any rule of IsArrivedPick: its item
+        -- ID is neither the pick's nor a `becomes`.
+        local hood = held(HOOD_LINK, "Hood of the Slithering Loa", 315)
+        assert.is_false(ns.Roads.IsArrivedPick(hood, road))
+    end)
+
+    -- PROVEN RED: without the R-2e branch this is `Pass - take the vault
+    -- helm.` - the owner's sentence, with the clone's name unfilled because no
+    -- client names it here.
+    it("tells the owner to catalyst the claimed Hood, never to pass on it", function()
+        catalyzed()
+        local hood = held(HOOD_LINK, "Hood of the Slithering Loa", 315)
+        assert.is_true(ns.Roads.IsPickSource(hood, pick()))
+        local sentence = sentenceFor(hood)
+        assert.equal("Catalyst this - tier helm.", sentence)
+        assert.is_nil(sentence:find("Pass", 1, true))
+        assert.is_nil(sentence:find("vault", 1, true))
+    end)
+
+    -- The Raid thisWeek document puts the tier helm at 321 with the vault
+    -- checkbox; the Hood in his hands is 315. The crest is the step after the
+    -- Catalyst, in the Grab sentence's own clause.
+    it("puts the crest after the Catalyst when the rating put the helm above the Hood", function()
+        thisWeek()
+        assert.equal(321, pick().rating.level)
+        local hood = held(HOOD_LINK, "Hood of the Slithering Loa", 315)
+        assert.equal("Catalyst this - tier helm, crest it after.", (sentenceFor(hood)))
+    end)
+
+    -- Either side of the claim, one sentence. With the Hood still in the vault
+    -- the pick is a Catalyst road whose own key is the Hood's, and the reward
+    -- in the vault and the reward in the bags read the same.
+    it("says the same while the vault still offers the Hood", function()
+        thisWeek()
+        local hood = held(HOOD_LINK, "Hood of the Slithering Loa", 315)
+        inputs.vault = vaultHolding({
+            itemID = hood.itemID,
+            key = hood.key,
+            bonusIDs = hood.bonusIDs,
+            link = hood.link,
+            name = hood.name,
+            slot = "Head",
+            itemLevel = 315,
+        })
+        local road = pick()
+        assert.equal(ns.Roads.KIND_CATALYST, road.kind)
+        assert.equal(239033, road.item.itemID)
+        assert.equal(271528, road.becomes.itemID)
+        assert.is_true(road.catalyzed)
+        assert.equal(hood.key, road.keys[1])
+        assert.is_true(ns.Roads.IsPickSource(hood, road))
+        assert.equal("Catalyst this - tier helm, crest it after.", (sentenceFor(hood)))
+    end)
+
+    -- The guard the "own keys" rule was written for, on the new branch: a
+    -- second copy of the item beside the reward is another drop with other
+    -- bonus IDs, and it keeps its pass.
+    it("still passes on a second Hood that is not the reward", function()
+        catalyzed()
+        held(HOOD_LINK, "Hood of the Slithering Loa", 315)
+        local other = held(OTHER_HOOD_LINK, "Hood of the Slithering Loa", 289)
+        assert.is_false(ns.Roads.IsPickSource(other, pick()))
+        assert.equal("Pass - take the vault helm.", (sentenceFor(other)))
+    end)
+
+    -- After the Catalyst the tier helm is in the bags, and it is the pick by
+    -- item ID (R-3b's rule, unchanged): never the reward it came from.
+    --
+    -- These two documents were written AFTER the owner's Catalyst, so their
+    -- differentials already rate the converted helm by its own key - a
+    -- set-group road that speaks for that copy ahead of any arrival (R-3c's
+    -- precedence, untouched here). The document his hover was built from could
+    -- not have: the helm did not exist yet. So the sentence is asked of the
+    -- top set alone, which is that document's shape for this slot.
+    it("reads the tier helm out of the Catalyst as the pick", function()
+        catalyzed()
+        local tier = held(TIER_LINK, "Enigmatic Dreamwatcher's Somnolent Stare", 315)
+        assert.is_false(ns.Roads.IsPickSource(tier, pick()))
+        assert.is_true(ns.Roads.IsArrivedPick(tier, pick()))
+        local _, answer = sentenceFor(tier)
+        assert.equal(ns.Roads.GROUP_SET, answer.own.group)
+        assert.is_false(answer.own.planPick)
+        inputs.verdicts[1].verdict.alternatives = {}
+        assert.equal("Put this on - then refresh.", (sentenceFor(tier)))
+        thisWeek()
+        inputs.verdicts[1].verdict.alternatives = {}
+        tier = held(TIER_LINK, "Enigmatic Dreamwatcher's Somnolent Stare", 315)
+        assert.equal("Crest this to 321 - then refresh.", (sentenceFor(tier)))
+    end)
+
+    -- The words on a plural slot, and the bound: only a pick the rating took
+    -- out of the vault has a source to recognise.
+    it("agrees with the garment and ignores every pick that is not a catalyzed vault reward", function()
+        local clone = { itemID = 271526, slot = "Shoulder", setId = 2057, isVault = true, bonusIDs = { 6652, 12844 } }
+        local road = { planPick = true, slot = "Shoulder", verdictItem = clone, rating = { level = 321 } }
+        local source = { itemID = 251146, slot = "Shoulder", bonusIDs = { 6652, 12844 }, itemLevel = 315 }
+        assert.is_true(ns.Roads.IsPickSource(source, road))
+        assert.equal("Catalyst these - tier shoulders, crest them after.", ns.Roads.PickSourceSentence(source, road))
+        source.itemLevel = 321
+        assert.equal("Catalyst these - tier shoulders.", ns.Roads.PickSourceSentence(source, road))
+        -- Not the pick, not from the vault, not a tier clone, another slot.
+        road.planPick = false
+        assert.is_false(ns.Roads.IsPickSource(source, road))
+        road.planPick = true
+        clone.isVault = false
+        assert.is_false(ns.Roads.IsPickSource(source, road))
+        clone.isVault, clone.setId = true, 0
+        assert.is_false(ns.Roads.IsPickSource(source, road))
+        clone.setId = 2057
+        source.slot = "Chest"
+        assert.is_false(ns.Roads.IsPickSource(source, road))
+    end)
+end)
