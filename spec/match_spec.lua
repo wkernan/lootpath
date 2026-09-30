@@ -899,6 +899,21 @@ describe("Match.Build: a worn copy at or above the rated level (M2-6)", function
         assert.equal(worn, fingers[2].best)
     end)
 
+    it("reads only the copy worn in the rated slot", function()
+        -- A record whose scanned slot is not the rated one is not the copy in
+        -- that slot, whatever its item ID says.
+        local worn = helm(315, 22, "equipped")
+        worn.slot = "Neck"
+        local carried = helm(308, 21, "bag")
+        local built = ns.Match.Build(
+            { ok = true, bankAvailable = true, records = { carried, worn } },
+            verdict({ helmAt(308, 21) })
+        )
+        local row = built.bySlot["Head"][1]
+        assert.equal("swap", row.status)
+        assert.equal(carried, row.best)
+    end)
+
     it("leaves a Great Vault option alone", function()
         local worn = helm(315, 22, "equipped")
         local item = helmAt(308, 21)

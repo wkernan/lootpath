@@ -286,12 +286,14 @@ function Match.Build(inventory, verdict)
     -- is another rated item's own match is already claimed and never taken;
     -- before pass 2, so a crested copy is not handed to an unmatched item while
     -- a matched one is wearing it. The carried copy is released unclaimed.
+    -- Only a row pass 1 matched gets here: an unmatched Great Vault option
+    -- stays pass 2's exclusion and its own status, untouched.
     local wornInstead = {}
     for i = 1, #rows do
         local row = rows[i]
         local item = row.verdictItem
         local record = found[row]
-        if record and record.location ~= "equipped" and not item.isVault then
+        if record and record.location ~= "equipped" then
             local worn = wornCopyOf(item, byID, row.slot, claimed)
             if worn then
                 claimed[record] = nil
