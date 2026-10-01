@@ -162,6 +162,126 @@ describe("EngineCompare metrics on hand-made rows", function()
     end)
 end)
 
+-- A hand-made compare: two worn pieces, three drops, three Top Gear swaps, the
+-- synthetic weights. Every vector is written here, so each sign is known.
+describe("EngineCompare.Compute on hand-made inputs", function()
+    local ns
+    local function vec(stats)
+        local v = { ready = true, sockets = 0, gems = {} }
+        for _, k in ipairs({ "int", "haste", "crit", "mastery", "vers", "leech" }) do
+            v[k] = 0
+        end
+        for k, x in pairs(stats) do
+            v[k] = x
+        end
+        return v
+    end
+    local function alt(scorePercent, itemID, slot)
+        return {
+            scorePercent = scorePercent,
+            items = { { key = itemID .. ":1", itemID = itemID, bonusIDs = { 1 }, slot = slot } },
+        }
+    end
+    local function drop(key, dropType, percent)
+        return { key = key, dropType = dropType, upgradePercent = percent, sources = {} }
+    end
+    local function inputs()
+        return {
+            contentType = "Dungeon",
+            file = dofile(WEIGHTS),
+            worn = { { link = "worn-head", slot = "Head" }, { link = "worn-wrist", slot = "Wrist" } },
+            owned = {
+                ["1:1"] = { link = "worn-head" },
+                ["2:1"] = { link = "worn-wrist" },
+                ["3:1"] = { link = "bag-head-better" },
+                ["4:1"] = { link = "bag-wrist-worse" },
+                ["5:1"] = { link = "bag-head-elsewhere" },
+            },
+            reads = {
+                ["worn-head"] = vec({ int = 100 }),
+                ["worn-wrist"] = vec({ int = 50 }),
+                ["bag-head-better"] = vec({ int = 200 }),
+                ["bag-wrist-worse"] = vec({ int = 10 }),
+                ["bag-head-elsewhere"] = vec({ int = 300 }),
+                ["drop-head"] = vec({ int = 150 }),
+                ["drop-wrist"] = vec({ int = 40 }),
+                ["drop-wrist-effect"] = vec({ int = 60, effect = true }),
+            },
+            journalByKey = {
+                ["10@300"] = { link = "drop-head", slot = "Head" },
+                ["11@300"] = { link = "drop-wrist", slot = "Wrist" },
+                ["12@300"] = { link = "drop-wrist-effect", slot = "Wrist" },
+            },
+            document = {
+                keyLevel = 10,
+                verdict = {
+                    exportedAt = "x",
+                    order = { "10@300", "11@300", "12@300", "13@300" },
+                    items = {
+                        ["10@300"] = drop("10@300", "drop", 0.8),
+                        ["11@300"] = drop("11@300", "drop", -0.3),
+                        ["12@300"] = drop("12@300", "drop", 0.2),
+                        ["13@300"] = drop("13@300", "max", 1.0),
+                    },
+                },
+            },
+            topGear = {
+                exportedAt = "y",
+                considered = { { itemID = 3, bonusIDs = { 1 } }, { itemID = 4, bonusIDs = { 1 } } },
+                topSet = {
+                    order = { "1:1", "2:1" },
+                    items = { ["1:1"] = { slot = "Head" }, ["2:1"] = { slot = "Wrist" } },
+                },
+                -- scorePercent positive: the alternative is WORSE.
+                alternatives = { alt(-0.5, 3, "Head"), alt(0.4, 4, "Wrist"), alt(-0.9, 5, "Head") },
+            },
+        }
+    end
+
+    before_each(function()
+        local world
+        ns, world = H.load()
+        for index, per in pairs(Stats.RATING_PER_PERCENT) do
+            world.ratingPerPercent[index] = per
+        end
+    end)
+    after_each(function()
+        H.unload()
+    end)
+
+    it("reads both columns as positive = better, and counts what it leaves out", function()
+        local result = ns.EngineCompare.Compute(inputs())
+        local uf = result.uf
+        assert.equal(3, uf.joined)
+        assert.equal(1, uf.other) -- the `max` listing
+        assert.equal(1, uf.notRated) -- the drop with an effect
+        assert.equal(2, #uf.rows)
+        local byKey = {}
+        for _, row in ipairs(uf.rows) do
+            byKey[row.key] = row
+        end
+        assert.is_true(byKey["10@300"].ours > 0)
+        assert.equal(0.8, byKey["10@300"].theirs)
+        assert.is_true(byKey["11@300"].ours < 0)
+        assert.equal(-0.3, byKey["11@300"].theirs)
+        assert.equal("tier", byKey["10@300"].class)
+        assert.equal("armour", byKey["11@300"].class)
+
+        local tg = result.tg
+        assert.equal(1, tg.notInPool) -- item 5 is not in the pass's pool
+        assert.equal(2, #tg.rows)
+        for _, row in ipairs(tg.rows) do
+            byKey[row.key] = row
+        end
+        assert.is_true(byKey["3:1"].ours > 0)
+        assert.equal(0.5, byKey["3:1"].theirs)
+        assert.is_true(byKey["4:1"].ours < 0)
+        assert.equal(-0.4, byKey["4:1"].theirs)
+        assert.is_true(tg.topValue > 0)
+        assert.equal(tg.topValue, tg.wornValue) -- the best set here is the worn set
+    end)
+end)
+
 describe("EngineCompare week, store and verdicts", function()
     local ns
     before_each(function()
