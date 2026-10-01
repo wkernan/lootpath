@@ -15,6 +15,7 @@
 local H = require("spec.helpers.addon")
 
 local WEIGHTS = "spec/fixtures/engine/weights-synthetic.lua"
+local FITTED = "spec/fixtures/engine/weights-fitted-shape.lua"
 local SCORE_FIXTURE = "spec/fixtures/engine/score-fixture.json"
 local SHIPPED = "Lootpath/Data/EngineWeights.lua"
 
@@ -647,6 +648,97 @@ describe("ns.EngineScore.UpgradePercent", function()
         local none, why = ns.EngineScore.UpgradePercent(base, vec("Offhand", { int = 50 }), O())
         assert.is_nil(none)
         assert.equal("not comparable", why)
+    end)
+end)
+
+-- E-0h (WKE-678): the one rule that turns a key level into a band. The owner's
+-- first fitted run (2026-10-01) scored no Dungeon row - `no band 84` - because
+-- the fit writes five Dungeon bands and the compare never named one.
+describe("ns.EngineScore.BandFor", function()
+    local ns, W, FIT
+
+    before_each(function()
+        ns = H.load()
+        W = dofile(WEIGHTS)
+        FIT = dofile(FITTED)
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    local function file(bands, raid)
+        return { specs = { [105] = { Dungeon = { bands = bands }, Raid = raid and { bands = raid } or nil } } }
+    end
+
+    local function b(n)
+        return { baseValue = n, weights = {} }
+    end
+
+    it("takes the band whose key is the key level as a string", function()
+        local f = file({ ["6"] = b(6), ["10"] = b(10), ["10+"] = b(99) })
+        local band, key = ns.EngineScore.BandFor(f, 105, "Dungeon", 10)
+        assert.equal("10", key)
+        assert.equal(10, band.baseValue)
+        band, key = ns.EngineScore.BandFor(f, nil, "Dungeon", "6")
+        assert.equal("6", key)
+        assert.equal(6, band.baseValue)
+    end)
+
+    it("lets `10+` serve 12, the highest `n+` at or under the level", function()
+        local f = file({ ["2+"] = b(2), ["10+"] = b(10), ["14+"] = b(14), ["4"] = b(4) })
+        local band, key = ns.EngineScore.BandFor(f, 105, "Dungeon", 12)
+        assert.equal("10+", key)
+        assert.equal(10, band.baseValue)
+        assert.equal("10+", select(2, ns.EngineScore.BandFor(f, 105, "Dungeon", 10)))
+        assert.equal("2+", select(2, ns.EngineScore.BandFor(f, 105, "Dungeon", 9)))
+    end)
+
+    it("falls back to the content type's only band", function()
+        local band, key = ns.EngineScore.BandFor(W, 105, "Dungeon", 6)
+        assert.equal("10+", key)
+        assert.equal(W.specs[105].Dungeon.bands["10+"], band)
+        assert.equal("10+", select(2, ns.EngineScore.BandFor(W, 105, "Dungeon", nil)))
+    end)
+
+    it("answers nil and names the level when no band serves it", function()
+        local band, why = ns.EngineScore.BandFor(FIT, 105, "Dungeon", 12)
+        assert.is_nil(band)
+        assert.equal("no band for +12", why)
+        band, why = ns.EngineScore.BandFor(FIT, 105, "Dungeon", 3)
+        assert.is_nil(band)
+        assert.equal("no band for +3", why)
+        band, why = ns.EngineScore.BandFor(FIT, 105, "Dungeon", nil)
+        assert.is_nil(band)
+        assert.equal("no band", why)
+        local value, reason = ns.EngineScore.SetValue({}, { file = FIT, dr = "table", keyLevel = 7 })
+        assert.is_nil(value)
+        assert.equal("no band for +7", reason)
+    end)
+
+    it("scores each fitted-shape Dungeon band at its own level and says which", function()
+        -- Every band is the same but for baseValue 1000 + its level, and an
+        -- empty set wears no tier: the value moves by exactly the level.
+        local first = assert(ns.EngineScore.SetValue({}, { file = FIT, dr = "table", keyLevel = 2 }))
+        for _, level in ipairs({ 2, 4, 6, 8, 10 }) do
+            local scored = assert(ns.EngineScore.SetValue({}, { file = FIT, dr = "table", keyLevel = level }))
+            assert.equal(tostring(level), scored.band)
+            near(level - 2, scored.value - first.value, "band " .. level)
+        end
+    end)
+
+    it("keeps Raid on its only band, whatever the key level", function()
+        local band, key = ns.EngineScore.BandFor(FIT, 105, "Raid", 6)
+        assert.equal("raid-3", key)
+        assert.equal(2000, band.baseValue)
+        assert.equal("raid-3", select(2, ns.EngineScore.BandFor(FIT, 105, "Raid", nil)))
+        local a = assert(ns.EngineScore.SetValue({}, { file = FIT, dr = "table", contentType = "Raid", keyLevel = 10 }))
+        local c = assert(ns.EngineScore.SetValue({}, { file = FIT, dr = "table", contentType = "Raid" }))
+        assert.equal(c.value, a.value)
+        assert.equal("raid-3", a.band)
+        -- A key matching a Raid band's name is not read: Raid has no levels.
+        local two = file({}, { ["10"] = b(10), ["raid-3"] = b(3) })
+        assert.is_nil((ns.EngineScore.BandFor(two, 105, "Raid", 10)))
     end)
 end)
 

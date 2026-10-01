@@ -19,8 +19,14 @@
 --     listings are other track levels the client never previewed: left out and
 --     counted, until a link can be built for a track. Ours is
 --     ns.EngineScore.UpgradePercent(worn, candidate, { assumedFinish = true,
---     forceTier = true, contentType }); theirs is `upgradePercent` read through
---     UPGRADE_BETTER_PERCENT_SIGN.
+--     forceTier = true, contentType, keyLevel = the document's }); theirs is
+--     `upgradePercent` read through UPGRADE_BETTER_PERCENT_SIGN.
+--   * The band: the key level goes into every SetValue and UpgradePercent
+--     call and ns.EngineScore.BandFor picks the band (E-0h, WKE-678) - the
+--     Upgrade Finder document's own level, and for the Top Gear block the
+--     level the header prints (the one asked for, or the highest stored). Each
+--     block's header names the band key used; a level with no band is
+--     reported as `not compared: N (no band for +6)`.
 --   * Top Gear `asOffered` pass 1 (the plan's own document, which is
 --     QEImport.ForContentTypeAndScenario's shelf - QEImport.ForPass never holds
 --     pass 1): each alternative that swaps ONE item, the item in the pass's
@@ -99,11 +105,11 @@ EngineCompare.TEXT = {
     header = "engine compare - weights %s, patch %s, derived %s - %s - week %s",
     notReady = "%d item(s) were not ready and are left out.",
     secret = "%d item(s) read secret and are left out.",
-    ufHeader = "Upgrade Finder %s %s (exported %s): %d drop rows joined; "
+    ufHeader = "Upgrade Finder %s %s (exported %s), band %s: %d drop rows joined; "
         .. "%d drop rows with no link at their level; %d listings at other levels left out.",
     ufNone = "Upgrade Finder %s: no document stored at %s.",
     noWalk = "no journal walk stored: capture journal first.",
-    tgHeader = "Top Gear pass 1 %s (exported %s): %d single-item swaps compared of %d alternatives "
+    tgHeader = "Top Gear pass 1 %s (exported %s), band %s: %d single-item swaps compared of %d alternatives "
         .. "(%d not in the pool, %d with no link here, %d paired); worn set %s, best set %s.",
     tgNone = "Top Gear pass 1 %s: none stored.",
     tgNoLink = "Top Gear pass 1 %s: %d piece(s) of the best set have no link here; not compared.",
@@ -528,8 +534,18 @@ local function vectorFor(reads, link, slot)
     return v
 end
 
-local function scoreOpts(contentType, file)
-    return { assumedFinish = true, forceTier = true, contentType = contentType, file = file }
+local function scoreOpts(contentType, file, keyLevel)
+    return { assumedFinish = true, forceTier = true, contentType = contentType, file = file, keyLevel = keyLevel }
+end
+
+-- The band key a block is scored with, or nil and why (BandFor's reason).
+local function bandOfBlock(block, inputs, keyLevel)
+    local band, key = ns.EngineScore.BandFor(inputs.file, nil, inputs.contentType, keyLevel)
+    if band then
+        block.band = key
+    else
+        block.noBand = key
+    end
 end
 
 local function sortRows(rows)
@@ -618,6 +634,8 @@ function EngineCompare.CompareUF(inputs, worn)
         notCompared = 0,
         reasons = {},
     }
+    bandOfBlock(block, inputs, document.keyLevel)
+    local opts = scoreOpts(inputs.contentType, inputs.file, document.keyLevel)
     local rows = {}
     local sign = ns.UFImport.UPGRADE_BETTER_PERCENT_SIGN
     for _, pair in ipairs(join.joined) do
@@ -625,7 +643,7 @@ function EngineCompare.CompareUF(inputs, worn)
         local candidate = vectorFor(inputs.reads, pair.row.link, slot)
         local percent, detail
         if candidate then
-            percent, detail = ns.EngineScore.UpgradePercent(worn, candidate, scoreOpts(inputs.contentType, inputs.file))
+            percent, detail = ns.EngineScore.UpgradePercent(worn, candidate, opts)
         else
             detail = "not ready"
         end
@@ -650,6 +668,17 @@ end
 
 local HANDS = { ["1H Weapon"] = true, Offhand = true, Shield = true }
 
+-- The key level the Top Gear block is scored at: the Upgrade Finder
+-- document's (the one asked for, or the highest stored - what the header
+-- prints), else the level asked for.
+function EngineCompare.TopGearLevel(inputs)
+    local document = inputs.document
+    if document and document.keyLevel ~= nil then
+        return document.keyLevel
+    end
+    return inputs.askedLevel
+end
+
 function EngineCompare.CompareTopGear(inputs, worn)
     local verdict = inputs.topGear
     local block = {
@@ -663,6 +692,8 @@ function EngineCompare.CompareTopGear(inputs, worn)
         notCompared = 0,
         reasons = {},
     }
+    local keyLevel = EngineCompare.TopGearLevel(inputs)
+    bandOfBlock(block, inputs, keyLevel)
     local top, missing = {}, 0
     local topSet = verdict.topSet or {}
     for _, key in ipairs(topSet.order or {}) do
@@ -679,8 +710,8 @@ function EngineCompare.CompareTopGear(inputs, worn)
         block.topMissing = missing
         return finishBlock(block, {})
     end
-    local opts = scoreOpts(inputs.contentType, inputs.file)
-    local base = ns.EngineScore.SetValue(top, opts)
+    local opts = scoreOpts(inputs.contentType, inputs.file, keyLevel)
+    local base, baseWhy = ns.EngineScore.SetValue(top, opts)
     local wornValue = ns.EngineScore.SetValue(worn, opts)
     block.topValue = base and base.value or nil
     block.wornValue = wornValue and wornValue.value or nil
@@ -711,7 +742,7 @@ function EngineCompare.CompareTopGear(inputs, worn)
                     block.paired = block.paired + 1
                 elseif not cand or not base or base.value == 0 then
                     block.notCompared = block.notCompared + 1
-                    local why = not cand and "not ready" or "no base"
+                    local why = not cand and "not ready" or (not base and baseWhy) or "no base"
                     block.reasons[why] = (block.reasons[why] or 0) + 1
                 else
                     local drop = {}
@@ -812,9 +843,15 @@ function EngineCompare.TableLines(metrics)
     return lines
 end
 
+-- One reason is printed bare (the count is already the line's N:
+-- `not compared: 84 (no band for +6)`); several each carry their own count.
 local function reasonsText(reasons)
+    local keys = sortedKeys(reasons)
+    if #keys == 1 then
+        return tostring(keys[1])
+    end
     local parts = {}
-    for _, why in ipairs(sortedKeys(reasons)) do
+    for _, why in ipairs(keys) do
         parts[#parts + 1] = string.format("%s %d", why, reasons[why])
     end
     return table.concat(parts, ", ")
@@ -869,6 +906,7 @@ function EngineCompare.Lines(run)
             run.contentType,
             ns.UFImport.KeyLabel(uf.keyLevel) or "(no key level)",
             tostring(uf.exportedAt),
+            uf.band or "-",
             uf.joined,
             uf.noLink,
             uf.other
@@ -885,6 +923,7 @@ function EngineCompare.Lines(run)
             T.tgHeader,
             run.contentType,
             tostring(tg.exportedAt),
+            tg.band or "-",
             #tg.rows,
             tg.alternatives,
             tg.notInPool,
@@ -1094,6 +1133,7 @@ local function entryOf(block, file)
         method = file.method,
         derivedAt = file.derivedAt,
         qeExportedAt = block.exportedAt,
+        band = block.band,
         rows = block.rows,
         metrics = block.metrics,
     }

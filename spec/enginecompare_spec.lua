@@ -23,6 +23,8 @@ local Stats = dofile("spec/fixtures/engine/itemstats-synthetic.lua")
 local Real = dofile("spec/fixtures/engine/itemstats-real.lua")
 
 local WEIGHTS = "spec/fixtures/engine/weights-synthetic.lua"
+local FITTED = "spec/fixtures/engine/weights-fitted-shape.lua"
+local SHIPPED = "Lootpath/Data/EngineWeights.lua"
 local SV = "spec/fixtures/captures/Lootpath-20260916-162655.lua"
 local CHAR = "Hotornot - Arthas"
 local DRESSED = 3 -- 2026-09-16T15:29:53, 15 equipped (spec/drift_spec.lua's)
@@ -402,7 +404,7 @@ describe("/lootpath engine", function()
 end)
 
 -- The owner's own state of 2026-09-16, everything the command reads.
-local function fixtureWorld()
+local function fixtureWorld(weightsFor)
     local ns, world = H.load()
     H.chicagoClock(world, NOW)
     world.secondsUntilReset = NEXT_RESET - NOW
@@ -411,8 +413,13 @@ local function fixtureWorld()
     ns.db.global = deepcopy(db.global)
     ns.db.global.developer = { engine = true }
     R.inventory(world, R.snapshot("inventory", DRESSED, SV))
-    local weights = dofile(WEIGHTS)
-    weights.specs[105].Raid = { bands = { all = deepcopy(weights.specs[105].Dungeon.bands["10+"]) } }
+    local weights
+    if weightsFor then
+        weights = weightsFor()
+    else
+        weights = dofile(WEIGHTS)
+        weights.specs[105].Raid = { bands = { all = deepcopy(weights.specs[105].Dungeon.bands["10+"]) } }
+    end
     ns.engineWeights = weights
     assert(ns.EngineScore.Load())
     local entries = {}
@@ -587,6 +594,127 @@ describe("/lootpath engine compare over the owner's 2026-09-16 SavedVariables", 
         local out = world.output()
         assert.truthy(out:find("2026-09-15: tier ", 1, true))
         assert.truthy(out:find("bar (printed, not enforced): tier ", 1, true))
+    end)
+end)
+
+-- E-0h (WKE-678): the key level reaches the score. The owner's first fitted
+-- run (2026-10-01) printed `not compared: 84 (no band 84)` for Dungeon +6 and
+-- `not compared: 3 (no base 3)` for Top Gear, because the fit writes one
+-- Dungeon band per key level and the compare named none.
+describe("/lootpath engine compare names the band it scores with", function()
+    after_each(function()
+        H.unload()
+    end)
+
+    -- Every Top Gear single swap is accounted for in one of the counters.
+    local function tgAccounted(ns, ct, tg)
+        local verdict = ns.QEImport.ForContentTypeAndScenario(ct, "asOffered")
+        local singles = 0
+        for _, alt in ipairs(verdict.alternatives) do
+            if #alt.items == 1 then
+                singles = singles + 1
+            end
+        end
+        assert.equal(singles, #tg.rows + tg.notInPool + tg.noLink + tg.paired + tg.notRated + tg.notCompared)
+    end
+
+    local function noBandReason(block)
+        for why in pairs(block.reasons) do
+            if tostring(why):find("no band", 1, true) or why == "no base" then
+                return why
+            end
+        end
+        return nil
+    end
+
+    it("prints the band key in each block's header", function()
+        local ns, world = fixtureWorld()
+        local run = compare(ns, "compare dungeon 10")
+        assert.equal("10+", run.result.uf.band)
+        assert.equal("10+", run.result.tg.band)
+        local out = world.output()
+        assert.truthy(
+            out:find("Upgrade Finder Dungeon +10 (exported " .. run.result.uf.exportedAt .. "), band 10+: ", 1, true)
+        )
+        assert.truthy(
+            out:find("Top Gear pass 1 Dungeon (exported " .. run.result.tg.exportedAt .. "), band 10+: ", 1, true)
+        )
+    end)
+
+    it("scores every joined row of the fitted shape on both content types", function()
+        local ns, world = fixtureWorld(function()
+            return dofile(FITTED)
+        end)
+        for _, case in ipairs({ { "dungeon 10", "Dungeon", "10" }, { "raid", "Raid", "raid-3" } }) do
+            world.printed = {}
+            local run = compare(ns, "compare " .. case[1])
+            local uf, tg = run.result.uf, run.result.tg
+            assert.equal(case[3], uf.band, case[2])
+            assert.equal(case[3], tg.band, case[2])
+            assert.is_nil(noBandReason(uf), case[2])
+            assert.is_nil(noBandReason(tg), case[2])
+            assert.is_true(uf.joined > 0)
+            -- Every joined row is scored or held for a reason that is not the band.
+            local scored = #uf.rows
+            assert.equal(uf.joined, scored + uf.notRated + uf.notCompared, case[2])
+            assert.is_true(scored > 0, case[2])
+            assert.is_number(tg.topValue, case[2])
+            assert.is_number(tg.wornValue, case[2])
+            assert.is_true(#tg.rows > 0, case[2])
+            tgAccounted(ns, case[2], tg)
+            assert.truthy(world.output():find("band " .. case[3] .. ": ", 1, true), case[2])
+        end
+        -- Every Dungeon level the owner stored that day (+2, +4, +6, +8, +10) is
+        -- scored on its own band - +6 is the document that said `no band 84`.
+        local levels = ns.UFImport.StoredKeyLevels("Dungeon")
+        table.sort(levels)
+        assert.same({ 2, 4, 6, 8, 10 }, levels)
+        for _, level in ipairs(levels) do
+            local run = compare(ns, "compare dungeon " .. level)
+            assert.equal(level, run.result.uf.keyLevel)
+            assert.equal(tostring(level), run.result.uf.band)
+            assert.equal(tostring(level), run.result.tg.band)
+            assert.is_nil(noBandReason(run.result.uf), level)
+            assert.is_nil(noBandReason(run.result.tg), level)
+        end
+    end)
+
+    it("names the level when the document's level has no band", function()
+        local ns, world = fixtureWorld(function()
+            local w = dofile(FITTED)
+            w.specs[105].Dungeon.bands["10"] = nil
+            return w
+        end)
+        local run = compare(ns, "compare dungeon 10")
+        local uf, tg = run.result.uf, run.result.tg
+        assert.is_nil(uf.band)
+        assert.equal("no band for +10", uf.noBand)
+        assert.equal(0, #uf.rows)
+        assert.equal(uf.joined, uf.notCompared)
+        assert.same({ ["no band for +10"] = uf.joined }, uf.reasons)
+        assert.same({ ["no band for +10"] = tg.notCompared }, tg.reasons)
+        local out = world.output()
+        assert.truthy(out:find(string.format("not compared: %d (no band for +10)\n", uf.joined), 1, true))
+        assert.truthy(out:find(string.format("not compared: %d (no band for +10)\n", tg.notCompared), 1, true))
+        assert.truthy(out:find("), band -: ", 1, true))
+        assert.is_nil(out:find("(no band)", 1, true))
+        assert.is_nil(out:find("no base", 1, true))
+    end)
+
+    it("still scores with the placeholder file's one `10+` band", function()
+        local ns = fixtureWorld(function()
+            local shipped = {}
+            assert(loadfile(SHIPPED))("Lootpath", shipped)
+            return shipped.engineWeights
+        end)
+        assert.equal("placeholder", ns.EngineScore.file.method)
+        for _, case in ipairs({ { "dungeon 10", "10+" }, { "raid", "all" } }) do
+            local run = compare(ns, "compare " .. case[1])
+            assert.equal(case[2], run.result.uf.band)
+            assert.equal(case[2], run.result.tg.band)
+            assert.is_nil(noBandReason(run.result.uf))
+            assert.is_true(#run.result.uf.rows > 0)
+        end
     end)
 end)
 
