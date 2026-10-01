@@ -19,8 +19,17 @@
 --   percent = 100 * (V(best set with the candidate) - V(worn)) / V(worn)
 --
 -- Our percents are UNSCALED: no 1.5 (Top Gear's `modelDiff`) anywhere here.
--- Effects are not modelled in this issue: an item marked with an effect
--- scores its stats only and the result says `effectUnmodelled = true`.
+--
+-- Effects (E-3a, WKE-679): an item whose ID is in the effects table
+-- (Data/EngineEffects.lua, ns.EngineEffects) is an effect item. A modelled
+-- stat effect's vector is added to the totals before the conversion; a
+-- modelled healing effect is kept in `effects` and added to the value only
+-- when the band (or the file) carries `hpsPerValue` - healing per second per
+-- point of value - else it is NOT added and the result says
+-- `hpsNotAdded = true`. An effect not modelled (every entry today: the table
+-- ships with no numbers) leaves the item's STATS counting and marks the
+-- result `effectUnmodelled` with the item named. A trinket the table does not
+-- carry is scored on its stats and marked `effectUnknown`.
 
 local _, ns = ...
 
@@ -56,6 +65,7 @@ EngineScore.RATINGS = { "haste", "crit", "mastery", "vers", "leech" }
 local TWO_HAND = "2H Weapon"
 local ONE_HAND = "1H Weapon"
 local OFF_HANDS = { Offhand = true, Shield = true }
+local TRINKET = "Trinket"
 
 -- The loaded file, or nil; why it is not loaded; whether it is a placeholder.
 EngineScore.file = nil
@@ -313,12 +323,41 @@ local function tierOf(items, tiers, force)
     return result
 end
 
+-- EffectOf(item[, effects]) -> state, entry, answer. `state` is "modelled"
+-- (the table carries the item and its rule answered: `answer` is `{ stat }` or
+-- `{ hps }`), "not_modelled" (the table carries it, no rule answers),
+-- "unknown" (a trinket the table does not carry) or nil (a plain item).
+-- `effects` defaults to the loaded table, ns.engineEffects.
+function EngineScore.EffectOf(item, effects)
+    if type(item) ~= "table" or not ns.EngineEffects then
+        return nil
+    end
+    local entry = ns.EngineEffects.Classify(item.itemID, effects)
+    if not entry then
+        if item.slot == TRINKET then
+            return "unknown"
+        end
+        return nil
+    end
+    local answer = ns.EngineEffects.Evaluate(entry)
+    if answer then
+        return "modelled", entry, answer
+    end
+    return "not_modelled", entry
+end
+
+local function named(item, entry)
+    return { itemID = item.itemID, name = entry and entry.name or nil, kind = entry and entry.kind or nil }
+end
+
 -- SetValue(items, opts) -> `{ value, totals, pcts, band, tier = { setID,
--- count, mult, forced }, effects = {}, effectUnmodelled = true | nil }` (`band`
--- is the KEY of the band scored with), or nil and the reason.
+-- count, mult, forced }, effects = { { itemID, name, kind, confidence, stat |
+-- hps } }, effectUnmodelled = true | nil, unmodelled = { { itemID, name, kind
+-- } } | nil, effectUnknown = true | nil, unknown = { { itemID } } | nil,
+-- hpsNotAdded = true | nil }` (`band` is the KEY of the band scored with), or
+-- nil and the reason.
 --
--- `items`: ns.EngineStats vectors plus `slot` (and `effect`, truthy when the
--- item carries an effect this file does not model). `opts`:
+-- `items`: ns.EngineStats vectors (with `itemID`) plus `slot`. `opts`:
 --   file          the weights table (default: what Load kept)
 --   spec, contentType   which content (105, "Dungeon")
 --   keyLevel      the key level, resolved to a band by BandFor's rule
@@ -330,6 +369,7 @@ end
 --   rating        function(index, value) -> (percent, secret), default
 --                 ns.EngineStats.Rating - the only client call SetValue makes
 --   forceTier     true: the tier bonus is on whatever the set wears
+--   effects       the effects table (default: ns.engineEffects)
 function EngineScore.SetValue(items, opts)
     opts = opts or {}
     local file = opts.file or EngineScore.file
@@ -352,7 +392,7 @@ function EngineScore.SetValue(items, opts)
         totals[stat] = 0
     end
     local finish = opts.assumedFinish and band.assumedFinish or nil
-    local unmodelled = false
+    local effects, unmodelled, unknown, hps = {}, nil, nil, 0
     for _, item in ipairs(items) do
         add(totals, item, 1)
         if opts.assumedFinish then
@@ -366,8 +406,24 @@ function EngineScore.SetValue(items, opts)
                 add(totals, gem.stats, 1)
             end
         end
-        if item.effect then
-            unmodelled = true
+        local state, entry, answer = EngineScore.EffectOf(item, opts.effects)
+        if state == "modelled" and answer then
+            local kept = named(item, entry)
+            kept.confidence = answer.confidence
+            if answer.stat then
+                kept.stat = answer.stat
+                add(totals, answer.stat, 1)
+            else
+                kept.hps = answer.hps
+                hps = hps + answer.hps
+            end
+            effects[#effects + 1] = kept
+        elseif state == "not_modelled" then
+            unmodelled = unmodelled or {}
+            unmodelled[#unmodelled + 1] = named(item, entry)
+        elseif state == "unknown" then
+            unknown = unknown or {}
+            unknown[#unknown + 1] = { itemID = item.itemID }
         end
     end
     add(totals, band.assumedBuffs, 1)
@@ -408,6 +464,18 @@ function EngineScore.SetValue(items, opts)
     for _, stat in ipairs(EngineScore.RATINGS) do
         value = value + (w[stat] or 0) * pcts[stat]
     end
+    -- A modelled healing effect joins the value only through the file's own
+    -- exchange rate (value += hps / hpsPerValue, before the tier multiplier);
+    -- with none, it is kept beside the value and not added.
+    local hpsNotAdded
+    if hps > 0 then
+        local rate = band.hpsPerValue or file.hpsPerValue
+        if type(rate) == "number" and rate > 0 then
+            value = value + hps / rate
+        else
+            hpsNotAdded = true
+        end
+    end
     local tier = tierOf(items, file.tiers, opts.forceTier)
     value = value * tier.mult
 
@@ -417,8 +485,12 @@ function EngineScore.SetValue(items, opts)
         pcts = pcts,
         band = bandKey,
         tier = tier,
-        effects = {},
-        effectUnmodelled = unmodelled or nil,
+        effects = effects,
+        effectUnmodelled = unmodelled and true or nil,
+        unmodelled = unmodelled,
+        effectUnknown = unknown and true or nil,
+        unknown = unknown,
+        hpsNotAdded = hpsNotAdded,
     }
 end
 
@@ -491,7 +563,17 @@ end
 -- Finder's direction (UFImport.UPGRADE_BETTER_PERCENT_SIGN, read here, never
 -- re-derived), UNSCALED; the best is the highest value over the candidate's
 -- placements; `opts` as SetValue's, `forceTier` included. `detail` is
--- `{ base, value, replaced = { worn indices }, effectUnmodelled }`.
+-- `{ base, value, replaced = { worn indices }, effectUnmodelled, unmodelled,
+-- effectUnknown, generic, wornEffectUnmodelled }`.
+--
+-- The flags speak about the CHANGE, not the whole set: `effectUnmodelled` is
+-- true when the candidate or an item it replaces carries an effect not
+-- modelled. An unmodelled effect worn in both sets is missing from both values
+-- alike, so it is carried as `wornEffectUnmodelled` and does not stop the row
+-- (it still moves the denominator a little; a later issue that models it
+-- moves every percent). `effectUnknown` likewise (a trinket the table does not
+-- carry, on either side of the swap); `generic` when a modelled effect is on
+-- either side.
 function EngineScore.UpgradePercent(worn, candidate, opts)
     if type(worn) ~= "table" or type(candidate) ~= "table" then
         return nil, "no items"
@@ -518,13 +600,43 @@ function EngineScore.UpgradePercent(worn, candidate, opts)
     end
     local sign = ns.UFImport and ns.UFImport.UPGRADE_BETTER_PERCENT_SIGN or 1
     local percent = sign * 100 * (best.scored.value - base.value) / base.value
+    local change = { candidate }
+    for _, i in ipairs(best.replaced) do
+        change[#change + 1] = worn[i]
+    end
+    local flags = EngineScore.ChangeEffects(change, opts and opts.effects)
     return percent,
         {
             base = base.value,
             value = best.scored.value,
             replaced = best.replaced,
-            effectUnmodelled = (base.effectUnmodelled or best.scored.effectUnmodelled) or nil,
+            effectUnmodelled = flags.effectUnmodelled,
+            unmodelled = flags.unmodelled,
+            effectUnknown = flags.effectUnknown,
+            generic = flags.generic,
+            wornEffectUnmodelled = base.effectUnmodelled,
         }
+end
+
+-- ChangeEffects(items[, effects]) -> `{ effectUnmodelled, unmodelled = {
+-- { itemID, name, kind } }, effectUnknown, generic }` over the items a swap
+-- moves (the one coming in and the ones going out): what UpgradePercent and
+-- the compare's Top Gear block mark a row with.
+function EngineScore.ChangeEffects(items, effects)
+    local out = {}
+    for _, item in ipairs(items or {}) do
+        local state, entry = EngineScore.EffectOf(item, effects)
+        if state == "not_modelled" then
+            out.effectUnmodelled = true
+            out.unmodelled = out.unmodelled or {}
+            out.unmodelled[#out.unmodelled + 1] = named(item, entry)
+        elseif state == "unknown" then
+            out.effectUnknown = true
+        elseif state == "modelled" then
+            out.generic = true
+        end
+    end
+    return out
 end
 
 -- At load: read the file once. Silent unless the developer switch is on.

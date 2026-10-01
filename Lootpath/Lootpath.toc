@@ -18,6 +18,7 @@ Core.lua
 Data\QEVerdict.lua
 Data\CompanionStatus.lua
 Data\EngineWeights.lua
+Data\EngineEffects.lua
 Captures.lua
 Modules\ItemData.lua
 Modules\Inventory.lua
@@ -33,6 +34,7 @@ Modules\Match.lua
 Modules\Roads.lua
 Modules\RoadsCache.lua
 Modules\EngineStats.lua
+Modules\EngineEffects.lua
 Modules\EngineScore.lua
 Modules\EngineCompare.lua
 UI\ItemLine.lua
