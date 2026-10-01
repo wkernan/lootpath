@@ -99,7 +99,7 @@ Invoke-Gate 'companion' {
     try { node --test } finally { Pop-Location }
     if ($LASTEXITCODE -ne 0) { return }
     # tools/engine (E-0e): the structure run's tests ride the same gate, as in CI.
-    Push-Location (Join-Path $repo 'toolsengine')
+    Push-Location (Join-Path $repo 'tools\engine')
     try { node --test } finally { Pop-Location }
 }
 
