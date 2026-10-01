@@ -318,6 +318,21 @@ gemmed worn pieces carry. The links in `spec/roads_spec.lua`'s,
 `spec/tooltip_spec.lua`'s and `spec/ui_spec.lua`'s R-2i blocks are his
 inventory capture of 2026-09-30 22:20:53 UTC.
 
+## The two exports the compare joins (E-0d, WKE-673)
+
+`spec/enginecompare_spec.lua` parses the +10 pair of the 2026-09-08 companion run
+and joins each to the newest journal walk of
+`spec/fixtures/captures/Lootpath-20260916-162655.lua`, asserting the byte length
+beside these hashes (read with `sha256sum` on 2026-09-30):
+
+| File | Content type | Bytes | sha256 |
+|---|---|---|---|
+| `qe-upgradefinder-Hotornot-wyharestkdyr.json` | Dungeon +10 | 120017 | `922062cf859efc52847a3876bc2b7a0a17627aa3d147f1b5a2814e7e3c609170` |
+| `qe-upgradefinder-Hotornot-ynfzbppepnzw.json` | Raid | 119677 | `de5e4537528c0a65e1f28022fb5e13254f90f9648afe9afe0a5b64d9c68ae122` |
+
+Both join 30 drop rows (all raid drops), leave 72 drop rows with no link at
+their level and 213 other listings out.
+
 ## `sample-upgradefinder-v1.json` - hand-built, not from QE Live
 
 Written for M3-6 (WKE-535) by mirroring the fork's exporter field for field.
