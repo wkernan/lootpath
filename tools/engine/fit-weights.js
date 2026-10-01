@@ -2,6 +2,7 @@
 // The structure run (E-0e, WKE-674). DEV ONLY - nothing here ships.
 //
 //   node fit-weights.js --stats <capture.lua|table.json> [--stats ...]
+//        (a capture.lua is read for its `itemstats` and `upgrade` snapshots)
 //        [--key-levels 1=2,2=4,4=6,6=8,7=10] [--tier-sets 2057]
 //        [--tier2 0.03] [--tier4 0.055] [--finish '{"int":0}']
 //        [--effect-ids 271875,271092,268265,273778]
@@ -91,7 +92,9 @@ function run(argv, log) {
     const tiers = { setIDs: opts.tierSets, twoPiece: opts.tier2, fourPiece: opts.tier4, forceTier: true };
 
     fs.mkdirSync(opts.out, { recursive: true });
-    say(`item-stats table: ${table.points.size} client points (${table.sources.map((s) => path.basename(s.file)).join(', ')}), patch ${table.patch || 'unknown'}`);
+    const bySource = {};
+    for (const p of table.points.values()) bySource[p.source] = (bySource[p.source] || 0) + 1;
+    say(`item-stats table: ${table.points.size} client points ${JSON.stringify(bySource)} (${[...new Set(table.sources.map((s) => path.basename(s.file)))].join(', ')}), patch ${table.patch || 'unknown'}`);
     say(`level curve: Intellect ${fmt(budget.intSlope * 100, 3)}%/level over ${budget.intItems} items, secondaries ${fmt(budget.secSlope * 100, 3)}%/level over ${budget.secItems} items`);
     say(`budget groups: ${Object.entries(budget.groups).map(([g, v]) => `${g} (${v.slots.join('/')}, ${v.points})`).join('; ')}`);
 
@@ -112,6 +115,7 @@ function run(argv, log) {
         say(`== ${fit.file} (${doc.contentType}, band ${fit.band}) ==`);
         say(`rows ${fit.counts.rows}: fitted ${fit.counts.fitted}, effect ${fit.counts.effect}, censored ${fit.counts.censored}, duplicate ${fit.counts.duplicate}, pair ${fit.counts.pair}, no-stats ${fit.counts.noStats}`);
         say(`stats sources (fitted): ${JSON.stringify(fit.statsSources.fitted)}; worn: ${JSON.stringify(fit.statsSources.worn)}`);
+        say(`client reads (all rows): ${JSON.stringify(fit.clientSources.all)}; fitted: ${JSON.stringify(fit.clientSources.fitted)}; worn: ${JSON.stringify(fit.clientSources.worn)}`);
         say(`rank ${fit.rank}/6, condition ${fmt(fit.condition, 1)}`);
         say(`baseValue ${fmt(fit.baseValue, 2)} [${fmt(fit.baseInterval[0], 2)}, ${fmt(fit.baseInterval[1], 2)}]`);
         for (const k of Object.keys(fit.weights)) say(`  w_${k.padEnd(8)} ${fmt(fit.weights[k], 5)} [${fmt(fit.intervals[k][0], 5)}, ${fmt(fit.intervals[k][1], 5)}]`);

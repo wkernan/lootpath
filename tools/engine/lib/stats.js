@@ -26,21 +26,48 @@
 // a reading, and it is the largest known error of the run until E-0a's
 // transcript gives every row its own stats.
 //
-// Client source today: `capture upgrade` (decision 2026-09-14 evening), whose
-// `GetItemUpgradeItemInfo().upgradeLevelInfos[].levelStats` gives an owned
-// item's stats at each level of its track - two levels of one item give the
-// scale, never guessed. E-0a's `capture itemstats` (WKE-675) is not committed;
-// its return shape is unconfirmed (Ketho's annotations give
-// `C_Item.GetItemStats` no return type), so it is NOT read here - wiring it is
-// a follow-up once its transcript lands. A plain JSON table
+// Client sources, both read out of a SavedVariables transcript:
+//
+//   capture itemstats  (E-0a, WKE-675; read since E-0f, WKE-676) - what
+//                      `C_Item.GetItemStats` answers for a worn, bag, vault or
+//                      journal link with its enchant and gems blanked, at the
+//                      level `GetDetailedItemLevelInfo` gives that link. The
+//                      keys are the client's own (the 2026-10-01 transcript):
+//                      `ITEM_MOD_VERSATILITY` has no `_SHORT`. Indexed by
+//                      `id@level`, by the stripped link and by `id` + bonus
+//                      IDs (what an export's `equipped[]` entry carries). Where
+//                      it and `capture upgrade` both name an `id@level`, this
+//                      one is kept.
+//   capture upgrade    (decision 2026-09-14 evening) - `GetItemUpgradeItemInfo()
+//                      .upgradeLevelInfos[].levelStats`: an owned item's stats
+//                      at each level of its track; two levels of one item give
+//                      the scale, never guessed.
+//
+// A plain JSON table
 // (`{ items: [{ id, level, slot, stats: { int, haste, crit, mastery, vers, leech } }] }`)
-// is accepted for tests and for hand-checked tables.
+// is accepted for tests and for hand-checked tables. Every point carries the
+// source it was read from, and a `client` row says which (`clientSource`).
 'use strict';
 
 const { parseSavedVariables, luaArray } = require('../../companion/lib/lua-savedvariables');
 const { STATS, zeroStats } = require('./score');
 
 const SECONDARIES = ['haste', 'crit', 'mastery', 'vers'];
+
+// `C_Item.GetItemStats`' keys for the six stats the model reads, as the
+// 2026-10-01 transcript names them. Stamina, armour, sockets, DPS and the rest
+// are read by the client and not by this model.
+const ITEMSTATS_KEYS = {
+    ITEM_MOD_INTELLECT_SHORT: 'int',
+    ITEM_MOD_HASTE_RATING_SHORT: 'haste',
+    ITEM_MOD_CRIT_RATING_SHORT: 'crit',
+    ITEM_MOD_MASTERY_RATING_SHORT: 'mastery',
+    ITEM_MOD_VERSATILITY: 'vers',
+    ITEM_MOD_CR_LIFESTEAL_SHORT: 'leech',
+};
+
+const SOURCE_ITEMSTATS = 'capture itemstats';
+const SOURCE_UPGRADE = 'capture upgrade';
 
 const CLIENT_STAT_NAMES = {
     Intellect: 'int',
@@ -93,13 +120,47 @@ const BUDGET_GROUP = {
 };
 
 function newTable() {
-    return { points: new Map(), slotOf: new Map(), sources: [], patch: null };
+    return { points: new Map(), byLink: new Map(), byBonus: new Map(), slotOf: new Map(), sources: [], patch: null };
 }
 
-function addPoint(table, id, level, stats, slot) {
+// `override` lets a later, more direct read replace a point already held.
+function addPoint(table, id, level, stats, slot, source, override) {
     const key = `${id}@${level}`;
-    if (!table.points.has(key)) table.points.set(key, { id, level, stats });
+    const held = table.points.get(key);
+    const point = { id, level, stats, source: source || 'json' };
+    if (!held || (override && held.source !== point.source)) table.points.set(key, point);
     if (slot && !table.slotOf.has(id)) table.slotOf.set(id, slot);
+    return table.points.get(key);
+}
+
+// The item string inside a link, split on ':' (field 1 is the itemID).
+function linkFields(link) {
+    const m = String(link || '').match(/\|Hitem:([^|]+)\|h/) || String(link || '').match(/^item:([^|]+)$/);
+    return m ? m[1].split(':') : null;
+}
+
+// `item:` plus the body with fields 2-6 (enchant, four gems) blanked: the key
+// `ns.EngineStats` caches under, and the link the capture asked about.
+function strippedKey(link) {
+    const f = linkFields(link);
+    if (!f || !(Number(f[0]) > 0)) return null;
+    for (let i = 1; i <= 5 && i < f.length; i++) f[i] = '';
+    return `item:${f.join(':')}`;
+}
+
+// `id:b1:b2:...`, the bonus IDs sorted: what a link and an export's
+// `equipped[]` entry (`id`, `bonusIDs`) have in common.
+function bonusKey(id, bonusIDs) {
+    if (!(Number(id) > 0) || !Array.isArray(bonusIDs)) return null;
+    return [Number(id), ...bonusIDs.map(Number).sort((a, b) => a - b)].join(':');
+}
+
+// The bonus IDs a link names (field 13 counts them, the IDs follow).
+function linkBonusIDs(link) {
+    const f = linkFields(link);
+    if (!f) return null;
+    const n = Number(f[12]) || 0;
+    return f.slice(13, 13 + n).map(Number);
 }
 
 function stripColour(s) {
@@ -115,11 +176,75 @@ function parseLevelStat(displayString) {
     return [key, Number(m[1].replace(/,/g, ''))];
 }
 
+// `GetItemStats`' table, as the capture stored it, into the model's six stats.
+function statsFromItemStats(raw) {
+    const stats = zeroStats();
+    for (const [key, value] of Object.entries(raw || {})) {
+        const k = ITEMSTATS_KEYS[key];
+        if (k && typeof value === 'number') stats[k] = value;
+    }
+    return stats;
+}
+
+// Every `itemstats` snapshot's items, one record each: where it came from, the
+// link, the level the client gives that link, the base stats (`strippedStats`,
+// the link with enchant and gems blanked) and the slot. Shared by the reader
+// below and by `extract-itemstats.js`.
+function itemStatsRecords(caps) {
+    const out = [];
+    for (const snap of luaArray(caps.itemstats || {})) {
+        const items = snap && snap.data && snap.data.items;
+        for (const it of luaArray(items || {})) {
+            const base = (it.strippedStats && it.strippedStats[1]) || (it.stats && it.stats[1]);
+            const level = it.detailedLevel && it.detailedLevel[1];
+            out.push({
+                snapshot: snap,
+                item: it,
+                link: it.link,
+                itemID: it.itemID,
+                level: typeof level === 'number' ? level : null,
+                raw: base && typeof base === 'object' ? base : null,
+                slot: (it.info && INVTYPE_SLOT[it.info.itemEquipLoc]) || null,
+            });
+        }
+    }
+    return out;
+}
+
+function readItemStatsInto(table, caps, label) {
+    let read = 0;
+    let points = 0;
+    for (const rec of itemStatsRecords(caps)) {
+        if (!rec.raw || rec.level === null || !(rec.itemID > 0)) continue;
+        read += 1;
+        const before = table.points.size;
+        const prior = table.points.get(`${rec.itemID}@${rec.level}`);
+        const point = addPoint(table, rec.itemID, rec.level, statsFromItemStats(rec.raw), rec.slot, SOURCE_ITEMSTATS, true);
+        if (table.points.size > before || (prior && prior !== point)) points += 1;
+        const sk = strippedKey(rec.link);
+        if (sk) table.byLink.set(sk, point);
+        const bk = bonusKey(rec.itemID, linkBonusIDs(rec.link));
+        if (bk) table.byBonus.set(bk, point);
+        const build = rec.snapshot.build && rec.snapshot.build[1];
+        if (build && !table.patch) table.patch = build;
+    }
+    if (read) table.sources.push({ file: label, kind: 'capture itemstats (GetItemStats)', items: read, newPoints: points });
+    return read;
+}
+
+// The client's base stats for a link, from `capture itemstats`, or null.
+function statsForLink(table, link) {
+    const sk = strippedKey(link);
+    const p = sk && table.byLink.get(sk);
+    return p ? { ...p.stats } : null;
+}
+
 function readSavedVariablesInto(table, text, label) {
     const sv = parseSavedVariables(text);
     const db = sv.LootpathDB;
     const caps = db && db.global && db.global.captures;
     if (!caps) throw new Error(`${label}: no LootpathDB.global.captures`);
+    readItemStatsInto(table, caps, label);
     let points = 0;
     // Slots first, from every inventory read: the item's own INVTYPE.
     for (const k of Object.keys(caps.inventory || {})) {
@@ -152,7 +277,7 @@ function readSavedVariablesInto(table, text, label) {
                 }
                 const level = current + (lvl.itemLevelIncrement || 0);
                 const before = table.points.size;
-                addPoint(table, it.itemID, level, stats);
+                addPoint(table, it.itemID, level, stats, null, SOURCE_UPGRADE);
                 points += table.points.size - before;
             }
         }
@@ -167,7 +292,7 @@ function readJsonInto(table, obj, label) {
         const stats = zeroStats();
         for (const k of STATS) stats[k] = (it.stats && it.stats[k]) || 0;
         const before = table.points.size;
-        addPoint(table, it.id, it.level, stats, it.slot);
+        addPoint(table, it.id, it.level, stats, it.slot, 'json');
         points += table.points.size - before;
     }
     table.sources.push({ file: label, kind: 'json item-stats table', newPoints: points });
@@ -255,11 +380,15 @@ function craftedPair(craftedStats) {
     return pair.length === 2 ? pair : null;
 }
 
-// The stat vector for one item (a row, or a worn entry).
+// The stat vector for one item (a row, or a worn entry). A worn entry that
+// carries `bonusIDs` is matched to the client's read of the same item string
+// first; then `id@level`.
 function itemStats(table, budget, item, opts) {
     const options = opts || {};
+    const byBonus = item.bonusIDs && table.byBonus.get(bonusKey(item.id, item.bonusIDs));
+    if (byBonus) return { stats: { ...byBonus.stats }, statsSource: 'client', splitSource: 'client', clientSource: byBonus.source, matchedBy: 'link' };
     const exact = table.points.get(`${item.id}@${item.level}`);
-    if (exact) return { stats: { ...exact.stats }, statsSource: 'client', splitSource: 'client' };
+    if (exact) return { stats: { ...exact.stats }, statsSource: 'client', splitSource: 'client', clientSource: exact.source, matchedBy: 'level' };
     const own = [...table.points.values()].filter((p) => p.id === item.id);
     if (own.length && budget.intSlope !== null && budget.secSlope !== null) {
         own.sort((a, b) => Math.abs(a.level - item.level) - Math.abs(b.level - item.level));
@@ -269,7 +398,7 @@ function itemStats(table, budget, item, opts) {
         const stats = zeroStats();
         stats.int = from.stats.int * fI;
         for (const k of ['haste', 'crit', 'mastery', 'vers', 'leech']) stats[k] = from.stats[k] * fS;
-        return { stats, statsSource: 'client-scaled', splitSource: 'client', scaledFrom: from.level };
+        return { stats, statsSource: 'client-scaled', splitSource: 'client', scaledFrom: from.level, clientSource: from.source };
     }
     const group = BUDGET_GROUP[item.slot];
     const b = group && budgetAt(budget, group, item.level);
@@ -302,6 +431,16 @@ function loadTable(files, fs) {
 
 module.exports = {
     SECONDARIES,
+    ITEMSTATS_KEYS,
+    SOURCE_ITEMSTATS,
+    SOURCE_UPGRADE,
+    strippedKey,
+    bonusKey,
+    linkBonusIDs,
+    statsFromItemStats,
+    itemStatsRecords,
+    readItemStatsInto,
+    statsForLink,
     BUDGET_GROUP,
     INVTYPE_SLOT,
     newTable,
