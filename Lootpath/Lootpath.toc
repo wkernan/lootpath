@@ -34,6 +34,7 @@ Modules\Roads.lua
 Modules\RoadsCache.lua
 Modules\EngineStats.lua
 Modules\EngineScore.lua
+Modules\EngineCompare.lua
 UI\ItemLine.lua
 UI\EquipPanel.lua
 UI\Options.lua
