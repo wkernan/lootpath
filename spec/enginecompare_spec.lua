@@ -1258,13 +1258,37 @@ describe("EngineCompare at the row's level", function()
 end)
 
 describe("/lootpath engine compare at the row's level, over the owner's 2026-09-16 SavedVariables", function()
-    local ns
+    local ns, world
     before_each(function()
-        ns = fixtureWorld()
+        ns, world = fixtureWorld()
     end)
     after_each(function()
         ns.EngineCompare.REBUILD_AT_LEVEL = false
+        ns.EngineStats.linkLevelRule = nil
         H.unload()
+    end)
+
+    -- Gather asks the client for the REBUILT links: the stub knows none of
+    -- them, so every one is waited on and comes back not ready - none is
+    -- answered by the kept link's read.
+    it("on with a rule, asks the client for the rebuilt links, not the kept ones", function()
+        ns.EngineCompare.REBUILD_AT_LEVEL = true
+        ns.EngineStats.linkLevelRule = function()
+            return { 12837 }
+        end
+        local run
+        ns.EngineCompare.Command("compare dungeon 10", function(r)
+            run = r
+        end)
+        assert.is_nil(run, "it waits")
+        world.runTimers(10)
+        assert.is_table(run)
+        local uf = run.result.uf
+        assert.is_true(uf.joined > 0)
+        assert.equal(uf.joined, run.notReady)
+        assert.equal(uf.joined, uf.notCompared)
+        assert.equal(0, uf.atLevel.leftOut)
+        assert.equal(0, #uf.rows)
     end)
 
     it("on with no rule, joins as before and leaves every joined row out, counted on its own line", function()
