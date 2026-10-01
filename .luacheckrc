@@ -102,6 +102,12 @@ read_globals = {
     "GetSpecialization",
     "GetSpecializationInfo",
     "InCombatLockdown",
+    -- E-0b (WKE-671): the client's rating conversion and current ratings,
+    -- read by Modules/EngineStats.lua only (PlayerScriptDocumentation.lua
+    -- :134, :145, :219 under .luals/).
+    "GetCombatRating",
+    "GetCombatRatingBonusForCombatRatingValue",
+    "GetMasteryEffect",
     "ItemLocation",
     -- Protected in combat, which is why Companion.Refresh checks
     -- InCombatLockdown before it calls this. Since M3-16a (WKE-581) it is also

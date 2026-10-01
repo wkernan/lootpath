@@ -2586,6 +2586,76 @@ function Stub.install()
         end,
     })
 
+    -- ==== BEGIN E-0b (WKE-671) engine-stats stubs - PLACEHOLDER ====
+    -- Everything in this block is a PLACEHOLDER. The return SHAPES of
+    -- C_Item.GetItemStats / GetItemGem / GetItemNumSockets /
+    -- GetItemUniquenessByID, GetCombatRatingBonusForCombatRatingValue,
+    -- GetCombatRating and GetMasteryEffect are Blizzard's exported docs
+    -- (ItemDocumentation.lua:187, 321, 366, 387; PlayerScriptDocumentation.lua
+    -- :134, 145, 219 under .luals/), but the KEYS of GetItemStats' table
+    -- (`ITEM_MOD_INTELLECT_SHORT`, ..., `RESISTANCE0_NAME`,
+    -- `EMPTY_SOCKET_PRISMATIC`) are the Warcraft Wiki's, grade (ii) - the one
+    -- place this stub takes anything from the wiki - because E-0a's
+    -- `capture itemstats` transcript (WKE-675) is not committed yet. When it
+    -- is, its stubs replace this block. Nothing answers unless a test fills
+    -- these tables (spec/fixtures/engine/itemstats-placeholder.lua).
+    world.itemStats = {} -- [link] = { [ITEM_MOD_*] = number } (PLACEHOLDER keys)
+    world.itemGems = {} -- [link] = { [socketIndex] = { gemName, gemLink } }
+    world.itemSockets = {} -- [itemInfo] = socketCount
+    world.itemUniqueness = {} -- [itemInfo] = { isUnique, name, count, categoryID }
+    world.ratingPerPercent = {} -- [ratingIndex] = rating per 1% (PLACEHOLDER, no DR)
+    world.combatRatings = {} -- [ratingIndex] = current rating
+    world.masteryEffect = nil -- { masteryEffect, bonusCoefficient }
+    -- The table define("C_Item") just installed, extended in place.
+    local engineItem = _G.C_Item
+    engineItem.GetItemStats = function(itemLink)
+        local stats = world.itemStats[itemLink]
+        if stats == nil or world.secrets[stats] then
+            return stats
+        end
+        local copy = {}
+        for key, value in pairs(stats) do
+            copy[key] = value
+        end
+        return copy
+    end
+    engineItem.GetItemGem = function(hyperlink, index)
+        local gems = world.itemGems[hyperlink]
+        local gem = gems and gems[index]
+        if not gem then
+            return nil
+        end
+        return gem[1], gem[2]
+    end
+    engineItem.GetItemNumSockets = function(itemInfo)
+        return world.itemSockets[itemInfo] or 0
+    end
+    engineItem.GetItemUniquenessByID = function(itemInfo)
+        local u = world.itemUniqueness[itemInfo]
+        if not u then
+            return false
+        end
+        return u[1], u[2], u[3], u[4]
+    end
+    define("GetCombatRatingBonusForCombatRatingValue", function(ratingIndex, value)
+        local per = world.ratingPerPercent[ratingIndex]
+        if not per or type(value) ~= "number" then
+            return nil
+        end
+        return value / per
+    end)
+    define("GetCombatRating", function(ratingIndex)
+        return world.combatRatings[ratingIndex]
+    end)
+    define("GetMasteryEffect", function()
+        local m = world.masteryEffect
+        if not m then
+            return nil
+        end
+        return m[1], m[2]
+    end)
+    -- ==== END E-0b (WKE-671) engine-stats stubs ====
+
     -- ITEM_QUALITY_COLORS and the accessor Blizzard's own item buttons go
     -- through (ColorManager.GetColorDataForItemQuality, read under .luals/ on
     -- 2026-09-09: it returns the table's entry and nil for an unknown
