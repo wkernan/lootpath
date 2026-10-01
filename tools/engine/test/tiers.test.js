@@ -35,9 +35,9 @@ function fitOnce() {
 // The Lua side: EngineScore loaded the way the addon loads it (`...` is the
 // addon name and its namespace), the dev file set as ns.engineWeights, the
 // client version answered with the file's own patch, then SetValue at 0..5
-// pieces of each set with the tier counted, not forced.
+// pieces of each set asked for (arg[3]) with the tier counted, not forced.
 const CHECK = `
-local repo, file = arg[1], arg[2]
+local repo, file, sets = arg[1], arg[2], arg[3]
 local ns = { onReady = {} }
 ns.Safe = function(v) return v, false end
 assert(loadfile(file))("Lootpath", ns)
@@ -49,10 +49,10 @@ if not ok then
     error("refused: " .. tostring(line) .. " " .. tostring(detail))
 end
 local function zero() return 0 end
-local setIDs = {}
-for setID in pairs(weights.tiers) do setIDs[#setIDs + 1] = setID end
-table.sort(setIDs)
-for _, setID in ipairs(setIDs) do
+-- The sets asked for on the command line, not the ones the file lists: a
+-- file that lists none in EngineScore's shape must show its multiplier of 1.
+for id in sets:gmatch("%d+") do
+    local setID = tonumber(id)
     for pieces = 0, 5 do
         local items = {}
         for i = 1, pieces do items[i] = { slot = "Slot" .. i, setID = setID, int = 0 } end
@@ -65,11 +65,11 @@ end
 
 function findLua() {
     const local = ['lua5.1', 'lua'].find((exe) => spawnSync(exe, ['-v'], { encoding: 'utf8' }).status === 0);
-    if (local) return (script, file) => spawnSync(local, [script, REPO, file], { encoding: 'utf8' });
+    if (local) return (script, file, sets) => spawnSync(local, [script, REPO, file, sets], { encoding: 'utf8' });
     const img = spawnSync('docker', ['image', 'inspect', 'lootpath-lua'], { encoding: 'utf8' });
     if (img.status !== 0) return null;
-    return (script, file) =>
-        spawnSync('docker', ['run', '--rm', '-v', `${REPO}:/repo`, '-v', `${path.dirname(script)}:/t`, 'lootpath-lua', 'lua', `/t/${path.basename(script)}`, '/repo', `/t/${path.basename(file)}`], { encoding: 'utf8' });
+    return (script, file, sets) =>
+        spawnSync('docker', ['run', '--rm', '-v', `${REPO}:/repo`, '-v', `${path.dirname(script)}:/t`, 'lootpath-lua', 'lua', `/t/${path.basename(script)}`, '/repo', `/t/${path.basename(file)}`, sets], { encoding: 'utf8' });
 }
 
 test('luaTiers writes { [setID] = { [2] = { mult = 1 + tier2 }, [4] = { mult = 1 + tier4 } } }', () => {
@@ -101,16 +101,15 @@ test('EngineScore loads the dev file and applies --tier2 at 2 pieces and --tier4
         t.skip('no Lua 5.1 on PATH and no lootpath-lua Docker image');
         return;
     }
-    const res = lua(script, r.luaPath);
+    const res = lua(script, r.luaPath, SETS.join(','));
     assert.equal(res.status, 0, `lua failed: ${res.stderr}`);
     const got = new Map();
     for (const line of res.stdout.trim().split(/\r?\n/)) {
         const [setID, pieces, mult] = line.trim().split(/\s+/).map(Number);
         got.set(`${setID}/${pieces}`, mult);
     }
-    const sorted = SETS.slice().sort((a, b) => a - b);
-    assert.equal(got.size, sorted.length * 6);
-    for (const id of sorted) {
+    assert.equal(got.size, SETS.length * 6);
+    for (const id of SETS) {
         const expected = [1, 1, 1 + TIER2, 1 + TIER2, 1 + TIER2 + TIER4, 1 + TIER2 + TIER4];
         expected.forEach((want, pieces) => {
             const mult = got.get(`${id}/${pieces}`);
