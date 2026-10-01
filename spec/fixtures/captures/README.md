@@ -9,6 +9,27 @@ with every loop rather than by request.
 
 ## Committed
 
+- Lootpath-20261001-092631.lua - **E-0a's `capture itemstats` on the Druid
+  (WKE-675), committed unedited by E-0f (WKE-676).** As pulled (CRLF):
+  sha256 `3c36f48d9e770a934b7234ecae41a644d5ee31f3f3a2e4dfd7ca258512f41cc6`,
+  5,852,199 bytes; as committed, after `.gitattributes`' `eol=lf` turned each
+  of its 316,326 CRLFs into LF and touched nothing else, like every transcript
+  here: sha256
+  `ecb69e7e15345b4ae576a80b2ff5ef23fca1ad9f182135af7965f4e27659cac8`,
+  5,535,873 bytes. The owner pulled `main`, ran `tools\sync.ps1`, then
+  `/lootpath capture itemstats` (09:26:25 local, 2026-10-01), `/reload` and
+  `tools\sync.ps1 -Pull`. Restoration (105), client 12.1.0 build 69933. One
+  `itemstats` snapshot, `trigger = "command"`, `durationMs` 26.9; 15 items
+  asked for and all 15 loaded inside the bound (`waitTimedOut` false,
+  `stillWaiting` 0). 80 items read - 15 worn, 25 bag, 0 vault, 40 journal (a
+  new walk at build 69933, 266 rows with a link, 40 taken across 11
+  instances) - every one with stats and every one `strippedEqual`. Gem links
+  answer `GetItemStats` with an empty table. The rating conversion answers
+  with diminishing returns applied. What it settles is in ARCHITECTURE.md §9
+  (E-0f) and `docs/OWN-ENGINE.md` §3; `spec/fixtures/engine/itemstats-real.lua`
+  is extracted from it by `tools/engine/extract-itemstats.js`. No secrets
+  seen (`sawSecret` false).
+
 - Lootpath-20260916-162655.lua - WKE-603 C-14 (this PR). Raw pull, copied out of
   the owner's game folder unchanged at 17:10 on 2026-09-16; the file's own last
   write is 16:26:55, his real logout that evening. Restoration (105), client
