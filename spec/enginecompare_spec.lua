@@ -216,12 +216,12 @@ describe("EngineCompare.Compute on hand-made inputs", function()
                 ["bag-head-elsewhere"] = vec({ int = 300 }),
                 ["drop-head"] = vec({ int = 150 }),
                 ["drop-wrist"] = vec({ int = 40 }),
-                ["drop-wrist-effect"] = vec({ int = 60, effect = true }),
+                ["drop-head-effect"] = vec({ int = 60, itemID = 271875 }), -- Gaze of the Coiled Watcher, in the table
             },
             journalByKey = {
                 ["10@300"] = { link = "drop-head", slot = "Head" },
                 ["11@300"] = { link = "drop-wrist", slot = "Wrist" },
-                ["12@300"] = { link = "drop-wrist-effect", slot = "Wrist" },
+                ["12@300"] = { link = "drop-head-effect", slot = "Head" },
             },
             document = {
                 keyLevel = 10,
@@ -261,7 +261,10 @@ describe("EngineCompare.Compute on hand-made inputs", function()
         local uf = result.uf
         assert.equal(3, uf.joined)
         assert.equal(1, uf.other) -- the `max` listing
-        assert.equal(1, uf.notRated) -- the drop with an effect
+        assert.equal(1, uf.notRated) -- the drop the effects table carries
+        assert.same({ { key = "12@300", names = "Gaze of the Coiled Watcher" } }, uf.notRatedItems)
+        assert.equal(0, uf.generic)
+        assert.equal(0, uf.unknown)
         assert.equal(2, #uf.rows)
         local byKey = {}
         for _, row in ipairs(uf.rows) do
@@ -503,7 +506,10 @@ describe("/lootpath engine compare over the owner's 2026-09-16 SavedVariables", 
         assert.equal("synthetic", entry.method)
         assert.equal("never", entry.derivedAt)
         assert.equal(run.result.uf.exportedAt, entry.qeExportedAt)
-        assert.equal(run.result.uf.joined - run.result.uf.notRated - run.result.uf.notCompared, #entry.rows)
+        assert.equal(
+            run.result.uf.joined - run.result.uf.notRated - run.result.uf.unknown - run.result.uf.notCompared,
+            #entry.rows
+        )
         local row = entry.rows[1]
         assert.is_string(row.key)
         assert.is_number(row.ours)
@@ -561,7 +567,10 @@ describe("/lootpath engine compare over the owner's 2026-09-16 SavedVariables", 
                 singles = singles + 1
             end
         end
-        assert.equal(singles, #tg.rows + tg.notInPool + tg.noLink + tg.paired + tg.notRated + tg.notCompared)
+        assert.equal(
+            singles,
+            #tg.rows + tg.notInPool + tg.noLink + tg.paired + tg.notRated + tg.unknown + tg.notCompared
+        )
         assert.is_number(tg.wornValue)
         assert.is_number(tg.topValue)
     end)
@@ -615,7 +624,10 @@ describe("/lootpath engine compare names the band it scores with", function()
                 singles = singles + 1
             end
         end
-        assert.equal(singles, #tg.rows + tg.notInPool + tg.noLink + tg.paired + tg.notRated + tg.notCompared)
+        assert.equal(
+            singles,
+            #tg.rows + tg.notInPool + tg.noLink + tg.paired + tg.notRated + tg.unknown + tg.notCompared
+        )
     end
 
     local function noBandReason(block)
@@ -656,7 +668,7 @@ describe("/lootpath engine compare names the band it scores with", function()
             assert.is_true(uf.joined > 0)
             -- Every joined row is scored or held for a reason that is not the band.
             local scored = #uf.rows
-            assert.equal(uf.joined, scored + uf.notRated + uf.notCompared, case[2])
+            assert.equal(uf.joined, scored + uf.notRated + uf.unknown + uf.notCompared, case[2])
             assert.is_true(scored > 0, case[2])
             assert.is_number(tg.topValue, case[2])
             assert.is_number(tg.wornValue, case[2])
@@ -821,5 +833,118 @@ describe("EngineCompare's journal half against the client's own reads", function
         assert.is_table(byKey["159317@305"])
         assert.equal(found.link, byKey["159317@305"].link)
         assert.equal(292, ns.EngineStats.ForLink(byKey["159317@305"].link).level)
+    end)
+end)
+
+-- E-3a (WKE-679): the effects table makes the `not rated` count real. The
+-- owner's fitted +6 run (2026-10-01 night) compared 13 trinket rows; over the
+-- committed 2026-09-16 fixture, with the fitted-shape weights, this run
+-- prints how many joined trinket rows the table carries and asserts the
+-- counts as read. Every row the table carries is left out of every metric.
+describe("/lootpath engine compare with the effects table", function()
+    after_each(function()
+        H.unload()
+    end)
+
+    -- The joined rows' itemIDs and slots, read straight off the walk.
+    local function joinedRows(ns, verdict, sources)
+        local out = {}
+        for itemID, list in pairs(sources) do
+            for _, row in ipairs(list) do
+                if row.link and row.itemLevel then
+                    local key = string.format("%d@%d", itemID, row.itemLevel)
+                    local entry = verdict.items[key]
+                    if entry and ns.UFImport.IsDropAtLevel(entry) and not out[key] then
+                        out[key] = { itemID = itemID, slot = row.slot }
+                    end
+                end
+            end
+        end
+        return out
+    end
+
+    it("leaves every row the table carries out of every metric, on the +6 document", function()
+        local ns, world, sources = fixtureWorld(function()
+            return dofile(FITTED)
+        end)
+        ns.db.global.developer.engineVerbose = true
+        local run = compare(ns, "compare dungeon 6")
+        local uf = run.result.uf
+        local verdict = ns.UFImport.ForContentTypeAndLevel("Dungeon", 6)
+        local trinkets, inTable, effectRows = 0, 0, 0
+        local oneHanders = {}
+        for _, row in pairs(joinedRows(ns, verdict, sources)) do
+            local carried = ns.engineEffects.items[row.itemID] ~= nil
+            if carried and row.slot == "1H Weapon" then
+                oneHanders[#oneHanders + 1] = row.itemID
+            end
+            if row.slot == "Trinket" then
+                trinkets = trinkets + 1
+                inTable = inTable + (carried and 1 or 0)
+            end
+            effectRows = effectRows + (carried and 1 or 0)
+        end
+        io.write(
+            string.format(
+                "\n[E-3a fixture run: engine compare dungeon 6 - %d joined, %d trinket rows, %d of them in the "
+                    .. "effects table, %d joined rows in the table; not rated %d, unknown %d, generic %d]\n%s\n",
+                uf.joined,
+                trinkets,
+                inTable,
+                effectRows,
+                uf.notRated,
+                uf.unknown,
+                uf.generic,
+                world.output()
+            )
+        )
+        -- As read from the run above.
+        assert.equal(84, uf.joined)
+        assert.equal(13, trinkets) -- the owner's +6 run compared 13 trinket rows too
+        assert.equal(17, effectRows) -- 13 trinkets, Gaze, Aqirbane and the two one-handers
+        assert.equal(13, inTable)
+        -- 15, not 17: the two one-handers (Jan'thrazet, Polished Lightwood
+        -- Channeler) beside the worn two-hander are `not comparable` first.
+        table.sort(oneHanders)
+        assert.same({ 271092, 273778 }, oneHanders)
+        assert.same({ ["not comparable"] = uf.notCompared }, uf.reasons)
+        assert.equal(15, uf.notRated)
+        assert.equal(0, uf.unknown)
+        assert.equal(0, uf.generic)
+        -- No metric holds a row whose item the table carries, and no trinket
+        -- row is in the class table.
+        for _, row in ipairs(uf.rows) do
+            local id = tonumber(row.key:match("^(%d+)@"))
+            assert.is_nil(ns.engineEffects.items[id], row.key)
+            assert.are_not.equal("trinket", row.class, row.key)
+        end
+        assert.is_nil(uf.metrics.trinket)
+        assert.equal(uf.notRated, #uf.notRatedItems)
+        local out = world.output()
+        assert.truthy(out:find(string.format("  not rated: %d (effect not modelled)\n", uf.notRated), 1, true))
+        assert.truthy(out:find("  generic: 0 (effect from a generic rule)\n", 1, true))
+        assert.truthy(out:find("  trinket: no row a rule covers yet\n", 1, true))
+        for _, item in ipairs(uf.notRatedItems) do
+            assert.truthy(out:find("    " .. item.names .. " (" .. item.key .. ")\n", 1, true), item.key)
+        end
+    end)
+
+    it("lists no names without the verbose switch, and the switch toggles", function()
+        local ns, world = fixtureWorld(function()
+            return dofile(FITTED)
+        end)
+        local run = compare(ns, "compare dungeon 6")
+        assert.is_true(run.result.uf.notRated > 0)
+        local out = world.output()
+        assert.truthy(out:find(string.format("  not rated: %d (effect not modelled)", run.result.uf.notRated), 1, true))
+        for _, item in ipairs(run.result.uf.notRatedItems) do
+            assert.is_nil(out:find("    " .. item.names .. " (" .. item.key .. ")", 1, true), item.key)
+        end
+        world.printed = {}
+        ns.HandleSlash("engine verbose")
+        assert.is_true(ns.db.global.developer.engineVerbose)
+        assert.truthy(world.output():find("engine verbose on", 1, true))
+        ns.HandleSlash("engine verbose")
+        assert.is_nil(ns.db.global.developer.engineVerbose)
     end)
 end)

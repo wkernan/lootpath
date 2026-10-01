@@ -472,13 +472,83 @@ describe("ns.EngineScore.SetValue", function()
         assert.is_true(r.tier.forced)
     end)
 
-    it("scores an item with an effect on its stats only, and says so", function()
-        local plain = assert(ns.EngineScore.SetValue({ vec("Trinket", { int = 150 }) }, opts()))
-        local marked = assert(ns.EngineScore.SetValue({ vec("Trinket", { int = 150 }, { effect = true }) }, opts()))
-        assert.equal(plain.value, marked.value)
+    -- E-3a (WKE-679): the effects table decides. Soulcoiler Ritual Vessel
+    -- (270162) is in the shipped table with no numbers; 999999 is in no table.
+    it("scores a trinket the table carries on its stats, and names its effect as not modelled", function()
+        local plain = assert(ns.EngineScore.SetValue({ vec("Head", { int = 150 }) }, opts()))
+        local marked = assert(ns.EngineScore.SetValue({ vec("Trinket", { int = 150 }, { itemID = 270162 }) }, opts()))
+        assert.equal(plain.value, marked.value) -- the stats still count
         assert.is_nil(plain.effectUnmodelled)
         assert.is_true(marked.effectUnmodelled)
+        assert.same({ { itemID = 270162, name = "Soulcoiler Ritual Vessel", kind = "heal_on_use" } }, marked.unmodelled)
         assert.same({}, marked.effects)
+        assert.is_nil(marked.effectUnknown)
+    end)
+
+    it("scores a trinket the table does not carry on plain stats, and says its effect is unknown", function()
+        local plain = assert(ns.EngineScore.SetValue({ vec("Head", { int = 150 }) }, opts()))
+        local r = assert(ns.EngineScore.SetValue({ vec("Trinket", { int = 150 }, { itemID = 999999 }) }, opts()))
+        assert.equal(plain.value, r.value)
+        assert.is_true(r.effectUnknown)
+        assert.same({ { itemID = 999999 } }, r.unknown)
+        assert.is_nil(r.effectUnmodelled)
+        -- A non-trinket the table does not carry is a plain item.
+        local head = assert(ns.EngineScore.SetValue({ vec("Head", { int = 150 }, { itemID = 999999 }) }, opts()))
+        assert.is_nil(head.effectUnknown)
+    end)
+
+    local function effectsWith(entry)
+        return {
+            schema = "lootpath-engine-effects",
+            version = 1,
+            items = { [42] = entry },
+            sets = {},
+        }
+    end
+
+    it("adds a modelled stat effect's vector to the totals before the conversion", function()
+        local effects = effectsWith({
+            name = "Hand-made",
+            slot = "Trinket",
+            kind = "stat_on_use",
+            confidence = "generic",
+            params = { stat = "haste", amount = 600, duration = 20, cooldown = 120 },
+        })
+        local bare = assert(ns.EngineScore.SetValue({ vec("Trinket", { int = 150 }) }, opts()))
+        local r = assert(
+            ns.EngineScore.SetValue({ vec("Trinket", { int = 150 }, { itemID = 42 }) }, opts({ effects = effects }))
+        )
+        -- 600 x 20 / 120 = 100 haste on average, by hand.
+        assert.equal(bare.totals.haste + 100, r.totals.haste)
+        assert.is_true(r.value > bare.value)
+        assert.equal(1, #r.effects)
+        assert.equal("generic", r.effects[1].confidence)
+        assert.same({ haste = 100 }, r.effects[1].stat)
+        assert.is_nil(r.effectUnmodelled)
+    end)
+
+    it("keeps a modelled healing effect beside the value, added only through hpsPerValue", function()
+        local effects = effectsWith({
+            name = "Hand-made",
+            slot = "Trinket",
+            kind = "heal_on_use",
+            confidence = "generic",
+            params = { amount = 90000, cooldown = 90, overheal = 0.2 },
+        })
+        local bare = assert(ns.EngineScore.SetValue({ vec("Trinket", { int = 150 }) }, opts()))
+        local items = { vec("Trinket", { int = 150 }, { itemID = 42 }) }
+        local kept = assert(ns.EngineScore.SetValue(items, opts({ effects = effects })))
+        -- 90000 x 0.8 / 90 = 800 hps, by hand; no rate in the file: not added.
+        assert.equal(800, kept.effects[1].hps)
+        assert.equal(bare.value, kept.value)
+        assert.is_true(kept.hpsNotAdded)
+        local file = dofile(WEIGHTS)
+        file.hpsPerValue = 4
+        local added = assert(ns.EngineScore.SetValue(items, opts({ effects = effects, file = file })))
+        local bareSame = assert(ns.EngineScore.SetValue({ vec("Trinket", { int = 150 }) }, opts({ file = file })))
+        -- 800 / 4 = 200 points of value before the tier multiplier.
+        near(bareSame.value + 200 * bareSame.tier.mult, added.value, "hps through hpsPerValue")
+        assert.is_nil(added.hpsNotAdded)
     end)
 
     it("is deterministic", function()
@@ -616,6 +686,39 @@ describe("ns.EngineScore.UpgradePercent", function()
         local p2, d2 = ns.EngineScore.UpgradePercent(swapped, ring, O())
         assert.same({ 3 }, d2.replaced)
         near(percent, p2, "either finger")
+    end)
+
+    -- E-3a: the flags speak about the swap. 270162 and 250214 are in the
+    -- shipped table with no numbers.
+    it("carries the effect flag for what the swap moves, not for what both sets wear", function()
+        local worn = { vec("Trinket", { int = 100 }, { itemID = 250214 }), vec("Trinket", { int = 50 }) }
+        -- A Soulcoiler coming in, over the plain trinket: not modelled, named.
+        local p, d = ns.EngineScore.UpgradePercent(worn, vec("Trinket", { int = 300 }, { itemID = 270162 }), O())
+        assert.is_number(p)
+        assert.is_true(d.effectUnmodelled)
+        assert.same({ 2 }, d.replaced)
+        local names = {}
+        for _, item in ipairs(d.unmodelled) do
+            names[#names + 1] = item.name
+        end
+        assert.same({ "Soulcoiler Ritual Vessel" }, names)
+        assert.is_true(d.wornEffectUnmodelled)
+        -- A head piece: Lightspire Core is worn on both sides, so the row stands.
+        local _, d2 = ns.EngineScore.UpgradePercent(
+            { vec("Head", { int = 100 }), vec("Trinket", { int = 100 }, { itemID = 250214 }) },
+            vec("Head", { int = 200 }),
+            O()
+        )
+        assert.is_nil(d2.effectUnmodelled)
+        assert.is_true(d2.wornEffectUnmodelled)
+        -- A plain trinket replacing Lightspire Core: what leaves is not modelled.
+        local _, d3 = ns.EngineScore.UpgradePercent(
+            { vec("Trinket", { int = 100 }, { itemID = 250214 }), vec("Trinket", { int = 900 }, { itemID = 270162 }) },
+            vec("Trinket", { int = 300 }, { itemID = 999999 }),
+            O()
+        )
+        assert.is_true(d3.effectUnmodelled)
+        assert.is_true(d3.effectUnknown)
     end)
 
     it("lets a two-hander displace both hands", function()

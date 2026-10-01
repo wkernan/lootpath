@@ -37,6 +37,14 @@
 --     (E-1a). The worn set's value is printed beside it.
 --   * Both are UNSCALED: Top Gear's constant 1.5 is not divided out. MAE is
 --     reported raw and after k, the least-squares scale of ours onto theirs.
+--   * Effects (E-3a, WKE-679): a row whose swap moves an item the effects
+--     table carries without a model (every entry today) is `not rated` and
+--     LEFT OUT of every metric - counted, and named under the count with
+--     `/lootpath engine verbose`; a row whose swap moves a trinket the table
+--     does not carry is left out too, counted apart. A row with a modelled
+--     effect stays in and is counted as `generic`. So the trinket class holds
+--     only rows a rule covers - none until the table carries numbers - and
+--     the report says so.
 
 local _, ns = ...
 
@@ -101,7 +109,9 @@ EngineCompare.TEXT = {
     notOn = "not on",
     off = "engine off",
     combat = "Out of combat only.",
-    usage = "usage: /lootpath engine compare [dungeon|raid] [keylevel] | compare weeks | off",
+    usage = "usage: /lootpath engine compare [dungeon|raid] [keylevel] | compare weeks | verbose | off",
+    verboseOn = "engine verbose on: each compare lists the items it could not rate.",
+    verboseOff = "engine verbose off.",
     header = "engine compare - weights %s, patch %s, derived %s - %s - week %s",
     notReady = "%d item(s) were not ready and are left out.",
     secret = "%d item(s) read secret and are left out.",
@@ -115,7 +125,11 @@ EngineCompare.TEXT = {
     tgNoLink = "Top Gear pass 1 %s: %d piece(s) of the best set have no link here; not compared.",
     tableHead = "  class      n    rho    top1  top3  sign   MAE    k      MAE@k",
     tableRow = "  %-9s %4d  %-6s %-5s %-5s %-6s %-6s %-6s %s",
+    generic = "  generic: %d (effect from a generic rule)",
     notRated = "  not rated: %d (effect not modelled)",
+    notRatedItem = "    %s (%s)",
+    unknown = "  not rated: %d (trinket not in the effects table)",
+    trinketNone = "  trinket: no row a rule covers yet",
     notCompared = "  not compared: %d (%s)",
     bar = "bar (printed, not enforced): %s",
     stored = "stored for week %s.",
@@ -136,6 +150,14 @@ end
 function EngineCompare.Enabled()
     local dev = developer()
     return dev ~= nil and dev.engine == true
+end
+
+-- `db.global.developer.engineVerbose`: the compare lists, under its not-rated
+-- count, the items whose effect is not modelled. A sibling of `engine`, which
+-- is a boolean and cannot carry a field (E-3a).
+function EngineCompare.Verbose()
+    local dev = developer()
+    return dev ~= nil and dev.engineVerbose == true
 end
 
 -- ---------------------------------------------------------------------------
@@ -614,7 +636,29 @@ local function wornVectors(inputs)
     return worn, missing
 end
 
+-- A row left out because an effect it moves is not modelled (E-3a): counted,
+-- and its items named for the verbose listing.
+local function notRated(block, key, unmodelled)
+    block.notRated = block.notRated + 1
+    local names = {}
+    for _, item in ipairs(unmodelled or {}) do
+        names[#names + 1] = tostring(item.name or item.itemID)
+    end
+    block.notRatedItems[#block.notRatedItems + 1] = { key = key, names = table.concat(names, ", ") }
+end
+
+local function newCounts(block)
+    block.notRated = 0
+    block.notRatedItems = {}
+    block.unknown = 0
+    block.generic = 0
+    return block
+end
+
 local function finishBlock(block, rows)
+    table.sort(block.notRatedItems, function(a, b)
+        return a.key < b.key
+    end)
     block.rows = sortRows(rows)
     block.metrics = EngineCompare.ClassMetrics(rows)
     return block
@@ -630,10 +674,10 @@ function EngineCompare.CompareUF(inputs, worn)
         joined = #join.joined,
         noLink = join.noLink,
         other = join.other,
-        notRated = 0,
         notCompared = 0,
         reasons = {},
     }
+    newCounts(block)
     bandOfBlock(block, inputs, document.keyLevel)
     local opts = scoreOpts(inputs.contentType, inputs.file, document.keyLevel)
     local rows = {}
@@ -648,8 +692,13 @@ function EngineCompare.CompareUF(inputs, worn)
             detail = "not ready"
         end
         if percent and type(detail) == "table" and detail.effectUnmodelled then
-            block.notRated = block.notRated + 1
+            notRated(block, pair.entry.key, detail.unmodelled)
+        elseif percent and type(detail) == "table" and detail.effectUnknown then
+            block.unknown = block.unknown + 1
         elseif percent then
+            if type(detail) == "table" and detail.generic then
+                block.generic = block.generic + 1
+            end
             rows[#rows + 1] = {
                 key = pair.entry.key,
                 slot = slot,
@@ -688,11 +737,11 @@ function EngineCompare.CompareTopGear(inputs, worn)
         notInPool = 0,
         noLink = 0,
         paired = 0,
-        notRated = 0,
         notCompared = 0,
         reasons = {},
     }
     local keyLevel = EngineCompare.TopGearLevel(inputs)
+    newCounts(block)
     bandOfBlock(block, inputs, keyLevel)
     local top, missing = {}, 0
     local topSet = verdict.topSet or {}
@@ -756,13 +805,25 @@ function EngineCompare.CompareTopGear(inputs, worn)
                         end
                     end
                     set[#set + 1] = cand
+                    -- What the swap moves: the alternative in, what it
+                    -- replaces out. An effect worn on both sides cancels.
+                    local moved = { cand }
+                    for _, i in ipairs(replaced) do
+                        moved[#moved + 1] = top[i]
+                    end
+                    local flags = ns.EngineScore.ChangeEffects(moved, opts.effects)
                     local scored, why = ns.EngineScore.SetValue(set, opts)
                     if not scored then
                         block.notCompared = block.notCompared + 1
                         block.reasons[why] = (block.reasons[why] or 0) + 1
-                    elseif scored.effectUnmodelled or base.effectUnmodelled then
-                        block.notRated = block.notRated + 1
+                    elseif flags.effectUnmodelled then
+                        notRated(block, item.key, flags.unmodelled)
+                    elseif flags.effectUnknown then
+                        block.unknown = block.unknown + 1
                     else
+                        if flags.generic then
+                            block.generic = block.generic + 1
+                        end
                         rows[#rows + 1] = {
                             key = item.key,
                             slot = item.slot,
@@ -857,11 +918,28 @@ local function reasonsText(reasons)
     return table.concat(parts, ", ")
 end
 
-local function blockTail(lines, block)
+-- After the class table: the trinket line when no trinket row is in it (the
+-- class holds only rows a rule covers - none until the effects table carries
+-- numbers), the generic count, the not-rated count with its items under it
+-- when verbose, and the trinkets the table does not carry.
+local function blockTail(lines, block, verbose)
+    local T = EngineCompare.TEXT
     for _, line in ipairs(EngineCompare.TableLines(block.metrics)) do
         lines[#lines + 1] = line
     end
-    lines[#lines + 1] = string.format(EngineCompare.TEXT.notRated, block.notRated)
+    if not block.metrics.trinket then
+        lines[#lines + 1] = T.trinketNone
+    end
+    lines[#lines + 1] = string.format(T.generic, block.generic or 0)
+    lines[#lines + 1] = string.format(T.notRated, block.notRated)
+    if verbose then
+        for _, item in ipairs(block.notRatedItems or {}) do
+            lines[#lines + 1] = string.format(T.notRatedItem, item.names, item.key)
+        end
+    end
+    if (block.unknown or 0) > 0 then
+        lines[#lines + 1] = string.format(T.unknown, block.unknown)
+    end
     if block.notCompared > 0 then
         lines[#lines + 1] = string.format(EngineCompare.TEXT.notCompared, block.notCompared, reasonsText(block.reasons))
     end
@@ -911,7 +989,7 @@ function EngineCompare.Lines(run)
             uf.noLink,
             uf.other
         )
-        blockTail(lines, uf)
+        blockTail(lines, uf, run.verbose)
     elseif run.noDocument then
         lines[#lines + 1] = string.format(T.ufNone, run.contentType, tostring(run.askedLevel or "any key level"))
     end
@@ -932,7 +1010,7 @@ function EngineCompare.Lines(run)
             fmt(tg.wornValue, "%.1f"),
             fmt(tg.topValue, "%.1f")
         )
-        blockTail(lines, tg)
+        blockTail(lines, tg, run.verbose)
     else
         lines[#lines + 1] = string.format(T.tgNone, run.contentType)
     end
@@ -1136,6 +1214,9 @@ local function entryOf(block, file)
         band = block.band,
         rows = block.rows,
         metrics = block.metrics,
+        notRated = block.notRated,
+        generic = block.generic,
+        unknown = block.unknown,
     }
 end
 
@@ -1171,6 +1252,7 @@ function EngineCompare.Run(contentType, keyLevel, onDone)
             secret = secret,
             noWalk = inputs.journalByKey == nil,
             noDocument = inputs.document == nil,
+            verbose = EngineCompare.Verbose(),
             result = result,
         }
         if run.weekKey then
@@ -1234,6 +1316,12 @@ function EngineCompare.Command(rest, onDone)
     if words[1] == "off" then
         developer().engine = nil
         ns.Log("%s", EngineCompare.TEXT.off)
+        return
+    end
+    if words[1] == "verbose" then
+        local dev = developer() or {} -- Enabled() above means it is there
+        dev.engineVerbose = (dev.engineVerbose ~= true) or nil
+        ns.Log("%s", dev.engineVerbose and EngineCompare.TEXT.verboseOn or EngineCompare.TEXT.verboseOff)
         return
     end
     if words[1] ~= "compare" then
