@@ -18,13 +18,17 @@ describe("captures", function()
         H.unload()
     end)
 
-    it("registers env, inventory, vault, currencies, glow, upgrade and journal in that order", function()
+    it("registers env, inventory, vault, currencies, glow, upgrade, itemstats and journal in that order", function()
         -- `journal` registers in Modules/Journal.lua, which the .toc loads
         -- after this file, so it comes last. R-0's `spike` was the sixth and
         -- went away with R-2 (WKE-563), which is the surface it measured;
         -- `glow` is R-2a's (WKE-571) and `upgrade` M3-17's (WKE-574), and both
-        -- register here, at the end of this file.
-        assert.same({ "env", "inventory", "vault", "currencies", "glow", "upgrade", "journal" }, ns.captureOrder)
+        -- register here, at the end of this file; `itemstats` is E-0a's
+        -- (WKE-675) and registers after them.
+        assert.same(
+            { "env", "inventory", "vault", "currencies", "glow", "upgrade", "itemstats", "journal" },
+            ns.captureOrder
+        )
     end)
 
     describe("env", function()
@@ -1099,6 +1103,480 @@ describe("captures", function()
             assert.is_nil(_G.C_ItemUpgrade.UpgradeItem)
             assert.is_nil(_G.C_ItemUpgrade.CloseItemUpgrade)
             assert.is_nil(_G.C_ItemUpgrade.SetItemUpgradeFromCursorItem)
+        end)
+    end)
+
+    -- E-0a (WKE-675). `capture itemstats` reads; it computes nothing. Every
+    -- stat table, gem, rating figure and tooltip line below is a PLACEHOLDER in
+    -- the wiki's shape (`spec/stubs/wow.lua`, `world.itemStats`), to be replaced
+    -- by the owner's transcript once it is committed under
+    -- `spec/fixtures/captures/`. What these tests hold is the capture's own
+    -- behaviour: which links it walks, what it records about each, the bounds,
+    -- combat, and secrets.
+    describe("itemstats", function()
+        -- The worn helm carries a gem in field 3; blanking fields 2-6 gives
+        -- back exactly HELM, which is the "stripped" link.
+        local GEMMED_HELM = "|cffa335ee|Hitem:210001::240892::::::80:105::13:2:1:2::::::|h[Test Helm]|h|r"
+        local GEM_LINK = "|cff0070dd|Hitem:240892::::::::80:105::::::::|h[Test Gem]|h|r"
+        local JUNK = "|cffffffff|Hitem:210009::::::::80:105::::::::|h[Test Junk]|h|r"
+
+        local function journalLink(itemID)
+            return string.format("|cffa335ee|Hitem:%d::::::::80:105::13:1:5::::::|h[Drop %d]|h|r", itemID, itemID)
+        end
+
+        -- A cached walk across four instances: per instance three trinkets
+        -- and twelve armour rows, sixty rows with a link and one pending row
+        -- (no link) that the sample must skip.
+        local function journalCache(opts)
+            opts = opts or {}
+            local sources = {}
+            local nextID = 300000
+            for instance = 1, (opts.instances or 4) do
+                for n = 1, (opts.perInstance or 15) do
+                    nextID = nextID + 1
+                    local trinket = n <= (opts.trinketsPerInstance or 3)
+                    sources[nextID] = {
+                        {
+                            instanceID = 1000 + instance,
+                            instanceName = "Instance " .. instance,
+                            encounterID = 2000 + n,
+                            difficultyID = 8,
+                            itemLevel = 272,
+                            slot = trinket and "Trinket" or "Chest",
+                            isRaid = false,
+                            link = journalLink(nextID),
+                        },
+                    }
+                end
+            end
+            sources[399999] = { { instanceID = 1001, encounterID = 2001, difficultyID = 8, pending = true } }
+            return { ["69587|1|105|8"] = { build = 69587, walkAt = 1, shape = 2, sources = sources } }
+        end
+
+        local function cacheAllJournalItems(cache)
+            for _, entry in pairs(cache) do
+                for itemID in pairs(entry.sources) do
+                    world.itemDataCached[itemID] = true
+                end
+            end
+        end
+
+        local function itemsFrom(data, source)
+            local out = {}
+            for _, item in ipairs(data.items) do
+                if item.source == source then
+                    out[#out + 1] = item
+                end
+            end
+            return out
+        end
+
+        before_each(function()
+            world.equipped[1] = { link = GEMMED_HELM, id = 210001 }
+            world.items[GEMMED_HELM] = {
+                level = 610,
+                -- GetItemInfo's 12.1.0 order; 16 is setID (1234 here).
+                info = {
+                    "Test Helm",
+                    GEMMED_HELM,
+                    4,
+                    610,
+                    80,
+                    "Armor",
+                    "Leather",
+                    1,
+                    "INVTYPE_HEAD",
+                    1,
+                    0,
+                    4,
+                    2,
+                    1,
+                    11,
+                    1234,
+                    false,
+                    n = 17,
+                },
+                instant = { 210001, "Armor", "Leather", "INVTYPE_HEAD", 1, 4, 2 },
+            }
+            world.itemDataCached[210001] = true
+            world.itemStats[GEMMED_HELM] = {
+                ITEM_MOD_INTELLECT_SHORT = 900,
+                ITEM_MOD_HASTE_RATING_SHORT = 400,
+                ITEM_MOD_STAMINA_SHORT = 2000,
+            }
+            world.itemStats[HELM] = {
+                ITEM_MOD_INTELLECT_SHORT = 900,
+                ITEM_MOD_HASTE_RATING_SHORT = 400,
+                ITEM_MOD_STAMINA_SHORT = 2000,
+            }
+            world.itemSockets[GEMMED_HELM] = 1
+            world.itemGems[GEMMED_HELM] = { { name = "Test Gem", link = GEM_LINK, id = 240892 } }
+            world.itemStats[GEM_LINK] = { ITEM_MOD_HASTE_RATING_SHORT = 150 }
+            world.itemUniqueness[GEMMED_HELM] = { 0, 0 }
+            world.itemUniquenessByID[210001] = { false }
+
+            -- Bags: a ring (gear, kept) and a junk item (no slot, skipped).
+            world.bags[0] = {
+                numSlots = 4,
+                items = {
+                    [2] = { link = JUNK, id = 210009 },
+                    [3] = { link = RING, id = 210002 },
+                },
+            }
+            world.items[RING] =
+                { level = 600, instant = { 210002, "Armor", "Miscellaneous", "INVTYPE_FINGER", 1, 4, 0 } }
+            world.items[JUNK] =
+                { level = 1, instant = { 210009, "Junk", "Junk", "INVTYPE_NON_EQUIP_IGNORE", 1, 15, 0 } }
+            world.itemDataCached[210002] = true
+            world.itemDataCached[210009] = true
+
+            -- Vault: one option carrying one item reward.
+            world.vault.activities = {
+                {
+                    type = 1,
+                    index = 1,
+                    threshold = 1,
+                    progress = 4,
+                    id = 11,
+                    level = 10,
+                    rewards = { { type = 1, id = 210003, quantity = 1, itemDBID = "9001" } },
+                },
+            }
+            world.vault.links["9001"] = VAULT_ITEM
+            world.items[VAULT_ITEM] =
+                { level = 623, instant = { 210003, "Armor", "Leather", "INVTYPE_CHEST", 1, 4, 2 } }
+            world.itemDataCached[210003] = true
+
+            local cache = journalCache()
+            cacheAllJournalItems(cache)
+            ns.db.global.journalCache = cache
+        end)
+
+        it("registers after upgrade and before journal", function()
+            assert.same(
+                { "env", "inventory", "vault", "currencies", "glow", "upgrade", "itemstats", "journal" },
+                ns.captureOrder
+            )
+        end)
+
+        it("refuses when no journal walk is cached, and reads nothing", function()
+            ns.db.global.journalCache = {}
+            local result = ns.RunCapture("itemstats")
+            assert.is_false(result.ok)
+            assert.equal("capture 'itemstats' " .. ns.ITEMSTATS_NO_JOURNAL, result.reason)
+            assert.is_nil(ns.db.global.captures.itemstats)
+            assert.same({}, world.itemStatsCalls)
+            assert.same({}, world.ratingBonusCalls)
+        end)
+
+        it("refuses in combat, and reads nothing", function()
+            world.inCombat = true
+            local result = ns.RunCapture("itemstats")
+            assert.is_false(result.ok)
+            assert.equal("combat", result.reason)
+            assert.is_nil(ns.db.global.captures.itemstats)
+            assert.same({}, world.itemStatsCalls)
+        end)
+
+        it("records what the client says about a worn item, raw", function()
+            local result = ns.RunCapture("itemstats")
+            assert.is_true(result.ok)
+            assert.is_false(result.snapshot.sawSecret)
+            local worn = itemsFrom(result.snapshot.data, "worn")
+            assert.equal(1, #worn)
+            local helm = worn[1]
+            assert.equal(1, helm.invSlot)
+            assert.equal(GEMMED_HELM, helm.link)
+            assert.equal(210001, helm.itemID)
+            assert.same({ 240892 }, helm.linkFinish.gems)
+            assert.is_true(helm.cachedBefore[1])
+            assert.is_true(helm.cachedAtRead[1])
+            assert.is_nil(helm.waited)
+            assert.equal(900, helm.stats[1].ITEM_MOD_INTELLECT_SHORT)
+            assert.equal(400, helm.stats[1].ITEM_MOD_HASTE_RATING_SHORT)
+            -- The enchant and gem fields blanked, and the answer for that link.
+            assert.equal(HELM, helm.strippedLink)
+            assert.equal(900, helm.strippedStats[1].ITEM_MOD_INTELLECT_SHORT)
+            assert.is_true(helm.strippedEqual)
+            assert.equal(1, helm.numSockets[1])
+            assert.equal(1, #helm.gems)
+            assert.equal("Test Gem", helm.gems[1].gem[1])
+            assert.equal(GEM_LINK, helm.gems[1].gem[2])
+            assert.equal(240892, helm.gems[1].gemID[1])
+            assert.equal(150, helm.gems[1].gemStats[1].ITEM_MOD_HASTE_RATING_SHORT)
+            assert.equal(610, helm.detailedLevel[1])
+            assert.equal(1234, helm.info.setID)
+            assert.equal(4, helm.info.classID)
+            assert.equal(2, helm.info.subclassID)
+            assert.equal("INVTYPE_HEAD", helm.info.itemEquipLoc)
+            assert.equal(0, helm.uniqueness[1])
+            assert.is_false(helm.uniquenessByID[1])
+        end)
+
+        it("says so when the stripped link's stats differ", function()
+            world.itemStats[HELM] = { ITEM_MOD_INTELLECT_SHORT = 900, ITEM_MOD_STAMINA_SHORT = 2000 }
+            local data = ns.RunCapture("itemstats").snapshot.data
+            assert.is_false(itemsFrom(data, "worn")[1].strippedEqual)
+        end)
+
+        it("takes bag items with a slot in QE Live's vocabulary and skips the rest", function()
+            local data = ns.RunCapture("itemstats").snapshot.data
+            local bag = itemsFrom(data, "bag")
+            assert.equal(1, #bag)
+            assert.equal(RING, bag[1].link)
+            assert.equal("Finger", bag[1].slot)
+            assert.equal(0, bag[1].bag)
+            assert.equal(3, bag[1].slotIndex)
+            for _, item in ipairs(data.items) do
+                assert.not_equal(JUNK, item.link)
+            end
+        end)
+
+        it("takes every vault option that carries a link", function()
+            local data = ns.RunCapture("itemstats").snapshot.data
+            local vault = itemsFrom(data, "vault")
+            assert.equal(1, #vault)
+            assert.equal(VAULT_ITEM, vault[1].link)
+            assert.equal(11, vault[1].activityID)
+            assert.equal(623, vault[1].detailedLevel[1])
+            assert.is_nil(data.vaultNote)
+        end)
+
+        it("bounds the journal sample, spans the instances and carries trinkets and armour", function()
+            local data = ns.RunCapture("itemstats").snapshot.data
+            local journal = itemsFrom(data, "journal")
+            assert.equal(ns.ITEMSTATS_JOURNAL_MAX, #journal)
+            assert.equal(40, #journal)
+            assert.equal(60, data.journal.rowsWithLink)
+            assert.equal(40, data.journal.taken)
+            assert.equal(4, data.journal.instances)
+            -- Six trinkets are taken first (the tooltip bound); the round-robin
+            -- after them takes the other six with everything else.
+            assert.equal(12, data.journal.bySlot.Trinket)
+            assert.equal(28, data.journal.bySlot.Chest)
+            -- The first four are trinkets from four different instances.
+            local seen = {}
+            for i = 1, 4 do
+                assert.equal("Trinket", journal[i].slot)
+                seen[journal[i].instanceID] = true
+            end
+            assert.same({ [1001] = true, [1002] = true, [1003] = true, [1004] = true }, seen)
+            assert.equal(8, journal[1].difficultyID)
+            assert.equal(272, journal[1].journalItemLevel)
+        end)
+
+        it("takes fewer than the bound when the cache holds fewer, and never a row without a link", function()
+            local cache = journalCache({ instances = 3, perInstance = 4, trinketsPerInstance = 1 })
+            cacheAllJournalItems(cache)
+            ns.db.global.journalCache = cache
+            local data = ns.RunCapture("itemstats").snapshot.data
+            assert.equal(12, #itemsFrom(data, "journal"))
+            assert.equal(3, data.journal.instances)
+            assert.equal(3, data.journal.bySlot.Trinket)
+            for _, item in ipairs(data.items) do
+                assert.is_string(item.link)
+            end
+        end)
+
+        it("reads each rating, its conversion, and the conversion at the six fixed values", function()
+            local rating = ns.RunCapture("itemstats").snapshot.data.rating
+            local haste = rating.ratings.haste
+            assert.equal(20, haste.index)
+            assert.equal("CR_HASTE_SPELL", haste.constant)
+            assert.is_false(haste.fromGlobal)
+            assert.equal(1100, haste.rating[1])
+            assert.equal(25, haste.bonus[1])
+            assert.equal(25, haste.bonusForCurrent[1])
+            local values = {}
+            for i, entry in ipairs(haste.at) do
+                values[i] = entry.value
+            end
+            assert.same({ 660, 1320, 1760, 2200, 2640, 3080 }, values)
+            -- The stub is linear on purpose; the transcript says what the client does.
+            assert.equal(30, haste.at[2].bonus[1])
+            assert.equal(60, haste.at[5].bonus[1])
+            assert.equal(11, rating.ratings.crit.index)
+            assert.equal(26, rating.ratings.mastery.index)
+            assert.equal(29, rating.ratings.versatility.index)
+            assert.equal(17, rating.ratings.leech.index)
+            assert.equal(30.5, rating.masteryEffect[1])
+            assert.equal(1.25, rating.masteryEffect[2])
+            assert.equal(4000, rating.spellBonusHealing[1])
+            assert.equal(3000, rating.intellect[1])
+            assert.is_true(rating.hasSecretRestrictions[1])
+            assert.is_false(rating.shouldUnitStatsBeSecret[1])
+            assert.is_true(rating.combatLogRestricted[1])
+        end)
+
+        it("uses the client's own rating constant when it defines one", function()
+            _G.CR_MASTERY = 26
+            local mastery = ns.RunCapture("itemstats").snapshot.data.rating.ratings.mastery
+            _G.CR_MASTERY = nil
+            assert.is_true(mastery.fromGlobal)
+            assert.equal(26, mastery.index)
+        end)
+
+        it("masks a secret stat table, says it saw one, and does not compare it", function()
+            world.itemStats[GEMMED_HELM] = world.secretTable("stats")
+            local result = ns.RunCapture("itemstats")
+            assert.is_true(result.ok)
+            assert.is_true(result.snapshot.sawSecret)
+            local helm = itemsFrom(result.snapshot.data, "worn")[1]
+            assert.equal(ns.MARKERS.secretTable, helm.stats[1])
+            assert.is_nil(helm.strippedEqual)
+        end)
+
+        it("masks a secret rating and asks no conversion of it", function()
+            world.combatRatings[20] = world.secret("haste")
+            local result = ns.RunCapture("itemstats")
+            assert.is_true(result.snapshot.sawSecret)
+            local haste = result.snapshot.data.rating.ratings.haste
+            assert.equal(ns.MARKERS.secret, haste.rating[1])
+            assert.equal("the current rating was not a number", haste.bonusForCurrent.skipped)
+        end)
+
+        it("reads up to six trinket tooltips from the journal sample, line type and left text", function()
+            local cache = ns.db.global.journalCache
+            local trinketLink
+            for _, list in pairs(cache["69587|1|105|8"].sources) do
+                if list[1].slot == "Trinket" and list[1].instanceID == 1001 and list[1].encounterID == 2001 then
+                    trinketLink = list[1].link
+                end
+            end
+            world.tooltipData[trinketLink] = {
+                lines = {
+                    { type = 0, leftText = "Drop" },
+                    { type = 1, leftText = world.markSecret("Use: heals for 12,345") },
+                },
+            }
+            local result = ns.RunCapture("itemstats")
+            local tooltips = result.snapshot.data.tooltips
+            assert.equal(ns.ITEMSTATS_TOOLTIP_MAX, #tooltips)
+            assert.equal(6, #world.tooltipCalls)
+            assert.equal(trinketLink, tooltips[1].link)
+            assert.same({ type = 0, leftText = "Drop" }, tooltips[1].lines[1])
+            assert.equal(ns.MARKERS.secret, tooltips[1].lines[2].leftText)
+            assert.is_true(result.snapshot.sawSecret)
+            -- A trinket the client answers nothing for is recorded as that.
+            assert.is_nil(tooltips[2].lines)
+            assert.equal(1, tooltips[2].data.n)
+        end)
+
+        describe("an item whose data is not cached", function()
+            local COLD_ID = 300001
+
+            before_each(function()
+                world.itemDataCached[COLD_ID] = nil
+            end)
+
+            it("asks for it, waits, and reads it once the client answers", function()
+                local result = ns.RunCapture("itemstats")
+                assert.is_true(result.pending)
+                assert.is_nil(ns.db.global.captures.itemstats)
+                assert.same({ COLD_ID }, world.itemDataRequests)
+                assert.same({}, world.itemStatsCalls)
+
+                world.itemDataCached[COLD_ID] = true
+                world.fireEvent("ITEM_DATA_LOAD_RESULT", COLD_ID, true)
+
+                local data = ns.db.global.captures.itemstats[1].data
+                assert.equal(1, data.requested)
+                assert.is_false(data.waitTimedOut)
+                local cold
+                for _, item in ipairs(data.items) do
+                    if item.itemID == COLD_ID then
+                        cold = item
+                    end
+                end
+                assert.is_false(cold.cachedBefore[1])
+                assert.is_true(cold.waited)
+                assert.is_false(cold.gaveUp)
+                assert.is_true(cold.cachedAtRead[1])
+            end)
+
+            it("gives up inside the bound and records the row as still uncached", function()
+                assert.is_true(ns.RunCapture("itemstats").pending)
+                world.runTimers(ns.ITEMSTATS_WAIT_SECONDS)
+                local snapshot = ns.db.global.captures.itemstats[1]
+                assert.is_number(ns.ITEMSTATS_WAIT_SECONDS)
+                assert.is_true(ns.ITEMSTATS_WAIT_SECONDS <= 5)
+                local cold
+                for _, item in ipairs(snapshot.data.items) do
+                    if item.itemID == COLD_ID then
+                        cold = item
+                    end
+                end
+                assert.is_true(cold.waited)
+                assert.is_true(cold.gaveUp)
+                assert.is_false(cold.cachedAtRead[1])
+                -- Read anyway: the client's answer for an uncached link is a finding.
+                assert.is_table(cold.stats)
+            end)
+
+            it("stores nothing when combat starts during the wait", function()
+                local final
+                ns.RunCapture("itemstats", function(r)
+                    final = r
+                end)
+                world.inCombat = true
+                world.runTimers(ns.ITEMSTATS_WAIT_SECONDS + 1)
+                assert.is_false(final.ok)
+                assert.equal(
+                    "capture 'itemstats' stopped: combat started while it waited for item data; nothing stored",
+                    final.reason
+                )
+                assert.is_nil(ns.db.global.captures.itemstats)
+                assert.same({}, world.itemStatsCalls)
+            end)
+        end)
+
+        it("names every client function it may call", function()
+            local data = ns.RunCapture("itemstats").snapshot.data
+            assert.same(ns.ITEMSTATS_FUNCTION_NAMES, data.functionNames)
+            assert.same({
+                "ns.Companion.CurrentSpecID",
+                "ns.ItemData.Instant",
+                "ns.ItemData.SpecFit",
+                "ns.ItemData.Watch",
+                "ns.Vault.Options",
+            }, data.moduleReads)
+        end)
+
+        -- The source half: every `C_Namespace.Function` the capture's own code
+        -- mentions is on its list, and nothing that changes a window or the
+        -- journal's view is in it at all. Comments are left out of the scan.
+        it("calls nothing in its source that its list does not name, and nothing that acts", function()
+            local source = assert(io.open("Lootpath/Captures.lua")):read("*a")
+            local start = assert(source:find("-- itemstats (E-0a, WKE-675)", 1, true))
+            local section = source:sub(start)
+            local named = {}
+            for _, name in ipairs(ns.ITEMSTATS_FUNCTION_NAMES) do
+                named[name] = true
+            end
+            local code = {}
+            for line in section:gmatch("[^\n]*") do
+                code[#code + 1] = (line:gsub("%-%-.*$", ""))
+            end
+            local body = table.concat(code, "\n")
+            -- The bound's timer schedules; it reads nothing about the client.
+            named["C_Timer.After"] = true
+            local found = 0
+            for name in body:gmatch("C_[%w_]+%.[%w_]+") do
+                found = found + 1
+                assert.is_true(named[name] == true, name .. " is called but not named")
+            end
+            assert.is_true(found > 0)
+            for _, forbidden in ipairs({
+                "SetItemUpgradeFromLocation",
+                "ClearItemUpgrade",
+                "OnUIInteract",
+                "EJ_",
+                "RequestLoadItemDataByID",
+                "EquipItemByName",
+                "PickupContainerItem",
+            }) do
+                assert.is_nil(body:find(forbidden, 1, true), forbidden)
+            end
         end)
     end)
 end)

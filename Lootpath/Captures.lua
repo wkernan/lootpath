@@ -31,6 +31,11 @@
 -- upgradeable item there, reads the crest type and cost, and clears the window
 -- again. Nothing is bought, nothing is upgraded, nothing moves; the full
 -- reasoning is above that capture.
+--
+-- `itemstats` (E-0a, WKE-675) is purely a read again: item stats, gems,
+-- sockets, set ID and uniqueness for worn, bag, vault and CACHED journal links,
+-- and the client's rating conversion for values the character does not have.
+-- It opens no window and changes no view; the full list is above it.
 
 local _, ns = ...
 
@@ -1108,6 +1113,602 @@ ns.RegisterCapture(
             C_Timer.After(ns.UPGRADE_SETTLE_SECONDS, stop)
         else
             stop()
+        end
+    end,
+    { async = true }
+)
+
+-- itemstats (E-0a, WKE-675): what the client answers about an item's stats,
+-- gems, sockets, set ID and uniqueness, and what its rating conversion answers
+-- for a value the character does not have. The transcript every own-engine
+-- piece is built against (ARCHITECTURE.md §7, 2026-09-30 late night, point 5;
+-- `docs/OWN-ENGINE.md` §3). It computes nothing: every number in the snapshot is
+-- one the client said, and the one comparison it makes - whether a link's stats
+-- equal the same link's stats with the enchant and gems blanked - is a yes or
+-- no about two client answers, not a value.
+--
+-- **Purely a read.** It opens nothing, selects nothing and puts nothing in any
+-- window: the journal half reads the walk `capture journal` already CACHED in
+-- `db.global.journalCache` and never touches the Adventure Guide (an empty cache
+-- refuses the capture with `ns.ITEMSTATS_NO_JOURNAL`); the vault half reads
+-- `ns.Vault.Options({ request = false })`; the upgrade vendor is not involved.
+-- Refused in combat by `ns.RunCapture`, and refused again if combat started
+-- while it waited for item data, so nothing is read in combat.
+--
+-- What it walks: every worn item; every bag item with a slot in QE Live's
+-- vocabulary (`ns.ItemData.Instant(link).slot`); every vault option that
+-- carries a link; and up to `ns.ITEMSTATS_JOURNAL_MAX` journal rows, chosen by
+-- `ns.ItemStatsJournalSample` (trinkets first, then round-robin across
+-- instances, so the sample spans every instance the cache holds before it takes
+-- a second row from any). Items whose data is not cached are asked for through
+-- `ns.ItemData.Watch` and waited on for at most `ns.ITEMSTATS_WAIT_SECONDS` in
+-- all; a row still uncached is read anyway and says so (`cachedAtRead`).
+--
+-- Every client function this capture calls, with the exported documentation
+-- line it comes from (Ketho's annotations under `.luals/.../Blizzard_API
+-- DocumentationGenerated/`, read 2026-09-30). The shapes are recorded raw: the
+-- annotations give `GetItemStats` only as `LuaValueVariant statTable`, so the
+-- transcript is what says what the table holds.
+--
+--   ItemDocumentation.lua:126        C_Item.GetDetailedItemLevelInfo(itemInfo)
+--   ItemDocumentation.lua:187        C_Item.GetItemGem(hyperlink, index) -> gemName, gemLink
+--   ItemDocumentation.lua:193        C_Item.GetItemGemID(itemInfo, index) -> gemID
+--   ItemDocumentation.lua:240        C_Item.GetItemInfo(itemInfo) (setID is return 16)
+--   ItemDocumentation.lua:321        C_Item.GetItemNumSockets(itemInfo) -> socketCount
+--   ItemDocumentation.lua:366        C_Item.GetItemStats(itemLink) -> statTable
+--   ItemDocumentation.lua:379        C_Item.GetItemUniqueness(itemInfo) -> limitCategory, limitMax
+--   ItemDocumentation.lua:387        C_Item.GetItemUniquenessByID(itemInfo)
+--                                      -> isUnique, limitCategoryName?, limitCategoryCount?, limitCategoryID?
+--   ItemDocumentation.lua:545        C_Item.IsItemDataCachedByID(itemInfo) -> isCached
+--   PlayerScriptDocumentation.lua:134 GetCombatRating(ratingIndex)
+--   PlayerScriptDocumentation.lua:139 GetCombatRatingBonus(ratingIndex)
+--   PlayerScriptDocumentation.lua:145 GetCombatRatingBonusForCombatRatingValue(ratingIndex, value)
+--   PlayerScriptDocumentation.lua:219 GetMasteryEffect()
+--   PlayerScriptDocumentation.lua:385 GetSpellBonusHealing()
+--   UnitDocumentation.lua:1130       UnitStat(unit, index)
+--   SecretPredicateAPIDocumentation.lua:44  C_Secrets.HasSecretRestrictions()
+--   SecretPredicateAPIDocumentation.lua:183 C_Secrets.ShouldUnitStatsBeSecret()
+--   CombatLogDocumentation.lua:31    C_CombatLog.IsCombatLogRestricted()
+--   TooltipInfoDocumentation.lua:121 C_TooltipInfo.GetHyperlink(hyperlink, ...)
+--
+-- plus the inventory read and the two container reads the other captures
+-- already make. The addon's own readers it goes through name their client
+-- calls in their own files: `ns.ItemData.Instant` / `SpecFit` / `Watch`
+-- (ItemData.FUNCTION_NAMES), `ns.Vault.Options` (Vault.FUNCTION_NAMES) and
+-- `ns.Companion.CurrentSpecID`. Nothing is found by walking a namespace.
+local ITEMSTATS_FUNCTION_NAMES = {
+    "C_CombatLog.IsCombatLogRestricted",
+    "C_Container.GetContainerItemLink",
+    "C_Container.GetContainerNumSlots",
+    "C_Item.GetDetailedItemLevelInfo",
+    "C_Item.GetItemGem",
+    "C_Item.GetItemGemID",
+    "C_Item.GetItemInfo",
+    "C_Item.GetItemNumSockets",
+    "C_Item.GetItemStats",
+    "C_Item.GetItemUniqueness",
+    "C_Item.GetItemUniquenessByID",
+    "C_Item.IsItemDataCachedByID",
+    "C_Secrets.HasSecretRestrictions",
+    "C_Secrets.ShouldUnitStatsBeSecret",
+    "C_TooltipInfo.GetHyperlink",
+    "GetCombatRating",
+    "GetCombatRatingBonus",
+    "GetCombatRatingBonusForCombatRatingValue",
+    "GetInventoryItemLink",
+    "GetMasteryEffect",
+    "GetSpellBonusHealing",
+    "UnitStat",
+}
+ns.ITEMSTATS_FUNCTION_NAMES = ITEMSTATS_FUNCTION_NAMES
+
+-- The addon readers it calls, each of which names its own client calls.
+local ITEMSTATS_MODULE_READS = {
+    "ns.Companion.CurrentSpecID",
+    "ns.ItemData.Instant",
+    "ns.ItemData.SpecFit",
+    "ns.ItemData.Watch",
+    "ns.Vault.Options",
+}
+
+-- The bounds. 40 journal rows and 6 trinket tooltips are the issue's numbers;
+-- the wait is "a few seconds in all", and ItemData's own per-item bound (8 x
+-- 0.25 s) sits inside it.
+ns.ITEMSTATS_JOURNAL_MAX = 40
+ns.ITEMSTATS_TOOLTIP_MAX = 6
+ns.ITEMSTATS_WAIT_SECONDS = 3
+
+-- Rating values the conversion is asked about beside the character's own.
+-- 1320 and 2640 are the pair that settle diminishing returns for haste: at 44
+-- rating per percent (`docs/OWN-ENGINE.md` §3, graded (ii)) an undiminished
+-- conversion answers 30 and 60, and one with the published penalty answers
+-- about 30 and about 56. The transcript says which; nothing here assumes it.
+ns.ITEMSTATS_RATING_VALUES = { 660, 1320, 1760, 2200, 2640, 3080 }
+
+-- The five secondary ratings, by Blizzard's own constant names
+-- (PaperDollFrame.lua.annotated.lua:14-32 under .luals/). The live constant is
+-- read when the client defines it, and the annotated number stands in when it
+-- does not; `fromGlobal` says which happened.
+local ITEMSTATS_RATINGS = {
+    { key = "haste", constant = "CR_HASTE_SPELL", index = 20 },
+    { key = "crit", constant = "CR_CRIT_SPELL", index = 11 },
+    { key = "mastery", constant = "CR_MASTERY", index = 26 },
+    { key = "versatility", constant = "CR_VERSATILITY_DAMAGE_DONE", index = 29 },
+    { key = "leech", constant = "CR_LIFESTEAL", index = 17 },
+}
+
+-- Intellect, as `UnitStat` indexes it (strength 1, agility 2, stamina 3,
+-- intellect 4).
+local ITEMSTATS_INTELLECT_INDEX = 4
+
+ns.ITEMSTATS_NO_JOURNAL = "needs a cached journal walk - run /lootpath capture journal first"
+
+-- The same link with the enchant and all four gem fields blanked
+-- (`item:<id>:::::`, the item string's fields 2-6 by ns.ParseItemLink's count):
+-- what `GetItemStats` answers for it, beside what it answers for the link as
+-- worn, says whether gems and enchant are inside the stat table. nil for a
+-- string that is not an item link.
+function ns.ItemStatsStrippedLink(link)
+    if type(link) ~= "string" then
+        return nil
+    end
+    local stripped, count = link:gsub("item:(%d+):[^:|]*:[^:|]*:[^:|]*:[^:|]*:[^:|]*", "item:%1:::::", 1)
+    if count == 0 then
+        return nil
+    end
+    return stripped
+end
+
+-- Two stat tables, copied through ns.CopyRaw, compared key by key. true or
+-- false when both are tables, nil when either is not (absent, secret or an
+-- error), because "could not compare" is not "different".
+local function sameStats(a, b)
+    local left, right = ns.CopyRaw(a), ns.CopyRaw(b)
+    if type(left) ~= "table" or type(right) ~= "table" then
+        return nil
+    end
+    for k, v in pairs(left) do
+        if right[k] ~= v then
+            return false
+        end
+    end
+    for k in pairs(right) do
+        if left[k] == nil then
+            return false
+        end
+    end
+    return true
+end
+
+local function num(v)
+    return tonumber(v) or 0
+end
+
+local function journalRowBefore(a, b)
+    if num(a.instanceID) ~= num(b.instanceID) then
+        return num(a.instanceID) < num(b.instanceID)
+    end
+    if num(a.encounterID) ~= num(b.encounterID) then
+        return num(a.encounterID) < num(b.encounterID)
+    end
+    if num(a.itemID) ~= num(b.itemID) then
+        return num(a.itemID) < num(b.itemID)
+    end
+    if num(a.difficultyID) ~= num(b.difficultyID) then
+        return num(a.difficultyID) < num(b.difficultyID)
+    end
+    return a.link < b.link
+end
+
+-- Every journal row with a link, out of every cache entry `capture journal`
+-- left behind, once per link, in a fixed order.
+local function journalRowsWithLink(cache)
+    local rows, seen, entries = {}, {}, {}
+    if type(cache) ~= "table" then
+        return rows, entries
+    end
+    local keys = {}
+    for key in pairs(cache) do
+        keys[#keys + 1] = tostring(key)
+    end
+    table.sort(keys)
+    for _, key in ipairs(keys) do
+        local entry = cache[key]
+        if type(entry) == "table" and type(entry.sources) == "table" then
+            entries[#entries + 1] = { key = key, build = entry.build, walkAt = entry.walkAt }
+            for itemID, list in pairs(entry.sources) do
+                for _, row in ipairs(type(list) == "table" and list or {}) do
+                    local link = type(row) == "table" and row.link or nil
+                    if type(link) == "string" and link ~= "" and not seen[link] then
+                        seen[link] = true
+                        rows[#rows + 1] = {
+                            link = link,
+                            itemID = tonumber(itemID),
+                            instanceID = row.instanceID,
+                            instanceName = row.instanceName,
+                            encounterID = row.encounterID,
+                            difficultyID = row.difficultyID,
+                            itemLevel = row.itemLevel,
+                            slot = row.slot,
+                            isRaid = row.isRaid,
+                        }
+                    end
+                end
+            end
+        end
+    end
+    table.sort(rows, journalRowBefore)
+    return rows, entries
+end
+
+-- Takes rows that `want` accepts, one instance at a time in turn, until
+-- `taken` holds `limit` rows or nothing acceptable is left.
+local function takeRoundRobin(rows, picked, taken, want, limit)
+    local queues, order = {}, {}
+    for _, row in ipairs(rows) do
+        if not picked[row] and want(row) then
+            local id = num(row.instanceID)
+            if not queues[id] then
+                queues[id] = {}
+                order[#order + 1] = id
+            end
+            local queue = queues[id]
+            queue[#queue + 1] = row
+        end
+    end
+    local progressed = true
+    while #taken < limit and progressed do
+        progressed = false
+        for _, id in ipairs(order) do
+            local queue = queues[id]
+            if #taken < limit and #queue > 0 then
+                local row = table.remove(queue, 1)
+                picked[row] = true
+                taken[#taken + 1] = row
+                progressed = true
+            end
+        end
+    end
+end
+
+-- The journal sample: trinkets first, round-robin across instances, up to the
+-- tooltip bound; then every other row, round-robin across instances, up to
+-- `max`. So the sample spans every instance the cache holds before it takes a
+-- second row from any, and carries trinkets and armour both whenever the cache
+-- does. Returns the rows and a summary of what was there to choose from.
+function ns.ItemStatsJournalSample(cache, max)
+    max = max or ns.ITEMSTATS_JOURNAL_MAX
+    local rows, entries = journalRowsWithLink(cache)
+    local taken, picked = {}, {}
+    takeRoundRobin(rows, picked, taken, function(row)
+        return row.slot == "Trinket"
+    end, math.min(ns.ITEMSTATS_TOOLTIP_MAX, max))
+    takeRoundRobin(rows, picked, taken, function()
+        return true
+    end, max)
+
+    local instances, bySlot, instanceCount = {}, {}, 0
+    for _, row in ipairs(taken) do
+        local id = num(row.instanceID)
+        if not instances[id] then
+            instances[id] = true
+            instanceCount = instanceCount + 1
+        end
+        local slot = row.slot or "unknown"
+        bySlot[slot] = (bySlot[slot] or 0) + 1
+    end
+    return taken,
+        {
+            cacheEntries = entries,
+            rowsWithLink = #rows,
+            taken = #taken,
+            max = max,
+            instances = instanceCount,
+            bySlot = bySlot,
+        }
+end
+
+-- The worn and bag halves: every worn link, and every bag link the client
+-- gives a slot in QE Live's vocabulary.
+local function ownedTargets(targets, specID)
+    local first = INVSLOT_FIRST_EQUIPPED or 1
+    local last = INVSLOT_LAST_EQUIPPED or 19
+    for slot = first, last do
+        local link = ns.Safe(GetInventoryItemLink and GetInventoryItemLink("player", slot))
+        if type(link) == "string" and link ~= "" then
+            targets[#targets + 1] = { source = "worn", invSlot = slot, link = link }
+        end
+    end
+    local C = C_Container
+    if not (C and C.GetContainerNumSlots and C.GetContainerItemLink) then
+        return
+    end
+    for bag = 0, (NUM_BAG_SLOTS or 4) do
+        local count = ns.Safe(C.GetContainerNumSlots(bag))
+        for slotIndex = 1, (type(count) == "number" and count or 0) do
+            local link = ns.Safe(C.GetContainerItemLink(bag, slotIndex))
+            local instant = type(link) == "string" and link ~= "" and ns.ItemData.Instant(link) or nil
+            if instant and instant.slot then
+                targets[#targets + 1] = {
+                    source = "bag",
+                    bag = bag,
+                    slotIndex = slotIndex,
+                    link = link,
+                    slot = instant.slot,
+                    -- Recorded, never obeyed: whether the client says this
+                    -- item is for the current spec (nil = no answer).
+                    specFit = ns.ItemData.SpecFit(link, specID),
+                }
+            end
+        end
+    end
+end
+
+-- The vault half: every option's reward link, as `ns.Vault.Options` reads it.
+-- Returns why there is none when the reader refused.
+local function vaultTargets(targets)
+    local vault = ns.Vault and ns.Vault.Options and ns.Vault.Options({ request = false }) or nil
+    if type(vault) ~= "table" or not vault.ok then
+        return type(vault) == "table" and vault.reason or "no vault reader"
+    end
+    for _, option in ipairs(vault.options or {}) do
+        for _, reward in ipairs(option.rewards or {}) do
+            if type(reward.link) == "string" and reward.link ~= "" then
+                targets[#targets + 1] = {
+                    source = "vault",
+                    activityType = option.type,
+                    activityIndex = option.index,
+                    activityID = option.id,
+                    link = reward.link,
+                    slot = reward.slot,
+                }
+            end
+        end
+    end
+    return nil
+end
+
+-- Every link the capture reads, in the order the snapshot lists them: worn,
+-- bags, vault, journal. Each target carries where it came from; the reads are
+-- added by `itemStatsRead` once the wait is over.
+local function itemStatsTargets(journalRows, specID)
+    local targets = {}
+    ownedTargets(targets, specID)
+    local vaultNote = vaultTargets(targets)
+    for _, row in ipairs(journalRows) do
+        targets[#targets + 1] = {
+            source = "journal",
+            link = row.link,
+            slot = row.slot,
+            instanceID = row.instanceID,
+            instanceName = row.instanceName,
+            encounterID = row.encounterID,
+            difficultyID = row.difficultyID,
+            journalItemLevel = row.itemLevel,
+            isRaid = row.isRaid,
+            specFit = ns.ItemData.SpecFit(row.link, specID),
+        }
+    end
+    for _, target in ipairs(targets) do
+        local parsed = ns.ParseItemLink(target.link)
+        target.itemID = parsed and parsed.itemID or nil
+        -- The enchant and gems the link itself names: a parse of the string
+        -- already in hand, no call.
+        target.linkFinish = ns.ItemData.LinkFinish(target.link)
+    end
+    return targets, vaultNote
+end
+
+-- Each socket's gem, its ID, and the gem link's own stats.
+local function gemReads(I, link, sockets)
+    local gems = {}
+    for index = 1, (type(sockets) == "number" and math.min(sockets, 4) or 0) do
+        local gem = ns.Probe(I.GetItemGem, link, index)
+        local record = { index = index, gem = gem, gemID = ns.Probe(I.GetItemGemID, link, index) }
+        local gemLink = ns.Safe(gem[2])
+        if type(gemLink) == "string" and gemLink ~= "" then
+            record.gemStats = ns.Probe(I.GetItemStats, gemLink)
+        end
+        gems[index] = record
+    end
+    return gems
+end
+
+-- Everything the client says about one link, written onto its own record.
+-- Raw probes throughout: ns.CopyRaw at the store is what masks a secret and
+-- sets the snapshot's `sawSecret`, as for every other capture.
+local function itemStatsRead(record)
+    local I = C_Item or {}
+    local link = record.link
+    record.cachedAtRead = record.itemID and ns.Probe(I.IsItemDataCachedByID, record.itemID) or { absent = true }
+    record.stats = ns.Probe(I.GetItemStats, link)
+    record.strippedLink = ns.ItemStatsStrippedLink(link)
+    if record.strippedLink then
+        record.strippedStats = ns.Probe(I.GetItemStats, record.strippedLink)
+        -- Equal tables mean the stat table leaves gems and enchant out.
+        record.strippedEqual = sameStats(record.stats[1], record.strippedStats[1])
+    end
+    record.numSockets = ns.Probe(I.GetItemNumSockets, link)
+    record.gems = gemReads(I, link, ns.Safe(record.numSockets[1]))
+    record.detailedLevel = ns.Probe(I.GetDetailedItemLevelInfo, link)
+    local info = ns.Probe(I.GetItemInfo, link)
+    -- Four of GetItemInfo's returns, by position (12.1.0's 18-return order,
+    -- transcript 2026-09-05): itemEquipLoc 9, classID 12, subclassID 13, setID 16.
+    record.info = {
+        n = info.n,
+        error = info.error,
+        absent = info.absent,
+        itemEquipLoc = info[9],
+        classID = info[12],
+        subclassID = info[13],
+        setID = info[16],
+    }
+    record.uniqueness = ns.Probe(I.GetItemUniqueness, link)
+    record.uniquenessByID = record.itemID and ns.Probe(I.GetItemUniquenessByID, record.itemID) or { absent = true }
+end
+
+-- The rating probe: each secondary rating as the character has it, what the
+-- client converts it to, and what it converts the six fixed values to.
+local function itemStatsRatings()
+    local out = {}
+    for _, rating in ipairs(ITEMSTATS_RATINGS) do
+        local live = rawget(_G, rating.constant)
+        local index = type(live) == "number" and live or rating.index
+        local current = ns.Probe(GetCombatRating, index)
+        local record = {
+            constant = rating.constant,
+            index = index,
+            fromGlobal = type(live) == "number",
+            rating = current,
+            bonus = ns.Probe(GetCombatRatingBonus, index),
+            at = {},
+        }
+        local value = ns.Safe(current[1])
+        if type(value) == "number" then
+            record.bonusForCurrent = ns.Probe(GetCombatRatingBonusForCombatRatingValue, index, value)
+        else
+            record.bonusForCurrent = { skipped = "the current rating was not a number" }
+        end
+        for i, v in ipairs(ns.ITEMSTATS_RATING_VALUES) do
+            record.at[i] = { value = v, bonus = ns.Probe(GetCombatRatingBonusForCombatRatingValue, index, v) }
+        end
+        out[rating.key] = record
+    end
+    return {
+        ratings = out,
+        masteryEffect = ns.Probe(GetMasteryEffect),
+        spellBonusHealing = ns.Probe(GetSpellBonusHealing),
+        intellect = ns.Probe(UnitStat, "player", ITEMSTATS_INTELLECT_INDEX),
+        hasSecretRestrictions = ns.Probe(C_Secrets and C_Secrets.HasSecretRestrictions),
+        shouldUnitStatsBeSecret = ns.Probe(C_Secrets and C_Secrets.ShouldUnitStatsBeSecret),
+        combatLogRestricted = ns.Probe(C_CombatLog and C_CombatLog.IsCombatLogRestricted),
+    }
+end
+
+-- One tooltip's lines, `type` and `leftText` only. A secret at any level is
+-- stored as itself, so ns.CopyRaw masks it and the snapshot's `sawSecret` says
+-- so; nothing is indexed through one.
+local function tooltipLines(record, probe)
+    local data = ns.Safe(probe[1])
+    if type(data) ~= "table" then
+        record.data = probe
+        return
+    end
+    local lines = ns.Safe(data.lines)
+    if type(lines) ~= "table" then
+        record.lines = data.lines
+        return
+    end
+    record.lines = {}
+    for i, line in ipairs(lines) do
+        if type(ns.Safe(line)) == "table" then
+            record.lines[i] = { type = line.type, leftText = line.leftText }
+        else
+            record.lines[i] = line
+        end
+    end
+end
+
+-- The trinket tooltip sample, out of the journal sample.
+local function itemStatsTooltips(journalRows)
+    local out = {}
+    for _, row in ipairs(journalRows) do
+        if #out >= ns.ITEMSTATS_TOOLTIP_MAX then
+            break
+        end
+        if row.slot == "Trinket" then
+            local record = { link = row.link, itemLevel = row.itemLevel, difficultyID = row.difficultyID }
+            tooltipLines(record, ns.Probe(C_TooltipInfo and C_TooltipInfo.GetHyperlink, row.link))
+            out[#out + 1] = record
+        end
+    end
+    return out
+end
+
+ns.RegisterCapture(
+    "itemstats",
+    "item stats, gems, sockets, set and uniqueness on worn, bag, vault and journal items, and the rating conversion",
+    function(finish)
+        local cache = ns.db and ns.db.global and ns.db.global.journalCache or nil
+        local journalRows, journalSummary = ns.ItemStatsJournalSample(cache, ns.ITEMSTATS_JOURNAL_MAX)
+        if journalSummary.rowsWithLink == 0 then
+            return finish(nil, ns.ITEMSTATS_NO_JOURNAL)
+        end
+        local specID = ns.Companion and ns.Companion.CurrentSpecID and ns.Companion.CurrentSpecID() or nil
+        local targets, vaultNote = itemStatsTargets(journalRows, specID)
+        local data = {
+            functionNames = ITEMSTATS_FUNCTION_NAMES,
+            moduleReads = ITEMSTATS_MODULE_READS,
+            specID = specID,
+            journal = journalSummary,
+            vaultNote = vaultNote,
+            waitSeconds = ns.ITEMSTATS_WAIT_SECONDS,
+            items = targets,
+        }
+
+        -- Ask for what is not cached, once per item ID, and wait for at most
+        -- the bound. Every target records what the client said before the wait.
+        local waiting, handles, pending, done = {}, {}, 0, false
+        local function readAll(timedOut)
+            if done then
+                return
+            end
+            done = true
+            for _, handle in ipairs(handles) do
+                ns.ItemData.Cancel(handle)
+            end
+            if InCombatLockdown() then
+                return finish(nil, "stopped: combat started while it waited for item data; nothing stored")
+            end
+            data.waitTimedOut = timedOut
+            data.stillWaiting = pending
+            for _, target in ipairs(targets) do
+                local state = target.itemID and waiting[target.itemID] or nil
+                if state then
+                    target.waited = true
+                    target.gaveUp = not state.resolved
+                end
+                itemStatsRead(target)
+            end
+            data.rating = itemStatsRatings()
+            data.tooltips = itemStatsTooltips(journalRows)
+            finish(data)
+        end
+        local function settleOne()
+            pending = pending - 1
+            if pending == 0 then
+                readAll(false)
+            end
+        end
+
+        for _, target in ipairs(targets) do
+            local id = target.itemID
+            target.cachedBefore = id and ns.Probe(C_Item and C_Item.IsItemDataCachedByID, id) or { absent = true }
+            if id and ns.Safe(target.cachedBefore[1]) ~= true and not waiting[id] then
+                local state = {}
+                waiting[id] = state
+                pending = pending + 1
+                handles[#handles + 1] = ns.ItemData.Watch(id, function(itemID)
+                    local cached = ns.Safe(ns.Probe(C_Item and C_Item.IsItemDataCachedByID, itemID)[1])
+                    if cached ~= true and not ns.ItemData.IsCached(itemID) then
+                        return false
+                    end
+                    state.resolved = true
+                    settleOne()
+                    return true
+                end, settleOne)
+            end
+        end
+        data.requested = pending
+        if pending == 0 then
+            return readAll(false)
+        end
+        if C_Timer and C_Timer.After then
+            C_Timer.After(ns.ITEMSTATS_WAIT_SECONDS, function()
+                readAll(true)
+            end)
+        else
+            readAll(true)
         end
     end,
     { async = true }

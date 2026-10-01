@@ -1396,6 +1396,47 @@ function Stub.install()
         -- answered unless a test says so, which is the client that names no
         -- spec list at all (UX-6b).
         itemSpecs = {},
+        -- E-0a (WKE-675), `capture itemstats`. **Every shape below is a
+        -- PLACEHOLDER in the wiki's description, to be replaced by the owner's
+        -- transcript**: the annotations give `C_Item.GetItemStats` only as
+        -- `LuaValueVariant statTable` (ItemDocumentation.lua:366), and the wiki
+        -- (warcraft.wiki.gg API_C_Item.GetItemStats, stale after 10.1.7) says a
+        -- table keyed by global-string names such as
+        -- `ITEM_MOD_HASTE_RATING_SHORT`. Nothing is answered unless a test says
+        -- so, which is a client that answers nothing (MayReturnNothing).
+        --   itemStats[link]            = { [statKey] = number, ... }
+        --   itemGems[link][index]      = { name = , link = , id = }  (GetItemGem / GetItemGemID)
+        --   itemSockets[link]          = number                      (GetItemNumSockets)
+        --   itemUniqueness[link]       = { limitCategory, limitMax }
+        --   itemUniquenessByID[itemID] = { isUnique, name?, count?, categoryID? }
+        --   itemDataCached[itemID]     = boolean                     (IsItemDataCachedByID)
+        itemStats = {},
+        itemStatsCalls = {},
+        itemGems = {},
+        itemSockets = {},
+        itemUniqueness = {},
+        itemUniquenessByID = {},
+        itemDataCached = {},
+        -- The rating probe's placeholders. `combatRatings[index]` is what
+        -- GetCombatRating answers; GetCombatRatingBonus and the hypothetical
+        -- conversion both divide by `ratingPerPercent[index]` - LINEAR, no
+        -- diminishing returns, because whether the client applies them is the
+        -- question the transcript answers (docs/OWN-ENGINE.md §3, (iv)). 44 /
+        -- 46 / 54 are the memo's (ii) figures for haste, crit and versatility;
+        -- the mastery and leech divisors are placeholders with no source.
+        combatRatings = { [20] = 1100, [11] = 700, [26] = 900, [29] = 500, [17] = 0 },
+        ratingPerPercent = { [20] = 44, [11] = 46, [26] = 46, [29] = 54, [17] = 40 },
+        ratingBonusCalls = {},
+        masteryEffect = { 30.5, 1.25 },
+        spellBonusHealing = 4000,
+        -- [index] = { currentStat, effectiveStat, statPositiveBuff, statNegativeBuff }
+        unitStats = { [4] = { 3000, 3000, 0, 0 } },
+        shouldUnitStatsBeSecret = false,
+        combatLogRestricted = true,
+        -- [link] = TooltipData, for C_TooltipInfo.GetHyperlink. Only `lines`
+        -- (each with `type` and `leftText`) is read by anything.
+        tooltipData = {},
+        tooltipCalls = {},
         -- Whether a texture has `SetGradient` (UX-5a, WKE-634). A test that
         -- wants a client without it sets this false before the frame is built.
         textureGradient = true,
@@ -2417,7 +2458,61 @@ function Stub.install()
         HasSecretRestrictions = function()
             return world.hasSecretRestrictions
         end,
+        -- SecretPredicateAPIDocumentation.lua:183 (E-0a).
+        ShouldUnitStatsBeSecret = function()
+            return world.shouldUnitStatsBeSecret
+        end,
     })
+
+    -- E-0a (WKE-675): CombatLogDocumentation.lua:31. Only the one predicate.
+    define("C_CombatLog", {
+        IsCombatLogRestricted = function()
+            return world.combatLogRestricted
+        end,
+    })
+
+    -- E-0a (WKE-675): TooltipInfoDocumentation.lua:121, answered out of
+    -- world.tooltipData (a placeholder shape: `{ lines = { { type, leftText } } }`).
+    define("C_TooltipInfo", {
+        GetHyperlink = function(link)
+            world.tooltipCalls[#world.tooltipCalls + 1] = link
+            return world.tooltipData[link]
+        end,
+    })
+
+    -- E-0a (WKE-675): the rating probe (PlayerScriptDocumentation.lua:134-145,
+    -- :219, :385; UnitDocumentation.lua:1130). Placeholders, linear on purpose;
+    -- see `world.ratingPerPercent`.
+    local function ratingBonus(index, value)
+        local per = world.ratingPerPercent[index]
+        if type(value) ~= "number" or not per then
+            return nil
+        end
+        return value / per
+    end
+    define("GetCombatRating", function(index)
+        return world.combatRatings[index]
+    end)
+    define("GetCombatRatingBonus", function(index)
+        return ratingBonus(index, world.combatRatings[index])
+    end)
+    define("GetCombatRatingBonusForCombatRatingValue", function(index, value)
+        world.ratingBonusCalls[#world.ratingBonusCalls + 1] = { index, value }
+        return ratingBonus(index, value)
+    end)
+    define("GetMasteryEffect", function()
+        return unpack(world.masteryEffect)
+    end)
+    define("GetSpellBonusHealing", function()
+        return world.spellBonusHealing
+    end)
+    define("UnitStat", function(unit, index)
+        local stat = unit == "player" and world.unitStats[index]
+        if not stat then
+            return nil
+        end
+        return unpack(stat, 1, 4)
+    end)
 
     define("GetInventoryItemLink", function(unit, slot)
         local e = unit == "player" and world.equipped[slot]
@@ -2574,6 +2669,55 @@ function Stub.install()
                 copy[index] = id
             end
             return copy
+        end,
+        -- E-0a (WKE-675). All six answered out of the placeholder tables on
+        -- `world` (see `world.itemStats`); a fresh table every call, as the
+        -- client hands one over.
+        GetItemStats = function(link)
+            world.itemStatsCalls[#world.itemStatsCalls + 1] = link
+            local stats = world.itemStats[link]
+            if stats == nil then
+                return nil
+            end
+            if world.secrets[stats] then
+                return stats
+            end
+            local copy = {}
+            for k, v in pairs(stats) do
+                copy[k] = v
+            end
+            return copy
+        end,
+        GetItemGem = function(link, index)
+            local gem = world.itemGems[link] and world.itemGems[link][index]
+            if not gem then
+                return nil
+            end
+            return gem.name, gem.link
+        end,
+        GetItemGemID = function(link, index)
+            local gem = world.itemGems[link] and world.itemGems[link][index]
+            return gem and gem.id or nil
+        end,
+        GetItemNumSockets = function(link)
+            return world.itemSockets[link] or 0
+        end,
+        GetItemUniqueness = function(link)
+            local u = world.itemUniqueness[link]
+            if not u then
+                return nil
+            end
+            return u[1], u[2]
+        end,
+        GetItemUniquenessByID = function(itemID)
+            local u = world.itemUniquenessByID[itemID]
+            if not u then
+                return false
+            end
+            return unpack(u, 1, 4)
+        end,
+        IsItemDataCachedByID = function(itemID)
+            return world.itemDataCached[itemID] == true
         end,
         -- Blizzard's exported C_Item.GetItemQualityColor(quality) -> r, g, b,
         -- hex. The values are world.qualityColors' placeholders.

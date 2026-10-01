@@ -44,6 +44,9 @@ read_globals = {
     "C_AddOns",
     "C_Bank",
     "C_ChallengeMode",
+    -- E-0a (WKE-675): `capture itemstats` asks whether the combat log is
+    -- restricted, and reads trinket tooltips as data. Only in `Captures.lua`.
+    "C_CombatLog",
     "C_Container",
     "C_CurrencyInfo",
     "C_DateAndTime",
@@ -60,6 +63,7 @@ read_globals = {
     "C_SpecializationInfo",
     "C_Texture",
     "C_Timer",
+    "C_TooltipInfo",
     "C_WeeklyRewards",
     "Enum",
     -- Blizzard API, globals
@@ -93,6 +97,15 @@ read_globals = {
     "INVSLOT_FIRST_EQUIPPED",
     "INVSLOT_LAST_EQUIPPED",
     "GetBuildInfo",
+    -- E-0a (WKE-675): the rating probe in `capture itemstats`, every one a read
+    -- named in that capture's list (PlayerScriptDocumentation.lua and
+    -- UnitDocumentation.lua under .luals/).
+    "GetCombatRating",
+    "GetCombatRatingBonus",
+    "GetCombatRatingBonusForCombatRatingValue",
+    "GetMasteryEffect",
+    "GetSpellBonusHealing",
+    "UnitStat",
     "GetCurrentRegion",
     "GetCurrentRegionName",
     "GetInventoryItemID",

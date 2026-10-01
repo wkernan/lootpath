@@ -471,8 +471,13 @@ describe("capture journal", function()
 
     -- It is the LAST capture now: R-0's `spike` registered after it until R-2
     -- (WKE-563) built the surface it was measuring for and deleted it.
-    it("is registered after env, inventory, vault, currencies, glow and upgrade", function()
-        assert.same({ "env", "inventory", "vault", "currencies", "glow", "upgrade", "journal" }, ns.captureOrder)
+    -- E-0a's `itemstats` (WKE-675) registers at the end of Captures.lua, so it
+    -- sits between `upgrade` and this one.
+    it("is registered after env, inventory, vault, currencies, glow, upgrade and itemstats", function()
+        assert.same(
+            { "env", "inventory", "vault", "currencies", "glow", "upgrade", "itemstats", "journal" },
+            ns.captureOrder
+        )
         assert.is_true(ns.captures.journal.async)
     end)
 
