@@ -68,3 +68,7 @@ tools/media/package-lock.json
 # Lootpath media: the contact sheets contact-sheet.mjs writes are a look, not
 # an artefact; the TGAs they decode are what is committed.
 tools/media/contact-sheet/
+
+# Lootpath engine (tools/engine, E-0e): the structure run's output - fitted
+# weights and EngineWeights.dev.lua - is a diagnostic and never committed.
+tools/engine/out/

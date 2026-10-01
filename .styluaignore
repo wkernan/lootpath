@@ -4,3 +4,4 @@ spec/fixtures/
 .release/
 .lua/
 .luarocks/
+tools/engine/out/

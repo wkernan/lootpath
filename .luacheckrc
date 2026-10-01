@@ -12,6 +12,7 @@ exclude_files = {
     ".release/**",
     ".lua/**",
     ".luarocks/**",
+    "tools/engine/out/**", -- E-0e's generated dev weights file, gitignored
 }
 
 -- Globals the addon defines (its slash command) or mutates. UISpecialFrames is

@@ -78,6 +78,16 @@ jobs:
       # loaded by a test. The fork driver is proven by a recorded run instead.
       - run: node --test
         working-directory: tools/companion
+      # tools/engine (E-0e, WKE-674): the structure run's tests, beside the
+      # companion's. Dev-only, no dependency. Lua 5.1 is installed so the test
+      # that loads the dev weights file in the gates' Lua cannot skip here.
+      - uses: leafo/gh-actions-lua@v13.0.0
+        with:
+          luaVersion: "5.1"
+      - run: node --test
+        working-directory: tools/engine
+        env:
+          LOOTPATH_REQUIRE_LUA: "1"
 
   package:
     name: packager
