@@ -469,6 +469,199 @@ function EngineStats.ForLink(link)
     return result
 end
 
+-- ---------------------------------------------------------------------------
+-- A link at a level (E-0g, WKE-677).
+--
+-- The journal walk keeps each drop's link and the level the Adventure Guide
+-- PREVIEWED while it read it; the link does not carry that preview. Read later,
+-- `GetDetailedItemLevelInfo` and `GetItemStats` answer at the link's OWN level:
+-- 17 of the 40 journal rows of the 2026-10-01 transcript (7 keystone rows
+-- listed at 305 read 292, 6 raid rows read the difficulty's base level, 4 world
+-- rows listed at 44 read 263 / 276; ARCHITECTURE.md section 7, E-0f point 5).
+-- So a row is scored at its level only through a link REBUILT for that level,
+-- and this is the one place one is made: `RebuildLink` is the only function in
+-- the addon that writes a bonus-ID list into a link, `LinkAtLevel` the only one
+-- that decides which list, and it decides by a RULE handed in or installed in
+-- `EngineStats.linkLevelRule`.
+--
+-- No rule is installed. Which rule makes the client draw the previewed level
+-- is what `/lootpath capture linklevel` asks it (Captures.lua); until that
+-- transcript is committed, every ask answers nil and NO_RULE, and nothing is
+-- ever scored at a level a link was not proven to draw.
+--
+-- A rule is `rule(link, level, parsed) -> bonusIDs | nil, reason`: given the
+-- link, the level wanted and the link's own fields (`LinkFields`), the list of
+-- bonus IDs the rebuilt link carries, in order. It never builds a string.
+
+EngineStats.NO_RULE = "no rule yet"
+EngineStats.linkLevelRule = nil
+
+-- The item string's fields, raw and in order, or nil: the same layout as
+-- Core.lua's ParseItemLink - numBonusIDs at field 13, the IDs after it, then
+-- the modifiers - but the bonus IDs UNSORTED, because a rebuilt link must keep
+-- every other field exactly where the client put it.
+local function itemFields(link)
+    if type(link) ~= "string" then
+        return nil
+    end
+    local body = link:match("|Hitem:([^|]+)|h") or link:match("^item:([^|]+)$")
+    if not body then
+        return nil
+    end
+    local fields = {}
+    for field in (body .. ":"):gmatch("([^:]*):") do
+        fields[#fields + 1] = field
+    end
+    local itemID = tonumber(fields[1])
+    if not itemID or itemID <= 0 then
+        return nil
+    end
+    return fields, body, itemID
+end
+
+-- LinkFields(link) -> `{ itemID, context, bonusIDs = { <raw order> } }` or nil.
+-- A parse of the string in hand; asks the client nothing.
+function EngineStats.LinkFields(link)
+    local fields, _, itemID = itemFields(link)
+    if not fields then
+        return nil
+    end
+    local numBonus = tonumber(fields[13]) or 0
+    local bonusIDs = {}
+    for i = 1, numBonus do
+        local id = tonumber(fields[13 + i])
+        if not id then
+            return nil
+        end
+        bonusIDs[i] = id
+    end
+    return { itemID = itemID, context = tonumber(fields[12]), bonusIDs = bonusIDs }
+end
+
+-- RebuildLink(link, bonusIDs) -> the same link with its bonus-ID list replaced
+-- by `bonusIDs` and nothing else touched (the colour, the name, the context,
+-- the modifiers after the list), or nil for anything that is not an item link
+-- or a list that is not all whole positive numbers.
+function EngineStats.RebuildLink(link, bonusIDs)
+    local fields, body = itemFields(link)
+    if not fields or type(bonusIDs) ~= "table" then
+        return nil
+    end
+    for _, id in ipairs(bonusIDs) do
+        if type(id) ~= "number" or id <= 0 or id % 1 ~= 0 then
+            return nil
+        end
+    end
+    local numBonus = tonumber(fields[13]) or 0
+    local out = {}
+    for i = 1, 12 do
+        out[i] = fields[i] or ""
+    end
+    out[13] = #bonusIDs > 0 and tostring(#bonusIDs) or ""
+    for _, id in ipairs(bonusIDs) do
+        out[#out + 1] = tostring(id)
+    end
+    for i = 13 + numBonus + 1, #fields do
+        out[#out + 1] = fields[i]
+    end
+    local rebuilt = table.concat(out, ":")
+    if link:match("^item:") then
+        return "item:" .. rebuilt
+    end
+    -- Plain find/replace: the body is literal text, never a pattern.
+    local s, e = link:find("|Hitem:" .. body .. "|h", 1, true)
+    return link:sub(1, s - 1) .. "|Hitem:" .. rebuilt .. "|h" .. link:sub(e + 1)
+end
+
+-- TrackBonusesAt(level) -> every step of Data/TrackBonusIDs.lua that draws
+-- `level`, as `{ bonusID, track, step, itemLevel, client }`, in the file's
+-- track order. Two tracks overlap at most levels (305 is Champion 5/6 and
+-- Hero 1/6), so the answer is a list; an empty one when no step draws it.
+function EngineStats.TrackBonusesAt(level)
+    local out = {}
+    local data = ns.trackBonusIDs
+    level = tonumber(level)
+    if type(data) ~= "table" or type(data.tracks) ~= "table" or not level then
+        return out
+    end
+    for _, track in ipairs(data.tracks) do
+        for step, entry in ipairs(track.steps or {}) do
+            if entry.itemLevel == level then
+                out[#out + 1] = {
+                    bonusID = entry.bonusID,
+                    track = track.name,
+                    step = step,
+                    itemLevel = entry.itemLevel,
+                    client = entry.client == true,
+                }
+            end
+        end
+    end
+    return out
+end
+
+-- LinkAtLevel(link, level, rule) -> the link rebuilt for `level` | nil, why.
+-- `rule` defaults to EngineStats.linkLevelRule; with neither, NO_RULE.
+function EngineStats.LinkAtLevel(link, level, rule)
+    rule = rule or EngineStats.linkLevelRule
+    if type(rule) ~= "function" then
+        return nil, EngineStats.NO_RULE
+    end
+    level = tonumber(level)
+    local parsed = EngineStats.LinkFields(link)
+    if not parsed or not level then
+        return nil, "not an item link at a level"
+    end
+    local ok, bonusIDs, why = pcall(rule, link, level, parsed)
+    if not ok then
+        return nil, "the rule failed"
+    end
+    if type(bonusIDs) ~= "table" then
+        return nil, why or ("no rule for " .. level)
+    end
+    local rebuilt = EngineStats.RebuildLink(link, bonusIDs)
+    if not rebuilt then
+        return nil, "the rule's bonus IDs are not a list"
+    end
+    return rebuilt
+end
+
+-- AtLevel(read, level) -> read | nil, why: a ready read is kept only when the
+-- client drew it at `level`. A rebuilt link the client draws at another level
+-- is never scored as if it were the row's.
+function EngineStats.AtLevel(read, level)
+    if type(read) ~= "table" or read.ready ~= true or read.secret then
+        return nil, "not ready"
+    end
+    if read.level ~= tonumber(level) then
+        return nil, string.format("read at %s, not %s", tostring(read.level), tostring(level))
+    end
+    return read
+end
+
+-- ForLinkAtLevel(link, level, rule) -> read, rebuiltLink | nil, why.
+-- LinkAtLevel, then ForLink on the rebuilt link, then AtLevel. `{ ready =
+-- false }` and the rebuilt link while the client fetches it; nil in combat,
+-- like ForLink.
+function EngineStats.ForLinkAtLevel(link, level, rule)
+    if inCombat() then
+        return nil
+    end
+    local rebuilt, why = EngineStats.LinkAtLevel(link, level, rule)
+    if not rebuilt then
+        return nil, why
+    end
+    local read = EngineStats.ForLink(rebuilt)
+    if type(read) == "table" and read.ready == false then
+        return read, rebuilt
+    end
+    local kept, notAt = EngineStats.AtLevel(read, level)
+    if not kept then
+        return nil, notAt
+    end
+    return kept, rebuilt
+end
+
 -- Rating(index, value) -> the client's percent for `value` rating of rating
 -- `index`, or nil (in combat, no answer, or secret - then the second return
 -- is true).

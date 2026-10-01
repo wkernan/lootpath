@@ -481,3 +481,279 @@ describe("ns.EngineStats on screen", function()
         assert.same({}, readers)
     end)
 end)
+
+-- E-0g (WKE-677): a journal link reads at its OWN level, so a row is scored at
+-- its level only through a link rebuilt for it - and only here. No rule is
+-- installed until the `capture linklevel` transcript proves one, so every ask
+-- answers nil and "no rule yet"; the rules below are the tests' own.
+describe("ns.EngineStats at a level", function()
+    local R = require("spec.helpers.replay")
+    local TRANSCRIPT = "spec/fixtures/captures/Lootpath-20261001-092631.lua"
+    -- The keystone row 250254 listed at 305 (Seed of Radiant Hope, the walk's
+    -- difficulty 8 link), and its client answer of 292.
+    local KEYSTONE
+    for _, row in ipairs(F.rowsFrom("journal")) do
+        if row.itemID == 250254 and row.difficultyID == 8 then
+            KEYSTONE = row
+        end
+    end
+    local ns, world
+
+    before_each(function()
+        ns, world = H.load()
+        F.install(world)
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- The rebuilt link registered on the stub as drawing `level` with `int`.
+    local function register(link, level, int)
+        world.items[link] = {
+            info = { KEYSTONE.name, link, 4, level, n = 18 },
+            level = level,
+            detailed = { level, false, 108, n = 3 },
+        }
+        world.itemStats[link] = { ITEM_MOD_INTELLECT_SHORT = int, ITEM_MOD_STAMINA_SHORT = 1 }
+    end
+
+    it("reads the keystone row the issue names: listed at 305, drawn at 292", function()
+        assert.equal(305, KEYSTONE.journalItemLevel)
+        assert.equal(292, KEYSTONE.level)
+        assert.equal(
+            "|cnIQ4:|Hitem:250254::::::::90:105::16:1:3524:1:28:1279:::::|h[Seed of Radiant Hope]|h|r",
+            KEYSTONE.link
+        )
+    end)
+
+    it("answers nil and `no rule yet` with no rule installed, and asks the client nothing", function()
+        assert.is_nil(ns.EngineStats.linkLevelRule)
+        world.itemStatsCalls = {}
+        local link, why = ns.EngineStats.LinkAtLevel(KEYSTONE.link, 305)
+        assert.is_nil(link)
+        assert.equal("no rule yet", why)
+        assert.equal(ns.EngineStats.NO_RULE, why)
+        local read, why2 = ns.EngineStats.ForLinkAtLevel(KEYSTONE.link, 305)
+        assert.is_nil(read)
+        assert.equal("no rule yet", why2)
+        assert.same({}, world.itemStatsCalls)
+    end)
+
+    it("rebuilds the bonus-ID list and touches nothing else", function()
+        local link = KEYSTONE.link
+        assert.equal(
+            "|cnIQ4:|Hitem:250254::::::::90:105::16:1:12837:1:28:1279:::::|h[Seed of Radiant Hope]|h|r",
+            ns.EngineStats.RebuildLink(link, { 12837 })
+        )
+        assert.equal(
+            "|cnIQ4:|Hitem:250254::::::::90:105::16:2:3524:12837:1:28:1279:::::|h[Seed of Radiant Hope]|h|r",
+            ns.EngineStats.RebuildLink(link, { 3524, 12837 })
+        )
+        -- A world row: one bonus ID, no modifier after it.
+        assert.equal(
+            "item:250462::::::::90:105::5:2:3524:12820::::::",
+            ns.EngineStats.RebuildLink("item:250462::::::::90:105::5:1:3524::::::", { 3524, 12820 })
+        )
+        -- The worn helm: an enchant, a gem, six bonus IDs and a modifier.
+        assert.equal(
+            "|cnIQ4:|Hitem:271528:7961:240892::::::90:105::35:1:12846:1:64:239033:::::"
+                .. "|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r",
+            ns.EngineStats.RebuildLink(HELM.link, { 12846 })
+        )
+        assert.is_nil(ns.EngineStats.RebuildLink("not a link", { 1 }))
+        assert.is_nil(ns.EngineStats.RebuildLink(link, { "12837" }))
+        assert.is_nil(ns.EngineStats.RebuildLink(link, { 12837.5 }))
+        assert.is_nil(ns.EngineStats.RebuildLink(link, nil))
+    end)
+
+    it("reads a link's bonus IDs in the client's order, unsorted", function()
+        local fields = ns.EngineStats.LinkFields(HELM.link)
+        assert.equal(271528, fields.itemID)
+        assert.equal(35, fields.context)
+        assert.same({ 6652, 13440, 13695, 13692, 13698, 12845 }, fields.bonusIDs)
+        assert.same({ 3524 }, ns.EngineStats.LinkFields(KEYSTONE.link).bonusIDs)
+        assert.is_nil(ns.EngineStats.LinkFields("not a link"))
+    end)
+
+    it("names every track step at a level, both tracks where they overlap", function()
+        local at305 = ns.EngineStats.TrackBonusesAt(305)
+        assert.equal(2, #at305)
+        assert.same({ bonusID = 12837, track = "Champion", step = 5, itemLevel = 305, client = false }, at305[1])
+        assert.same({ bonusID = 12841, track = "Hero", step = 1, itemLevel = 305, client = false }, at305[2])
+        assert.same(
+            { { bonusID = 12854, track = "Myth", step = 6, itemLevel = 334, client = true } },
+            ns.EngineStats.TrackBonusesAt(334)
+        )
+        -- The world rows' 44: no step draws it.
+        assert.same({}, ns.EngineStats.TrackBonusesAt(44))
+        assert.same({}, ns.EngineStats.TrackBonusesAt(nil))
+    end)
+
+    it("ships the season's five tracks, six steps each, to their tops, with source and build", function()
+        local data = ns.trackBonusIDs
+        assert.equal("lootpath-track-bonus-ids", data.schema)
+        assert.equal("12.1.0.69933", data.build)
+        assert.truthy(data.source:find("ddbd93b4b1494a5791b2db5ad1c90f550dc6e327", 1, true))
+        local names, tops, seen = {}, {}, {}
+        for i, track in ipairs(data.tracks) do
+            names[i] = track.name
+            assert.equal(6, #track.steps, track.name)
+            for s = 2, 6 do
+                assert.is_true(track.steps[s].itemLevel > track.steps[s - 1].itemLevel, track.name)
+            end
+            for _, step in ipairs(track.steps) do
+                assert.is_nil(seen[step.bonusID], step.bonusID)
+                seen[step.bonusID] = true
+            end
+            tops[i] = track.steps[6].itemLevel
+        end
+        assert.same({ "Adventurer", "Veteran", "Champion", "Hero", "Myth" }, names)
+        assert.same({ 282, 295, 308, 321, 334 }, tops)
+        -- The file is data: no function, no loop (the QEVerdict.lua pattern).
+        local text = assert(io.open("Lootpath/Data/TrackBonusIDs.lua")):read("*a")
+        local code = text:gsub("%-%-[^\n]*", "")
+        assert.is_nil(code:find("function", 1, true))
+        assert.is_nil(code:find("for ", 1, true))
+    end)
+
+    -- The owner's own client against the table: every step marked `client`
+    -- is a level an item he owned answered for a link carrying that bonus ID
+    -- on 2026-10-01 (`capture itemstats` worn and bag rows, `capture upgrade`'s
+    -- currentLevel), and no owned link carrying ANY ID in the table answered
+    -- another level.
+    it("agrees with every owned link of the 2026-10-01 transcript, and each `client` mark is one", function()
+        local stepOf = {}
+        for _, track in ipairs(ns.trackBonusIDs.tracks) do
+            for _, step in ipairs(track.steps) do
+                stepOf[step.bonusID] = step
+            end
+        end
+        local answered = {}
+        local checked = 0
+        local function check(link, level)
+            local fields = ns.EngineStats.LinkFields(link)
+            if not fields or type(level) ~= "number" then
+                return
+            end
+            for _, id in ipairs(fields.bonusIDs) do
+                local step = stepOf[id]
+                if step then
+                    checked = checked + 1
+                    assert.equal(step.itemLevel, level, link)
+                    answered[id] = true
+                end
+            end
+        end
+        for _, source in ipairs({ "worn", "bag" }) do
+            for _, row in ipairs(F.rowsFrom(source)) do
+                check(row.link, row.level)
+            end
+        end
+        for _, snapshot in ipairs(R.captures(TRANSCRIPT).upgrade) do
+            for _, item in ipairs(snapshot.data.items or {}) do
+                check(item.link, item.currentLevel and item.currentLevel[1])
+            end
+        end
+        assert.is_true(checked > 0)
+        for id, step in pairs(stepOf) do
+            assert.equal(step.client == true, answered[id] == true, "bonus " .. id)
+        end
+    end)
+
+    it("rebuilds through the rule handed in, or the one installed", function()
+        local rule = function(_, level, parsed)
+            assert.same({ 3524 }, parsed.bonusIDs)
+            return { ns.EngineStats.TrackBonusesAt(level)[1].bonusID }
+        end
+        local rebuilt = ns.EngineStats.LinkAtLevel(KEYSTONE.link, 305, rule)
+        assert.equal(ns.EngineStats.RebuildLink(KEYSTONE.link, { 12837 }), rebuilt)
+        ns.EngineStats.linkLevelRule = rule
+        assert.equal(rebuilt, ns.EngineStats.LinkAtLevel(KEYSTONE.link, 305))
+        ns.EngineStats.linkLevelRule = nil
+    end)
+
+    it("says why when the rule has no answer, fails, or answers no list", function()
+        local link, why = ns.EngineStats.LinkAtLevel(KEYSTONE.link, 44, function()
+            return nil, "no track step draws 44"
+        end)
+        assert.is_nil(link)
+        assert.equal("no track step draws 44", why)
+        link, why = ns.EngineStats.LinkAtLevel(KEYSTONE.link, 305, function()
+            error("boom")
+        end)
+        assert.is_nil(link)
+        assert.equal("the rule failed", why)
+        link, why = ns.EngineStats.LinkAtLevel(KEYSTONE.link, 305, function()
+            return { "x" }
+        end)
+        assert.is_nil(link)
+        assert.equal("the rule's bonus IDs are not a list", why)
+        link, why = ns.EngineStats.LinkAtLevel("not a link", 305, function()
+            return {}
+        end)
+        assert.is_nil(link)
+        assert.equal("not an item link at a level", why)
+    end)
+
+    it("reads the rebuilt link and keeps it only when the client draws the asked level", function()
+        local rebuilt = ns.EngineStats.RebuildLink(KEYSTONE.link, { 12837 })
+        register(rebuilt, 305, 600)
+        local read, link = ns.EngineStats.ForLinkAtLevel(KEYSTONE.link, 305, function()
+            return { 12837 }
+        end)
+        assert.equal(rebuilt, link)
+        assert.is_true(read.ready)
+        assert.equal(305, read.level)
+        assert.equal(600, read.int)
+        -- The link read as it was kept answers 292: never the row's 305.
+        assert.equal(292, ns.EngineStats.ForLink(KEYSTONE.link).level)
+    end)
+
+    it("refuses a rebuilt link the client draws at another level", function()
+        local rebuilt = ns.EngineStats.RebuildLink(KEYSTONE.link, { 12841 })
+        register(rebuilt, 292, 567)
+        local read, why = ns.EngineStats.ForLinkAtLevel(KEYSTONE.link, 305, function()
+            return { 12841 }
+        end)
+        assert.is_nil(read)
+        assert.equal("read at 292, not 305", why)
+        assert.is_nil(ns.EngineStats.AtLevel({ ready = true, level = 292 }, 305))
+        assert.is_table(ns.EngineStats.AtLevel({ ready = true, level = 305 }, 305))
+        assert.is_nil(ns.EngineStats.AtLevel({ ready = false }, 305))
+        assert.is_nil(ns.EngineStats.AtLevel({ ready = true, secret = true }, 305))
+    end)
+
+    it("answers ready = false and the rebuilt link while the client fetches it", function()
+        local rebuilt = ns.EngineStats.RebuildLink(KEYSTONE.link, { 12837 })
+        local read, link = ns.EngineStats.ForLinkAtLevel(KEYSTONE.link, 305, function()
+            return { 12837 }
+        end)
+        assert.same({ ready = false }, read)
+        assert.equal(rebuilt, link)
+    end)
+
+    it("answers nil in combat and asks the client nothing", function()
+        world.inCombat = true
+        world.itemStatsCalls = {}
+        assert.is_nil(ns.EngineStats.ForLinkAtLevel(KEYSTONE.link, 305, function()
+            return { 12837 }
+        end))
+        assert.same({}, world.itemStatsCalls)
+    end)
+
+    -- The one place: no other file defines a link rebuilder.
+    it("is the only file that rebuilds a link", function()
+        local writers = {}
+        for _, f in ipairs(H.tocFiles()) do
+            if f:match("%.lua$") and not f:match("^Libs/") and f ~= "Modules/EngineStats.lua" then
+                local text = assert(io.open("Lootpath/" .. f)):read("*a")
+                local code = text:gsub("%-%-[^\n]*", "")
+                if code:find("function [%w_.:]*RebuildLink") or code:find("RebuildLink%s*=") then
+                    writers[#writers + 1] = f
+                end
+            end
+        end
+        assert.same({}, writers)
+    end)
+end)

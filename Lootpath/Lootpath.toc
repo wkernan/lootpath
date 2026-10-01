@@ -19,6 +19,7 @@ Data\QEVerdict.lua
 Data\CompanionStatus.lua
 Data\EngineWeights.lua
 Data\EngineEffects.lua
+Data\TrackBonusIDs.lua
 Captures.lua
 Modules\ItemData.lua
 Modules\Inventory.lua

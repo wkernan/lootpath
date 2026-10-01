@@ -1128,3 +1128,160 @@ describe("/lootpath engine compare raid over the 2026-10-01 transcript", functio
         pinned(PINNED.best, tg.topValue, "best set")
     end)
 end)
+
+-- E-0g (WKE-677): the walk's link reads at its own level, so with
+-- REBUILD_AT_LEVEL on every joined row is read through a link rebuilt at the
+-- row's level and kept only when the client draws that level; the rest are
+-- LEFT OUT and counted on their own header line. The switch ships OFF (no rule
+-- is proven until `capture linklevel`'s transcript lands), and off, nothing
+-- about the compare changes. The rules and reads here are the tests' own.
+describe("EngineCompare at the row's level", function()
+    local ns
+    local L10 = "|cnIQ4:|Hitem:10::::::::90:105::16:1:3524:1:28:1279:::::|h[Drop Ten]|h|r"
+    local L11 = "|cnIQ4:|Hitem:11::::::::90:105::16:1:3524:1:28:1279:::::|h[Drop Eleven]|h|r"
+    local function vec(stats)
+        local v = { ready = true, sockets = 0, gems = {} }
+        for _, k in ipairs({ "int", "haste", "crit", "mastery", "vers", "leech" }) do
+            v[k] = 0
+        end
+        for k, x in pairs(stats) do
+            v[k] = x
+        end
+        return v
+    end
+    local function drop(key, percent)
+        return { key = key, dropType = "drop", upgradePercent = percent, sources = {} }
+    end
+    local function inputs()
+        local rule = function()
+            return { 12837 }
+        end
+        local R10 = ns.EngineStats.RebuildLink(L10, rule())
+        local R11 = ns.EngineStats.RebuildLink(L11, rule())
+        return {
+            contentType = "Dungeon",
+            file = dofile(WEIGHTS),
+            worn = { { link = "worn-head", slot = "Head" }, { link = "worn-wrist", slot = "Wrist" } },
+            owned = {},
+            reads = {
+                ["worn-head"] = vec({ int = 100 }),
+                ["worn-wrist"] = vec({ int = 50 }),
+                -- The kept links, at the client's own 292.
+                [L10] = vec({ int = 150, level = 292 }),
+                [L11] = vec({ int = 40, level = 292 }),
+                -- Rebuilt: the head drawn at the row's 305, the wrist at 292.
+                [R10] = vec({ int = 180, level = 305 }),
+                [R11] = vec({ int = 45, level = 292 }),
+            },
+            journalByKey = {
+                ["10@305"] = { link = L10, slot = "Head", itemLevel = 305 },
+                ["11@305"] = { link = L11, slot = "Wrist", itemLevel = 305 },
+            },
+            document = {
+                keyLevel = 10,
+                verdict = {
+                    exportedAt = "x",
+                    order = { "10@305", "11@305" },
+                    items = { ["10@305"] = drop("10@305", 0.8), ["11@305"] = drop("11@305", -0.3) },
+                },
+            },
+        },
+            rule,
+            R10
+    end
+    local function lines(result)
+        return table.concat(
+            ns.EngineCompare.Lines({ file = {}, contentType = "Dungeon", charKey = "c", result = result }),
+            "\n"
+        )
+    end
+
+    before_each(function()
+        ns = H.load()
+    end)
+    after_each(function()
+        ns.EngineCompare.REBUILD_AT_LEVEL = false
+        ns.EngineStats.linkLevelRule = nil
+        H.unload()
+    end)
+
+    it("ships with the switch off and no rule installed", function()
+        assert.is_false(ns.EngineCompare.REBUILD_AT_LEVEL)
+        assert.is_nil(ns.EngineStats.linkLevelRule)
+    end)
+
+    it("off, reads the walk's own link exactly as before and prints no `at level` line", function()
+        local result = ns.EngineCompare.Compute(inputs())
+        assert.is_nil(result.uf.atLevel)
+        assert.equal(2, #result.uf.rows)
+        assert.equal(L10, ns.EngineCompare.CandidateLink({ row = { link = L10, itemLevel = 305 } }))
+        assert.is_nil(lines(result):find("at level", 1, true))
+    end)
+
+    it("on with no rule, leaves every joined row out and says why, never scoring one", function()
+        ns.EngineCompare.REBUILD_AT_LEVEL = true
+        local result = ns.EngineCompare.Compute(inputs())
+        assert.equal(2, result.uf.joined)
+        assert.equal(0, #result.uf.rows)
+        assert.equal(0, result.uf.notCompared)
+        assert.same({ rebuilt = 0, leftOut = 2, reasons = { ["no rule yet"] = 2 } }, result.uf.atLevel)
+        assert.truthy(lines(result):find("  at level: 0 rebuilt, 2 left out (no rule yet)", 1, true))
+    end)
+
+    it("on with a rule, scores the rows drawn at their level and leaves out the one that is not", function()
+        ns.EngineCompare.REBUILD_AT_LEVEL = true
+        local input, rule, R10 = inputs()
+        ns.EngineStats.linkLevelRule = rule
+        assert.equal(R10, ns.EngineCompare.CandidateLink({ row = { link = L10, itemLevel = 305 } }))
+        local result = ns.EngineCompare.Compute(input)
+        assert.equal(1, #result.uf.rows)
+        assert.equal("10@305", result.uf.rows[1].key)
+        assert.same({ rebuilt = 1, leftOut = 1, reasons = { ["read at 292, not 305"] = 1 } }, result.uf.atLevel)
+        assert.truthy(lines(result):find("  at level: 1 rebuilt, 1 left out (read at 292, not 305)", 1, true))
+        -- Scored with the rebuilt read (180), not the kept one (150).
+        ns.EngineCompare.REBUILD_AT_LEVEL = false
+        local off = ns.EngineCompare.Compute(inputs())
+        assert.equal("10@305", off.uf.rows[1].key)
+        assert.is_true(result.uf.rows[1].ours > off.uf.rows[1].ours)
+    end)
+
+    it("on, counts a rebuilt link the client has not read as not ready, not as left out", function()
+        ns.EngineCompare.REBUILD_AT_LEVEL = true
+        local input, rule, R10 = inputs()
+        ns.EngineStats.linkLevelRule = rule
+        input.reads[R10] = { ready = false }
+        local result = ns.EngineCompare.Compute(input)
+        assert.equal(1, result.uf.atLevel.leftOut)
+        assert.equal(1, result.uf.notCompared)
+        assert.same({ ["not ready"] = 1 }, result.uf.reasons)
+    end)
+end)
+
+describe("/lootpath engine compare at the row's level, over the owner's 2026-09-16 SavedVariables", function()
+    local ns
+    before_each(function()
+        ns = fixtureWorld()
+    end)
+    after_each(function()
+        ns.EngineCompare.REBUILD_AT_LEVEL = false
+        H.unload()
+    end)
+
+    it("on with no rule, joins as before and leaves every joined row out, counted on its own line", function()
+        local first = compare(ns, "compare dungeon 10")
+        local before = first.result.uf
+        local tgBefore = first.result.tg and #(first.result.tg.rows or {}) or 0
+        assert.is_true(before.joined > 0)
+        assert.is_nil(before.atLevel)
+        ns.EngineCompare.REBUILD_AT_LEVEL = true
+        local run = compare(ns, "compare dungeon 10")
+        local uf = run.result.uf
+        assert.equal(before.joined, uf.joined)
+        assert.equal(0, #uf.rows)
+        assert.equal(uf.joined, uf.atLevel.leftOut)
+        assert.same({ ["no rule yet"] = uf.joined }, uf.atLevel.reasons)
+        assert.equal(0, run.notReady)
+        -- Top Gear is not a journal row: unchanged.
+        assert.equal(tgBefore, run.result.tg and #(run.result.tg.rows or {}) or 0)
+    end)
+end)

@@ -2507,10 +2507,20 @@ function Stub.install()
 
     -- E-0a (WKE-675): TooltipInfoDocumentation.lua:121, answered out of
     -- world.tooltipData (a placeholder shape: `{ lines = { { type, leftText } } }`).
+    -- E-0g (WKE-677): an entry may be a FUNCTION of world.journal, like
+    -- `world.items[link].detailed` and `world.itemStats[link]` - a test's way
+    -- to model a client whose answer follows the Adventure Guide's view state
+    -- (what M5-3a measured: the walk read 305 off a link that reads 292 later).
+    -- Hypothetical by construction; the `capture linklevel` transcript is what
+    -- says whether the client does this.
     define("C_TooltipInfo", {
         GetHyperlink = function(link)
             world.tooltipCalls[#world.tooltipCalls + 1] = link
-            return world.tooltipData[link]
+            local data = world.tooltipData[link]
+            if type(data) == "function" then
+                return data(world.journal)
+            end
+            return data
         end,
     })
 
@@ -2666,6 +2676,12 @@ function Stub.install()
             if not item then
                 return nil
             end
+            if type(item.detailed) == "function" then
+                -- E-0g: an answer that follows the journal's view (see
+                -- C_TooltipInfo.GetHyperlink above).
+                local detailed = item.detailed(world.journal)
+                return unpack(detailed, 1, detailed.n or 3)
+            end
             if item.detailed then
                 return unpack(item.detailed, 1, item.detailed.n or 3)
             end
@@ -2727,6 +2743,11 @@ function Stub.install()
         GetItemStats = function(link)
             world.itemStatsCalls[#world.itemStatsCalls + 1] = link
             local stats = world.itemStats[link]
+            if type(stats) == "function" then
+                -- E-0g: an answer that follows the journal's view (see
+                -- C_TooltipInfo.GetHyperlink above).
+                stats = stats(world.journal)
+            end
             if stats == nil then
                 -- A gem link answers an empty table (every gem link in the
                 -- 2026-10-01 transcript did), anything else nothing.
