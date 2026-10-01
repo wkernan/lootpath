@@ -27,6 +27,7 @@ cd C:\Code\lootpath-<n>\tools\engine
 node fit-weights.js `
   --stats ..\..\spec\fixtures\captures\Lootpath-20260915-162015.lua `
   --stats ..\..\spec\fixtures\captures\Lootpath-20260916-152428.lua `
+  --stats ..\..\spec\fixtures\captures\Lootpath-20261001-092631.lua `
   --key-levels 1=2,2=4,4=6,6=8,7=10 `
   ..\..\spec\fixtures\qe
 ```
@@ -60,7 +61,7 @@ which way** (`statsSource`):
 
 | `statsSource` | meaning |
 |---|---|
-| `client` | the item at exactly that level, read from a transcript |
+| `client` | the item at exactly that level (or, for a worn entry, the same item string by its bonus IDs), read from a transcript; `clientSource` says which |
 | `client-scaled` | the item read at another level, its own split scaled by the level curve |
 | `budget` | Intellect and the secondary TOTAL for the slot at that level, measured on client rows of the same slot |
 | `budget-borrowed` | the same, from client rows of another slot in the budget group (head from chest/legs; shoulder/hands from waist/feet; wrist from back; neck from finger) |
@@ -70,21 +71,40 @@ A budget row does not know which secondaries the item carries; its total is
 split equally over haste, crit, mastery and versatility (`splitSource:
 "equal-placeholder"`), or for a crafted row over the pair the export's own
 `settings.craftedStats` names. **The equal split is a documented placeholder**,
-and on the committed exports it is the largest known error: two rings at 334
-in the 2026-09-07 Dungeon document both predict 1.637 where QE Live reads 2.801
-(252258) and 0.474 (251148).
+and on the committed exports it is the largest known error: before E-0f two
+rings at 334 in the 2026-09-07 Dungeon document both predicted 1.637 where QE
+Live reads 2.801 (252258) and 0.474 (251148). With the itemstats transcript
+252258 reads its own split (`client-scaled` from 321) and predicts 2.980 at
+334, and the five largest residuals of every document
+are still `budget` rows on the equal split - rings and necks the transcript did
+not read (Dungeon +10: 272147@321 Finger, observed 2.366, predicted 1.212).
 
-**The client source today** is the `capture upgrade` transcript (committed
-captures from 2026-09-15 on): `GetItemUpgradeItemInfo().upgradeLevelInfos[]
-.levelStats` gives an owned item's stats at every level of its track, so two
-levels of one item give the scale, read and never guessed. The level curve is
-`ln(stat)` linear in item level, its slope measured within items, separately for
-Intellect and the secondary total. E-0a's `capture itemstats` (WKE-675) is not
-committed and its return shape is not confirmable from Ketho's annotations
-(`C_Item.GetItemStats` has no documented return), so it is **not read yet**; when
-its transcript lands, a reader for it joins `lib/stats.js` and most rows become
-`client`. A JSON table `{ "items": [{ "id", "level", "slot", "stats": { "int",
-"haste", "crit", "mastery", "vers", "leech" } }] }` is accepted beside it.
+**The client sources** are two, both read out of a `--stats` SavedVariables
+file, and every point says which (`clientSource` on a row):
+
+- `capture itemstats` (E-0a; read since E-0f, WKE-676): `C_Item.GetItemStats`
+  on every worn, bag and vault link and up to 40 journal links, with the
+  enchant and gems blanked, at the level `GetDetailedItemLevelInfo` gives that
+  link. The keys are the client's own - `ITEM_MOD_INTELLECT_SHORT`,
+  `ITEM_MOD_{HASTE,CRIT,MASTERY}_RATING_SHORT`, `ITEM_MOD_VERSATILITY` (no
+  `_SHORT`), `ITEM_MOD_CR_LIFESTEAL_SHORT`. Indexed by `id@level`, by the
+  stripped link (`statsForLink`) and by `id` + bonus IDs, so an export's
+  `equipped[]` entry finds its own item string. Where it and `capture upgrade`
+  name the same `id@level` this one is kept; on the committed files the 12
+  shared points agree exactly. A journal link reads at the CLIENT's level for
+  that link, which is not always the walk's: every keystone row the walk
+  lists at 305 reads 292 (ARCHITECTURE.md §9, E-0f), so a journal point is
+  filed under the level its stats are at.
+- `capture upgrade` (committed captures from 2026-09-15 on):
+  `GetItemUpgradeItemInfo().upgradeLevelInfos[].levelStats` gives an owned
+  item's stats at every level of its track.
+
+Two levels of one item give the scale, read and never guessed. The level curve
+is `ln(stat)` linear in item level, its slope measured within items,
+separately for Intellect and the secondary total. A JSON table `{ "items": [{
+"id", "level", "slot", "stats": { "int", "haste", "crit", "mastery", "vers",
+"leech" } }] }` is accepted beside them. The run prints, per document, how many
+rows read `client` / `client-scaled` stats from each transcript (`client reads`).
 
 **The DR brackets** (`lib/dr.js`), from maxroll.gg, "WoW Stat Diminishing
 Returns Summary" (https://maxroll.gg/wow/resources/stat-diminishing-returns),
@@ -101,10 +121,15 @@ Returns Summary" (https://maxroll.gg/wow/resources/stat-diminishing-returns),
   3240 - 3780 (-40%), 3780 - 10800 (-50%), >10800 (-100%)"
 - Leech: "690-1035 (-20%), 1035-1380 (-40%), 1380-3381 (-60%), >3381 (-100%)"
 
-A bracket's penalty applies to the rating inside it. **Mastery is assumed** to
-use crit's rating per point and brackets (the page gives no figure for the spec);
-that only scales the mastery weight unless a total crosses a bracket. The page is
-for 12.0.1 and the client is 12.1.0: E-0a's rating probe settles both.
+A bracket's penalty applies to the rating inside it. **Mastery** uses crit's
+rating per point and brackets (the page gives no figure for the spec). **The
+client settled both on 12.1.0** (E-0f): `GetCombatRatingBonusForCombatRatingValue`
+applies diminishing returns, and this table reproduces its 35 answers in the
+2026-10-01 transcript - haste, crit, mastery and versatility to single
+precision, leech within 2.6e-4 (a constant 1.43e-5 relative below 69 per
+percent) - with mastery equal to crit at every point for Restoration
+(`test/dr.test.js`). The addon converts through the client; the table stays here
+because the fit runs offline.
 
 **Effect rows**, excluded from the fit and reported apart (`effects` in the fit
 file): every trinket, and the effect armour Gaze of the Coiled Watcher 271875,
@@ -168,6 +193,25 @@ E-0c refuses a file whose `patch` is not the client's; the patch is the
 transcript's build (12.1.0 for the committed captures). `.pkgmeta` never packages
 it: `tools` is in its `ignore` list, and the file is gitignored besides.
 
+## The real-stats fixture
+
+`extract-itemstats.js` writes `spec/fixtures/engine/itemstats-real.lua` from
+the committed `capture itemstats` transcript (E-0f): the 80 items with their
+links, levels, base stats, sockets, gems (each gem link's empty stat table),
+set and uniqueness, the rating conversion at the probe's values, the mastery
+pair, healing, intellect, the secret flags and the six trinket tooltips -
+copied through `lua-savedvariables.js`, nothing computed. The file names the
+transcript's sha256 and carries an `install(world)` the busted specs put on the
+stub. Re-run after a new transcript:
+
+```powershell
+cd C:\Code\lootpath-<n>\tools\engine
+node extract-itemstats.js [spec\fixtures\captures\<transcript>.lua] [spec\fixtures\engine\itemstats-real.lua]
+```
+
+(paths relative to the repo root). `test/extract.test.js` re-runs it and
+compares the bytes with the committed fixture.
+
 ## Tests
 
 `node --test` here (the CI `companion` job runs it beside the companion's, with
@@ -176,5 +220,9 @@ same gate). A synthetic export generated from known weights fits back inside the
 interval; effect and censored rows are excluded and counted; every row carries
 its stats source; the score fixture's values hold, by hand too; the dev file
 loads in Lua 5.1 (from PATH, or the repo's `lootpath-lua` Docker image) and
-carries the fitted numbers. No npm dependency: Node's own runner and
+carries the fitted numbers; the itemstats transcript is read (80 items, the
+helm's stats, versatility's key, `client` rows flagged with their source, the
+two client sources agreeing where they overlap); the DR table reproduces the
+client's 35 conversions; the real-stats fixture is the extraction, byte for
+byte. No npm dependency: Node's own runner and
 `tools/companion/lib/lua-savedvariables.js`.

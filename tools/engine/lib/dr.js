@@ -9,13 +9,19 @@
 // the rating that falls inside it. The README quotes the whole table.
 //
 // Mastery is NOT on the page for this spec. It is modelled with crit's rating
-// per point and crit's brackets, and that is an assumption, said so in the
-// output (`dr.mastery.assumed`). A weight is per percent (per point for
-// mastery), so the rating-per-point only scales the fitted weight; the bracket
-// position is what an error here would move.
+// per point and crit's brackets (`dr.mastery.assumed` says so); the client
+// confirmed it for Restoration (below).
 //
-// The client may answer all of this itself (GetCombatRatingBonusForCombatRatingValue,
-// E-0a's rating probe). When that transcript lands, it replaces this table.
+// The client answers all of this itself, and applies the brackets: the
+// owner's `capture itemstats` transcript of 2026-10-01 (spec/fixtures/
+// captures/Lootpath-20261001-092631.lua, E-0f) gives
+// GetCombatRatingBonusForCombatRatingValue at 660..3080 and at the
+// character's own rating for all five, and this table reproduces haste, crit,
+// mastery and versatility to single precision and leech within 2.6e-4 (the
+// client reads a constant 1.43e-5 relative below 69 per percent) - test/
+// dr.test.js holds it. Mastery answered crit's figure at every point for spec
+// 105. The addon converts through the client; this table stays for the
+// offline fit, which has no client to ask.
 'use strict';
 
 function secondary(ratingPerPercent, start, step, cap) {
@@ -32,7 +38,7 @@ const DEFAULT_DR = {
     crit: secondary(46, 1380, 460, 9200),
     vers: secondary(54, 1620, 540, 10800),
     mastery: Object.assign(secondary(46, 1380, 460, 9200), {
-        assumed: "crit's rating per point and brackets; the page says mastery varies by specialization",
+        assumed: "crit's rating per point and brackets; the page says mastery varies by specialization - the 2026-10-01 transcript answered crit's figure at all seven points for spec 105",
     }),
     leech: {
         ratingPerPercent: 69,

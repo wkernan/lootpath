@@ -15,7 +15,11 @@
 --     itemID are different keys.
 --   * each gem through `C_Item.GetItemGem(link, i)` -> gem link ->
 --     `C_Item.GetItemStats(gemLink)`, listed under `gems` and never folded
---     into the base vector: the scorer decides what a gem is worth.
+--     into the base vector: the scorer decides what a gem is worth. On 12.1.0
+--     the client answers every gem link with an EMPTY table (all 7 socketed
+--     gems in the 2026-10-01 transcript, E-0f), so an empty answer is read as
+--     "stats unknown" (`unknown = true`, `stats = {}`), never as a gem worth
+--     nothing.
 --   * `C_Item.GetItemNumSockets` for the socket count, which is the one part
 --     of a finish that moves a score at parity: QE Live scores every set with
 --     an ASSUMED best finish per slot (fork `TopGearEngine.ts:565-634`), so
@@ -25,8 +29,8 @@
 --     sixteenth return (setID), `C_Item.GetItemUniquenessByID` (uniqueness).
 --   * the client's own rating conversion, `GetCombatRatingBonusForCombatRatingValue`,
 --     and the five current ratings plus `GetMasteryEffect()`'s pair. No
---     diminishing-returns table of our own: E-0a's probe says whether the
---     client applies them.
+--     diminishing-returns table of our own: the client applies them itself
+--     (the 2026-10-01 transcript: haste 1320 -> 30.0, 2640 -> 54.0; E-0f).
 --
 -- Every value passes ns.Safe / ns.CopyRaw. A read that answers a secret makes
 -- the result `{ secret = true, ready = true }` with no vector, never cached.
@@ -58,27 +62,48 @@ EngineStats.FUNCTION_NAMES = {
     "CreateFrame",
 }
 
--- The key-name map. PLACEHOLDER: read from the Warcraft Wiki's
--- API_C_Item.GetItemStats example, grade (ii), because E-0a's `capture
--- itemstats` transcript (WKE-675) is not committed yet. When it lands, the
--- transcript line each key was read from replaces this comment, and a key the
--- client names differently is changed here and nowhere else. A key not in this
--- table is kept under `other[key]`, never dropped.
+-- The key-name map, READ from the owner's `capture itemstats` transcript
+-- (spec/fixtures/captures/Lootpath-20261001-092631.lua, E-0f, WKE-676): every
+-- key the client named on 80 items - 15 worn, 25 bag, 40 journal - with how
+-- many of them carried it. Versatility has no `_SHORT`; the socket key is a
+-- COUNT of prismatic sockets, filled or not (it equals GetItemNumSockets on
+-- all 12 socketed items); `ITEM_MOD_MODIFIED_CRAFTING_STAT_1` is on the one
+-- world trinket whose tooltip reads "+102 Random Stat 1". Avoidance is the
+-- only key here the transcript did not show (no item carried it): it stays at
+-- the wiki's name, grade (ii). A key not in this table is kept under
+-- `other[key]`, never dropped.
 EngineStats.STAT_KEYS = {
-    ITEM_MOD_INTELLECT_SHORT = "int",
-    ITEM_MOD_STAMINA_SHORT = "stamina",
-    ITEM_MOD_CRIT_RATING_SHORT = "crit",
-    ITEM_MOD_HASTE_RATING_SHORT = "haste",
-    ITEM_MOD_MASTERY_RATING_SHORT = "mastery",
-    ITEM_MOD_VERSATILITY = "vers",
-    ITEM_MOD_CR_LIFESTEAL_SHORT = "leech",
-    ITEM_MOD_CR_AVOIDANCE_SHORT = "avoidance",
-    ITEM_MOD_CR_SPEED_SHORT = "speed",
-    RESISTANCE0_NAME = "armor",
+    ITEM_MOD_INTELLECT_SHORT = "int", -- 69 items
+    ITEM_MOD_STAMINA_SHORT = "stamina", -- 61
+    RESISTANCE0_NAME = "armor", -- 41
+    ITEM_MOD_HASTE_RATING_SHORT = "haste", -- 39
+    ITEM_MOD_CRIT_RATING_SHORT = "crit", -- 35
+    ITEM_MOD_MASTERY_RATING_SHORT = "mastery", -- 28
+    ITEM_MOD_VERSATILITY = "vers", -- 20, no _SHORT
+    EMPTY_SOCKET_PRISMATIC = "prismaticSockets", -- 12, a count
+    ITEM_MOD_DAMAGE_PER_SECOND_SHORT = "dps", -- 7, fractional
+    ITEM_MOD_CR_LIFESTEAL_SHORT = "leech", -- 2
+    ITEM_MOD_CR_SPEED_SHORT = "speed", -- 1
+    ITEM_MOD_MODIFIED_CRAFTING_STAT_1 = "randomStat1", -- 1
+    ITEM_MOD_CR_AVOIDANCE_SHORT = "avoidance", -- not seen; the wiki's name
 }
 
 -- The vector's fields, in one order, each 0 when the item carries none.
-EngineStats.VECTOR = { "int", "stamina", "crit", "haste", "mastery", "vers", "leech", "avoidance", "speed", "armor" }
+EngineStats.VECTOR = {
+    "int",
+    "stamina",
+    "crit",
+    "haste",
+    "mastery",
+    "vers",
+    "leech",
+    "avoidance",
+    "speed",
+    "armor",
+    "prismaticSockets",
+    "dps",
+    "randomStat1",
+}
 
 -- The rating indices, read from Blizzard's own constants in
 -- PaperDollFrame.lua (under .luals/, Blizzard_UIPanels_Game/Mainline:14, 17,
@@ -98,7 +123,8 @@ EngineStats.MAX_ENTRIES = 2000
 
 EngineStats.EVENTS = { "ITEM_DATA_LOAD_RESULT", "PLAYER_ENTERING_WORLD" }
 
--- [key] = result; byItem[itemID] = { [key] = true }; gems[gemID] = vector.
+-- [key] = result; byItem[itemID] = { [key] = true };
+-- gems[gemID] = { stats = <vector or {}>, unknown = true | nil }.
 local cache, byItem, gemCache = {}, {}, {}
 local order, orderHead, count, seq = {}, 1, 0, 0
 local listener
@@ -147,7 +173,8 @@ end
 
 -- A table the client handed over, through ns.CopyRaw, into a vector: every
 -- mapped key into its field, every other key into `other`. Answers nil and
--- true for a secret anywhere in it.
+-- true for a secret anywhere in it; the third return is true when the table
+-- held no key at all, so a caller can tell "the client named nothing" from zeros.
 local function toVector(raw)
     local copy, secret = ns.CopyRaw(raw)
     if secret then
@@ -169,7 +196,7 @@ local function toVector(raw)
             vector.other[key] = value
         end
     end
-    return vector, false
+    return vector, false, next(copy) == nil
 end
 
 local function call(fn, ...)
@@ -294,7 +321,9 @@ local function request(itemID)
 end
 
 -- The stats of the gem in socket `index` of `link`, cached by gem ID.
--- Answers (vector, secret, pending).
+-- Answers (entry, secret, pending), entry = { stats, unknown }. An empty table
+-- from the client is `unknown`: on 12.1.0 every gem link answers one (E-0f),
+-- and a gem the client says nothing about is not a gem worth nothing.
 local function gemVector(link, index, gemID)
     if gemCache[gemID] then
         return gemCache[gemID], false, false
@@ -313,15 +342,16 @@ local function gemVector(link, index, gemID)
         request(gemID)
         return nil, false, true
     end
-    local vector, statsSecret = toVector(raw)
+    local vector, statsSecret, empty = toVector(raw)
     if statsSecret then
         return nil, true, false
     end
     if not vector then
         return nil, false, true
     end
-    gemCache[gemID] = vector
-    return vector, false, false
+    local entry = empty and { stats = {}, unknown = true } or { stats = vector }
+    gemCache[gemID] = entry
+    return entry, false, false
 end
 
 -- A fresh table each time: a caller that writes on one never changes another's.
@@ -332,8 +362,9 @@ end
 -- ForLink(link) -> the item's read, or nil.
 --
 -- `{ itemID, key, int, stamina, crit, haste, mastery, vers, leech, avoidance,
---    speed, armor, other = { [key] = value } | nil, sockets,
---    gems = { { id, stats = <vector> }, ... }, level, setID,
+--    speed, armor, prismaticSockets, dps, randomStat1,
+--    other = { [key] = value } | nil, sockets,
+--    gems = { { id, stats = <vector>, unknown = true | nil }, ... }, level, setID,
 --    uniqueness = { category, max, name, isUnique } | nil, ready = true }`
 -- `{ ready = false }` while the client fetches the item or a gem (one
 -- request made); `{ secret = true, ready = true }` when any read was secret;
@@ -416,14 +447,14 @@ function EngineStats.ForLink(link)
     local gems = {}
     for index, gemID in ipairs(gemIDs) do
         if gemID > 0 then
-            local stats, secret, pending = gemVector(safeLink, index, gemID)
+            local gem, secret, pending = gemVector(safeLink, index, gemID)
             if secret then
                 return secretResult()
             end
-            if pending then
+            if pending or not gem then
                 return { ready = false }
             end
-            gems[#gems + 1] = { id = gemID, stats = stats }
+            gems[#gems + 1] = { id = gemID, stats = gem.stats, unknown = gem.unknown }
         end
     end
 

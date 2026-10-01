@@ -1396,19 +1396,28 @@ function Stub.install()
         -- answered unless a test says so, which is the client that names no
         -- spec list at all (UX-6b).
         itemSpecs = {},
-        -- E-0a (WKE-675), `capture itemstats`. **Every shape below is a
-        -- PLACEHOLDER in the wiki's description, to be replaced by the owner's
-        -- transcript**: the annotations give `C_Item.GetItemStats` only as
-        -- `LuaValueVariant statTable` (ItemDocumentation.lua:366), and the wiki
-        -- (warcraft.wiki.gg API_C_Item.GetItemStats, stale after 10.1.7) says a
-        -- table keyed by global-string names such as
-        -- `ITEM_MOD_HASTE_RATING_SHORT`. Nothing is answered unless a test says
-        -- so, which is a client that answers nothing (MayReturnNothing).
-        --   itemStats[link]            = { [statKey] = number, ... }
+        -- E-0a (WKE-675), `capture itemstats`. The SHAPES are the client's,
+        -- read from the owner's transcript (spec/fixtures/captures/
+        -- Lootpath-20261001-092631.lua, E-0f, WKE-676); the numbers a test puts
+        -- here are its own, and spec/fixtures/engine/itemstats-real.lua puts
+        -- the transcript's 80 items here. Nothing is answered unless a test
+        -- says so, which is a client that answers nothing (MayReturnNothing).
+        --   itemStats[link]            = { [statKey] = number, ... } - keys as
+        --       the client names them: ITEM_MOD_INTELLECT_SHORT,
+        --       ITEM_MOD_STAMINA_SHORT, ITEM_MOD_{HASTE,CRIT,MASTERY}_RATING_SHORT,
+        --       ITEM_MOD_VERSATILITY (no _SHORT), ITEM_MOD_CR_LIFESTEAL_SHORT,
+        --       ITEM_MOD_CR_SPEED_SHORT, RESISTANCE0_NAME (armour),
+        --       EMPTY_SOCKET_PRISMATIC (a COUNT of sockets, filled or not),
+        --       ITEM_MOD_DAMAGE_PER_SECOND_SHORT (fractional),
+        --       ITEM_MOD_MODIFIED_CRAFTING_STAT_1; plain numbers
         --   itemGems[link][index]      = { name = , link = , id = }  (GetItemGem / GetItemGemID)
+        --       a gem link answers GetItemStats with an EMPTY table, as all 7
+        --       gem links did in the transcript, unless a test registers one
         --   itemSockets[link]          = number                      (GetItemNumSockets)
-        --   itemUniqueness[link]       = { limitCategory, limitMax }
-        --   itemUniquenessByID[itemID] = { isUnique, name?, count?, categoryID? }
+        --   itemUniqueness[link]       = { n = 2, 0, 0 } for a unique item;
+        --       absent = no answer at all (n = 0), as for every armour piece
+        --   itemUniquenessByID[itemID] = { n = 4, isUnique, name?, count?, categoryID? };
+        --       absent = `false` and three nils (n = 4), as for armour
         --   itemDataCached[itemID]     = boolean                     (IsItemDataCachedByID)
         itemStats = {},
         itemStatsCalls = {},
@@ -1417,20 +1426,45 @@ function Stub.install()
         itemUniqueness = {},
         itemUniquenessByID = {},
         itemDataCached = {},
-        -- The rating probe's placeholders. `combatRatings[index]` is what
-        -- GetCombatRating answers; GetCombatRatingBonus and the hypothetical
-        -- conversion both divide by `ratingPerPercent[index]` - LINEAR, no
-        -- diminishing returns, because whether the client applies them is the
-        -- question the transcript answers (docs/OWN-ENGINE.md §3, (iv)). 44 /
-        -- 46 / 54 are the memo's (ii) figures for haste, crit and versatility;
-        -- the mastery and leech divisors are placeholders with no source.
-        combatRatings = { [20] = 1100, [11] = 700, [26] = 900, [29] = 500, [17] = 0 },
-        ratingPerPercent = { [20] = 44, [11] = 46, [26] = 46, [29] = 54, [17] = 40 },
+        -- The rating probe, as the transcript answered it (E-0f).
+        -- `combatRatings[index]` is what GetCombatRating answers - the Druid's
+        -- own ratings that morning. GetCombatRatingBonus and
+        -- GetCombatRatingBonusForCombatRatingValue convert through
+        -- `ratingCurves[index]`: rating per percent and, per bracket, the
+        -- penalty on the rating inside it - THE CLIENT APPLIES DIMINISHING
+        -- RETURNS. These are maxroll's published brackets (tools/engine/lib/
+        -- dr.js, read 2026-09-30), and they reproduce the transcript's
+        -- thirty-five points (five ratings at 660..3080 and at the character's
+        -- own): haste, crit, mastery and versatility to single precision, leech
+        -- within 2.6e-4 (the client reads a constant 1.43e-5 relative below 69
+        -- per percent) - spec/enginestats_spec.lua holds that, and haste 1320
+        -- -> 30, 2640 -> 54. Mastery (26) answered crit's figure at every
+        -- point for spec 105.
+        combatRatings = { [20] = 921, [11] = 524, [26] = 985, [29] = 338, [17] = 296 },
+        ratingCurves = {
+            [20] = {
+                perPercent = 44,
+                brackets = { { 1320, 0.1 }, { 1760, 0.2 }, { 2200, 0.3 }, { 2640, 0.4 }, { 3080, 0.5 }, { 8800, 1 } },
+            },
+            [11] = {
+                perPercent = 46,
+                brackets = { { 1380, 0.1 }, { 1840, 0.2 }, { 2300, 0.3 }, { 2760, 0.4 }, { 3220, 0.5 }, { 9200, 1 } },
+            },
+            [26] = {
+                perPercent = 46,
+                brackets = { { 1380, 0.1 }, { 1840, 0.2 }, { 2300, 0.3 }, { 2760, 0.4 }, { 3220, 0.5 }, { 9200, 1 } },
+            },
+            [29] = {
+                perPercent = 54,
+                brackets = { { 1620, 0.1 }, { 2160, 0.2 }, { 2700, 0.3 }, { 3240, 0.4 }, { 3780, 0.5 }, { 10800, 1 } },
+            },
+            [17] = { perPercent = 69, brackets = { { 690, 0.2 }, { 1035, 0.4 }, { 1380, 0.6 }, { 3381, 1 } } },
+        },
         ratingBonusCalls = {},
-        masteryEffect = { 30.5, 1.25 },
-        spellBonusHealing = 4000,
+        masteryEffect = { 38.56050109863281, 1.310999989509583 },
+        spellBonusHealing = 3400,
         -- [index] = { currentStat, effectiveStat, statPositiveBuff, statNegativeBuff }
-        unitStats = { [4] = { 3000, 3000, 0, 0 } },
+        unitStats = { [4] = { 3029, 3029, 2412, 0 } },
         shouldUnitStatsBeSecret = false,
         combatLogRestricted = true,
         -- [link] = TooltipData, for C_TooltipInfo.GetHyperlink. Only `lines`
@@ -2481,14 +2515,28 @@ function Stub.install()
     })
 
     -- E-0a (WKE-675): the rating probe (PlayerScriptDocumentation.lua:134-145,
-    -- :219, :385; UnitDocumentation.lua:1130). Placeholders, linear on purpose;
-    -- see `world.ratingPerPercent`.
+    -- :219, :385; UnitDocumentation.lua:1130), with diminishing returns
+    -- applied as the client applies them; see `world.ratingCurves`. A secret
+    -- rating in gives a secret percent out.
     local function ratingBonus(index, value)
-        local per = world.ratingPerPercent[index]
-        if type(value) ~= "number" or not per then
+        local curve = world.ratingCurves[index]
+        if type(value) ~= "number" or not curve then
             return nil
         end
-        return value / per
+        local effective, prevFrom, prevPenalty = 0, 0, 0
+        for _, bracket in ipairs(curve.brackets) do
+            if value <= bracket[1] then
+                break
+            end
+            effective = effective + (bracket[1] - prevFrom) * (1 - prevPenalty)
+            prevFrom, prevPenalty = bracket[1], bracket[2]
+        end
+        effective = effective + (value - prevFrom) * (1 - prevPenalty)
+        local percent = effective / curve.perPercent
+        if world.secrets[value] then
+            return world.markSecret(percent)
+        end
+        return percent
     end
     define("GetCombatRating", function(index)
         return world.combatRatings[index]
@@ -2680,6 +2728,15 @@ function Stub.install()
             world.itemStatsCalls[#world.itemStatsCalls + 1] = link
             local stats = world.itemStats[link]
             if stats == nil then
+                -- A gem link answers an empty table (every gem link in the
+                -- 2026-10-01 transcript did), anything else nothing.
+                for _, gems in pairs(world.itemGems) do
+                    for _, gem in pairs(gems) do
+                        if gem.link == link then
+                            return {}
+                        end
+                    end
+                end
                 return nil
             end
             if world.secrets[stats] then
@@ -2705,17 +2762,21 @@ function Stub.install()
         GetItemNumSockets = function(link)
             return world.itemSockets[link] or 0
         end,
+        -- No answer at all for an item that is not unique (n = 0 in the
+        -- transcript for every armour piece); two zeros for a unique one.
         GetItemUniqueness = function(link)
             local u = world.itemUniqueness[link]
             if not u then
-                return nil
+                return
             end
-            return u[1], u[2]
+            return unpack(u, 1, u.n or 2)
         end,
+        -- Four returns always (n = 4 on all 80 items): `false` and three nils
+        -- for armour, `true` and three nils for the trinkets sampled.
         GetItemUniquenessByID = function(itemID)
             local u = world.itemUniquenessByID[itemID]
             if not u then
-                return false
+                return false, nil, nil, nil
             end
             return unpack(u, 1, 4)
         end,
@@ -2736,13 +2797,13 @@ function Stub.install()
     -- E-0a and E-0b (WKE-675, WKE-671) share ONE set of item-stat and rating
     -- stubs: the C_Item functions above and the rating probe beside
     -- C_Secrets, all answered from the `world` tables E-0a declares (see
-    -- `world.itemStats`). PLACEHOLDER throughout: the return SHAPES are
-    -- Blizzard's exported docs (ItemDocumentation.lua:187, 321, 366, 387;
-    -- PlayerScriptDocumentation.lua:134, 145, 219 under .luals/), the KEYS of
-    -- GetItemStats' table are the Warcraft Wiki's (grade (ii)), and the
-    -- numbers are invented. E-0b's own fixture
-    -- (spec/fixtures/engine/itemstats-placeholder.lua) fills the same tables;
-    -- the owner's `capture itemstats` transcript replaces all of it.
+    -- `world.itemStats`). Since E-0f (WKE-676) every shape is the client's, read
+    -- from the owner's 2026-10-01 transcript: GetItemStats' keys, the empty
+    -- table a gem link answers, the four-return uniqueness by ID and the
+    -- no-answer uniqueness by link, and a rating conversion that applies
+    -- diminishing returns. spec/fixtures/engine/itemstats-real.lua (extracted
+    -- from the transcript by tools/engine/extract-itemstats.js) fills the same
+    -- tables with the transcript's 80 items.
 
     -- ITEM_QUALITY_COLORS and the accessor Blizzard's own item buttons go
     -- through (ColorManager.GetColorDataForItemQuality, read under .luals/ on

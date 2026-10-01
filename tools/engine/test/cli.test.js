@@ -16,7 +16,8 @@ const { run } = require('../fit-weights');
 
 const REPO = path.join(__dirname, '..', '..', '..');
 const QE = path.join(REPO, 'spec', 'fixtures', 'qe');
-const CAPTURES = ['Lootpath-20260915-162015.lua', 'Lootpath-20260916-152428.lua'].map((f) => path.join(REPO, 'spec', 'fixtures', 'captures', f));
+// The two `capture upgrade` transcripts and, since E-0f, the `capture itemstats` one.
+const CAPTURES = ['Lootpath-20260915-162015.lua', 'Lootpath-20260916-152428.lua', 'Lootpath-20261001-092631.lua'].map((f) => path.join(REPO, 'spec', 'fixtures', 'captures', f));
 const SOURCES = new Set(['client', 'client-scaled', 'budget', 'budget-borrowed', 'none']);
 
 let cached = null;
@@ -46,6 +47,20 @@ test('every row carries its stats source, and the fit file counts them', () => {
         for (const row of f.rows) assert.ok(SOURCES.has(row.statsSource), `${f.file} ${row.id}@${row.level}: ${row.statsSource}`);
         const total = Object.values(f.statsSources.all).reduce((a, b) => a + b, 0);
         assert.equal(total, f.counts.rows);
+    }
+});
+
+test('every document reads client stats from the itemstats transcript, and says how many', () => {
+    const r = runOnce();
+    for (const f of r.fits) {
+        const fromItemstats = Object.entries(f.clientSources.all)
+            .filter(([k]) => k.endsWith('<- capture itemstats'))
+            .reduce((a, [, n]) => a + n, 0);
+        assert.ok(fromItemstats > 0, `${f.file}: no row read from capture itemstats`);
+        for (const row of f.rows) {
+            if (row.statsSource === 'client' || row.statsSource === 'client-scaled') assert.ok(row.clientSource, `${f.file} ${row.id}@${row.level}`);
+            else assert.equal(row.clientSource, null);
+        }
     }
 });
 

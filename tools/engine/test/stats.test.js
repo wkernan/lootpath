@@ -79,3 +79,75 @@ test('the level curve is measured within items', () => {
     assert.ok(Math.abs(budget.intSlope - Math.log(148 / 140) / 6) < 1e-3, `${budget.intSlope}`);
     assert.equal(budget.intItems, 2);
 });
+
+// E-0f (WKE-676): the owner's `capture itemstats` transcript, read.
+const ITEMSTATS = path.join(__dirname, '..', '..', '..', 'spec', 'fixtures', 'captures', 'Lootpath-20261001-092631.lua');
+const { readItemStatsInto, statsForLink, strippedKey, bonusKey, linkBonusIDs, ITEMSTATS_KEYS, SOURCE_ITEMSTATS, SOURCE_UPGRADE } = require('../lib/stats');
+
+let itemstatsTable = null;
+function itemstats() {
+    if (!itemstatsTable) itemstatsTable = readSavedVariablesInto(newTable(), fs.readFileSync(ITEMSTATS, 'utf8'), 'itemstats');
+    return itemstatsTable;
+}
+
+const HELM_LINK = "|cnIQ4:|Hitem:271528:7961:240892::::::90:105::35:6:6652:13440:13695:13692:13698:12845:1:64:239033:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r";
+
+test('the itemstats transcript: 80 items read, indexed by id@level, by link and by bonus IDs', () => {
+    const table = itemstats();
+    const src = table.sources.find((s) => s.kind.startsWith('capture itemstats'));
+    assert.equal(src.items, 80);
+    assert.equal(table.byLink.size, 80);
+    // The worn helm at 318: "ITEM_MOD_INTELLECT_SHORT" 162, haste 78, crit 110.
+    const p = table.points.get('271528@318');
+    assert.equal(p.source, SOURCE_ITEMSTATS);
+    assert.deepEqual(p.stats, { int: 162, haste: 78, crit: 110, mastery: 0, vers: 0, leech: 0 });
+    assert.deepEqual(statsForLink(table, HELM_LINK), p.stats);
+    // The enchant and gem do not change the key: the base is the item's own.
+    assert.equal(strippedKey(HELM_LINK), 'item:271528::::::::90:105::35:6:6652:13440:13695:13692:13698:12845:1:64:239033:::::');
+    assert.deepEqual(linkBonusIDs(HELM_LINK), [6652, 13440, 13695, 13692, 13698, 12845]);
+    assert.equal(table.byBonus.get(bonusKey(271528, [12845, 6652, 13440, 13692, 13695, 13698])), p);
+    assert.equal(table.slotOf.get(271528), 'Head');
+    assert.equal(table.patch, '12.1.0');
+});
+
+test('versatility is ITEM_MOD_VERSATILITY, no _SHORT, and leech is read', () => {
+    assert.equal(ITEMSTATS_KEYS.ITEM_MOD_VERSATILITY, 'vers');
+    assert.equal(ITEMSTATS_KEYS.ITEM_MOD_VERSATILITY_SHORT, undefined);
+    const table = itemstats();
+    // The worn neck at 321: mastery 220, versatility 156.
+    assert.equal(table.points.get('272228@321').stats.vers, 156);
+    assert.equal(table.points.get('272228@321').stats.mastery, 220);
+    // The worn ring at 292 carries 53 leech.
+    assert.equal(table.points.get('279010@292').stats.leech, 53);
+});
+
+test('a covered row is `client` from the itemstats transcript; budget stays the fallback', () => {
+    const table = itemstats();
+    const budget = buildBudget(table);
+    const hit = itemStats(table, budget, { id: 271528, level: 318, slot: 'Head' });
+    assert.equal(hit.statsSource, 'client');
+    assert.equal(hit.clientSource, SOURCE_ITEMSTATS);
+    assert.equal(hit.matchedBy, 'level');
+    // An export's worn entry, matched by its bonus IDs (order free).
+    const worn = itemStats(table, budget, { id: 271528, level: 999, slot: 'Head', bonusIDs: [13698, 12845, 6652, 13440, 13695, 13692] });
+    assert.equal(worn.statsSource, 'client');
+    assert.equal(worn.matchedBy, 'link');
+    assert.equal(worn.stats.int, 162);
+    const miss = itemStats(table, budget, { id: 99999999, level: 318, slot: 'Head' });
+    assert.equal(miss.statsSource, 'budget');
+    assert.equal(miss.clientSource, undefined);
+});
+
+test('where both transcripts name an id@level, the GetItemStats read is kept, and they agree', () => {
+    const table = itemstats();
+    const upgrade = readSavedVariablesInto(newTable(), fs.readFileSync(CAPTURE, 'utf8'), 'capture');
+    let shared = 0;
+    for (const [key, p] of table.points) {
+        if (p.source !== SOURCE_ITEMSTATS) continue;
+        const q = upgrade.points.get(key);
+        if (!q || q.source !== SOURCE_UPGRADE) continue;
+        shared += 1;
+        assert.deepEqual(p.stats, q.stats, key);
+    }
+    assert.ok(shared > 0, 'the two client sources overlap');
+});

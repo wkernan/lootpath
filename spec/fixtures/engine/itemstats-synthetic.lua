@@ -1,24 +1,24 @@
 -- spec/fixtures/engine/itemstats-synthetic.lua (E-0d, WKE-673)
 --
--- SYNTHETIC. No number here was read from a client. E-0a's `capture
--- itemstats` transcript (WKE-675) is not committed, so the compare's fixture
--- run answers C_Item.GetItemStats for every link it asks about from a rule:
--- Intellect and two secondaries that grow with the item level the client
--- itself listed for the link (the journal row's `itemLevel`, the inventory
--- record's `itemLevel`), the pair of secondaries chosen by the itemID. The KEYS
--- are E-0b's placeholder map (the wiki's, spec/fixtures/engine/
--- itemstats-placeholder.lua), so this file goes when E-0a's transcript lands.
+-- SYNTHETIC NUMBERS, REAL SHAPE. No number here was read from a client. The
+-- compare's fixture run is the owner's 2026-09-16 SavedVariables (its walk,
+-- documents and dressed inventory), and the one transcript of what the client
+-- answers for item stats (spec/fixtures/captures/Lootpath-20261001-092631.lua,
+-- extracted to itemstats-real.lua) reads 80 links of 2026-10-01, not that
+-- day's - so the run answers C_Item.GetItemStats for every link it asks about
+-- from a rule: Intellect and two secondaries that grow with the item level the
+-- client itself listed for the link (the journal row's `itemLevel`, the
+-- inventory record's `itemLevel`), the pair of secondaries chosen by the
+-- itemID. The KEYS are the client's (E-0f confirmed every one used here), a gem
+-- link answers the empty table every gem link answered on 2026-10-01, and the
+-- rating conversion is the stub's, which applies diminishing returns as the
+-- client does.
 --
 -- It exists so the compare's joins, metrics, store and print run end to end
 -- over the owner's real walk, documents and inventory; the figures it yields
 -- measure the plumbing, never an engine.
 
 local F = {}
-
--- Rating per 1% at level 90, no diminishing returns (the stub's own
--- GetCombatRatingBonusForCombatRatingValue is a straight division). SYNTHETIC:
--- the same first-bracket numbers the shipped placeholder's `dr` table carries.
-F.RATING_PER_PERCENT = { [11] = 46, [17] = 69, [20] = 44, [26] = 46, [29] = 54 }
 
 local SECONDARIES = {
     "ITEM_MOD_CRIT_RATING_SHORT",
@@ -64,8 +64,9 @@ function F.stats(itemID, level)
 end
 
 -- The gems a link carries (fields 3-6), each answered by GetItemGem as a
--- SYNTHETIC gem link with one stat. The compare scores in the parity mode,
--- which ignores the item's own gems, but EngineStats reads them all the same.
+-- SYNTHETIC gem link; GetItemStats answers that link with the empty table the
+-- client gives every gem link. The compare scores in the parity mode, which
+-- ignores the item's own gems, but EngineStats reads them all the same.
 function F.installGems(world, link)
     local body = link:match("|Hitem:([^|]+)|h")
     if not body then
@@ -81,7 +82,6 @@ function F.installGems(world, link)
         if gemID and gemID > 0 then
             local gemLink = "|cff0070dd|Hitem:" .. gemID .. "::::::::90:105:::::|h[Synthetic Gem]|h|r"
             gems[i - 2] = { name = "Synthetic Gem", link = gemLink, id = gemID }
-            world.itemStats[gemLink] = { ITEM_MOD_HASTE_RATING_SHORT = 50 }
         end
     end
     if next(gems) then
@@ -91,7 +91,7 @@ end
 
 -- Registers `{ link, level }` entries on a stub world: the stripped link
 -- loaded (a name, and GetItemInfo's setID kept when the replay already holds
--- the client's info), its level, its stats; and the rating conversion.
+-- the client's info), its level, its stats.
 function F.install(world, entries)
     for _, entry in ipairs(entries) do
         local stripped = F.strip(entry.link)
@@ -107,9 +107,6 @@ function F.install(world, entries)
             world.itemStats[stripped] = F.stats(itemID, entry.level)
             F.installGems(world, entry.link)
         end
-    end
-    for index, per in pairs(F.RATING_PER_PERCENT) do
-        world.ratingPerPercent[index] = per
     end
 end
 

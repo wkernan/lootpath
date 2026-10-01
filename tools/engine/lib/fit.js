@@ -78,7 +78,7 @@ function prepare(doc, table, budget, opts) {
 
     const worn = doc.equipped.map((e) => {
         const s = itemStats(table, budget, e);
-        return { id: e.id, level: e.level, slot: e.slot, setId: e.setId, stats: s.stats, statsSource: s.statsSource, splitSource: s.splitSource };
+        return { id: e.id, level: e.level, slot: e.slot, setId: e.setId, stats: s.stats, statsSource: s.statsSource, splitSource: s.splitSource, clientSource: s.clientSource || null };
     });
     const wornMissing = worn.filter((w) => !w.stats);
     const wornUsable = worn.map((w) => (w.stats ? w : { ...w, stats: {} }));
@@ -99,6 +99,7 @@ function prepare(doc, table, budget, opts) {
         const s = itemStats(table, budget, r, { craftedPair: r.dropLoc === 'Crafted' ? pair : null });
         row.statsSource = s.statsSource;
         row.splitSource = s.splitSource;
+        row.clientSource = s.clientSource || null;
         if (r.slot === 'Trinket' || effectIds.has(r.id)) row.excluded = 'effect';
         else if (seen.has(key)) row.excluded = 'duplicate';
         seen.add(key);
@@ -260,6 +261,12 @@ function fitDocument(doc, table, budget, opts) {
         for (const r of rows) out[r.statsSource] = (out[r.statsSource] || 0) + 1;
         return out;
     };
+    // Which transcript a `client` / `client-scaled` row's stats were read from.
+    const clientCounts = (rows) => {
+        const out = {};
+        for (const r of rows) if (r.clientSource) out[`${r.statsSource} <- ${r.clientSource}`] = (out[`${r.statsSource} <- ${r.clientSource}`] || 0) + 1;
+        return out;
+    };
 
     const weights = {};
     const intervals = {};
@@ -294,6 +301,7 @@ function fitDocument(doc, table, budget, opts) {
             noStats: count((r) => r.excluded === 'no-stats'),
         },
         statsSources: { fitted: sourceCounts(fitRows), all: sourceCounts(prep.rows), worn: sourceCounts(prep.worn) },
+        clientSources: { fitted: clientCounts(fitRows), all: clientCounts(prep.rows), worn: clientCounts(prep.worn) },
         censoredCheck: {
             n: censored.length,
             predictedAtOrBelowZero: censored.filter((r) => r.predicted <= 0).length,
@@ -309,7 +317,7 @@ function fitDocument(doc, table, budget, opts) {
             .sort((a, b) => Math.abs(b.residual) - Math.abs(a.residual))
             .slice(0, 10)
             .map(rowOut),
-        worn: prep.worn.map((x) => ({ id: x.id, level: x.level, slot: x.slot, statsSource: x.statsSource, splitSource: x.splitSource, stats: x.stats })),
+        worn: prep.worn.map((x) => ({ id: x.id, level: x.level, slot: x.slot, statsSource: x.statsSource, splitSource: x.splitSource, clientSource: x.clientSource, stats: x.stats })),
         rows: prep.rows.map(rowOut),
     };
 }
@@ -327,6 +335,7 @@ function rowOut(r) {
         excluded: r.excluded,
         statsSource: r.statsSource,
         splitSource: r.splitSource,
+        clientSource: r.clientSource || null,
         replaced: r.replaced || null,
     };
 }
