@@ -1,0 +1,12 @@
+{
+  "name": "lootpath-engine-dev",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Developer-only diagnostics for the E-0 own engine. fit-weights.js fits a weights file to QE Live's own Upgrade Finder exports (the structure run, E-0e). Never shipped.",
+  "license": "MIT",
+  "main": "fit-weights.js",
+  "scripts": {
+    "fit": "node fit-weights.js",
+    "test": "node --test"
+  }
+}
