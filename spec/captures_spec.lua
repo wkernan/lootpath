@@ -1313,6 +1313,20 @@ describe("captures", function()
             assert.is_false(helm.uniquenessByID[1])
         end)
 
+        -- Fields 2-6 of the item string - the enchant and all four gems -
+        -- and nothing else: the bonus IDs after them are what make the link
+        -- the same item at the same level.
+        it("blanks the enchant and all four gem fields of a link, and nothing else", function()
+            local link = "|cffa335ee|Hitem:210001:7000:240892:240893:240894:240895:::80:105::13:2:1:2::::::|h[X]|h|r"
+            assert.equal(
+                "|cffa335ee|Hitem:210001::::::::80:105::13:2:1:2::::::|h[X]|h|r",
+                ns.ItemStatsStrippedLink(link)
+            )
+            assert.equal(HELM, ns.ItemStatsStrippedLink(GEMMED_HELM))
+            assert.is_nil(ns.ItemStatsStrippedLink("not a link"))
+            assert.is_nil(ns.ItemStatsStrippedLink(nil))
+        end)
+
         it("says so when the stripped link's stats differ", function()
             world.itemStats[HELM] = { ITEM_MOD_INTELLECT_SHORT = 900, ITEM_MOD_STAMINA_SHORT = 2000 }
             local data = ns.RunCapture("itemstats").snapshot.data
@@ -1564,6 +1578,17 @@ describe("captures", function()
             for name in body:gmatch("C_[%w_]+%.[%w_]+") do
                 found = found + 1
                 assert.is_true(named[name] == true, name .. " is called but not named")
+            end
+            -- The capture reaches C_Item through `local I = C_Item` and
+            -- C_Container through `local C = C_Container`; both are resolved
+            -- back to their namespaces, so an aliased call is held to the
+            -- list as well.
+            for alias, namespace in pairs({ I = "C_Item", C = "C_Container" }) do
+                for fn in body:gmatch("[^%w_.]" .. alias .. "%.([%w_]+)") do
+                    found = found + 1
+                    local name = namespace .. "." .. fn
+                    assert.is_true(named[name] == true, name .. " is called but not named")
+                end
             end
             assert.is_true(found > 0)
             for _, forbidden in ipairs({
