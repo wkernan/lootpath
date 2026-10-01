@@ -4,8 +4,9 @@
 -- SHAPE the Warcraft Wiki gives for C_Item.GetItemStats (grade (ii)): a table
 -- keyed by global-string stat names. None of it was read from a client.
 -- E-0a's `capture itemstats` transcript (WKE-675) is not committed yet; when it
--- is, a fixture read from it replaces this one and the stub block it feeds
--- (spec/stubs/wow.lua, "BEGIN E-0b") goes with it.
+-- is, a fixture read from it replaces this one. It fills the `world` tables
+-- of the item-stat stubs E-0a and E-0b share (spec/stubs/wow.lua, see
+-- `world.itemStats`), in their shapes.
 --
 -- The item IDs are the owner's helm and gem IDs from earlier fixtures, used as
 -- labels only; the stats are not theirs.
@@ -67,9 +68,9 @@ function F.install(world)
     world.items[F.HELM_STRIPPED] = { info = info, level = F.HELM_LEVEL }
     world.itemStats[F.HELM_STRIPPED] = F.HELM_STATS
     world.itemSockets[F.HELM_STRIPPED] = F.HELM_SOCKETS
-    world.itemUniqueness[F.HELM_ID] = F.HELM_UNIQUENESS
-    world.itemGems[F.HELM_LINK] = { { "Placeholder Gem", F.GEM_LINK } }
-    world.itemGems[F.HELM_LINK_OTHER_GEM] = { { "Placeholder Diamond", F.GEM2_LINK } }
+    world.itemUniquenessByID[F.HELM_ID] = F.HELM_UNIQUENESS
+    world.itemGems[F.HELM_LINK] = { { name = "Placeholder Gem", link = F.GEM_LINK, id = F.GEM_ID } }
+    world.itemGems[F.HELM_LINK_OTHER_GEM] = { { name = "Placeholder Diamond", link = F.GEM2_LINK, id = F.GEM2_ID } }
     world.itemStats[F.GEM_LINK] = F.GEM_STATS
     world.itemStats[F.GEM2_LINK] = F.GEM2_STATS
 end
