@@ -80,7 +80,7 @@ function F.installGems(world, link)
         local gemID = tonumber(fields[i])
         if gemID and gemID > 0 then
             local gemLink = "|cff0070dd|Hitem:" .. gemID .. "::::::::90:105:::::|h[Synthetic Gem]|h|r"
-            gems[i - 2] = { "Synthetic Gem", gemLink }
+            gems[i - 2] = { name = "Synthetic Gem", link = gemLink, id = gemID }
             world.itemStats[gemLink] = { ITEM_MOD_HASTE_RATING_SHORT = 50 }
         end
     end
