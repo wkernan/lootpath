@@ -37,6 +37,10 @@ export's `settings.dungeon` index to a key level; the mapping is the one
 `spec/fixtures/qe/README.md` records for the committed run (the key level is
 not in the JSON). Without it a Dungeon band is keyed `dungeon-index-<n>`. A Raid
 band is `raid-<settings.raid>`.
+In game, `/lootpath engine compare` picks the band by the document's key level
+through `EngineScore.BandFor` (E-0h): the key `"10"`, else the highest `"<n>+"`
+at or under the level, else the content type's only band (Raid always), else
+`no band for +<level>` - so a `dungeon-index-<n>` band is never found by level.
 
 Options: `--tier-sets 2057` and `--tier2 0.03 --tier4 0.055` (the tier rule;
 memo §1, and the committed Top Gear export's `bonusHPS` 0.085), `--finish

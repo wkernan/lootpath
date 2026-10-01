@@ -119,26 +119,86 @@ function EngineScore.Load()
     return true, string.format(EngineScore.TEXT.loaded, file.patch)
 end
 
--- The band SetValue scores with: opts.spec (105), opts.contentType
--- ("Dungeon"), opts.band (or the content type's only band).
-local function bandOf(file, opts)
-    local spec = type(file.specs) == "table" and file.specs[opts.spec or EngineScore.DEFAULT_SPEC]
-    local content = type(spec) == "table" and spec[opts.contentType or EngineScore.DEFAULT_CONTENT]
-    local bands = type(content) == "table" and content.bands
-    if type(bands) ~= "table" then
+-- The reason a key level finds no band; the level is always named when there
+-- is one, so a compare never prints a bare "no band" for a Dungeon document.
+EngineScore.NO_BAND = "no band"
+EngineScore.NO_BAND_FOR = "no band for +%d"
+
+local function integerLevel(keyLevel)
+    local level = tonumber(keyLevel)
+    if not level or level < 0 or level % 1 ~= 0 then
         return nil
     end
+    return level
+end
+
+-- BandFor(file, spec, contentType, keyLevel) -> band, key | nil, reason.
+-- THE one rule that picks the band a set is scored with (E-0h, WKE-678;
+-- docs/ARCHITECTURE.md section 7). It lives here, not in a caller, so every
+-- caller - the compare today, anything later - resolves a key level the same
+-- way. A weights file keys a band by a string: E-0e's fit writes the key level
+-- (`["2"]` .. `["10"]`, tools/engine/lib/luaout.js), the placeholder `["10+"]`,
+-- Raid `["raid-<difficulties>"]`. In order:
+--   1. the band whose key is the key level as a string ("10" for 10);
+--   2. else a key "<n>+" with n <= the key level, the highest such n ("10+"
+--      serves 10 and above). Ranges ("7-9") may be supported later; they are
+--      not read here;
+--   3. else, when the content type has exactly one band, that band;
+--   4. else nil and "no band for +<level>" ("no band" with no level).
+-- Raid skips 1 and 2: a key level means nothing there, the only band is used.
+-- The chosen band's KEY comes back beside it so a caller can print it.
+function EngineScore.BandFor(file, spec, contentType, keyLevel)
+    contentType = contentType or EngineScore.DEFAULT_CONTENT
+    local level = integerLevel(keyLevel)
+    local why = level and string.format(EngineScore.NO_BAND_FOR, level) or EngineScore.NO_BAND
+    local specs = type(file) == "table" and file.specs
+    local bySpec = type(specs) == "table" and specs[spec or EngineScore.DEFAULT_SPEC]
+    local content = type(bySpec) == "table" and bySpec[contentType]
+    local bands = type(content) == "table" and content.bands
+    if type(bands) ~= "table" then
+        return nil, why
+    end
+    if level and contentType ~= "Raid" then
+        local exact = tostring(level)
+        if type(bands[exact]) == "table" then
+            return bands[exact], exact
+        end
+        local bestKey, bestFrom
+        for key, band in pairs(bands) do
+            local from = type(key) == "string" and type(band) == "table" and tonumber(key:match("^(%d+)%+$"))
+            if from and from <= level and (not bestFrom or from > bestFrom) then
+                bestKey, bestFrom = key, from
+            end
+        end
+        if bestKey then
+            return bands[bestKey], bestKey
+        end
+    end
+    local onlyKey, onlyBand, n = nil, nil, 0
+    for key, band in pairs(bands) do
+        onlyKey, onlyBand, n = key, band, n + 1
+    end
+    if n == 1 and type(onlyBand) == "table" then
+        return onlyBand, onlyKey
+    end
+    return nil, why
+end
+
+-- The band SetValue scores with: opts.spec (105), opts.contentType
+-- ("Dungeon"), and opts.band (a key, taken as given) or opts.keyLevel through
+-- BandFor's rule.
+local function bandOf(file, opts)
     if opts.band ~= nil then
-        return bands[opts.band]
+        local specs = type(file.specs) == "table" and file.specs[opts.spec or EngineScore.DEFAULT_SPEC]
+        local content = type(specs) == "table" and specs[opts.contentType or EngineScore.DEFAULT_CONTENT]
+        local bands = type(content) == "table" and content.bands
+        local band = type(bands) == "table" and bands[opts.band] or nil
+        if type(band) == "table" then
+            return band, opts.band
+        end
+        return nil, EngineScore.NO_BAND
     end
-    local only, n = nil, 0
-    for _, band in pairs(bands) do
-        only, n = band, n + 1
-    end
-    if n == 1 then
-        return only
-    end
-    return nil
+    return EngineScore.BandFor(file, opts.spec, opts.contentType, opts.keyLevel)
 end
 
 local function add(totals, stats, times)
@@ -253,14 +313,16 @@ local function tierOf(items, tiers, force)
     return result
 end
 
--- SetValue(items, opts) -> `{ value, totals, pcts, tier = { setID, count,
--- mult, forced }, effects = {}, effectUnmodelled = true | nil }`, or nil and
--- the reason.
+-- SetValue(items, opts) -> `{ value, totals, pcts, band, tier = { setID,
+-- count, mult, forced }, effects = {}, effectUnmodelled = true | nil }` (`band`
+-- is the KEY of the band scored with), or nil and the reason.
 --
 -- `items`: ns.EngineStats vectors plus `slot` (and `effect`, truthy when the
 -- item carries an effect this file does not model). `opts`:
 --   file          the weights table (default: what Load kept)
---   spec, contentType, band   which band (105, "Dungeon", the only band)
+--   spec, contentType   which content (105, "Dungeon")
+--   keyLevel      the key level, resolved to a band by BandFor's rule
+--   band          a band key taken as given (instead of keyLevel)
 --   assumedFinish true: the parity mode - each item's sockets times the
 --                 file's gem vector and the file's enchant for its slot, its
 --                 own gems ignored (QE Live's rule, TopGearEngine.ts:565-634)
@@ -277,9 +339,12 @@ function EngineScore.SetValue(items, opts)
     if type(items) ~= "table" then
         return nil, "no items"
     end
-    local band = bandOf(file, opts)
-    if type(band) ~= "table" or type(band.weights) ~= "table" then
-        return nil, "no band"
+    local band, bandKey = bandOf(file, opts)
+    if type(band) ~= "table" then
+        return nil, bandKey
+    end
+    if type(band.weights) ~= "table" then
+        return nil, EngineScore.NO_BAND
     end
 
     local totals = {}
@@ -350,6 +415,7 @@ function EngineScore.SetValue(items, opts)
         value = value,
         totals = totals,
         pcts = pcts,
+        band = bandKey,
         tier = tier,
         effects = {},
         effectUnmodelled = unmodelled or nil,
