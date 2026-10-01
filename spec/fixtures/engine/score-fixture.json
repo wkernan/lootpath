@@ -1,0 +1,27 @@
+{
+  "about": "E-0c's SetValue contract, written down by E-0e (WKE-674) so the later Lua EngineScore is tested against the same numbers. Synthetic: no figure here is a game value. DR is lib/dr.js's DEFAULT_DR (maxroll, read 2026-09-30); tier forced on (1 + 0.03 + 0.055). Expected values computed by tools/engine/lib/score.js and checked by hand in test/score.test.js.",
+  "model": {
+    "baseValue": 1000,
+    "weights": { "int": 1, "haste": 20, "crit": 15, "mastery": 18, "vers": 12, "leech": 5 },
+    "assumedFinish": { "int": 100, "haste": 50 },
+    "tiers": { "setIDs": [2057], "twoPiece": 0.03, "fourPiece": 0.055, "forceTier": true }
+  },
+  "worn": [
+    { "slot": "Head", "setId": 2057, "stats": { "int": 200, "haste": 300, "crit": 200 } },
+    { "slot": "Finger", "stats": { "haste": 400, "mastery": 300 } },
+    { "slot": "Finger", "stats": { "crit": 300, "vers": 300 } },
+    { "slot": "Trinket", "stats": { "int": 150 } },
+    { "slot": "2H Weapon", "stats": { "int": 600, "mastery": 900, "vers": 100 } }
+  ],
+  "expected": {
+    "wornFeatures": { "int": 1050, "haste": 17.045454545454547, "crit": 10.869565217391305, "mastery": 26.08695652173913, "vers": 7.407407407407407, "leech": 0 },
+    "wornValue": 3376.961242863417
+  },
+  "cases": [
+    { "name": "a ring that crosses haste's first DR bracket replaces the crit/vers ring", "item": { "slot": "Finger", "stats": { "haste": 1000, "crit": 100 } }, "comparable": true, "replaced": [2], "percent": 9.738956814990923, "clampedPercent": 9.738956814990923 },
+    { "name": "a head with leech", "item": { "slot": "Head", "stats": { "int": 220, "mastery": 500, "leech": 100 } }, "comparable": true, "replaced": [0], "percent": 0.28260394104653813, "clampedPercent": 0.28260394104653813 },
+    { "name": "a one-hander beside a worn two-hander is not comparable", "item": { "slot": "1H Weapon", "stats": { "int": 400 } }, "comparable": false },
+    { "name": "a two-hander replaces the two-hander", "item": { "slot": "2H Weapon", "stats": { "int": 650, "crit": 800, "haste": 300 } }, "comparable": true, "replaced": [4], "percent": 2.3402168775001715, "clampedPercent": 2.3402168775001715 },
+    { "name": "a worse ring: negative, and the Upgrade Finder's 0", "item": { "slot": "Finger", "stats": { "crit": 10 } }, "comparable": true, "replaced": [2], "percent": -5.180296178186679, "clampedPercent": 0 }
+  ]
+}
