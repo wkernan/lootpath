@@ -935,7 +935,11 @@ describe("/lootpath engine compare with the effects table", function()
         end)
         local run = compare(ns, "compare dungeon 6")
         assert.is_true(run.result.uf.notRated > 0)
-        assert.is_nil(world.output():find("\n    ", 1, true))
+        local out = world.output()
+        assert.truthy(out:find(string.format("  not rated: %d (effect not modelled)", run.result.uf.notRated), 1, true))
+        for _, item in ipairs(run.result.uf.notRatedItems) do
+            assert.is_nil(out:find("    " .. item.names .. " (" .. item.key .. ")", 1, true), item.key)
+        end
         world.printed = {}
         ns.HandleSlash("engine verbose")
         assert.is_true(ns.db.global.developer.engineVerbose)
