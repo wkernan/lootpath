@@ -67,16 +67,19 @@ local ONE_HAND = "1H Weapon"
 local OFF_HANDS = { Offhand = true, Shield = true }
 local TRINKET = "Trinket"
 
--- The loaded file, or nil; why it is not loaded; whether it is a placeholder.
+-- The loaded file, or nil; why it is not loaded (the sentence, and for a
+-- developer the field it tripped on); whether it is a placeholder.
 EngineScore.file = nil
 EngineScore.refusal = nil
+EngineScore.refusalDetail = nil
 EngineScore.status = "unloaded"
 
-local function refuse(sentence)
+local function refuse(sentence, detail)
     EngineScore.file = nil
     EngineScore.refusal = sentence
+    EngineScore.refusalDetail = detail
     EngineScore.status = "refused"
-    return false, sentence
+    return false, sentence, detail
 end
 
 local function clientPatch()
@@ -94,10 +97,70 @@ local function clientPatch()
     return safe
 end
 
--- Load() -> true, line | false, refusal. Reads ns.engineWeights (set by
--- Data/EngineWeights.lua at load) and GetBuildInfo()'s version, and keeps the
--- file only when its schema, version and spec table are there and its patch is
--- the client's.
+-- The developer line beside a refusal for a file whose `tiers` is not in the
+-- one shape tierOf reads (E-0i, WKE-680): `%s` names the field.
+EngineScore.TIERS_SHAPE = "weights file: %s - tiers must be { [setID] = { [pieces] = { mult = n } } }"
+
+local function isWhole(x)
+    return type(x) == "number" and x == x and x % 1 == 0 and x > -math.huge and x < math.huge
+end
+
+-- TiersProblem(tiers) -> nil when `tiers` is in the shape tierOf reads -
+-- `{ [setID] = { [pieces] = { mult = n } } }`, at least one set, every set
+-- with at least one threshold, every setID and piece count a whole number,
+-- every mult a positive finite number - else the field that is not, named.
+-- Before E-0i the fit tool wrote `{ setIDs, twoPiece, fourPiece, forceTier }`;
+-- tierOf found no numeric setID in it and every fitted compare ran with a
+-- multiplier of 1, silently. A file in any other shape is now refused.
+function EngineScore.TiersProblem(tiers)
+    if tiers == nil then
+        return "tiers is missing"
+    end
+    if type(tiers) ~= "table" then
+        return "tiers is a " .. type(tiers)
+    end
+    if next(tiers) == nil then
+        return "tiers is empty"
+    end
+    -- Keys in a fixed order, so the field named is the same on every load.
+    local keys = {}
+    for setID in pairs(tiers) do
+        keys[#keys + 1] = setID
+    end
+    table.sort(keys, function(a, b)
+        return tostring(a) < tostring(b)
+    end)
+    for _, setID in ipairs(keys) do
+        local thresholds = tiers[setID]
+        local name = "tiers[" .. tostring(setID) .. "]"
+        if type(setID) ~= "number" then
+            name = "tiers." .. tostring(setID)
+        end
+        if not isWhole(setID) then
+            return name .. " is not keyed by a setID"
+        end
+        if type(thresholds) ~= "table" or next(thresholds) == nil then
+            return name .. " has no { [pieces] = { mult } }"
+        end
+        for pieces, bonus in pairs(thresholds) do
+            local at = name .. "[" .. tostring(pieces) .. "]"
+            if not isWhole(pieces) or pieces < 1 then
+                return at .. " is not keyed by a piece count"
+            end
+            local mult = type(bonus) == "table" and bonus.mult or nil
+            if type(mult) ~= "number" or mult ~= mult or mult <= 0 or mult == math.huge then
+                return at .. ".mult is not a positive number"
+            end
+        end
+    end
+    return nil
+end
+
+-- Load() -> true, line | false, refusal, detail. Reads ns.engineWeights (set
+-- by Data/EngineWeights.lua at load) and GetBuildInfo()'s version, and keeps
+-- the file only when its schema, version and spec table are there, its `tiers`
+-- is in tierOf's shape and its patch is the client's. `detail` is for a
+-- developer: the field a broken file tripped on, when one is named.
 function EngineScore.Load()
     local file = ns.engineWeights
     if type(file) ~= "table" then
@@ -112,6 +175,10 @@ function EngineScore.Load()
     if type(file.patch) ~= "string" then
         return refuse(EngineScore.TEXT.broken)
     end
+    local tiersProblem = EngineScore.TiersProblem(file.tiers)
+    if tiersProblem then
+        return refuse(EngineScore.TEXT.broken, string.format(EngineScore.TIERS_SHAPE, tiersProblem))
+    end
     local patch = clientPatch()
     if not patch then
         return refuse(EngineScore.TEXT.broken)
@@ -121,6 +188,7 @@ function EngineScore.Load()
     end
     EngineScore.file = file
     EngineScore.refusal = nil
+    EngineScore.refusalDetail = nil
     if file.method == "placeholder" then
         EngineScore.status = "placeholder"
         return true, string.format(EngineScore.TEXT.placeholder, file.patch)
@@ -641,10 +709,13 @@ end
 
 -- At load: read the file once. Silent unless the developer switch is on.
 ns.onReady[#ns.onReady + 1] = function()
-    local _, line = EngineScore.Load()
+    local _, line, detail = EngineScore.Load()
     local global = ns.db and ns.db.global
     local developer = type(global) == "table" and global.developer
     if type(developer) == "table" and developer.engine == true and line then
         ns.Log("%s", line)
+        if detail then
+            ns.Log("%s", detail)
+        end
     end
 end
