@@ -3,9 +3,17 @@
 
 ## Still to capture
 
-Nothing scheduled. Every capture the MVP needed is committed; `/lootpath refresh`
-now takes `env`, `inventory` and `vault` itself (C-3), so new snapshots arrive
-with every loop rather than by request.
+- **`/lootpath capture linklevel` (E-0g, WKE-677, built 2026-10-01).** After the
+  PR merges: `git pull`, `tools\sync.ps1`; in game, on the Druid in Restoration,
+  `/lootpath capture journal` first if the cached walk is from another build,
+  then `/lootpath capture linklevel` (out of combat; it walks a handful of
+  Adventure Guide targets for a few seconds and puts the view back), `/reload`,
+  then `tools\sync.ps1 -Pull` and commit the pulled file here unedited. It
+  decides which link draws a journal row at the level the walk listed it at
+  (ARCHITECTURE.md section 7, E-0g); step 2 of WKE-677 is built on it.
+
+`/lootpath refresh` takes `env`, `inventory` and `vault` itself (C-3), so those
+snapshots arrive with every loop rather than by request.
 
 ## Committed
 
