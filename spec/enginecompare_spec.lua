@@ -8,10 +8,19 @@
 -- prints measures the plumbing and nothing else. Also the join over the two
 -- committed Upgrade Finder exports, a run that serialises byte-identical twice,
 -- and a guard that no rating store and no journal cache is written.
+--
+-- Since E-0f (WKE-676) the stub answers in the client's own shapes (the keys,
+-- an empty table for every gem link, diminishing returns in the rating
+-- conversion), and the compare's journal half is held against the client's
+-- answers in spec/fixtures/engine/itemstats-real.lua: a walk link reads at the
+-- level the client gives the link, which is not always the level the walk
+-- listed it at. The 2026-09-16 run keeps the synthetic stats rule because the
+-- transcript reads 80 links of 2026-10-01, not that day's walk and inventory.
 local H = require("spec.helpers.addon")
 local R = require("spec.helpers.replay")
 local S = require("spec.helpers.serialize")
 local Stats = dofile("spec/fixtures/engine/itemstats-synthetic.lua")
+local Real = dofile("spec/fixtures/engine/itemstats-real.lua")
 
 local WEIGHTS = "spec/fixtures/engine/weights-synthetic.lua"
 local SV = "spec/fixtures/captures/Lootpath-20260916-162655.lua"
@@ -239,11 +248,7 @@ describe("EngineCompare.Compute on hand-made inputs", function()
     end
 
     before_each(function()
-        local world
-        ns, world = H.load()
-        for index, per in pairs(Stats.RATING_PER_PERCENT) do
-            world.ratingPerPercent[index] = per
-        end
+        ns = H.load()
     end)
     after_each(function()
         H.unload()
@@ -615,4 +620,78 @@ describe("EngineCompare's join over the committed Upgrade Finder exports", funct
             )
         end)
     end
+end)
+
+-- The compare keys a journal row by the level the WALK listed it at, and
+-- scores the row's link; the client reads that link at its own level. On the
+-- owner's 2026-10-01 transcript the two differ on 17 of the 40 sampled rows:
+-- every keystone row (difficulty 8) the walk listed at 305 reads 292 - the
+-- same stats as the Mythic (23) row at 292 - the raid rows read the
+-- difficulty's base level (308 heroic, 321 mythic) whatever boss the walk
+-- listed them under (305 / 311 / 318 / 324), and the world rows the walk
+-- listed at 44 read 263 / 276. So a joined keystone row is scored with stats
+-- 13 levels below the row it is compared against (ARCHITECTURE.md section 11, E-0f).
+describe("EngineCompare's journal half against the client's own reads", function()
+    local ns
+    before_each(function()
+        local world
+        ns, world = H.load()
+        Real.install(world)
+    end)
+    after_each(function()
+        H.unload()
+    end)
+
+    it("reads each walk link at the client's level, which differs from the walk's on 17 of 40", function()
+        local rows = Real.rowsFrom("journal")
+        assert.equal(40, #rows)
+        local differ, byDifficulty = 0, {}
+        for _, row in ipairs(rows) do
+            local read = ns.EngineStats.ForLink(row.link)
+            assert.is_true(read.ready, row.link)
+            assert.equal(row.level, read.level)
+            if read.level ~= row.journalItemLevel then
+                differ = differ + 1
+                local d = byDifficulty[row.difficultyID] or {}
+                d[#d + 1] = row.journalItemLevel .. "->" .. read.level
+                byDifficulty[row.difficultyID] = d
+            end
+        end
+        assert.equal(17, differ)
+        for _, change in ipairs(byDifficulty[8]) do
+            assert.equal("305->292", change)
+        end
+        assert.equal(7, #byDifficulty[8])
+        -- Keystone and Mythic rows of one item read the same stats at 292.
+        local keystone, mythic
+        for _, row in ipairs(rows) do
+            if row.itemID == 251123 and row.difficultyID == 8 then
+                keystone = ns.EngineStats.ForLink(row.link)
+            elseif row.itemID == 251123 and row.difficultyID == 23 then
+                mythic = ns.EngineStats.ForLink(row.link)
+            end
+        end
+        for _, field in ipairs({ "int", "haste", "crit", "stamina" }) do
+            assert.equal(mythic[field], keystone[field], field)
+        end
+        assert.equal(567, keystone.int)
+    end)
+
+    it("joins a walk row under the walk's own level, not the client's", function()
+        local sources = {}
+        for _, row in ipairs(Real.rowsFrom("journal")) do
+            sources[row.itemID] = sources[row.itemID] or {}
+            table.insert(sources[row.itemID], { link = row.link, itemLevel = row.journalItemLevel, slot = row.slot })
+        end
+        local byKey = ns.EngineCompare.JournalLinks(sources)
+        local found
+        for _, row in ipairs(Real.rowsFrom("journal")) do
+            if row.itemID == 159317 and row.difficultyID == 8 then
+                found = row
+            end
+        end
+        assert.is_table(byKey["159317@305"])
+        assert.equal(found.link, byKey["159317@305"].link)
+        assert.equal(292, ns.EngineStats.ForLink(byKey["159317@305"].link).level)
+    end)
 end)

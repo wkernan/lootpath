@@ -387,9 +387,9 @@ describe("ns.EngineScore.SetValue", function()
     end)
 
     it("uses ns.EngineStats.Rating when no rating function is given, and nothing in combat", function()
-        -- The stub's conversion is rating / per with no DR; the worn set
-        -- crosses no bracket, so the client path lands on score.js's value.
-        world.ratingPerPercent = { [20] = 44, [11] = 46, [26] = 46, [29] = 54, [17] = 69 }
+        -- The stub converts as the client does (E-0f: diminishing returns
+        -- applied, the published brackets); the worn set crosses no bracket,
+        -- so the client path lands on score.js's value.
         local r = assert(ns.EngineScore.SetValue(worn(), { file = W, forceTier = true }))
         near(F.expected.wornValue, r.value, "client path")
         world.inCombat = true

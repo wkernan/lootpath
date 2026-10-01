@@ -1106,13 +1106,16 @@ describe("captures", function()
         end)
     end)
 
-    -- E-0a (WKE-675). `capture itemstats` reads; it computes nothing. Every
-    -- stat table, gem, rating figure and tooltip line below is a PLACEHOLDER in
-    -- the wiki's shape (`spec/stubs/wow.lua`, `world.itemStats`), to be replaced
-    -- by the owner's transcript once it is committed under
-    -- `spec/fixtures/captures/`. What these tests hold is the capture's own
-    -- behaviour: which links it walks, what it records about each, the bounds,
-    -- combat, and secrets.
+    -- E-0a (WKE-675). `capture itemstats` reads; it computes nothing. Since
+    -- E-0f (WKE-676) every shape below is the client's, read from the owner's
+    -- transcript (spec/fixtures/captures/Lootpath-20261001-092631.lua): the
+    -- helm's stat table is the worn helm's at 318, its gem link answers an
+    -- empty table, armour answers GetItemUniqueness with nothing and
+    -- GetItemUniquenessByID with `false` and three nils, and the rating
+    -- conversion applies diminishing returns. The links and IDs are the
+    -- tests' own. What these tests hold is the capture's own behaviour: which
+    -- links it walks, what it records about each, the bounds, combat, and
+    -- secrets.
     describe("itemstats", function()
         -- The worn helm carries a gem in field 3; blanking fields 2-6 gives
         -- back exactly HELM, which is the "stripped" link.
@@ -1199,21 +1202,22 @@ describe("captures", function()
                 instant = { 210001, "Armor", "Leather", "INVTYPE_HEAD", 1, 4, 2 },
             }
             world.itemDataCached[210001] = true
-            world.itemStats[GEMMED_HELM] = {
-                ITEM_MOD_INTELLECT_SHORT = 900,
-                ITEM_MOD_HASTE_RATING_SHORT = 400,
-                ITEM_MOD_STAMINA_SHORT = 2000,
+            -- The worn helm's table at 318, as the client answered it for the
+            -- worn link and for the stripped one alike.
+            local helmStats = {
+                ITEM_MOD_INTELLECT_SHORT = 162,
+                ITEM_MOD_HASTE_RATING_SHORT = 78,
+                ITEM_MOD_CRIT_RATING_SHORT = 110,
+                EMPTY_SOCKET_PRISMATIC = 1,
+                ITEM_MOD_STAMINA_SHORT = 3254,
+                RESISTANCE0_NAME = 132,
             }
-            world.itemStats[HELM] = {
-                ITEM_MOD_INTELLECT_SHORT = 900,
-                ITEM_MOD_HASTE_RATING_SHORT = 400,
-                ITEM_MOD_STAMINA_SHORT = 2000,
-            }
+            world.itemStats[GEMMED_HELM] = helmStats
+            world.itemStats[HELM] = helmStats
             world.itemSockets[GEMMED_HELM] = 1
+            -- The gem link is not registered in itemStats: the stub answers
+            -- it with an empty table, as the client did for every gem.
             world.itemGems[GEMMED_HELM] = { { name = "Test Gem", link = GEM_LINK, id = 240892 } }
-            world.itemStats[GEM_LINK] = { ITEM_MOD_HASTE_RATING_SHORT = 150 }
-            world.itemUniqueness[GEMMED_HELM] = { 0, 0 }
-            world.itemUniquenessByID[210001] = { false }
 
             -- Bags: a ring (gear, kept) and a junk item (no slot, skipped).
             world.bags[0] = {
@@ -1292,24 +1296,29 @@ describe("captures", function()
             assert.is_true(helm.cachedBefore[1])
             assert.is_true(helm.cachedAtRead[1])
             assert.is_nil(helm.waited)
-            assert.equal(900, helm.stats[1].ITEM_MOD_INTELLECT_SHORT)
-            assert.equal(400, helm.stats[1].ITEM_MOD_HASTE_RATING_SHORT)
+            assert.equal(162, helm.stats[1].ITEM_MOD_INTELLECT_SHORT)
+            assert.equal(78, helm.stats[1].ITEM_MOD_HASTE_RATING_SHORT)
+            assert.equal(1, helm.stats[1].EMPTY_SOCKET_PRISMATIC)
+            assert.equal(132, helm.stats[1].RESISTANCE0_NAME)
             -- The enchant and gem fields blanked, and the answer for that link.
             assert.equal(HELM, helm.strippedLink)
-            assert.equal(900, helm.strippedStats[1].ITEM_MOD_INTELLECT_SHORT)
+            assert.equal(162, helm.strippedStats[1].ITEM_MOD_INTELLECT_SHORT)
             assert.is_true(helm.strippedEqual)
             assert.equal(1, helm.numSockets[1])
             assert.equal(1, #helm.gems)
             assert.equal("Test Gem", helm.gems[1].gem[1])
             assert.equal(GEM_LINK, helm.gems[1].gem[2])
             assert.equal(240892, helm.gems[1].gemID[1])
-            assert.equal(150, helm.gems[1].gemStats[1].ITEM_MOD_HASTE_RATING_SHORT)
+            -- The gem link answers an empty table, as all 7 did on 2026-10-01.
+            assert.same({}, helm.gems[1].gemStats[1])
             assert.equal(610, helm.detailedLevel[1])
             assert.equal(1234, helm.info.setID)
             assert.equal(4, helm.info.classID)
             assert.equal(2, helm.info.subclassID)
             assert.equal("INVTYPE_HEAD", helm.info.itemEquipLoc)
-            assert.equal(0, helm.uniqueness[1])
+            -- Armour: no answer by link, `false` and three nils by ID.
+            assert.equal(0, helm.uniqueness.n)
+            assert.equal(4, helm.uniquenessByID.n)
             assert.is_false(helm.uniquenessByID[1])
         end)
 
@@ -1328,7 +1337,7 @@ describe("captures", function()
         end)
 
         it("says so when the stripped link's stats differ", function()
-            world.itemStats[HELM] = { ITEM_MOD_INTELLECT_SHORT = 900, ITEM_MOD_STAMINA_SHORT = 2000 }
+            world.itemStats[HELM] = { ITEM_MOD_INTELLECT_SHORT = 162, ITEM_MOD_STAMINA_SHORT = 3254 }
             local data = ns.RunCapture("itemstats").snapshot.data
             assert.is_false(itemsFrom(data, "worn")[1].strippedEqual)
         end)
@@ -1398,25 +1407,27 @@ describe("captures", function()
             assert.equal(20, haste.index)
             assert.equal("CR_HASTE_SPELL", haste.constant)
             assert.is_false(haste.fromGlobal)
-            assert.equal(1100, haste.rating[1])
-            assert.equal(25, haste.bonus[1])
-            assert.equal(25, haste.bonusForCurrent[1])
-            local values = {}
+            assert.equal(921, haste.rating[1])
+            assert.is_true(math.abs(haste.bonus[1] - 20.93181800842285) < 1e-5)
+            assert.equal(haste.bonus[1], haste.bonusForCurrent[1])
+            local values, bonuses = {}, {}
             for i, entry in ipairs(haste.at) do
                 values[i] = entry.value
+                bonuses[i] = entry.bonus[1]
             end
             assert.same({ 660, 1320, 1760, 2200, 2640, 3080 }, values)
-            -- The stub is linear on purpose; the transcript says what the client does.
-            assert.equal(30, haste.at[2].bonus[1])
-            assert.equal(60, haste.at[5].bonus[1])
+            -- Diminishing returns applied, as the client answered on
+            -- 2026-10-01: 1320 -> 30 and 2640 -> 54, not 60.
+            assert.same({ 15, 30, 39, 47, 54, 60 }, bonuses)
             assert.equal(11, rating.ratings.crit.index)
             assert.equal(26, rating.ratings.mastery.index)
             assert.equal(29, rating.ratings.versatility.index)
             assert.equal(17, rating.ratings.leech.index)
-            assert.equal(30.5, rating.masteryEffect[1])
-            assert.equal(1.25, rating.masteryEffect[2])
-            assert.equal(4000, rating.spellBonusHealing[1])
-            assert.equal(3000, rating.intellect[1])
+            assert.equal(38.56050109863281, rating.masteryEffect[1])
+            assert.equal(1.310999989509583, rating.masteryEffect[2])
+            assert.equal(3400, rating.spellBonusHealing[1])
+            assert.equal(3029, rating.intellect[1])
+            assert.equal(2412, rating.intellect[3])
             assert.is_true(rating.hasSecretRestrictions[1])
             assert.is_false(rating.shouldUnitStatsBeSecret[1])
             assert.is_true(rating.combatLogRestricted[1])
