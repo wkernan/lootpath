@@ -8,7 +8,8 @@
 --
 -- SYNTHETIC: every weight here is invented. spec/fixtures/engine/
 -- score-fixture.json is E-0e's tools/engine/test/fixtures/score-fixture.json
--- copied verbatim from origin/lp-e0e-fit-weights at c76a26a (PR #298); its
+-- copied verbatim from origin/lp-e0e-fit-weights at c76a26a (PR #298, on main
+-- as 2a6932e since its merge, 19f8e44); its
 -- expected values were computed by tools/engine/lib/score.js and checked by
 -- hand there, so this file and score.js guard each other.
 local H = require("spec.helpers.addon")
@@ -281,6 +282,12 @@ describe("ns.EngineScore.SetValue", function()
         end
         return o
     end
+
+    -- The copy and E-0e's own fixture are one file: a change to either side
+    -- without the other turns this red.
+    it("scores against a byte-identical copy of E-0e's score fixture", function()
+        assert.equal(readAll("tools/engine/test/fixtures/score-fixture.json"), readAll(SCORE_FIXTURE))
+    end)
 
     it("scores with the fixture's own model", function()
         local band = W.specs[105].Dungeon.bands["10+"]

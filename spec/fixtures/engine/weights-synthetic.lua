@@ -2,7 +2,7 @@
 -- SYNTHETIC. No figure here is a game value. A Data/EngineWeights.lua-shaped
 -- table the EngineScore tests score with, built so the numbers match the model
 -- of E-0e's score fixture (spec/fixtures/engine/score-fixture.json, copied
--- verbatim from origin/lp-e0e-fit-weights at c76a26a, its
+-- verbatim from origin/lp-e0e-fit-weights at c76a26a (main 2a6932e), its
 -- tools/engine/test/fixtures/score-fixture.json):
 --
 --   baseValue 1000; weights int 1, haste 20, crit 15, mastery 18, vers 12,
