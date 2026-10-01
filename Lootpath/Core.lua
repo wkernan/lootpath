@@ -869,6 +869,11 @@ function ns.HandleSlash(msg)
         ns.UI.ShowUpgradeMap()
     elseif cmd == "glow" then
         glowCommand(rest)
+    elseif cmd == "engine" then
+        -- E-0d (WKE-673): the developer engine's compare, behind
+        -- `db.global.developer.engine`; not in HELP, because no player has
+        -- the switch. Without it the answer is one line, `not on`.
+        ns.EngineCompare.Command(rest)
     else
         for _, line in ipairs(HELP) do
             ns.Log("%s", line)
