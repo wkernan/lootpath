@@ -38,6 +38,7 @@ Modules\EngineStats.lua
 Modules\EngineEffects.lua
 Modules\EngineScore.lua
 Modules\EngineCompare.lua
+Modules\EngineSearch.lua
 UI\ItemLine.lua
 UI\EquipPanel.lua
 UI\Options.lua

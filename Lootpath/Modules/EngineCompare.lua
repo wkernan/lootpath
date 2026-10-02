@@ -150,7 +150,8 @@ EngineCompare.TEXT = {
     notOn = "not on",
     off = "engine off",
     combat = "Out of combat only.",
-    usage = "usage: /lootpath engine compare [dungeon|raid] [keylevel] | compare weeks | verbose | off",
+    usage = "usage: /lootpath engine compare [dungeon|raid] [keylevel] | compare weeks"
+        .. " | best [dungeon|raid] [keylevel] | verbose | off",
     verboseOn = "engine verbose on: each compare lists the items it could not rate and every row it scored.",
     verboseOff = "engine verbose off.",
     header = "engine compare - weights %s, patch %s, derived %s - %s - week %s",
@@ -1441,8 +1442,9 @@ function EngineCompare.WeeksLines(charKey)
 end
 
 -- `/lootpath engine <rest>`: compare [dungeon|raid] [keylevel] | compare
--- weeks | verbose | off. Every word but `off` needs the switch; with it off the answer
--- is one line.
+-- weeks | best [dungeon|raid] [keylevel] (E-1a, ns.EngineSearch) | verbose |
+-- off. Every word but `off` needs the switch; with it off the answer is one
+-- line.
 function EngineCompare.Command(rest, onDone)
     local words = {}
     for word in (rest or ""):gmatch("%S+") do
@@ -1455,6 +1457,11 @@ function EngineCompare.Command(rest, onDone)
     if words[1] == "off" then
         developer().engine = nil
         ns.Log("%s", EngineCompare.TEXT.off)
+        return
+    end
+    if words[1] == "best" then
+        -- E-1a (WKE-685): the best-set search over owned items.
+        ns.EngineSearch.Command(words, onDone)
         return
     end
     if words[1] == "verbose" then
