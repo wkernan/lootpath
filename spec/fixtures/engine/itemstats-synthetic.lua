@@ -110,4 +110,16 @@ function F.install(world, entries)
     end
 end
 
+-- E-0g step 2 (WKE-677): with the compare reading every joined row through a
+-- link rebuilt at the row's level, the run asks about links no walk carries.
+-- The stub draws a link carrying one track bonus ID at that step's level
+-- (spec/stubs/wow.lua, from Lootpath/Data/TrackBonusIDs.lua, as the owner's
+-- `capture linklevel` transcript showed the client doing); this hands it the
+-- same SYNTHETIC rule for the stats at that level.
+function F.installTrack(world)
+    world.trackStats = function(itemID, level)
+        return F.stats(itemID, level)
+    end
+end
+
 return F

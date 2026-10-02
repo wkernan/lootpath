@@ -26,7 +26,7 @@
 // a reading, and it is the largest known error of the run until E-0a's
 // transcript gives every row its own stats.
 //
-// Client sources, both read out of a SavedVariables transcript:
+// Client sources, all read out of a SavedVariables transcript:
 //
 //   capture itemstats  (E-0a, WKE-675; read since E-0f, WKE-676) - what
 //                      `C_Item.GetItemStats` answers for a worn, bag, vault or
@@ -42,6 +42,16 @@
 //                      .upgradeLevelInfos[].levelStats`: an owned item's stats
 //                      at each level of its track; two levels of one item give
 //                      the scale, never guessed.
+//   capture linklevel  (E-0g step 2, WKE-677) - for each journal row the
+//                      capture took, `GetItemStats` on the journal link REBUILT
+//                      with the track step that draws the walk's level (the
+//                      `track-append` variant for the lower track, the rule
+//                      ns.EngineStats installs), kept only when the client drew
+//                      it at the walk's level in all three reads. Indexed by
+//                      `id@walkLevel` and by the rebuilt link: real client
+//                      reads at the level the Upgrade Finder row names. Where
+//                      `capture itemstats` already names the `id@level`, that
+//                      read is kept.
 //
 // A plain JSON table
 // (`{ items: [{ id, level, slot, stats: { int, haste, crit, mastery, vers, leech } }] }`)
@@ -68,6 +78,7 @@ const ITEMSTATS_KEYS = {
 
 const SOURCE_ITEMSTATS = 'capture itemstats';
 const SOURCE_UPGRADE = 'capture upgrade';
+const SOURCE_LINKLEVEL = 'capture linklevel';
 
 const CLIENT_STAT_NAMES = {
     Intellect: 'int',
@@ -232,6 +243,45 @@ function readItemStatsInto(table, caps, label) {
     return read;
 }
 
+// Every `linklevel` snapshot's rebuilt-link reads, one per candidate a track
+// step draws: the first `track-append` variant (the variants follow
+// TrackBonusesAt's order, lowest track first), its `after` stats, filed under
+// the walk's level - only when `before`, `journal` and `after` all answered
+// that level. Shared by the reader below and its test.
+function linkLevelRecords(caps) {
+    const out = [];
+    for (const snap of luaArray(caps.linklevel || {})) {
+        const candidates = snap && snap.data && snap.data.candidates;
+        for (const c of luaArray(candidates || {})) {
+            const variant = luaArray(c.variants || {}).find((v) => v.rule === 'track-append');
+            if (!variant) continue;
+            const levels = ['before', 'journal', 'after'].map((k) => variant[k] && variant[k].detailedLevel && variant[k].detailedLevel[1]);
+            if (!levels.every((l) => l === c.walkLevel)) continue;
+            const raw = variant.after.stats && variant.after.stats[1];
+            if (!raw || typeof raw !== 'object') continue;
+            out.push({ snapshot: snap, candidate: c, variant, link: variant.link, itemID: c.itemID, level: c.walkLevel, raw, slot: c.slot || null });
+        }
+    }
+    return out;
+}
+
+function readLinkLevelInto(table, caps, label) {
+    let read = 0;
+    let points = 0;
+    for (const rec of linkLevelRecords(caps)) {
+        read += 1;
+        const before = table.points.size;
+        const point = addPoint(table, rec.itemID, rec.level, statsFromItemStats(rec.raw), rec.slot, SOURCE_LINKLEVEL);
+        if (table.points.size > before) points += 1;
+        const sk = strippedKey(rec.link);
+        if (sk && !table.byLink.has(sk)) table.byLink.set(sk, point);
+        const build = rec.snapshot.build && rec.snapshot.build[1];
+        if (build && !table.patch) table.patch = build;
+    }
+    if (read) table.sources.push({ file: label, kind: 'capture linklevel (GetItemStats on the rebuilt link)', items: read, newPoints: points });
+    return read;
+}
+
 // The client's base stats for a link, from `capture itemstats`, or null.
 function statsForLink(table, link) {
     const sk = strippedKey(link);
@@ -245,6 +295,7 @@ function readSavedVariablesInto(table, text, label) {
     const caps = db && db.global && db.global.captures;
     if (!caps) throw new Error(`${label}: no LootpathDB.global.captures`);
     readItemStatsInto(table, caps, label);
+    readLinkLevelInto(table, caps, label);
     let points = 0;
     // Slots first, from every inventory read: the item's own INVTYPE.
     for (const k of Object.keys(caps.inventory || {})) {
@@ -434,6 +485,9 @@ module.exports = {
     ITEMSTATS_KEYS,
     SOURCE_ITEMSTATS,
     SOURCE_UPGRADE,
+    SOURCE_LINKLEVEL,
+    linkLevelRecords,
+    readLinkLevelInto,
     strippedKey,
     bonusKey,
     linkBonusIDs,

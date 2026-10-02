@@ -14,6 +14,9 @@
 local H = require("spec.helpers.addon")
 
 local F = dofile("spec/fixtures/engine/itemstats-real.lua")
+-- E-0g step 2: the owner's `capture linklevel` transcript, extracted by
+-- tools/engine/extract-linklevel.js.
+local LL = dofile("spec/fixtures/engine/linklevel-real.lua")
 
 -- The worn helm at 318, enchanted and gemmed: the row most tests read.
 local HELM = F.rowsFrom("worn")[1]
@@ -528,7 +531,9 @@ describe("ns.EngineStats at a level", function()
     end)
 
     it("answers nil and `no rule yet` with no rule installed, and asks the client nothing", function()
-        assert.is_nil(ns.EngineStats.linkLevelRule)
+        -- Step 2 installs TrackRule; with it taken away, the step-1 path holds.
+        assert.equal(ns.EngineStats.TrackRule, ns.EngineStats.linkLevelRule)
+        ns.EngineStats.linkLevelRule = nil
         world.itemStatsCalls = {}
         local link, why = ns.EngineStats.LinkAtLevel(KEYSTONE.link, 305)
         assert.is_nil(link)
@@ -538,6 +543,7 @@ describe("ns.EngineStats at a level", function()
         assert.is_nil(read)
         assert.equal("no rule yet", why2)
         assert.same({}, world.itemStatsCalls)
+        ns.EngineStats.linkLevelRule = ns.EngineStats.TrackRule
     end)
 
     it("rebuilds the bonus-ID list and touches nothing else", function()
@@ -579,8 +585,8 @@ describe("ns.EngineStats at a level", function()
     it("names every track step at a level, both tracks where they overlap", function()
         local at305 = ns.EngineStats.TrackBonusesAt(305)
         assert.equal(2, #at305)
-        assert.same({ bonusID = 12837, track = "Champion", step = 5, itemLevel = 305, client = false }, at305[1])
-        assert.same({ bonusID = 12841, track = "Hero", step = 1, itemLevel = 305, client = false }, at305[2])
+        assert.same({ bonusID = 12837, track = "Champion", step = 5, itemLevel = 305, client = true }, at305[1])
+        assert.same({ bonusID = 12841, track = "Hero", step = 1, itemLevel = 305, client = true }, at305[2])
         assert.same(
             { { bonusID = 12854, track = "Myth", step = 6, itemLevel = 334, client = true } },
             ns.EngineStats.TrackBonusesAt(334)
@@ -620,8 +626,9 @@ describe("ns.EngineStats at a level", function()
     -- The owner's own client against the table: every step marked `client`
     -- is a level an item he owned answered for a link carrying that bonus ID
     -- on 2026-10-01 (`capture itemstats` worn and bag rows, `capture upgrade`'s
-    -- currentLevel), and no owned link carrying ANY ID in the table answered
-    -- another level.
+    -- currentLevel), or a journal link rebuilt with it answered in all three
+    -- reads of `capture linklevel` (E-0g step 2), and no link carrying ANY ID
+    -- in the table answered another level.
     it("agrees with every owned link of the 2026-10-01 transcript, and each `client` mark is one", function()
         local stepOf = {}
         for _, track in ipairs(ns.trackBonusIDs.tracks) do
@@ -653,6 +660,15 @@ describe("ns.EngineStats at a level", function()
         for _, snapshot in ipairs(R.captures(TRANSCRIPT).upgrade) do
             for _, item in ipairs(snapshot.data.items or {}) do
                 check(item.link, item.currentLevel and item.currentLevel[1])
+            end
+        end
+        for _, candidate in ipairs(LL.CANDIDATES) do
+            for _, variant in ipairs(candidate.variants) do
+                if variant.rule ~= "kept" then
+                    for _, when in ipairs({ "before", "journal", "after" }) do
+                        check(variant.link, variant[when].detailedLevel[1])
+                    end
+                end
             end
         end
         assert.is_true(checked > 0)
@@ -740,6 +756,136 @@ describe("ns.EngineStats at a level", function()
             return { 12837 }
         end))
         assert.same({}, world.itemStatsCalls)
+    end)
+
+    -- E-0g step 2: the rule the `capture linklevel` transcript proves.
+    -- Every candidate a track step draws is rebuilt EXACTLY as the transcript's
+    -- `track-append` variant for the lower track, which the client drew at the
+    -- walk's level in all three reads.
+    it("rebuilds 305 with Champion 5/6, 311 with Hero 3/6 and 324 with Myth 3/6, as the client drew them", function()
+        local expected = { [305] = 12837, [311] = 12843, [324] = 12851 }
+        local rebuilt = 0
+        for _, candidate in ipairs(LL.CANDIDATES) do
+            local want = expected[candidate.walkLevel]
+            if want then
+                local link, why = ns.EngineStats.LinkAtLevel(candidate.link, candidate.walkLevel)
+                local variant = LL.variant(candidate, "track-append", want)
+                assert.is_table(variant, candidate.itemID .. "@" .. candidate.walkLevel)
+                assert.equal(variant.link, link, why)
+                for _, when in ipairs({ "before", "journal", "after" }) do
+                    assert.equal(candidate.walkLevel, variant[when].detailedLevel[1], when)
+                    assert.equal("Item Level " .. candidate.walkLevel, variant[when].itemLevelLine, when)
+                end
+                rebuilt = rebuilt + 1
+            end
+        end
+        assert.equal(8, rebuilt)
+        assert.equal(
+            "|cnIQ4:|Hitem:250254::::::::90:105::16:2:3524:12837:1:28:1279:::::|h[Seed of Radiant Hope]|h|r",
+            ns.EngineStats.LinkAtLevel(KEYSTONE.link, 305)
+        )
+    end)
+
+    it("takes the lower track where two draw the level, and both read the same at 305", function()
+        local fields = ns.EngineStats.LinkFields(KEYSTONE.link)
+        assert.same({ 3524, 12837 }, ns.EngineStats.TrackRule(KEYSTONE.link, 305, fields))
+        for _, candidate in ipairs(LL.CANDIDATES) do
+            if candidate.walkLevel == 305 then
+                local champion = LL.variant(candidate, "track-append", 12837)
+                local hero = LL.variant(candidate, "track-append", 12841)
+                for _, when in ipairs({ "before", "journal", "after" }) do
+                    assert.same(champion[when].stats, hero[when].stats, candidate.itemID .. " " .. when)
+                    assert.equal(305, hero[when].detailedLevel[1])
+                end
+            end
+        end
+    end)
+
+    it("answers nil and `no track step draws <level>` for a level no step draws", function()
+        local world44 = 0
+        for _, candidate in ipairs(LL.CANDIDATES) do
+            if candidate.walkLevel == 44 then
+                local link, why = ns.EngineStats.LinkAtLevel(candidate.link, 44)
+                assert.is_nil(link)
+                assert.equal("no track step draws 44", why)
+                assert.equal(candidate.trackNote, why)
+                world44 = world44 + 1
+            end
+        end
+        assert.equal(4, world44)
+        local link, why = ns.EngineStats.LinkAtLevel(KEYSTONE.link, 344)
+        assert.is_nil(link)
+        assert.equal("no track step draws 344", why)
+    end)
+
+    it("swaps a track step the link already carries rather than naming two", function()
+        local carrying = ns.EngineStats.RebuildLink(KEYSTONE.link, { 3524, 12833 })
+        assert.equal(
+            ns.EngineStats.RebuildLink(KEYSTONE.link, { 3524, 12843 }),
+            ns.EngineStats.LinkAtLevel(carrying, 311)
+        )
+    end)
+
+    -- Why `track-append` and not `track-replace`: on the raid ring the replace
+    -- dropped the prismatic socket the Guide's own link carries.
+    it("keeps the socket the journal link carries, which the replace variant lost", function()
+        local ring
+        for _, candidate in ipairs(LL.CANDIDATES) do
+            if candidate.itemID == 268252 and candidate.walkLevel == 324 then
+                ring = candidate
+            end
+        end
+        local kept = ring.variants[1]
+        assert.equal("kept", kept.rule)
+        assert.equal(1, kept.before.stats.EMPTY_SOCKET_PRISMATIC)
+        assert.equal(1, LL.variant(ring, "track-append", 12851).after.stats.EMPTY_SOCKET_PRISMATIC)
+        assert.is_nil(LL.variant(ring, "track-replace", 12851).after.stats.EMPTY_SOCKET_PRISMATIC)
+        LL.install(world)
+        local read, link = ns.EngineStats.ForLinkAtLevel(ring.link, 324)
+        assert.equal(LL.variant(ring, "track-append", 12851).link, link)
+        assert.equal(324, read.level)
+        assert.equal(1, read.sockets)
+        assert.equal(1, read.prismaticSockets)
+        assert.equal(319, read.crit)
+    end)
+
+    -- The stub answers each rebuilt link as the client did: at the walk's
+    -- level, with the transcript's stats - so AtLevel keeps every one.
+    it("reads every rebuilt candidate at the walk's level through the stub, with the client's stats", function()
+        LL.install(world)
+        local kept = 0
+        for _, candidate in ipairs(LL.CANDIDATES) do
+            local read, link = ns.EngineStats.ForLinkAtLevel(candidate.link, candidate.walkLevel)
+            if candidate.trackSteps > 0 then
+                assert.is_table(read, candidate.itemID .. "@" .. candidate.walkLevel)
+                assert.equal(candidate.walkLevel, read.level)
+                local variant =
+                    LL.variant(candidate, "track-append", ns.EngineStats.TrackBonusesAt(candidate.walkLevel)[1].bonusID)
+                assert.equal(variant.link, link)
+                -- A ring carries no Intellect, a trinket no Stamina: the read says 0.
+                assert.equal(variant.after.stats.ITEM_MOD_INTELLECT_SHORT or 0, read.int)
+                assert.equal(variant.after.stats.ITEM_MOD_STAMINA_SHORT or 0, read.stamina)
+                kept = kept + 1
+            else
+                assert.is_nil(read)
+            end
+        end
+        assert.equal(8, kept)
+    end)
+
+    it("draws a link carrying one track step at that step's level when a test hands the stub its stats", function()
+        local rebuilt = ns.EngineStats.LinkAtLevel(KEYSTONE.link, 311)
+        assert.is_nil(C_Item.GetDetailedItemLevelInfo(rebuilt))
+        world.trackStats = function(_, level)
+            return { ITEM_MOD_INTELLECT_SHORT = level, ITEM_MOD_STAMINA_SHORT = 1 }
+        end
+        assert.equal(311, (C_Item.GetDetailedItemLevelInfo(rebuilt)))
+        local read = ns.EngineStats.ForLinkAtLevel(KEYSTONE.link, 311)
+        assert.equal(311, read.level)
+        assert.equal(311, read.int)
+        -- Two steps in one link is not a link the rule builds: no answer.
+        local two = ns.EngineStats.RebuildLink(KEYSTONE.link, { 12837, 12843 })
+        assert.is_nil(C_Item.GetDetailedItemLevelInfo(two))
     end)
 
     -- The one place: no other file defines a link rebuilder.

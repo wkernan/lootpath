@@ -151,3 +151,43 @@ test('where both transcripts name an id@level, the GetItemStats read is kept, an
     }
     assert.ok(shared > 0, 'the two client sources overlap');
 });
+
+// E-0g step 2 (WKE-677): the owner's `capture linklevel` transcript, read.
+// Each candidate a track step draws gives one `client` point at the WALK's
+// level - GetItemStats on the journal link rebuilt with that step appended,
+// which the client drew at the walk's level in all three reads.
+const LINKLEVEL = path.join(__dirname, '..', '..', '..', 'spec', 'fixtures', 'captures', 'Lootpath-20261001-200927.lua');
+const { SOURCE_LINKLEVEL, readLinkLevelInto } = require('../lib/stats');
+const { parseSavedVariables } = require('../../companion/lib/lua-savedvariables');
+
+test('the linklevel transcript: each rebuilt-link read is a client point at the walk level', () => {
+    const caps = parseSavedVariables(fs.readFileSync(LINKLEVEL, 'utf8')).LootpathDB.global.captures;
+    const table = newTable();
+    assert.equal(readLinkLevelInto(table, caps, 'linklevel'), 8);
+    const src = table.sources.find((s) => s.kind.startsWith('capture linklevel'));
+    assert.equal(src.items, 8);
+    assert.equal(src.newPoints, 8);
+    // Seed of Radiant Hope at 305 (Champion 5/6 appended): 137 Intellect, where
+    // the kept link read 121 at 292 before the walk.
+    const seed = table.points.get('250254@305');
+    assert.equal(seed.source, SOURCE_LINKLEVEL);
+    assert.equal(seed.stats.int, 137);
+    // The raid gloves at 324 (Myth 3/6): 129 Intellect, crit 46, mastery 98.
+    assert.deepEqual(table.points.get('268234@324').stats, { int: 129, haste: 0, crit: 46, mastery: 98, vers: 0, leech: 0 });
+    assert.equal(table.slotOf.get(268234), 'Hands');
+    // The world rows at 44 give nothing: no track step draws 44.
+    for (const key of table.points.keys()) assert.ok(!key.endsWith('@44'), key);
+    // A row it covers is `client` from it, at exactly the walk's level.
+    const budget = buildBudget(table);
+    const hit = itemStats(table, budget, { id: 268252, level: 311, slot: 'Finger' });
+    assert.equal(hit.statsSource, 'client');
+    assert.equal(hit.clientSource, SOURCE_LINKLEVEL);
+    assert.equal(hit.stats.crit, 295);
+});
+
+test('a --stats file carrying a linklevel snapshot is read for it beside its itemstats', () => {
+    const table = readSavedVariablesInto(newTable(), fs.readFileSync(LINKLEVEL, 'utf8'), 'linklevel');
+    assert.ok(table.sources.some((s) => s.kind.startsWith('capture linklevel') && s.items === 8));
+    assert.equal(table.points.get('251123@305').source, SOURCE_LINKLEVEL);
+    assert.equal(table.points.get('251123@305').stats.int, 640);
+});
