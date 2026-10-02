@@ -10,6 +10,27 @@ snapshots arrive with every loop rather than by request.
 
 ## Committed
 
+- Lootpath-20261002-112757.lua - **week one of the engine compare's stored
+  rows (E-0; WKE-670), on the Druid, pulled after the owner's closing
+  `/reload` of 2026-10-02 (SavedVariables written 11:27:57 local).** As pulled
+  (CRLF): sha256
+  `6fdcec324690bc66d14eb0c1aa753dac08e7bfd6296b7ff7b3d53d4c5f50157f`,
+  6,144,478 bytes; as committed, after `.gitattributes`' `eol=lf` turned each
+  of its 330,019 CRLFs into LF and touched nothing else: sha256
+  `dd02a0c2ee2b58f6e90c57d1ce54dbde3769b834ff05076c26f3dd78dca214b7`,
+  5,814,459 bytes. `global.developer.engineCompare["2026-09-29"]["Hotornot -
+  Arthas"]` holds the five documents the screen showed that morning
+  (ARCHITECTURE.md §9, 2026-10-02 week one's FINAL compare), each with its
+  metrics and every scored row's `link`, `level`, `key`, `slot`, `class`,
+  `theirs`, `ours` (floored at 0) and `raw` (unfloored): Dungeon `[6]` 55 rows
+  (band 6, `notRated` 12, rebuilt 77, leftOut 7), Dungeon `[10]` 15 rows (band
+  10), Raid `[10]` 15 rows (band raid-3), and the two Top Gear `pass1` blocks
+  (3 and 2 rows). Weights `fit-to-qe-exports`, patch 12.1.0, derived
+  2026-10-02T02:21:19.971Z; QE exports of 2026-10-01T13:59. The armour block
+  under `[6]` reads ρ 0.9473, k 0.9583, MAE@k 0.0165, n 15 - the screen's
+  0.947 / 0.958 / 0.016. This is the file the §11 probes (tier k by band,
+  jewellery) run against headlessly; the earlier runs of 2026-10-01 were never
+  flushed and are not in it.
 - Lootpath-20261001-200927.lua - **E-0g's `capture linklevel` on the Druid
   (WKE-677, step 1 built in PR #307), committed unedited by E-0g step 2.** As
   pulled (CRLF): sha256
