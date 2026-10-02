@@ -45,6 +45,12 @@
 --     effect stays in and is counted as `generic`. So the trinket class holds
 --     only rows a rule covers - none until the table carries numbers - and
 --     the report says so.
+--   * What was read (E-0i, WKE-680): every row keeps, beside `ours` and
+--     `theirs`, the candidate `link` as scored and `level`, the client's read
+--     level of that link (ns.EngineStats' `level`, GetDetailedItemLevelInfo),
+--     so a stored run can be explained later without a recapture. With the
+--     same verbose switch (`/lootpath engine verbose`) each block also lists
+--     `key · link level · ours · theirs` per scored row.
 
 local _, ns = ...
 
@@ -110,7 +116,7 @@ EngineCompare.TEXT = {
     off = "engine off",
     combat = "Out of combat only.",
     usage = "usage: /lootpath engine compare [dungeon|raid] [keylevel] | compare weeks | verbose | off",
-    verboseOn = "engine verbose on: each compare lists the items it could not rate.",
+    verboseOn = "engine verbose on: each compare lists the items it could not rate and every row it scored.",
     verboseOff = "engine verbose off.",
     header = "engine compare - weights %s, patch %s, derived %s - %s - week %s",
     notReady = "%d item(s) were not ready and are left out.",
@@ -131,6 +137,7 @@ EngineCompare.TEXT = {
     unknown = "  not rated: %d (trinket not in the effects table)",
     trinketNone = "  trinket: no row a rule covers yet",
     notCompared = "  not compared: %d (%s)",
+    verboseRow = "    %s · %s %s · %s · %s",
     bar = "bar (printed, not enforced): %s",
     stored = "stored for week %s.",
     noWeek = "the weekly reset clock did not answer; nothing stored.",
@@ -152,9 +159,11 @@ function EngineCompare.Enabled()
     return dev ~= nil and dev.engine == true
 end
 
--- `db.global.developer.engineVerbose`: the compare lists, under its not-rated
--- count, the items whose effect is not modelled. A sibling of `engine`, which
--- is a boolean and cannot carry a field (E-3a).
+-- `db.global.developer.engineVerbose`, toggled by `/lootpath engine verbose`:
+-- the compare lists, under its not-rated count, the items whose effect is not
+-- modelled (E-3a), and under each block every scored row with its link and
+-- read level (E-0i). A sibling of `engine`, which is a boolean and cannot
+-- carry a field.
 function EngineCompare.Verbose()
     local dev = developer()
     return dev ~= nil and dev.engineVerbose == true
@@ -705,6 +714,8 @@ function EngineCompare.CompareUF(inputs, worn)
                 class = EngineCompare.CLASS_OF_SLOT[slot] or "other",
                 ours = percent,
                 theirs = pair.entry.upgradePercent * sign,
+                link = pair.row.link,
+                level = candidate and candidate.level or nil,
             }
         else
             block.notCompared = block.notCompared + 1
@@ -833,6 +844,8 @@ function EngineCompare.CompareTopGear(inputs, worn)
                             -- worse"; the constant turns it around, so both
                             -- columns read "positive = better".
                             theirs = -(tonumber(alt.scorePercent) or 0) * altSign,
+                            link = record.link,
+                            level = cand.level,
                         }
                     end
                 end
@@ -918,10 +931,28 @@ local function reasonsText(reasons)
     return table.concat(parts, ", ")
 end
 
+-- One line per scored row, in the stored order: what was read and both
+-- columns, so a run can be explained from the chat log alone.
+function EngineCompare.RowLines(rows)
+    local lines = {}
+    for _, row in ipairs(rows or {}) do
+        lines[#lines + 1] = string.format(
+            EngineCompare.TEXT.verboseRow,
+            tostring(row.key),
+            tostring(row.link or "-"),
+            fmt(row.level, "%d"),
+            fmt(row.ours, "%.4f"),
+            fmt(row.theirs, "%.4f")
+        )
+    end
+    return lines
+end
+
 -- After the class table: the trinket line when no trinket row is in it (the
 -- class holds only rows a rule covers - none until the effects table carries
 -- numbers), the generic count, the not-rated count with its items under it
--- when verbose, and the trinkets the table does not carry.
+-- when verbose, the trinkets the table does not carry, and (verbose) every
+-- scored row.
 local function blockTail(lines, block, verbose)
     local T = EngineCompare.TEXT
     for _, line in ipairs(EngineCompare.TableLines(block.metrics)) do
@@ -942,6 +973,11 @@ local function blockTail(lines, block, verbose)
     end
     if block.notCompared > 0 then
         lines[#lines + 1] = string.format(EngineCompare.TEXT.notCompared, block.notCompared, reasonsText(block.reasons))
+    end
+    if verbose then
+        for _, line in ipairs(EngineCompare.RowLines(block.rows)) do
+            lines[#lines + 1] = line
+        end
     end
 end
 
@@ -1228,9 +1264,12 @@ function EngineCompare.Run(contentType, keyLevel, onDone)
         return
     end
     if not ns.EngineScore.file then
-        local ok, line = ns.EngineScore.Load()
+        local ok, line, detail = ns.EngineScore.Load()
         if not ok then
             ns.Log("%s", line)
+            if detail then
+                ns.Log("%s", detail)
+            end
             return
         end
     end
@@ -1302,7 +1341,7 @@ function EngineCompare.WeeksLines(charKey)
 end
 
 -- `/lootpath engine <rest>`: compare [dungeon|raid] [keylevel] | compare
--- weeks | off. Every word but `off` needs the switch; with it off the answer
+-- weeks | verbose | off. Every word but `off` needs the switch; with it off the answer
 -- is one line.
 function EngineCompare.Command(rest, onDone)
     local words = {}

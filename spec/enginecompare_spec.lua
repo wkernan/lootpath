@@ -604,6 +604,69 @@ describe("/lootpath engine compare over the owner's 2026-09-16 SavedVariables", 
         assert.truthy(out:find("2026-09-15: tier ", 1, true))
         assert.truthy(out:find("bar (printed, not enforced): tier ", 1, true))
     end)
+
+    -- E-0i (WKE-680): a stored run explains itself - the link as scored and
+    -- the level the client read for it sit beside ours and theirs.
+    it("stores each row's link as scored and the client's read level of it", function()
+        compare(ns, "compare dungeon 10")
+        compare(ns, "compare raid")
+        local byDoc = ns.db.global.engineCompare["2026-09-15"]["Tester - TestRealm"]
+        local n = 0
+        for _, entry in ipairs({ byDoc.Dungeon[10], byDoc.Dungeon.pass1, byDoc.Raid[10], byDoc.Raid.pass1 }) do
+            assert.is_true(#entry.rows > 0)
+            for _, row in ipairs(entry.rows) do
+                assert.is_string(row.link, row.key)
+                assert.truthy(row.link:find("|Hitem:", 1, true), row.key)
+                local read = ns.EngineStats.ForLink(row.link)
+                assert.is_number(row.level, row.key)
+                assert.equal(read.level, row.level, row.key)
+                n = n + 1
+            end
+        end
+        assert.is_true(n > 0)
+    end)
+
+    it("prints key, link and level, ours and theirs per row under the verbose switch only", function()
+        local run = compare(ns, "compare raid")
+        local plain = world.output()
+        local row = run.result.uf.rows[1]
+        local line =
+            string.format("    %s · %s %d · %.4f · %.4f", row.key, row.link, row.level, row.ours, row.theirs)
+        assert.is_nil(plain:find(line, 1, true))
+        local storedPlain = S.serialize(ns.db.global.engineCompare)
+        -- The one switch, toggled by `/lootpath engine verbose` (E-3a's word).
+        ns.HandleSlash("engine verbose")
+        assert.is_true(ns.db.global.developer.engineVerbose)
+        world.printed = {}
+        run = compare(ns, "compare raid")
+        local verbose = world.output()
+        assert.truthy(verbose:find(line, 1, true))
+        local _, rowLines = verbose:gsub(":     [^\n]* · [^\n]* · [^\n]* · [^\n]*", "")
+        assert.equal(#run.result.uf.rows + #run.result.tg.rows, rowLines)
+        -- The stored entry is the same with the switch on or off.
+        assert.equal(storedPlain, S.serialize(ns.db.global.engineCompare))
+        -- Toggled off again, the rows are gone from the print.
+        ns.HandleSlash("engine verbose")
+        assert.is_nil(ns.db.global.developer.engineVerbose)
+        world.printed = {}
+        compare(ns, "compare raid")
+        assert.is_nil(world.output():find(line, 1, true))
+        -- `compare weeks` is unchanged by it.
+        ns.db.global.developer.engineVerbose = true
+        world.printed = {}
+        ns.HandleSlash("engine compare weeks")
+        assert.is_nil(world.output():find(" · |", 1, true))
+    end)
+
+    it("prints the field a refused weights file tripped on", function()
+        ns.engineWeights.tiers = { setIDs = { 2057 }, twoPiece = 0.03, fourPiece = 0.055, forceTier = true }
+        ns.EngineScore.file = nil
+        world.printed = {}
+        assert.is_nil(compare(ns, "compare raid"))
+        local out = world.output()
+        assert.truthy(out:find("Not rated - the rating data didn't load.", 1, true))
+        assert.truthy(out:find("weights file: tiers.forceTier is not keyed by a setID", 1, true))
+    end)
 end)
 
 -- E-0h (WKE-678): the key level reaches the score. The owner's first fitted
@@ -946,5 +1009,122 @@ describe("/lootpath engine compare with the effects table", function()
         assert.truthy(world.output():find("engine verbose on", 1, true))
         ns.HandleSlash("engine verbose")
         assert.is_nil(ns.db.global.developer.engineVerbose)
+    end)
+end)
+
+-- E-0i (WKE-680): a code-independence guard. `compare raid` (verbose on) driven over the
+-- owner's 2026-10-01 transcript as committed - inventory snapshot 4 (09:26:31,
+-- the flush after `capture itemstats`), the Raid Upgrade Finder document stored
+-- in it (exported 2026-10-01T13:59:43.959Z), its Top Gear pass 1, its newest
+-- journal walk, and the client's own item reads in itemstats-real.lua - with
+-- the SYNTHETIC fitted-shape weights. Every value pinned below is what this
+-- commit computed (read from this spec's own run, never copied from elsewhere);
+-- any later change to how a Raid row is scored turns it red. Only the links the
+-- capture read have stats here: 2 of the 30 joined Upgrade Finder rows score,
+-- the other 28 links are not in the transcript and wait out as not ready.
+local TRANSCRIPT = "spec/fixtures/captures/Lootpath-20261001-092631.lua"
+local TRANSCRIPT_INVENTORY = 4
+-- 2026-10-01T14:26:31Z (09:26:31 Chicago), and the US reset after it,
+-- 2026-10-06T15:00:00Z.
+local TRANSCRIPT_NOW = 1790864791
+local TRANSCRIPT_RESET = 1791298800
+
+local PINNED = {
+    uf = {
+        ["268234@324"] = 0.39908906504140779,
+        ["268247@318"] = 0.37838637717233659,
+    },
+    tg = {
+        { "271528:6652:12845:13440:13692:13695:13698", 0.24358358586260817 },
+        { "277781:6652:12836:13662:13696", -0.064902948040283195 },
+    },
+    worn = 5709.2518928414584,
+    best = 5699.0687604303903,
+}
+
+local function transcriptWorld()
+    local ns, world = H.load()
+    H.chicagoClock(world, TRANSCRIPT_NOW)
+    world.secondsUntilReset = TRANSCRIPT_RESET - TRANSCRIPT_NOW
+    local db = R.load(TRANSCRIPT)
+    ns.db.char = deepcopy(db.char[CHAR])
+    ns.db.global = deepcopy(db.global)
+    ns.db.global.developer = { engine = true }
+    R.inventory(world, R.snapshot("inventory", TRANSCRIPT_INVENTORY, TRANSCRIPT))
+    -- AFTER R.inventory: install merges into the items it registered.
+    Real.install(world)
+    ns.engineWeights = dofile(FITTED)
+    assert(ns.EngineScore.Load())
+    return ns, world
+end
+
+describe("/lootpath engine compare raid over the 2026-10-01 transcript", function()
+    after_each(function()
+        H.unload()
+    end)
+
+    it("keeps the inventory scan whole when the real reads are installed after it", function()
+        local ns = transcriptWorld()
+        assert.equal("2026-10-01T09:26:31", R.snapshot("inventory", TRANSCRIPT_INVENTORY, TRANSCRIPT).capturedAtLocal)
+        local scan = ns.Inventory.Scan()
+        assert.is_true(scan.ok)
+        local equipped = 0
+        for _, record in ipairs(scan.records) do
+            if record.location == "equipped" then
+                equipped = equipped + 1
+            end
+        end
+        assert.equal(15, equipped)
+        assert.equal(40, #scan.records)
+    end)
+
+    it("scores every Raid row and both Top Gear sets as this commit did", function()
+        local ns, world = transcriptWorld()
+        local run
+        ns.db.global.developer.engineVerbose = true
+        ns.EngineCompare.Command("compare raid", function(r)
+            run = r
+        end)
+        world.runTimers(10)
+        assert.is_table(run, "the run finished")
+        io.write("\n[E-0i transcript run: engine compare raid, verbose on]\n" .. world.output() .. "\n")
+        local uf, tg = run.result.uf, run.result.tg
+        for _, row in ipairs(uf.rows) do
+            io.write(string.format("[E-0i pin] uf %s %.17g\n", row.key, row.ours))
+        end
+        for _, row in ipairs(tg.rows) do
+            io.write(string.format("[E-0i pin] tg %s %.17g\n", row.key, row.ours))
+        end
+        io.write(string.format("[E-0i pin] worn %.17g best %.17g\n", tg.wornValue, tg.topValue))
+        assert.equal("2026-10-01T13:59:43.959Z", uf.exportedAt)
+        assert.equal("raid-3", uf.band)
+        assert.equal(30, uf.joined)
+        assert.equal(28, uf.notCompared)
+        assert.same({ ["not ready"] = 28 }, uf.reasons)
+        assert.equal(28, run.notReady)
+        local function pinned(expected, actual, what)
+            assert.is_number(actual, what)
+            assert.is_true(
+                math.abs(expected - actual) <= 1e-12 * math.max(1, math.abs(expected)),
+                string.format("%s: pinned %.17g, computed %.17g", what, expected, actual)
+            )
+        end
+        local seen = 0
+        for _, row in ipairs(uf.rows) do
+            pinned(PINNED.uf[row.key], row.ours, row.key)
+            seen = seen + 1
+        end
+        local want = 0
+        for _ in pairs(PINNED.uf) do
+            want = want + 1
+        end
+        assert.equal(want, seen)
+        assert.equal(#PINNED.tg, #tg.rows)
+        for i, row in ipairs(tg.rows) do
+            assert.equal(PINNED.tg[i][1], row.key)
+            pinned(PINNED.tg[i][2], row.ours, row.key)
+        end
+        pinned(PINNED.worn, tg.wornValue, "worn set")
+        pinned(PINNED.best, tg.topValue, "best set")
     end)
 end)

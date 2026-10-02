@@ -48,6 +48,20 @@ memo §1, and the committed Top Gear export's `bonusHPS` 0.085), `--finish
 default, see "What is assumed"), `--effect-ids` (default the four below),
 `--resamples 200`, `--seed 1`, `--out <dir>`, `--derived-at <ISO>`.
 
+**The tier rule in the dev file is EngineScore's shape** (E-0i, WKE-680):
+`tiers = { [setID] = { [2] = { mult = 1 + tier2 }, [4] = { mult = 1 + tier4 } } }`
+for every `--tier-sets` ID. `EngineScore` adds the bonuses a set has reached
+before it multiplies (`1 + Σ(mult − 1)`), so four pieces score `1 + tier2 +
+tier4`, the same as `lib/score.js`. The fit's own `{ setIDs, twoPiece,
+fourPiece, forceTier }` stays in the fit JSON and `score.js`; before E-0i it was
+written into the Lua file too, `EngineScore` read no set from it, and every
+fitted compare scored with a tier multiplier of 1 (the percents survived only
+because the compare forces tier on both sides). `EngineScore.Load` now refuses a
+file whose `tiers` is in any other shape (`Not rated - the rating data didn't
+load.` and a developer line naming the field), and `test/tiers.test.js` loads
+the written file through `EngineScore` itself and checks the multiplier at 2
+and 4 pieces against the parameters.
+
 It prints, per document, the row counts, where the stats came from, the fitted
 weights with their bootstrap intervals, R², MAE and Spearman ρ overall and per
 slot class, the check on censored rows, and the five largest residuals. It

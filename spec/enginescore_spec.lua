@@ -253,6 +253,88 @@ describe("ns.EngineScore.Load", function()
         assert.is_nil(value)
         assert.equal("Update Lootpath - its ratings are for 12.0.7, you're on 12.1.0.", why)
     end)
+
+    -- E-0i (WKE-680): before it, tools/engine/lib/luaout.js wrote the fit's own
+    -- `{ setIDs, twoPiece, fourPiece, forceTier }` into EngineWeights.dev.lua;
+    -- tierOf found no numeric setID in it, so every fitted compare scored with
+    -- a tier multiplier of 1 and nothing said so. That file is now refused.
+    local OLD_SHAPE = { setIDs = { 2057 }, twoPiece = 0.03, fourPiece = 0.055, forceTier = true }
+
+    it("refuses a file whose tiers are in the fit tool's old shape, naming the field", function()
+        local ns, ok, sentence = refusedWith(function(ns)
+            ns.engineWeights.tiers = OLD_SHAPE
+        end)
+        assert.is_false(ok)
+        assert.equal(BROKEN, sentence)
+        assert.is_nil(ns.EngineScore.file)
+        assert.equal("refused", ns.EngineScore.status)
+        local _, _, detail = ns.EngineScore.Load()
+        assert.equal(
+            "weights file: tiers.forceTier is not keyed by a setID"
+                .. " - tiers must be { [setID] = { [pieces] = { mult = n } } }",
+            detail
+        )
+        assert.equal(detail, ns.EngineScore.refusalDetail)
+        local value, why = ns.EngineScore.SetValue({ vec("Head", { int = 10 }) }, { dr = "table" })
+        assert.is_nil(value)
+        assert.equal(BROKEN, why)
+    end)
+
+    it("refuses every other tiers that tierOf cannot read, and names each field", function()
+        local cases = {
+            { nil, "tiers is missing" },
+            { 1.03, "tiers is a number" },
+            { {}, "tiers is empty" },
+            { { [2057] = 1.03 }, "tiers[2057] has no { [pieces] = { mult } }" },
+            { { [2057] = {} }, "tiers[2057] has no { [pieces] = { mult } }" },
+            { { [2057] = { two = { mult = 1.03 } } }, "tiers[2057][two] is not keyed by a piece count" },
+            { { [2057] = { [0] = { mult = 1.03 } } }, "tiers[2057][0] is not keyed by a piece count" },
+            { { [2057] = { [2] = 1.03 } }, "tiers[2057][2].mult is not a positive number" },
+            { { [2057] = { [2] = { mult = "1.03" } } }, "tiers[2057][2].mult is not a positive number" },
+            { { [2057] = { [2] = { mult = 0 } } }, "tiers[2057][2].mult is not a positive number" },
+            { { [2057.5] = { [2] = { mult = 1.03 } } }, "tiers[2057.5] is not keyed by a setID" },
+        }
+        for _, case in ipairs(cases) do
+            local ns, ok, sentence = refusedWith(function(ns)
+                ns.engineWeights.tiers = case[1]
+            end)
+            assert.is_false(ok, case[2])
+            assert.equal(BROKEN, sentence, case[2])
+            assert.equal(case[2], ns.EngineScore.TiersProblem(case[1]))
+        end
+    end)
+
+    it("loads every committed file whose tiers are in tierOf's shape", function()
+        assert.is_nil(H.load().EngineScore.TiersProblem(loadShipped().engineWeights.tiers))
+        H.unload()
+        for _, path in ipairs({ WEIGHTS, FITTED }) do
+            local ns = H.load()
+            ns.engineWeights = dofile(path)
+            assert.is_nil(ns.EngineScore.TiersProblem(ns.engineWeights.tiers), path)
+            assert.is_true((ns.EngineScore.Load()), path)
+            H.unload()
+        end
+    end)
+
+    it("prints the refusal and the field it tripped on, at login, to a developer only", function()
+        local ns, world = H.load({ loaded = false })
+        table.insert(ns.onReady, 1, function()
+            ns.db.global.developer = { engine = true }
+            ns.engineWeights.tiers = OLD_SHAPE
+        end)
+        world.fireEvent("ADDON_LOADED", H.ADDON)
+        local out = world.output()
+        assert.truthy(out:find(BROKEN, 1, true))
+        assert.truthy(out:find("weights file: tiers.forceTier is not keyed by a setID", 1, true))
+        H.unload()
+        local ns2, world2 = H.load({ loaded = false })
+        table.insert(ns2.onReady, 1, function()
+            ns2.engineWeights.tiers = OLD_SHAPE
+        end)
+        world2.fireEvent("ADDON_LOADED", H.ADDON)
+        assert.equal("refused", ns2.EngineScore.status)
+        assert.is_nil(world2.output():find("weights file:", 1, true))
+    end)
 end)
 
 describe("ns.EngineScore.SetValue", function()

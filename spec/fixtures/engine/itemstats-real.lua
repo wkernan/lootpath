@@ -3605,6 +3605,12 @@ F.TOOLTIPS = {
 -- EMPTY stat table; the five current ratings, the mastery pair, healing and
 -- intellect. The rating conversion is the stub's own, which answers the
 -- transcript's thirty points (spec/stubs/wow.lua, world.ratingCurves).
+--
+-- An item already on the world is MERGED into, never replaced (E-0i, WKE-680):
+-- this row's info, level and detailed level are set and every other field the
+-- entry carries stays - above all `instant`, which R.inventory registers and
+-- ns.Inventory.Scan reads, so installing after R.inventory no longer empties
+-- the scan.
 function F.install(world)
     for _, row in ipairs(F.ROWS) do
         local info = { row.name, row.link, 4, row.level, n = 18 }
@@ -3613,7 +3619,11 @@ function F.install(world)
         info[13] = row.subclassID
         info[16] = row.setID
         for _, link in ipairs({ row.link, row.strippedLink }) do
-            world.items[link] = { info = info, level = row.level, detailed = row.detailedLevel }
+            local entry = world.items[link] or {}
+            entry.info = info
+            entry.level = row.level
+            entry.detailed = row.detailedLevel
+            world.items[link] = entry
             world.itemStats[link] = row.stats
             world.itemSockets[link] = row.sockets
         end

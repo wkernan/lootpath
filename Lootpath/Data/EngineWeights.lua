@@ -49,6 +49,9 @@
 -- set has reached ADD before they multiply: 1 + (m2 - 1) + (m4 - 1) at four
 -- pieces, QE Live's own rule (its set bonuses sum into one `bonusHPS` and the
 -- score is multiplied by 1 + bonusHPS, fork TopGearEngine.ts:981, :1084-1085).
+-- EngineScore.Load refuses a file whose `tiers` is in any other shape and
+-- names the field in its developer line (E-0i, WKE-680): the fit tool once
+-- wrote `{ setIDs, twoPiece, fourPiece }` here and every tier bonus read as 1.
 local _, ns = ...
 if type(ns) ~= "table" then
     return

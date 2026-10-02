@@ -51,6 +51,35 @@ function luaValue(v, indent) {
     return `{\n${entries.map(([k, x]) => `${pad}    ${luaKey(k)} = ${luaValue(x, indent + 1)},`).join('\n')}\n${pad}}`;
 }
 
+// The tier rule as EngineScore reads it (E-0i, WKE-680): `tiers = { [setID] =
+// { [pieces] = { mult } } }`, the shape of Data/EngineWeights.lua and the one
+// `tierOf` in Lootpath/Modules/EngineScore.lua walks. EngineScore ADDS the
+// bonuses a set has reached before it multiplies - mult = 1 + sum(mult - 1)
+// over the thresholds reached - so `[2] = 1 + twoPiece` and `[4] = 1 +
+// fourPiece` give 1 + twoPiece at two pieces and 1 + twoPiece + fourPiece at
+// four, score.js's `tierMultiplier`. The fit's own `{ setIDs, twoPiece,
+// fourPiece, forceTier }` stays inside the tool (the fit JSON, score.js);
+// before E-0i it was written into the Lua file too, EngineScore found no
+// numeric setID in it, and every fitted compare ran with a multiplier of 1.
+function luaTiers(tiers) {
+    if (!tiers || !Array.isArray(tiers.setIDs) || !tiers.setIDs.length) throw new Error('no tier set: --tier-sets names at least one setID');
+    for (const [name, v] of [['--tier2', tiers.twoPiece], ['--tier4', tiers.fourPiece]]) {
+        if (typeof v !== 'number' || !Number.isFinite(v)) throw new Error(`${name} must be a finite number, got ${v}`);
+    }
+    const out = new Map();
+    for (const id of tiers.setIDs) {
+        if (!Number.isInteger(id)) throw new Error(`--tier-sets: ${id} is not a setID`);
+        out.set(
+            id,
+            new Map([
+                [2, { mult: 1 + tiers.twoPiece }],
+                [4, { mult: 1 + tiers.fourPiece }],
+            ])
+        );
+    }
+    return out;
+}
+
 // bandKey(fit) -> the key inside `bands` (a key level for Dungeon, the raid
 // difficulty list for Raid). When two documents share a band, the later
 // `exportedAt` wins and the other is listed under `superseded`.
@@ -82,7 +111,7 @@ function buildTable(fits, meta) {
         superseded,
         specs: new Map([[105, resto]]),
         dr: meta.dr,
-        tiers: meta.tiers,
+        tiers: luaTiers(meta.tiers),
     };
 }
 
@@ -107,4 +136,4 @@ function render(table, meta) {
     ].join('\n');
 }
 
-module.exports = { luaString, luaValue, buildTable, render };
+module.exports = { luaString, luaValue, luaTiers, buildTable, render };
