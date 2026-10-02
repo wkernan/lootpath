@@ -253,3 +253,32 @@ two client sources agreeing where they overlap); the DR table reproduces the
 client's 35 conversions; the real-stats fixture is the extraction, byte for
 byte. No npm dependency: Node's own runner and
 `tools/companion/lib/lua-savedvariables.js`.
+
+## percent-scale.js - why k moved with the band (E-0j, WKE-681)
+
+```powershell
+node percent-scale.js `
+  --stats ..\..\spec\fixtures\captures\Lootpath-20260915-162015.lua `
+  --stats ..\..\spec\fixtures\captures\Lootpath-20260916-152428.lua `
+  --stats ..\..\spec\fixtures\captures\Lootpath-20261001-092631.lua `
+  --stats ..\..\spec\fixtures\captures\Lootpath-20261001-200927.lua `
+  --key-levels 1=2,2=4,4=6,6=8,7=10 `
+  --measure ..\..\spec\fixtures\captures\Lootpath-20261001-092631.lua `
+  [--compare <a copy of SavedVariables\Lootpath.lua> --week 2026-09-29 --char "Hotornot - Arthas"] `
+  ..\..\spec\fixtures\qe
+```
+
+Fits the bands exactly as `fit-weights.js` does, then scores the Upgrade Finder
+documents STORED in the `--measure` capture against that capture's worn set
+(inventory snapshot `--inventory`, default 4) and prints k - the least-squares
+scale of ours onto theirs, `EngineCompare.Scale` - per slot class: `game`
+(`100 × ΔV / V(worn)`, what the compare computes), `pin100` (the worn set at the
+fit's 100), `floored` (ours floored at the Upgrade Finder's 0, the compare
+since E-0j), `uncensored` (rows whose theirs is exactly 0 left out), and the
+bands refitted on client-read rows only. With `--compare`, the same k raw and
+floored over the rows a real compare stored. **Read it this way:** the Upgrade
+Finder never reports below 0 (its Top Gear keeps the worn set when a drop is
+worse), so an unfloored k shrinks by the share of censored rows, which the band
+sets; compare floored figures only. Never read the owner's SavedVariables in
+place - copy them first. `test/percent-scale.test.js` holds the harness's floor
+equal to `EngineCompare.UF_FLOOR` and pins its figures on the committed files.
