@@ -1872,7 +1872,8 @@ describe("captures linklevel", function()
         local champion = variant(k, "track-replace", 12837)
         assert.equal("Champion", champion.track)
         assert.equal(5, champion.step)
-        assert.is_false(champion.clientConfirmedLevel)
+        -- Confirmed since E-0g step 2 by the owner's linklevel transcript.
+        assert.is_true(champion.clientConfirmedLevel)
         assert.equal(
             "|cnIQ4:|Hitem:250254::::::::90:105::16:1:12837:1:28:1279:::::|h[Seed of Radiant Hope]|h|r",
             champion.link

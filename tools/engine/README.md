@@ -28,6 +28,7 @@ node fit-weights.js `
   --stats ..\..\spec\fixtures\captures\Lootpath-20260915-162015.lua `
   --stats ..\..\spec\fixtures\captures\Lootpath-20260916-152428.lua `
   --stats ..\..\spec\fixtures\captures\Lootpath-20261001-092631.lua `
+  --stats ..\..\spec\fixtures\captures\Lootpath-20261001-200927.lua `
   --key-levels 1=2,2=4,4=6,6=8,7=10 `
   ..\..\spec\fixtures\qe
 ```
@@ -97,7 +98,7 @@ Live reads 2.801 (252258) and 0.474 (251148). With the itemstats transcript
 are still `budget` rows on the equal split - rings and necks the transcript did
 not read (Dungeon +10: 272147@321 Finger, observed 2.366, predicted 1.212).
 
-**The client sources** are two, both read out of a `--stats` SavedVariables
+**The client sources** are three, all read out of a `--stats` SavedVariables
 file, and every point says which (`clientSource` on a row):
 
 - `capture itemstats` (E-0a; read since E-0f, WKE-676): `C_Item.GetItemStats`
@@ -116,6 +117,14 @@ file, and every point says which (`clientSource` on a row):
 - `capture upgrade` (committed captures from 2026-09-15 on):
   `GetItemUpgradeItemInfo().upgradeLevelInfos[].levelStats` gives an owned
   item's stats at every level of its track.
+- `capture linklevel` (E-0g step 2, WKE-677; the 2026-10-01 20:09
+  transcript): for each journal row the capture took, `GetItemStats` on the
+  journal link rebuilt with the track step that draws the walk's level
+  appended - the rule `ns.EngineStats` installs - kept only when the client
+  drew it at the walk's level before, during and after the walk. Filed under
+  `id@walkLevel` (the level the Upgrade Finder row names), `clientSource`
+  `capture linklevel`; where `capture itemstats` names the same point it is
+  kept. 8 points from the 12 candidates (the 4 world rows at 44 have no step).
 
 Two levels of one item give the scale, read and never guessed. The level curve
 is `ln(stat)` linear in item level, its slope measured within items,

@@ -2670,10 +2670,62 @@ function Stub.install()
         end,
     })
 
+    -- E-0g step 2 (WKE-677): a link that carries ONE track bonus ID of
+    -- Lootpath/Data/TrackBonusIDs.lua and is not registered on `world.items`
+    -- is drawn at that step's level - what the owner's `capture linklevel`
+    -- transcript showed the client doing for every journal link rebuilt with a
+    -- step (ARCHITECTURE.md section 9, E-0g step 2) - but only when a test
+    -- hands the stub `world.trackStats(itemID, level, link) -> stats`, the
+    -- numbers it answers GetItemStats with (itemstats-synthetic.lua's rule; no
+    -- number is invented here). Off by default: an unknown link answers nothing.
+    local trackLevels
+    local function trackItem(link)
+        if type(world.trackStats) ~= "function" or type(link) ~= "string" then
+            return nil
+        end
+        if not trackLevels then
+            trackLevels = {}
+            local holder = {}
+            assert(loadfile("Lootpath/Data/TrackBonusIDs.lua"))("Lootpath", holder)
+            for _, track in ipairs(holder.trackBonusIDs.tracks) do
+                for _, step in ipairs(track.steps) do
+                    trackLevels[step.bonusID] = step.itemLevel
+                end
+            end
+        end
+        local body = link:match("|Hitem:([^|]+)|h") or link:match("^item:([^|]+)$")
+        if not body then
+            return nil
+        end
+        local fields = {}
+        for field in (body .. ":"):gmatch("([^:]*):") do
+            fields[#fields + 1] = field
+        end
+        local level
+        for i = 1, tonumber(fields[13]) or 0 do
+            local stepLevel = trackLevels[tonumber(fields[13 + i])]
+            if stepLevel then
+                if level then
+                    return nil -- two steps: not a link the rule builds
+                end
+                level = stepLevel
+            end
+        end
+        if not level then
+            return nil
+        end
+        local itemID = tonumber(fields[1])
+        return { itemID = itemID, level = level, name = link:match("|h%[(.-)%]|h") or ("item " .. itemID) }
+    end
+
     define("C_Item", {
         GetDetailedItemLevelInfo = function(link)
             local item = world.items[link]
             if not item then
+                local track = trackItem(link)
+                if track then
+                    return track.level, false, track.level
+                end
                 return nil
             end
             if type(item.detailed) == "function" then
@@ -2689,6 +2741,12 @@ function Stub.install()
         end,
         GetItemInfo = function(link)
             local item = world.items[link]
+            if not item then
+                local track = trackItem(link)
+                if track then
+                    return track.name, link, 4, track.level
+                end
+            end
             if not item or not item.info then
                 return nil
             end
@@ -2747,6 +2805,12 @@ function Stub.install()
                 -- E-0g: an answer that follows the journal's view (see
                 -- C_TooltipInfo.GetHyperlink above).
                 stats = stats(world.journal)
+            end
+            if stats == nil and not world.items[link] then
+                local track = trackItem(link)
+                if track then
+                    stats = world.trackStats(track.itemID, track.level, link)
+                end
             end
             if stats == nil then
                 -- A gem link answers an empty table (every gem link in the

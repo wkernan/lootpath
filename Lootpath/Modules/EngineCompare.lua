@@ -28,9 +28,16 @@
 --     level) and kept only when the client draws the rebuilt link at that
 --     level (ns.EngineStats.AtLevel); a row that cannot be rebuilt, or reads
 --     at another level, is LEFT OUT and counted on its own header line, never
---     scored at the wrong level. The switch is OFF until `capture linklevel`'s
---     transcript proves a rule; off, the compare reads the walk's link exactly
---     as before.
+--     scored at the wrong level. ON since E-0g step 2: the owner's `capture
+--     linklevel` transcript (2026-10-01 20:09) proved the rule installed in
+--     ns.EngineStats (`track-append`: the journal link with the track step that
+--     draws the row's level added), and it showed why the kept link cannot be
+--     scored as it is - a context-scaled link answers at whatever level the
+--     Adventure Guide's current view implies (a raid link read 305 before a
+--     walk and 219 after it), so the same link scored two levels apart in two
+--     sessions. The rows no step draws (the world rows the walk lists at 44)
+--     are left out. The `at level` line names the rule. Off, the compare reads
+--     the walk's link exactly as before.
 --   * The band: the key level goes into every SetValue and UpgradePercent
 --     call and ns.EngineScore.BandFor picks the band (E-0h, WKE-678) - the
 --     Upgrade Finder document's own level, and for the Top Gear block the
@@ -99,9 +106,9 @@ EngineCompare.BAR = {
 }
 
 -- E-0g (WKE-677): read every joined Upgrade Finder row through a link rebuilt
--- at the row's level. OFF until the `capture linklevel` transcript proves the
--- rule ns.EngineStats.LinkAtLevel takes; flipping it is the second PR's.
-EngineCompare.REBUILD_AT_LEVEL = false
+-- at the row's level. ON since step 2, on the `capture linklevel` transcript
+-- (ARCHITECTURE.md section 7, E-0g step 2); the rule is ns.EngineStats'.
+EngineCompare.REBUILD_AT_LEVEL = true
 
 -- The shelf the Top Gear block is stored on beside the key levels.
 EngineCompare.TOP_GEAR_KEY = "pass1"
@@ -153,7 +160,7 @@ EngineCompare.TEXT = {
     trinketNone = "  trinket: no row a rule covers yet",
     notCompared = "  not compared: %d (%s)",
     verboseRow = "    %s · %s %s · %s · %s",
-    atLevel = "  at level: %d rebuilt, %d left out (%s)",
+    atLevel = "  at level, rule %s: %d rebuilt, %d left out (%s)",
     bar = "bar (printed, not enforced): %s",
     stored = "stored for week %s.",
     noWeek = "the weekly reset clock did not answer; nothing stored.",
@@ -733,7 +740,7 @@ function EngineCompare.CompareUF(inputs, worn)
     local rows = {}
     local sign = ns.UFImport.UPGRADE_BETTER_PERCENT_SIGN
     if EngineCompare.REBUILD_AT_LEVEL then
-        block.atLevel = { rebuilt = 0, leftOut = 0, reasons = {} }
+        block.atLevel = { rule = ns.EngineStats.LinkLevelRuleName(), rebuilt = 0, leftOut = 0, reasons = {} }
     end
     for _, pair in ipairs(join.joined) do
         local slot = pair.row.slot or pair.entry.slot
@@ -1086,6 +1093,7 @@ function EngineCompare.Lines(run)
         if uf.atLevel then
             lines[#lines + 1] = string.format(
                 T.atLevel,
+                tostring(uf.atLevel.rule),
                 uf.atLevel.rebuilt,
                 uf.atLevel.leftOut,
                 uf.atLevel.leftOut > 0 and reasonsText(uf.atLevel.reasons) or "none"

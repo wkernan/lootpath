@@ -28,9 +28,15 @@
 --     link carrying any ID here answered another level;
 --   * the step and the track's range for 12818-12820, 12834-12836 and
 --     12842-12843: the same `capture upgrade` read `GetItemUpgradeItemInfo` as
---     2/6..4/6 of [266-282], [292-308] and [305-321].
--- The rest (no `client` mark) is SimulationCraft's word only until the
--- `capture linklevel` transcript reads a link rebuilt with it.
+--     2/6..4/6 of [266-282], [292-308] and [305-321];
+--   * the level of 12837, 12841 and 12851 (E-0g step 2): a journal link
+--     rebuilt with it answered this level - `GetDetailedItemLevelInfo` and the
+--     tooltip's Item Level line, before, during and after a walk - in
+--     spec/fixtures/captures/Lootpath-20261001-200927.lua (`capture
+--     linklevel`), and its Upgrade Level line named the step ("Champion 5/6",
+--     "Hero 1/6", "Myth 3/6"). The same transcript read 12843 at 311 ("Hero
+--     3/6"), already marked. spec/enginestats_spec.lua holds these marks too.
+-- The rest (no `client` mark) is SimulationCraft's word only.
 --
 -- Six steps per track: the client answered `maxUpgrade = 6` on every owned
 -- upgradeable item, and the tops are the season's (docs/ROADS-UX.md:
@@ -91,7 +97,7 @@ ns.trackBonusIDs = {
                 { bonusID = 12834, itemLevel = 295, client = true },
                 { bonusID = 12835, itemLevel = 298, client = true },
                 { bonusID = 12836, itemLevel = 302, client = true },
-                { bonusID = 12837, itemLevel = 305 },
+                { bonusID = 12837, itemLevel = 305, client = true },
                 { bonusID = 12838, itemLevel = 308, client = true },
             },
         },
@@ -100,7 +106,7 @@ ns.trackBonusIDs = {
             trackID = 974,
             upgradeGroup = 617,
             steps = {
-                { bonusID = 12841, itemLevel = 305 },
+                { bonusID = 12841, itemLevel = 305, client = true },
                 { bonusID = 12842, itemLevel = 308, client = true },
                 { bonusID = 12843, itemLevel = 311, client = true },
                 { bonusID = 12844, itemLevel = 315 },
@@ -115,7 +121,7 @@ ns.trackBonusIDs = {
             steps = {
                 { bonusID = 12849, itemLevel = 318 },
                 { bonusID = 12850, itemLevel = 321 },
-                { bonusID = 12851, itemLevel = 324 },
+                { bonusID = 12851, itemLevel = 324, client = true },
                 { bonusID = 12852, itemLevel = 328 },
                 { bonusID = 12853, itemLevel = 331 },
                 { bonusID = 12854, itemLevel = 334, client = true },

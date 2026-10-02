@@ -17,3 +17,16 @@ test('the committed real-stats fixture is the extraction of the committed transc
         assert.equal(r.text.split(`source = "${source}",`).length - 1, n, source);
     }
 });
+
+// E-0g step 2 (WKE-677): spec/fixtures/engine/linklevel-real.lua is what
+// extract-linklevel.js writes from the committed linklevel transcript.
+test('the committed linklevel fixture is the extraction of the committed transcript', () => {
+    const r = require('../extract-linklevel').run([]);
+    assert.equal(r.sha, '455e02d9e17a9014bfc978e8da57ab6b34b502ffbbb4821a17d68af092f3ec42');
+    const committed = fs.readFileSync(r.outPath, 'utf8');
+    assert.equal(committed, r.text);
+    // 12 candidates; 8 with track variants (four each at 305, two at 311 and 324).
+    assert.equal(r.text.split('walkLevel = ').length - 1, 12);
+    assert.equal(r.text.split('rule = "track-append",').length - 1, 4 * 2 + 4);
+    assert.equal(r.text.split('trackNote = "no track step draws 44",').length - 1, 4);
+});

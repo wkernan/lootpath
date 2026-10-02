@@ -3,20 +3,32 @@
 
 ## Still to capture
 
-- **`/lootpath capture linklevel` (E-0g, WKE-677, built 2026-10-01).** After the
-  PR merges: `git pull`, `tools\sync.ps1`; in game, on the Druid in Restoration,
-  `/lootpath capture journal` first if the cached walk is from another build,
-  then `/lootpath capture linklevel` (out of combat; it walks a handful of
-  Adventure Guide targets for a few seconds and puts the view back), `/reload`,
-  then `tools\sync.ps1 -Pull` and commit the pulled file here unedited. It
-  decides which link draws a journal row at the level the walk listed it at
-  (ARCHITECTURE.md section 7, E-0g); step 2 of WKE-677 is built on it.
+Nothing is waiting on a capture.
 
 `/lootpath refresh` takes `env`, `inventory` and `vault` itself (C-3), so those
 snapshots arrive with every loop rather than by request.
 
 ## Committed
 
+- Lootpath-20261001-200927.lua - **E-0g's `capture linklevel` on the Druid
+  (WKE-677, step 1 built in PR #307), committed unedited by E-0g step 2.** As
+  pulled (CRLF): sha256
+  `701727cef895af0e99618ccb716cf20cb579b92d6d69ddd067a76f766b8335e6`,
+  6,019,179 bytes; as committed, after `.gitattributes`' `eol=lf` turned each
+  of its 325,865 CRLFs into LF and touched nothing else: sha256
+  `455e02d9e17a9014bfc978e8da57ab6b34b502ffbbb4821a17d68af092f3ec42`,
+  5,693,314 bytes. One `linklevel` snapshot (20:09:18 local, 2026-10-01,
+  `capturedAt` 1790903358), `durationMs` 156.65, `sawSecret` false, client
+  12.1.0 build 69933. 12 candidates of 101 cached journal rows the client read
+  at another level than the walk listed (difficulty 8: 54, 15: 27, 16: 20; the
+  walk of 1790381953, key `69933|18|105|2:8:15:16:23`); the walk re-read 8
+  targets in 130.8 ms, 0 timeouts, and put tier, difficulty and loot filter
+  back (`viewStateBefore` difficulty 14, tier 13, loot filter 11/0). What it
+  settles - a track bonus ID appended to the journal link draws the walk's
+  level on every candidate that has a track step, and a context-scaled link's
+  answer follows the Adventure Guide's view - is in ARCHITECTURE.md §7 and §9
+  (E-0g step 2); `spec/fixtures/engine/linklevel-real.lua` is extracted from
+  it by `tools/engine/extract-linklevel.js`.
 - Lootpath-20261001-092631.lua - **E-0a's `capture itemstats` on the Druid
   (WKE-675), committed unedited by E-0f (WKE-676).** As pulled (CRLF):
   sha256 `3c36f48d9e770a934b7234ecae41a644d5ee31f3f3a2e4dfd7ca258512f41cc6`,

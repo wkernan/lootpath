@@ -21,6 +21,7 @@ local R = require("spec.helpers.replay")
 local S = require("spec.helpers.serialize")
 local Stats = dofile("spec/fixtures/engine/itemstats-synthetic.lua")
 local Real = dofile("spec/fixtures/engine/itemstats-real.lua")
+local LinkLevel = dofile("spec/fixtures/engine/linklevel-real.lua")
 
 local WEIGHTS = "spec/fixtures/engine/weights-synthetic.lua"
 local FITTED = "spec/fixtures/engine/weights-fitted-shape.lua"
@@ -251,8 +252,13 @@ describe("EngineCompare.Compute on hand-made inputs", function()
 
     before_each(function()
         ns = H.load()
+        -- The journal "links" here are names, not item links, so no rule can
+        -- rebuild them: these rows are read as the walk kept them (E-0g's
+        -- switch, on since step 2, is held in its own describe below).
+        ns.EngineCompare.REBUILD_AT_LEVEL = false
     end)
     after_each(function()
+        ns.EngineCompare.REBUILD_AT_LEVEL = true
         H.unload()
     end)
 
@@ -438,6 +444,9 @@ local function fixtureWorld(weightsFor)
         end
     end
     Stats.install(world, entries)
+    -- E-0g step 2: the rebuilt links the compare now reads, at their track
+    -- step's level, on the same synthetic rule.
+    Stats.installTrack(world)
     return ns, world, sources
 end
 
@@ -507,7 +516,11 @@ describe("/lootpath engine compare over the owner's 2026-09-16 SavedVariables", 
         assert.equal("never", entry.derivedAt)
         assert.equal(run.result.uf.exportedAt, entry.qeExportedAt)
         assert.equal(
-            run.result.uf.joined - run.result.uf.notRated - run.result.uf.unknown - run.result.uf.notCompared,
+            run.result.uf.joined
+                - run.result.uf.notRated
+                - run.result.uf.unknown
+                - run.result.uf.notCompared
+                - run.result.uf.atLevel.leftOut,
             #entry.rows
         )
         local row = entry.rows[1]
@@ -729,9 +742,10 @@ describe("/lootpath engine compare names the band it scores with", function()
             assert.is_nil(noBandReason(uf), case[2])
             assert.is_nil(noBandReason(tg), case[2])
             assert.is_true(uf.joined > 0)
-            -- Every joined row is scored or held for a reason that is not the band.
+            -- Every joined row is scored, held for a reason that is not the
+            -- band, or left out at its level (E-0g step 2: no track step draws it).
             local scored = #uf.rows
-            assert.equal(uf.joined, scored + uf.notRated + uf.unknown + uf.notCompared, case[2])
+            assert.equal(uf.joined, scored + uf.notRated + uf.unknown + uf.notCompared + uf.atLevel.leftOut, case[2])
             assert.is_true(scored > 0, case[2])
             assert.is_number(tg.topValue, case[2])
             assert.is_number(tg.wornValue, case[2])
@@ -765,11 +779,13 @@ describe("/lootpath engine compare names the band it scores with", function()
         assert.is_nil(uf.band)
         assert.equal("no band for +10", uf.noBand)
         assert.equal(0, #uf.rows)
-        assert.equal(uf.joined, uf.notCompared)
-        assert.same({ ["no band for +10"] = uf.joined }, uf.reasons)
+        -- The rows left out at their level (E-0g step 2) never reach the band.
+        local banded = uf.joined - uf.atLevel.leftOut
+        assert.equal(banded, uf.notCompared)
+        assert.same({ ["no band for +10"] = banded }, uf.reasons)
         assert.same({ ["no band for +10"] = tg.notCompared }, tg.reasons)
         local out = world.output()
-        assert.truthy(out:find(string.format("not compared: %d (no band for +10)\n", uf.joined), 1, true))
+        assert.truthy(out:find(string.format("not compared: %d (no band for +10)\n", banded), 1, true))
         assert.truthy(out:find(string.format("not compared: %d (no band for +10)\n", tg.notCompared), 1, true))
         assert.truthy(out:find("), band -: ", 1, true))
         assert.is_nil(out:find("(no band)", 1, true))
@@ -936,8 +952,15 @@ describe("/lootpath engine compare with the effects table", function()
         local verdict = ns.UFImport.ForContentTypeAndLevel("Dungeon", 6)
         local trinkets, inTable, effectRows = 0, 0, 0
         local oneHanders = {}
-        for _, row in pairs(joinedRows(ns, verdict, sources)) do
+        -- E-0g step 2: the table-carried rows at a level no track step draws
+        -- are left out at their level before any effect is looked at.
+        local carriedNoStep = 0
+        for key, row in pairs(joinedRows(ns, verdict, sources)) do
             local carried = ns.engineEffects.items[row.itemID] ~= nil
+            local level = tonumber(key:match("@(%d+)$"))
+            if carried and #ns.EngineStats.TrackBonusesAt(level) == 0 and row.slot ~= "1H Weapon" then
+                carriedNoStep = carriedNoStep + 1
+            end
             if carried and row.slot == "1H Weapon" then
                 oneHanders[#oneHanders + 1] = row.itemID
             end
@@ -950,11 +973,13 @@ describe("/lootpath engine compare with the effects table", function()
         io.write(
             string.format(
                 "\n[E-3a fixture run: engine compare dungeon 6 - %d joined, %d trinket rows, %d of them in the "
-                    .. "effects table, %d joined rows in the table; not rated %d, unknown %d, generic %d]\n%s\n",
+                    .. "effects table, %d joined rows in the table, %d of those (not one-handers) at a level no "
+                    .. "track step draws; not rated %d, unknown %d, generic %d]\n%s\n",
                 uf.joined,
                 trinkets,
                 inTable,
                 effectRows,
+                carriedNoStep,
                 uf.notRated,
                 uf.unknown,
                 uf.generic,
@@ -968,10 +993,18 @@ describe("/lootpath engine compare with the effects table", function()
         assert.equal(13, inTable)
         -- 15, not 17: the two one-handers (Jan'thrazet, Polished Lightwood
         -- Channeler) beside the worn two-hander are `not comparable` first.
+        -- And since E-0g step 2, 3 of those 15 sit at 344, which no track step
+        -- draws: left out at their level and counted there, so 12 are `not
+        -- rated` (as read from the run above).
         table.sort(oneHanders)
         assert.same({ 271092, 273778 }, oneHanders)
         assert.same({ ["not comparable"] = uf.notCompared }, uf.reasons)
-        assert.equal(15, uf.notRated)
+        assert.equal(3, carriedNoStep)
+        assert.equal(15 - carriedNoStep, uf.notRated)
+        assert.same(
+            { rule = "track-append", rebuilt = 77, leftOut = 7, reasons = { ["no track step draws 344"] = 7 } },
+            uf.atLevel
+        )
         assert.equal(0, uf.unknown)
         assert.equal(0, uf.generic)
         -- No metric holds a row whose item the table carries, and no trinket
@@ -1017,11 +1050,24 @@ end)
 -- the flush after `capture itemstats`), the Raid Upgrade Finder document stored
 -- in it (exported 2026-10-01T13:59:43.959Z), its Top Gear pass 1, its newest
 -- journal walk, and the client's own item reads in itemstats-real.lua - with
--- the SYNTHETIC fitted-shape weights. Every value pinned below is what this
--- commit computed (read from this spec's own run, never copied from elsewhere);
--- any later change to how a Raid row is scored turns it red. Only the links the
--- capture read have stats here: 2 of the 30 joined Upgrade Finder rows score,
--- the other 28 links are not in the transcript and wait out as not ready.
+-- the SYNTHETIC fitted-shape weights. Every value pinned below is what the
+-- commit named computed (read from this spec's own run, never copied from
+-- elsewhere); any later change to how a Raid row is scored turns it red.
+--
+-- TWO pins, one per reading of a journal row (E-0g step 2, WKE-677):
+--   * PINNED_KEPT - E-0i's pin, the switch OFF: each row scored through the
+--     walk's own link at whatever level the client gave it that morning
+--     (268234@324 read 321). Only 2 of the 30 joined rows had a link the
+--     capture read; 28 waited out as not ready. Kept unchanged, so the old
+--     path is still held.
+--   * PINNED - E-0g step 2's pin, the switch ON (the shipped state): each row
+--     scored through the link rebuilt with the track step at the row's level,
+--     whose reads are the `capture linklevel` transcript's
+--     (linklevel-real.lua). 268234@324 is now scored at 324 and moves; 268252@324,
+--     a link the morning capture never read, is now scored; 268247@318 drops to
+--     not ready, because no transcript read its rebuilt link (Hero 5/6 12845
+--     appended); the 7 rows at 344 are left out at their level (no track step
+--     draws 344). Top Gear reads owned links and does not move.
 local TRANSCRIPT = "spec/fixtures/captures/Lootpath-20261001-092631.lua"
 local TRANSCRIPT_INVENTORY = 4
 -- 2026-10-01T14:26:31Z (09:26:31 Chicago), and the US reset after it,
@@ -1029,15 +1075,32 @@ local TRANSCRIPT_INVENTORY = 4
 local TRANSCRIPT_NOW = 1790864791
 local TRANSCRIPT_RESET = 1791298800
 
-local PINNED = {
+local PINNED_TG = {
+    { "271528:6652:12845:13440:13692:13695:13698", 0.24358358586260817 },
+    { "277781:6652:12836:13662:13696", -0.064902948040283195 },
+}
+
+local PINNED_KEPT = {
     uf = {
         ["268234@324"] = 0.39908906504140779,
         ["268247@318"] = 0.37838637717233659,
     },
-    tg = {
-        { "271528:6652:12845:13440:13692:13695:13698", 0.24358358586260817 },
-        { "277781:6652:12836:13662:13696", -0.064902948040283195 },
+    levels = { ["268234@324"] = 321, ["268247@318"] = 321 },
+    notReady = 28,
+    tg = PINNED_TG,
+    worn = 5709.2518928414584,
+    best = 5699.0687604303903,
+}
+
+local PINNED = {
+    uf = {
+        ["268234@324"] = 0.48254247201694361,
+        ["268252@324"] = -0.017063755431706674,
     },
+    levels = { ["268234@324"] = 324, ["268252@324"] = 324 },
+    notReady = 21,
+    atLevel = { rule = "track-append", rebuilt = 2, leftOut = 7, reasons = { ["no track step draws 344"] = 7 } },
+    tg = PINNED_TG,
     worn = 5709.2518928414584,
     best = 5699.0687604303903,
 }
@@ -1053,6 +1116,8 @@ local function transcriptWorld()
     R.inventory(world, R.snapshot("inventory", TRANSCRIPT_INVENTORY, TRANSCRIPT))
     -- AFTER R.inventory: install merges into the items it registered.
     Real.install(world)
+    -- E-0g step 2: the rebuilt links the `capture linklevel` transcript read.
+    LinkLevel.install(world)
     ns.engineWeights = dofile(FITTED)
     assert(ns.EngineScore.Load())
     return ns, world
@@ -1078,63 +1143,83 @@ describe("/lootpath engine compare raid over the 2026-10-01 transcript", functio
         assert.equal(40, #scan.records)
     end)
 
-    it("scores every Raid row and both Top Gear sets as this commit did", function()
+    local function pinned(expected, actual, what)
+        assert.is_number(actual, what)
+        assert.is_true(
+            math.abs(expected - actual) <= 1e-12 * math.max(1, math.abs(expected)),
+            string.format("%s: pinned %.17g, computed %.17g", what, expected, actual)
+        )
+    end
+
+    local function raidRun(rebuild, label)
         local ns, world = transcriptWorld()
+        ns.EngineCompare.REBUILD_AT_LEVEL = rebuild
         local run
         ns.db.global.developer.engineVerbose = true
         ns.EngineCompare.Command("compare raid", function(r)
             run = r
         end)
         world.runTimers(10)
+        ns.EngineCompare.REBUILD_AT_LEVEL = true
         assert.is_table(run, "the run finished")
-        io.write("\n[E-0i transcript run: engine compare raid, verbose on]\n" .. world.output() .. "\n")
+        io.write("\n[" .. label .. " transcript run: engine compare raid, verbose on]\n" .. world.output() .. "\n")
+        for _, row in ipairs(run.result.uf.rows) do
+            io.write(string.format("[%s pin] uf %s %.17g at %s\n", label, row.key, row.ours, tostring(row.level)))
+        end
+        for _, row in ipairs(run.result.tg.rows) do
+            io.write(string.format("[%s pin] tg %s %.17g\n", label, row.key, row.ours))
+        end
+        io.write(
+            string.format("[%s pin] worn %.17g best %.17g\n", label, run.result.tg.wornValue, run.result.tg.topValue)
+        )
+        return run
+    end
+
+    local function holds(run, pin)
         local uf, tg = run.result.uf, run.result.tg
-        for _, row in ipairs(uf.rows) do
-            io.write(string.format("[E-0i pin] uf %s %.17g\n", row.key, row.ours))
-        end
-        for _, row in ipairs(tg.rows) do
-            io.write(string.format("[E-0i pin] tg %s %.17g\n", row.key, row.ours))
-        end
-        io.write(string.format("[E-0i pin] worn %.17g best %.17g\n", tg.wornValue, tg.topValue))
         assert.equal("2026-10-01T13:59:43.959Z", uf.exportedAt)
         assert.equal("raid-3", uf.band)
         assert.equal(30, uf.joined)
-        assert.equal(28, uf.notCompared)
-        assert.same({ ["not ready"] = 28 }, uf.reasons)
-        assert.equal(28, run.notReady)
-        local function pinned(expected, actual, what)
-            assert.is_number(actual, what)
-            assert.is_true(
-                math.abs(expected - actual) <= 1e-12 * math.max(1, math.abs(expected)),
-                string.format("%s: pinned %.17g, computed %.17g", what, expected, actual)
-            )
-        end
+        assert.equal(pin.notReady, uf.notCompared)
+        assert.same({ ["not ready"] = pin.notReady }, uf.reasons)
+        assert.equal(pin.notReady, run.notReady)
+        assert.same(pin.atLevel, uf.atLevel)
         local seen = 0
         for _, row in ipairs(uf.rows) do
-            pinned(PINNED.uf[row.key], row.ours, row.key)
+            pinned(pin.uf[row.key], row.ours, row.key)
+            assert.equal(pin.levels[row.key], row.level, row.key)
             seen = seen + 1
         end
         local want = 0
-        for _ in pairs(PINNED.uf) do
+        for _ in pairs(pin.uf) do
             want = want + 1
         end
         assert.equal(want, seen)
-        assert.equal(#PINNED.tg, #tg.rows)
+        assert.equal(#pin.tg, #tg.rows)
         for i, row in ipairs(tg.rows) do
-            assert.equal(PINNED.tg[i][1], row.key)
-            pinned(PINNED.tg[i][2], row.ours, row.key)
+            assert.equal(pin.tg[i][1], row.key)
+            pinned(pin.tg[i][2], row.ours, row.key)
         end
-        pinned(PINNED.worn, tg.wornValue, "worn set")
-        pinned(PINNED.best, tg.topValue, "best set")
+        pinned(pin.worn, tg.wornValue, "worn set")
+        pinned(pin.best, tg.topValue, "best set")
+    end
+
+    it("scores every Raid row at the row's level and both Top Gear sets as this commit did", function()
+        holds(raidRun(true, "E-0g step 2"), PINNED)
+    end)
+
+    it("with the switch off, scores the walk's own links as E-0i did", function()
+        holds(raidRun(false, "E-0i"), PINNED_KEPT)
     end)
 end)
 
 -- E-0g (WKE-677): the walk's link reads at its own level, so with
 -- REBUILD_AT_LEVEL on every joined row is read through a link rebuilt at the
 -- row's level and kept only when the client draws that level; the rest are
--- LEFT OUT and counted on their own header line. The switch ships OFF (no rule
--- is proven until `capture linklevel`'s transcript lands), and off, nothing
--- about the compare changes. The rules and reads here are the tests' own.
+-- LEFT OUT and counted on their own header line. Step 2 ships the switch ON
+-- with ns.EngineStats.TrackRule installed (the `capture linklevel` transcript,
+-- ARCHITECTURE.md section 7, E-0g step 2); off, nothing about the compare
+-- changes. The rules and reads in the first block are the tests' own.
 describe("EngineCompare at the row's level", function()
     local ns
     local L10 = "|cnIQ4:|Hitem:10::::::::90:105::16:1:3524:1:28:1279:::::|h[Drop Ten]|h|r"
@@ -1200,17 +1285,19 @@ describe("EngineCompare at the row's level", function()
         ns = H.load()
     end)
     after_each(function()
-        ns.EngineCompare.REBUILD_AT_LEVEL = false
-        ns.EngineStats.linkLevelRule = nil
+        ns.EngineCompare.REBUILD_AT_LEVEL = true
+        ns.EngineStats.linkLevelRule = ns.EngineStats.TrackRule
         H.unload()
     end)
 
-    it("ships with the switch off and no rule installed", function()
-        assert.is_false(ns.EngineCompare.REBUILD_AT_LEVEL)
-        assert.is_nil(ns.EngineStats.linkLevelRule)
+    it("ships with the switch on and the track rule installed", function()
+        assert.is_true(ns.EngineCompare.REBUILD_AT_LEVEL)
+        assert.equal(ns.EngineStats.TrackRule, ns.EngineStats.linkLevelRule)
+        assert.equal("track-append", ns.EngineStats.LinkLevelRuleName())
     end)
 
     it("off, reads the walk's own link exactly as before and prints no `at level` line", function()
+        ns.EngineCompare.REBUILD_AT_LEVEL = false
         local result = ns.EngineCompare.Compute(inputs())
         assert.is_nil(result.uf.atLevel)
         assert.equal(2, #result.uf.rows)
@@ -1219,25 +1306,32 @@ describe("EngineCompare at the row's level", function()
     end)
 
     it("on with no rule, leaves every joined row out and says why, never scoring one", function()
-        ns.EngineCompare.REBUILD_AT_LEVEL = true
+        ns.EngineStats.linkLevelRule = nil
         local result = ns.EngineCompare.Compute(inputs())
         assert.equal(2, result.uf.joined)
         assert.equal(0, #result.uf.rows)
         assert.equal(0, result.uf.notCompared)
-        assert.same({ rebuilt = 0, leftOut = 2, reasons = { ["no rule yet"] = 2 } }, result.uf.atLevel)
-        assert.truthy(lines(result):find("  at level: 0 rebuilt, 2 left out (no rule yet)", 1, true))
+        assert.same(
+            { rule = "no rule", rebuilt = 0, leftOut = 2, reasons = { ["no rule yet"] = 2 } },
+            result.uf.atLevel
+        )
+        assert.truthy(lines(result):find("  at level, rule no rule: 0 rebuilt, 2 left out (no rule yet)", 1, true))
     end)
 
     it("on with a rule, scores the rows drawn at their level and leaves out the one that is not", function()
-        ns.EngineCompare.REBUILD_AT_LEVEL = true
         local input, rule, R10 = inputs()
         ns.EngineStats.linkLevelRule = rule
         assert.equal(R10, ns.EngineCompare.CandidateLink({ row = { link = L10, itemLevel = 305 } }))
         local result = ns.EngineCompare.Compute(input)
         assert.equal(1, #result.uf.rows)
         assert.equal("10@305", result.uf.rows[1].key)
-        assert.same({ rebuilt = 1, leftOut = 1, reasons = { ["read at 292, not 305"] = 1 } }, result.uf.atLevel)
-        assert.truthy(lines(result):find("  at level: 1 rebuilt, 1 left out (read at 292, not 305)", 1, true))
+        assert.same(
+            { rule = "another rule", rebuilt = 1, leftOut = 1, reasons = { ["read at 292, not 305"] = 1 } },
+            result.uf.atLevel
+        )
+        assert.truthy(
+            lines(result):find("  at level, rule another rule: 1 rebuilt, 1 left out (read at 292, not 305)", 1, true)
+        )
         -- Scored with the rebuilt read (180), not the kept one (150).
         ns.EngineCompare.REBUILD_AT_LEVEL = false
         local off = ns.EngineCompare.Compute(inputs())
@@ -1246,7 +1340,6 @@ describe("EngineCompare at the row's level", function()
     end)
 
     it("on, counts a rebuilt link the client has not read as not ready, not as left out", function()
-        ns.EngineCompare.REBUILD_AT_LEVEL = true
         local input, rule, R10 = inputs()
         ns.EngineStats.linkLevelRule = rule
         input.reads[R10] = { ready = false }
@@ -1254,6 +1347,35 @@ describe("EngineCompare at the row's level", function()
         assert.equal(1, result.uf.atLevel.leftOut)
         assert.equal(1, result.uf.notCompared)
         assert.same({ ["not ready"] = 1 }, result.uf.reasons)
+    end)
+
+    -- The shipped rule on the same two rows: both at 305, so both rebuilt
+    -- with Champion 5/6 (12837) appended; and a row at 44 left out, unscored.
+    it("on with the shipped rule, rebuilds 305 with the lower track and leaves a 44 out unscored", function()
+        local input = inputs()
+        local A10 = ns.EngineStats.RebuildLink(L10, { 3524, 12837 })
+        local A11 = ns.EngineStats.RebuildLink(L11, { 3524, 12837 })
+        input.reads[A10] = vec({ int = 180, level = 305 })
+        input.reads[A11] = vec({ int = 45, level = 305 })
+        local L12 = "|cnIQ4:|Hitem:12::::::::90:105::5:1:3524:1:28:1279:::::|h[World Twelve]|h|r"
+        input.reads[L12] = vec({ int = 900, level = 259 })
+        input.journalByKey["12@44"] = { link = L12, slot = "Neck", itemLevel = 44 }
+        input.document.verdict.order[3] = "12@44"
+        input.document.verdict.items["12@44"] = drop("12@44", 5)
+        local result = ns.EngineCompare.Compute(input)
+        assert.same(
+            { rule = "track-append", rebuilt = 2, leftOut = 1, reasons = { ["no track step draws 44"] = 1 } },
+            result.uf.atLevel
+        )
+        assert.equal(2, #result.uf.rows)
+        for _, row in ipairs(result.uf.rows) do
+            assert.are_not.equal("12@44", row.key)
+            assert.equal(305, row.level, row.key)
+            assert.truthy(row.link == A10 or row.link == A11, row.key)
+        end
+        assert.truthy(
+            lines(result):find("  at level, rule track-append: 2 rebuilt, 1 left out (no track step draws 44)", 1, true)
+        )
     end)
 end)
 
@@ -1263,16 +1385,16 @@ describe("/lootpath engine compare at the row's level, over the owner's 2026-09-
         ns, world = fixtureWorld()
     end)
     after_each(function()
-        ns.EngineCompare.REBUILD_AT_LEVEL = false
-        ns.EngineStats.linkLevelRule = nil
+        ns.EngineCompare.REBUILD_AT_LEVEL = true
+        ns.EngineStats.linkLevelRule = ns.EngineStats.TrackRule
         H.unload()
     end)
 
-    -- Gather asks the client for the REBUILT links: the stub knows none of
-    -- them, so every one is waited on and comes back not ready - none is
-    -- answered by the kept link's read.
+    -- Gather asks the client for the REBUILT links: with the stub's track
+    -- answers taken away it knows none of them, so every one is waited on and
+    -- comes back not ready - none is answered by the kept link's read.
     it("on with a rule, asks the client for the rebuilt links, not the kept ones", function()
-        ns.EngineCompare.REBUILD_AT_LEVEL = true
+        world.trackStats = nil
         ns.EngineStats.linkLevelRule = function()
             return { 12837 }
         end
@@ -1292,12 +1414,14 @@ describe("/lootpath engine compare at the row's level, over the owner's 2026-09-
     end)
 
     it("on with no rule, joins as before and leaves every joined row out, counted on its own line", function()
+        ns.EngineCompare.REBUILD_AT_LEVEL = false
         local first = compare(ns, "compare dungeon 10")
         local before = first.result.uf
         local tgBefore = first.result.tg and #(first.result.tg.rows or {}) or 0
         assert.is_true(before.joined > 0)
         assert.is_nil(before.atLevel)
         ns.EngineCompare.REBUILD_AT_LEVEL = true
+        ns.EngineStats.linkLevelRule = nil
         local run = compare(ns, "compare dungeon 10")
         local uf = run.result.uf
         assert.equal(before.joined, uf.joined)
@@ -1307,5 +1431,56 @@ describe("/lootpath engine compare at the row's level, over the owner's 2026-09-
         assert.equal(0, run.notReady)
         -- Top Gear is not a journal row: unchanged.
         assert.equal(tgBefore, run.result.tg and #(run.result.tg.rows or {}) or 0)
+    end)
+
+    -- E-0g step 2, the shipped state over the fitted shape: every joined row
+    -- is read through the link TrackRule rebuilds (the walk's link with the
+    -- track step at the row's level appended), drawn at the walk's level by
+    -- the stub's track answer; the rows at 344, which no step draws, are left
+    -- out and never scored. Counts as read from this run.
+    it("on with the shipped rule, scores every joined row through its rebuilt link at the walk's level", function()
+        ns.engineWeights = dofile(FITTED)
+        ns.EngineScore.file = nil
+        assert(ns.EngineScore.Load())
+        local cases = {
+            { "dungeon 10", { rebuilt = 23, leftOut = 7 } },
+            { "raid", { rebuilt = 23, leftOut = 7 } },
+            { "dungeon 6", { rebuilt = 77, leftOut = 7 } },
+        }
+        for _, case in ipairs(cases) do
+            world.printed = {}
+            local run = compare(ns, "compare " .. case[1])
+            local uf = run.result.uf
+            io.write(string.format("\n[E-0g step 2 fixture run: engine compare %s]\n%s\n", case[1], world.output()))
+            assert.same({
+                rule = "track-append",
+                rebuilt = case[2].rebuilt,
+                leftOut = case[2].leftOut,
+                reasons = { ["no track step draws 344"] = case[2].leftOut },
+            }, uf.atLevel, case[1])
+            assert.equal(uf.joined, uf.atLevel.rebuilt + uf.atLevel.leftOut, case[1])
+            assert.equal(0, run.notReady, case[1])
+            assert.truthy(
+                world.output():find(
+                    string.format(
+                        "  at level, rule track-append: %d rebuilt, %d left out (no track step draws 344)\n",
+                        case[2].rebuilt,
+                        case[2].leftOut
+                    ),
+                    1,
+                    true
+                ),
+                case[1]
+            )
+            assert.is_true(#uf.rows > 0, case[1])
+            for _, row in ipairs(uf.rows) do
+                local walkLevel = tonumber(row.key:match("@(%d+)$"))
+                assert.equal(walkLevel, row.level, row.key)
+                assert.are_not.equal(344, walkLevel, row.key)
+                local step = ns.EngineStats.TrackBonusesAt(walkLevel)[1]
+                local bonusIDs = ns.EngineStats.LinkFields(row.link).bonusIDs
+                assert.equal(step.bonusID, bonusIDs[#bonusIDs], row.key)
+            end
+        end
     end)
 end)

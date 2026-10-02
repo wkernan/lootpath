@@ -484,17 +484,94 @@ end
 -- that decides which list, and it decides by a RULE handed in or installed in
 -- `EngineStats.linkLevelRule`.
 --
--- No rule is installed. Which rule makes the client draw the previewed level
--- is what `/lootpath capture linklevel` asks it (Captures.lua); until that
--- transcript is committed, every ask answers nil and NO_RULE, and nothing is
--- ever scored at a level a link was not proven to draw.
+-- Which rule makes the client draw the previewed level is what `/lootpath
+-- capture linklevel` asked it (Captures.lua); the owner's transcript
+-- (spec/fixtures/captures/Lootpath-20261001-200927.lua, 2026-10-01 20:09) is
+-- what the rule below stands on - ARCHITECTURE.md section 7, E-0g step 2.
 --
 -- A rule is `rule(link, level, parsed) -> bonusIDs | nil, reason`: given the
 -- link, the level wanted and the link's own fields (`LinkFields`), the list of
 -- bonus IDs the rebuilt link carries, in order. It never builds a string.
 
 EngineStats.NO_RULE = "no rule yet"
-EngineStats.linkLevelRule = nil
+
+-- The installed rule's name, printed on the compare's `at level` line.
+EngineStats.TRACK_RULE_NAME = "track-append"
+
+-- Every bonus ID Data/TrackBonusIDs.lua names, as a set.
+local function trackBonusSet()
+    local set = {}
+    local data = ns.trackBonusIDs
+    for _, track in ipairs(type(data) == "table" and data.tracks or {}) do
+        for _, entry in ipairs(track.steps or {}) do
+            set[entry.bonusID] = true
+        end
+    end
+    return set
+end
+
+-- TrackRule(link, level, parsed) -> the link's own bonus IDs with the track
+-- step that draws `level` added at the end | nil, "no track step draws <level>".
+--
+-- What the transcript proves (every figure read with
+-- tools/companion/lib/lua-savedvariables.js; ARCHITECTURE.md section 9):
+--   * on all 8 of its 12 candidates whose walk level a track step draws, the
+--     journal link with that step's bonus ID ADDED (`track-append`) read the
+--     walk's level in all three reads - before the walk, while the Adventure
+--     Guide previewed the row, after the view was put back - through
+--     `GetDetailedItemLevelInfo` and the tooltip's Item Level line: the 4
+--     keystone rows at 305 (159317, 193763, 251123, 250254; context 16) with
+--     Champion 5/6 12837 and with Hero 1/6 12841, the raid rows 268234 and
+--     268252 at 311 with Hero 3/6 12843 and at 324 with Myth 3/6 12851;
+--   * the same link with its bonus list REPLACED by the one ID
+--     (`track-replace`) read the same level everywhere and the same stats
+--     everywhere but one: the raid ring 268252 at 311 and at 324 lost its
+--     prismatic socket (`EMPTY_SOCKET_PRISMATIC` 1 on the kept link and on
+--     `track-append`, absent on `track-replace`). So `track-append` is the
+--     variant that keeps everything the Guide's own link carries, and it is
+--     the one installed;
+--   * where two tracks draw the level (305 is Champion 5/6 and Hero 1/6) both
+--     read 305 with the same stats on every keystone candidate; the drop's own
+--     track is not in the journal link, so the LOWER track is taken -
+--     TrackBonusesAt answers in the file's track order, lowest first, and the
+--     first step is the one used;
+--   * where no step draws the level (the world rows the walk lists at 44,
+--     250461 and 250447) there is nothing to add: nil and the reason, and the
+--     compare leaves the row out.
+-- A track bonus ID the link already carries is dropped before the step is
+-- added, so a rebuilt link never names two steps. AtLevel still checks that
+-- the client draws the level asked for; a rule is a proposal, the read is the
+-- proof.
+function EngineStats.TrackRule(_, level, parsed)
+    local steps = EngineStats.TrackBonusesAt(level)
+    if #steps == 0 then
+        return nil, "no track step draws " .. tostring(level)
+    end
+    local isTrack = trackBonusSet()
+    local list = {}
+    for _, id in ipairs(parsed and parsed.bonusIDs or {}) do
+        if not isTrack[id] then
+            list[#list + 1] = id
+        end
+    end
+    list[#list + 1] = steps[1].bonusID
+    return list
+end
+
+EngineStats.linkLevelRule = EngineStats.TrackRule
+
+-- LinkLevelRuleName() -> what the compare prints for the rule in use: the
+-- installed rule's name, `no rule` with none, `another rule` for a rule a
+-- caller put in its place.
+function EngineStats.LinkLevelRuleName()
+    local rule = EngineStats.linkLevelRule
+    if rule == nil then
+        return "no rule"
+    elseif rule == EngineStats.TrackRule then
+        return EngineStats.TRACK_RULE_NAME
+    end
+    return "another rule"
+end
 
 -- The item string's fields, raw and in order, or nil: the same layout as
 -- Core.lua's ParseItemLink - numBonusIDs at field 13, the IDs after it, then
