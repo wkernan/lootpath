@@ -471,11 +471,12 @@ describe("capture journal", function()
 
     -- It is the LAST capture now: R-0's `spike` registered after it until R-2
     -- (WKE-563) built the surface it was measuring for and deleted it.
-    -- E-0a's `itemstats` (WKE-675) registers at the end of Captures.lua, so it
-    -- sits between `upgrade` and this one.
-    it("is registered after env, inventory, vault, currencies, glow, upgrade and itemstats", function()
+    -- E-0a's `itemstats` (WKE-675) and then E-0g's `linklevel` (WKE-677)
+    -- register at the end of Captures.lua, so they sit between `upgrade` and
+    -- this one.
+    it("is registered after env, inventory, vault, currencies, glow, upgrade, itemstats and linklevel", function()
         assert.same(
-            { "env", "inventory", "vault", "currencies", "glow", "upgrade", "itemstats", "journal" },
+            { "env", "inventory", "vault", "currencies", "glow", "upgrade", "itemstats", "linklevel", "journal" },
             ns.captureOrder
         )
         assert.is_true(ns.captures.journal.async)
@@ -1338,5 +1339,120 @@ describe("ns.Journal over a walk whose item data arrives late", function()
         assert.equal(2, summary.pendingRows)
         assert.is_true(sources[220001][1].pending)
         assert.equal(3001, sources[220001][1].encounterID)
+    end)
+end)
+
+-- E-0g (WKE-677): `opts.onTargetRead(record, read)` is called once per target,
+-- with that target's final read, while the journal still sits at it - the hook
+-- `capture linklevel` reads a link under the previewed view with. An error in
+-- it is recorded on the target and costs nothing else: the walk goes on and
+-- the view is put back.
+describe("JournalAdapter.Walk onTargetRead", function()
+    local ns, world
+
+    local function targets()
+        return {
+            {
+                instanceID = 1201,
+                instanceName = "Test Dungeon One",
+                isRaid = false,
+                difficultyID = DUNGEON_CHALLENGE,
+                previewLevel = 10,
+            },
+            { instanceID = 1300, instanceName = "Test Raid", isRaid = true, difficultyID = RAID_HEROIC },
+        }
+    end
+
+    local function walk(opts)
+        local done
+        ns.JournalAdapter.Walk(opts, function(result)
+            done = result
+        end)
+        world.runTimers(120)
+        return done
+    end
+
+    before_each(function()
+        ns, world = H.load()
+        seedJournal(world)
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("is called once per target with its final read, while the journal sits at it", function()
+        local seen = {}
+        local J = world.journal
+        walk({
+            targets = targets(),
+            classID = 11,
+            specID = 105,
+            onTargetRead = function(record, read)
+                seen[#seen + 1] = {
+                    instance = record.instanceID,
+                    selected = J.selectedInstance,
+                    difficulty = J.difficulty,
+                    preview = J.previewLevel,
+                    rows = #read.rows,
+                    first = read.rows[1].itemInfo[1].itemID,
+                }
+            end,
+        })
+        assert.same({
+            {
+                instance = 1201,
+                selected = 1201,
+                difficulty = DUNGEON_CHALLENGE,
+                preview = 10,
+                rows = 2,
+                first = 220001,
+            },
+            { instance = 1300, selected = 1300, difficulty = RAID_HEROIC, preview = 10, rows = 1, first = 220003 },
+        }, seen)
+    end)
+
+    it("hands over the second read when the walk made one", function()
+        world.journal.itemDataDelaySeconds = 0.5
+        local reads = {}
+        local result = walk({
+            targets = { targets()[2] },
+            classID = 11,
+            specID = 105,
+            onTargetRead = function(_, read)
+                reads[#reads + 1] = read
+            end,
+        })
+        assert.equal(1, #reads)
+        assert.equal(result.targets[1].reread, reads[1])
+    end)
+
+    it("records an error in it on the target, walks on, and puts the view back", function()
+        world.journal.currentTier = 2
+        world.journal.difficulty = DUNGEON_HEROIC
+        world.journal.lootFilter = { 7, 262 }
+        local calls = 0
+        local result = walk({
+            targets = targets(),
+            classID = 11,
+            specID = 105,
+            viewState = ns.JournalAdapter.ViewState(),
+            onTargetRead = function()
+                calls = calls + 1
+                error("boom")
+            end,
+        })
+        assert.equal(2, calls)
+        assert.equal(2, #result.targets)
+        assert.truthy(result.targets[1].onTargetReadError:find("boom", 1, true))
+        assert.equal(2, world.journal.currentTier)
+        assert.equal(DUNGEON_HEROIC, world.journal.difficulty)
+        assert.same({ 7, 262 }, world.journal.lootFilter)
+    end)
+
+    it("changes nothing for a walk that passes none", function()
+        local result = walk({ targets = targets(), classID = 11, specID = 105 })
+        assert.equal(2, #result.targets)
+        assert.is_nil(result.targets[1].onTargetReadError)
     end)
 end)

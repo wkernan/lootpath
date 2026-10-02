@@ -1331,6 +1331,12 @@ local function journalRowsWithLink(cache)
                             itemLevel = row.itemLevel,
                             slot = row.slot,
                             isRaid = row.isRaid,
+                            -- The keystone level the walk previewed (the
+                            -- entry's own record of it; no getter exists).
+                            -- Read by `capture linklevel` (E-0g) only.
+                            previewMythicPlusLevel = type(entry.summary) == "table"
+                                    and tonumber(entry.summary.previewMythicPlusLevel)
+                                or nil,
                         }
                     end
                 end
@@ -1710,6 +1716,406 @@ ns.RegisterCapture(
         else
             readAll(true)
         end
+    end,
+    { async = true }
+)
+
+-- linklevel (E-0g, WKE-677): which link makes the client draw a journal row at
+-- the level the walk LISTED it at. The walk keeps each drop's link and the
+-- level the Adventure Guide previewed while it read it; read later, the link
+-- answers at its OWN level (17 of 40 journal rows of the 2026-10-01 `capture
+-- itemstats` transcript: keystone rows listed at 305 read 292, raid rows read
+-- the difficulty's base level, world rows listed at 44 read 263 / 276), so the
+-- engine compare scores a keystone row with 292 stats (ARCHITECTURE.md
+-- section 11, E-0f). This capture asks the client, for up to
+-- `ns.LINKLEVEL_MAX` such rows, what each candidate link draws, side by side,
+-- and decides nothing: the transcript decides the rule
+-- `ns.EngineStats.LinkAtLevel` takes.
+--
+-- The candidates per row (`variants`, each read three times - `before` the
+-- walk, `journal` while the Adventure Guide previews the row's own instance,
+-- difficulty and keystone level, and `after` the view is put back):
+--   * `kept` - the link exactly as the walk kept it. Its `journal` read is
+--     candidate (c): the SAME link read while the journal previews the row
+--     (M5-3a measured the walk reading 305 off the keystone link that reads
+--     292 later, so the client's answer may follow the view, not the link);
+--   * `track-replace` / `track-append` - candidate (a): the link with its
+--     bonus-ID list replaced by, or extended with, one bonus ID that puts an
+--     item on an upgrade track at the row's level, for every track step that
+--     draws it (Data/TrackBonusIDs.lua, Blizzard's data read through
+--     SimulationCraft's extracted output at build 12.1.0.69933; 305 is both
+--     Champion 5/6 and Hero 1/6, so both are tried). The two forms are the two
+--     a public addon was seen to use (Mr. Mythical's GearSources.lua: its
+--     dungeon preview replaces, its raid preview appends) - an inference about
+--     the client this capture proves or refutes; nothing of that addon is
+--     copied. A level no step draws (the world rows' 44) gets none, and says so;
+--   * `journal-live` - candidate (b): the link the journal's loot list hands
+--     out NOW for the row's item at the previewed target, when it differs from
+--     the kept one (`live.sameAsKept` says whether it did). No `before` read:
+--     it exists only once the walk is there.
+-- For every read: `GetItemStats`, `GetDetailedItemLevelInfo`, and the
+-- tooltip's lines (`C_TooltipInfo.GetHyperlink`, type and left text), with the
+-- Item Level line (type 31, Enum.TooltipDataLineType.ItemLevel, Enum.lua:8638
+-- under .luals/) and the Upgrade Level line (32, :8639) picked out by TYPE,
+-- never by text.
+--
+-- **Not purely a read, and only in the way `capture journal` is not:** the
+-- re-read goes through `ns.JournalAdapter.Walk` - the same walk, the same
+-- adapter, the same view-state setters (instance, difficulty, loot filter,
+-- keystone preview level) - which records the tier, difficulty and loot filter
+-- first and puts all three back when it finishes, including when combat ends
+-- it. As for `capture journal`, there is no getter for the keystone preview
+-- level, so that one stays where the walk left it. Nothing acts on the
+-- character, its items or its money. Refused in combat by ns.RunCapture; combat
+-- during the walk stores nothing. An empty journal cache refuses the capture
+-- (`ns.LINKLEVEL_NO_JOURNAL`), as does a cache with no row that differs
+-- (`ns.LINKLEVEL_NONE`).
+--
+-- Every client function this section calls, with its exported documentation
+-- line (Ketho's annotations under .luals/, Blizzard_APIDocumentationGenerated/):
+--
+--   ItemDocumentation.lua:126        C_Item.GetDetailedItemLevelInfo(itemInfo)
+--   ItemDocumentation.lua:366        C_Item.GetItemStats(itemLink) -> statTable
+--   TooltipInfoDocumentation.lua:121 C_TooltipInfo.GetHyperlink(hyperlink, ...)
+--
+-- and through the addon's own modules, whose client calls are named in their
+-- own files (the Encounter Journal's in Modules/Journal.lua's
+-- `Adapter.FUNCTION_NAMES`): the ones in LINKLEVEL_MODULE_READS. Nothing is
+-- found by walking a namespace.
+local LINKLEVEL_FUNCTION_NAMES = {
+    "C_Item.GetDetailedItemLevelInfo",
+    "C_Item.GetItemStats",
+    "C_TooltipInfo.GetHyperlink",
+}
+ns.LINKLEVEL_FUNCTION_NAMES = LINKLEVEL_FUNCTION_NAMES
+
+local LINKLEVEL_MODULE_READS = {
+    "ns.EngineStats.LinkFields",
+    "ns.EngineStats.RebuildLink",
+    "ns.EngineStats.TrackBonusesAt",
+    "ns.JournalAdapter.DifficultyID",
+    "ns.JournalAdapter.Player",
+    "ns.JournalAdapter.SelectTier",
+    "ns.JournalAdapter.Tiers",
+    "ns.JournalAdapter.ViewState",
+    "ns.JournalAdapter.Walk",
+}
+ns.LINKLEVEL_MODULE_READS = LINKLEVEL_MODULE_READS
+
+-- The issue's bound, and the tooltip line types picked out of each read.
+ns.LINKLEVEL_MAX = 12
+ns.LINKLEVEL_LINE_ITEM_LEVEL = 31
+ns.LINKLEVEL_LINE_UPGRADE_LEVEL = 32
+
+ns.LINKLEVEL_NO_JOURNAL = ns.ITEMSTATS_NO_JOURNAL
+ns.LINKLEVEL_NONE = "found no cached journal row the client reads at another level than the walk listed"
+ns.LINKLEVEL_COMBAT = "stopped: combat started during the walk; nothing stored"
+
+-- One link, read the three ways. Raw probes, as everywhere in this file:
+-- ns.CopyRaw at the store masks a secret and sets `sawSecret`.
+local function linkLevelRead(link)
+    local I = C_Item or {}
+    local read = {
+        stats = ns.Probe(I.GetItemStats, link),
+        detailedLevel = ns.Probe(I.GetDetailedItemLevelInfo, link),
+    }
+    local tooltip = {}
+    tooltipLines(tooltip, ns.Probe(C_TooltipInfo and C_TooltipInfo.GetHyperlink, link))
+    read.tooltipLines = tooltip.lines
+    read.tooltipData = tooltip.data
+    for _, line in ipairs(type(tooltip.lines) == "table" and tooltip.lines or {}) do
+        if type(line) == "table" then
+            local lineType = ns.Safe(line.type)
+            if lineType == ns.LINKLEVEL_LINE_ITEM_LEVEL and read.itemLevelLine == nil then
+                read.itemLevelLine = line.leftText
+            elseif lineType == ns.LINKLEVEL_LINE_UPGRADE_LEVEL and read.upgradeLevelLine == nil then
+                read.upgradeLevelLine = line.leftText
+            end
+        end
+    end
+    return read
+end
+
+-- A list of rows taken round-robin out of per-key queues, in `order`.
+local function roundRobin(order, queues, limit)
+    local out = {}
+    local progressed = true
+    while progressed and (not limit or #out < limit) do
+        progressed = false
+        for _, key in ipairs(order) do
+            local queue = queues[key]
+            if #queue > 0 and (not limit or #out < limit) then
+                out[#out + 1] = table.remove(queue, 1)
+                progressed = true
+            end
+        end
+    end
+    return out
+end
+
+-- The candidates: every cached journal row whose link the client reads NOW at
+-- another level than the walk listed, grouped by difficulty, each difficulty's
+-- rows taken round-robin across instances, and the difficulties taken in turn
+-- (lowest ID first) until `max` rows are taken. So keystone rows, raid rows
+-- and world rows all reach the sample whenever the cache carries them, and no
+-- one instance fills it.
+function ns.LinkLevelCandidates(cache, max)
+    max = max or ns.LINKLEVEL_MAX
+    local rows, entries = journalRowsWithLink(cache)
+    local I = C_Item or {}
+    local byDifficulty, difficulties, differing, perDifficulty = {}, {}, 0, {}
+    for _, row in ipairs(rows) do
+        local own = ns.Safe(ns.Probe(I.GetDetailedItemLevelInfo, row.link)[1])
+        if type(own) == "number" and type(row.itemLevel) == "number" and own ~= row.itemLevel then
+            differing = differing + 1
+            row.ownLevel = own
+            local d = num(row.difficultyID)
+            if not byDifficulty[d] then
+                byDifficulty[d] = { order = {}, queues = {} }
+                difficulties[#difficulties + 1] = d
+            end
+            local group = byDifficulty[d]
+            local id = num(row.instanceID)
+            if not group.queues[id] then
+                group.queues[id] = {}
+                group.order[#group.order + 1] = id
+            end
+            local queue = group.queues[id]
+            queue[#queue + 1] = row
+            perDifficulty[d] = (perDifficulty[d] or 0) + 1
+        end
+    end
+    table.sort(difficulties)
+    local perGroup = {}
+    for _, d in ipairs(difficulties) do
+        perGroup[d] = roundRobin(byDifficulty[d].order, byDifficulty[d].queues)
+    end
+    local taken = roundRobin(difficulties, perGroup, max)
+    return taken,
+        {
+            cacheEntries = entries,
+            rowsWithLink = #rows,
+            differing = differing,
+            differingByDifficulty = perDifficulty,
+            taken = #taken,
+            max = max,
+        }
+end
+
+-- A row's candidate links, before anything is read.
+local function linkLevelVariants(row)
+    local variants = { { rule = "kept", link = row.link } }
+    local parsed = ns.EngineStats.LinkFields(row.link)
+    local steps = ns.EngineStats.TrackBonusesAt(row.itemLevel)
+    for _, step in ipairs(steps) do
+        local function variant(rule, link)
+            variants[#variants + 1] = {
+                rule = rule,
+                link = link,
+                bonusID = step.bonusID,
+                track = step.track,
+                step = step.step,
+                trackLevel = step.itemLevel,
+                clientConfirmedLevel = step.client,
+            }
+        end
+        local replaced = ns.EngineStats.RebuildLink(row.link, { step.bonusID })
+        if replaced then
+            variant("track-replace", replaced)
+        end
+        if parsed then
+            local list = {}
+            for i, id in ipairs(parsed.bonusIDs) do
+                list[i] = id
+            end
+            list[#list + 1] = step.bonusID
+            local appended = ns.EngineStats.RebuildLink(row.link, list)
+            if appended and appended ~= replaced then
+                variant("track-append", appended)
+            end
+        end
+    end
+    return variants, parsed, #steps
+end
+
+local function targetKey(instanceID, difficultyID)
+    return tostring(instanceID) .. "|" .. tostring(difficultyID)
+end
+
+-- One walk target per instance and difficulty the candidates name, in the
+-- order they first name them; a keystone target previews the level the cached
+-- walk previewed.
+local function linkLevelTargets(candidates)
+    local targets, seen = {}, {}
+    local challenge = ns.JournalAdapter.DifficultyID("DungeonChallenge")
+    for _, candidate in ipairs(candidates) do
+        local key = targetKey(candidate.instanceID, candidate.difficultyID)
+        if not seen[key] then
+            seen[key] = true
+            targets[#targets + 1] = {
+                instanceID = candidate.instanceID,
+                instanceName = candidate.instanceName,
+                isRaid = candidate.isRaid == true,
+                difficultyID = candidate.difficultyID,
+                previewLevel = candidate.difficultyID == challenge and candidate.previewMythicPlusLevel or nil,
+            }
+        end
+    end
+    return targets
+end
+
+-- The live journal row for a candidate in a target's final read: the same
+-- item, and the same encounter when both name one.
+local function liveRow(read, candidate)
+    for _, row in ipairs((read and read.rows) or {}) do
+        local info = row.itemInfo and row.itemInfo[1]
+        if type(info) == "table" and tonumber(info.itemID) == candidate.itemID then
+            if candidate.encounterID == nil or info.encounterID == nil or info.encounterID == candidate.encounterID then
+                return row, info
+            end
+        end
+    end
+    return nil
+end
+
+-- What the walk's own pass over a target adds to each candidate there: the
+-- live link and the `journal` read of every variant, taken while the
+-- Adventure Guide still previews that target.
+local function readUnderView(record, read, candidates)
+    for _, candidate in ipairs(candidates) do
+        local row, info = liveRow(read, candidate)
+        local link = info and ns.Safe(info.link) or nil
+        local sameAsKept = nil
+        if type(link) == "string" then
+            sameAsKept = link == candidate.link
+        end
+        candidate.live = {
+            found = row ~= nil,
+            link = link,
+            sameAsKept = sameAsKept,
+            -- What the walk's own GetDetailedItemLevelInfo of the live link
+            -- answered, under the preview (the adapter's read, already copied).
+            walkDetailedLevel = row and row.detailedLevel or nil,
+            previewLevel = record.previewLevel,
+        }
+        for _, variant in ipairs(candidate.variants) do
+            variant.journal = linkLevelRead(variant.link)
+        end
+        if type(link) == "string" and link ~= "" and link ~= candidate.link then
+            candidate.variants[#candidate.variants + 1] =
+                { rule = "journal-live", link = link, journal = linkLevelRead(link) }
+        end
+    end
+end
+
+local function newCandidate(row)
+    local variants, parsed, steps = linkLevelVariants(row)
+    for _, variant in ipairs(variants) do
+        variant.before = linkLevelRead(variant.link)
+    end
+    return {
+        itemID = row.itemID,
+        link = row.link,
+        instanceID = row.instanceID,
+        instanceName = row.instanceName,
+        encounterID = row.encounterID,
+        difficultyID = row.difficultyID,
+        isRaid = row.isRaid,
+        slot = row.slot,
+        walkLevel = row.itemLevel,
+        ownLevel = row.ownLevel,
+        previewMythicPlusLevel = row.previewMythicPlusLevel,
+        context = parsed and parsed.context or nil,
+        bonusIDs = parsed and parsed.bonusIDs or nil,
+        trackSteps = steps,
+        trackNote = steps == 0 and ("no track step draws " .. tostring(row.itemLevel)) or nil,
+        variants = variants,
+    }
+end
+
+local function walkSummary(result, targetCount)
+    local errors = {}
+    for _, record in ipairs(result.targets or {}) do
+        if record.onTargetReadError then
+            errors[#errors + 1] = record.onTargetReadError
+        end
+    end
+    return {
+        targets = targetCount,
+        durationMs = result.durationMs,
+        lootEvents = result.lootEvents,
+        waits = result.waits,
+        timeouts = result.timeouts,
+        itemDataTimeouts = result.itemDataTimeouts,
+        pendingRowsFinalRead = result.pendingRowsFinalRead,
+        restored = result.restored,
+        secretsSeen = result.secretsSeen,
+        errors = #errors > 0 and errors or nil,
+    }
+end
+
+ns.RegisterCapture(
+    "linklevel",
+    "journal links at the walk's level: each rebuilt candidate and the live journal link, read side by side "
+        .. "(async; sets and restores the Adventure Guide view)",
+    function(finish)
+        local cache = ns.db and ns.db.global and ns.db.global.journalCache or nil
+        local rows, summary = ns.LinkLevelCandidates(cache, ns.LINKLEVEL_MAX)
+        if summary.rowsWithLink == 0 then
+            return finish(nil, ns.LINKLEVEL_NO_JOURNAL)
+        end
+        if #rows == 0 then
+            return finish(nil, ns.LINKLEVEL_NONE)
+        end
+        local trackData = ns.trackBonusIDs
+        local data = {
+            functionNames = LINKLEVEL_FUNCTION_NAMES,
+            moduleReads = LINKLEVEL_MODULE_READS,
+            journal = summary,
+            trackTable = type(trackData) == "table" and { build = trackData.build, source = trackData.source } or nil,
+            lineTypes = { itemLevel = ns.LINKLEVEL_LINE_ITEM_LEVEL, upgradeLevel = ns.LINKLEVEL_LINE_UPGRADE_LEVEL },
+            candidates = {},
+        }
+        local byTarget = {}
+        for i, row in ipairs(rows) do
+            local candidate = newCandidate(row)
+            data.candidates[i] = candidate
+            local key = targetKey(candidate.instanceID, candidate.difficultyID)
+            byTarget[key] = byTarget[key] or {}
+            table.insert(byTarget[key], candidate)
+        end
+
+        local Adapter = ns.JournalAdapter
+        local player = Adapter.Player()
+        local viewState = Adapter.ViewState()
+        data.viewStateBefore = viewState
+        local tiers = Adapter.Tiers()
+        if type(tiers.numTiers[1]) == "number" then
+            data.selectedTier = tiers.numTiers[1]
+            Adapter.SelectTier(data.selectedTier)
+        end
+        local targets = linkLevelTargets(data.candidates)
+
+        Adapter.Walk({
+            targets = targets,
+            classID = player.classID,
+            specID = player.specID,
+            viewState = viewState,
+            onTargetRead = function(record, read)
+                readUnderView(record, read, byTarget[targetKey(record.instanceID, record.difficultyID)] or {})
+            end,
+        }, function(result)
+            if result.abortedInCombat then
+                return finish(nil, ns.LINKLEVEL_COMBAT)
+            end
+            data.walk = walkSummary(result, #targets)
+            for _, candidate in ipairs(data.candidates) do
+                for _, variant in ipairs(candidate.variants) do
+                    variant.after = linkLevelRead(variant.link)
+                end
+            end
+            finish(data)
+        end)
     end,
     { async = true }
 )

@@ -18,18 +18,22 @@ describe("captures", function()
         H.unload()
     end)
 
-    it("registers env, inventory, vault, currencies, glow, upgrade, itemstats and journal in that order", function()
-        -- `journal` registers in Modules/Journal.lua, which the .toc loads
-        -- after this file, so it comes last. R-0's `spike` was the sixth and
-        -- went away with R-2 (WKE-563), which is the surface it measured;
-        -- `glow` is R-2a's (WKE-571) and `upgrade` M3-17's (WKE-574), and both
-        -- register here, at the end of this file; `itemstats` is E-0a's
-        -- (WKE-675) and registers after them.
-        assert.same(
-            { "env", "inventory", "vault", "currencies", "glow", "upgrade", "itemstats", "journal" },
-            ns.captureOrder
-        )
-    end)
+    it(
+        "registers env, inventory, vault, currencies, glow, upgrade, itemstats, linklevel and journal in that order",
+        function()
+            -- `journal` registers in Modules/Journal.lua, which the .toc loads
+            -- after this file, so it comes last. R-0's `spike` was the sixth and
+            -- went away with R-2 (WKE-563), which is the surface it measured;
+            -- `glow` is R-2a's (WKE-571) and `upgrade` M3-17's (WKE-574), and both
+            -- register here, at the end of this file; `itemstats` is E-0a's
+            -- (WKE-675) and registers after them; `linklevel` is E-0g's (WKE-677)
+            -- and registers after it.
+            assert.same(
+                { "env", "inventory", "vault", "currencies", "glow", "upgrade", "itemstats", "linklevel", "journal" },
+                ns.captureOrder
+            )
+        end
+    )
 
     describe("env", function()
         it("records the build tuple raw", function()
@@ -1258,7 +1262,7 @@ describe("captures", function()
 
         it("registers after upgrade and before journal", function()
             assert.same(
-                { "env", "inventory", "vault", "currencies", "glow", "upgrade", "itemstats", "journal" },
+                { "env", "inventory", "vault", "currencies", "glow", "upgrade", "itemstats", "linklevel", "journal" },
                 ns.captureOrder
             )
         end)
@@ -1573,7 +1577,10 @@ describe("captures", function()
         it("calls nothing in its source that its list does not name, and nothing that acts", function()
             local source = assert(io.open("Lootpath/Captures.lua")):read("*a")
             local start = assert(source:find("-- itemstats (E-0a, WKE-675)", 1, true))
-            local section = source:sub(start)
+            -- Up to the next capture's own section (E-0g's `linklevel`, which
+            -- holds itself to its own list in its own test).
+            local stop = assert(source:find("-- linklevel (E-0g, WKE-677)", start, true))
+            local section = source:sub(start, stop - 1)
             local named = {}
             for _, name in ipairs(ns.ITEMSTATS_FUNCTION_NAMES) do
                 named[name] = true
@@ -1614,5 +1621,410 @@ describe("captures", function()
                 assert.is_nil(body:find(forbidden, 1, true), forbidden)
             end
         end)
+    end)
+end)
+
+-- E-0g (WKE-677). `capture linklevel` asks the client which link draws a
+-- journal row at the level the walk listed it at, and decides nothing. The
+-- links are the client's own (spec/fixtures/captures/Lootpath-20261001-092631.lua:
+-- the keystone, raid and world rows the issue names); the stub's answers are
+-- the tests' own. The keystone link answers by the journal's VIEW here - 305
+-- while the Adventure Guide previews its target, 292 otherwise - which is a
+-- HYPOTHESIS (M5-3a's measurement suggests it) that this capture exists to
+-- test on the client; what these tests hold is that the capture records each
+-- read beside the others, three ways, and puts the journal's view back.
+describe("captures linklevel", function()
+    local ns, world
+
+    local KEYSTONE = "|cnIQ4:|Hitem:250254::::::::90:105::16:1:3524:1:28:1279:::::|h[Seed of Radiant Hope]|h|r"
+    local HEROIC = "|cnIQ3:|Hitem:250254::::::::90:105::2:1:3524:1:28:3024:::::|h[Seed of Radiant Hope]|h|r"
+    local RAID = "|cnIQ4:|Hitem:268247::::::::90:105::5:1:3524:1:28:5850:::::|h[Breakwater Boots]|h|r"
+    -- What the journal hands out for the raid row now: another modifier value.
+    -- Placeholder; the transcript says whether the live link ever differs.
+    local RAID_LIVE = "|cnIQ4:|Hitem:268247::::::::90:105::5:1:3524:1:28:5851:::::|h[Breakwater Boots]|h|r"
+    local WORLD = "|cnIQ4:|Hitem:250462::::::::90:105::5:1:3524::::::|h[Forgotten Farstrider's Insignia]|h|r"
+
+    local DUNGEON, RAID_INSTANCE, MIDNIGHT = 1309, 1400, 1312
+
+    local function cacheRow(instanceID, name, encounterID, difficultyID, level, link, slot, isRaid)
+        return {
+            instanceID = instanceID,
+            instanceName = name,
+            encounterID = encounterID,
+            difficultyID = difficultyID,
+            itemLevel = level,
+            slot = slot,
+            isRaid = isRaid,
+            link = link,
+        }
+    end
+
+    local function seedCache()
+        ns.db.global.journalCache = {
+            ["69933|18|105|2:8:15:16:23"] = {
+                build = "69933",
+                walkAt = 1,
+                shape = 2,
+                summary = { previewMythicPlusLevel = 10 },
+                sources = {
+                    [250254] = {
+                        cacheRow(DUNGEON, "The Blinding Vale", 2769, 2, 276, HEROIC, "Trinket", false),
+                        cacheRow(DUNGEON, "The Blinding Vale", 2769, 8, 305, KEYSTONE, "Trinket", false),
+                    },
+                    [268247] = { cacheRow(RAID_INSTANCE, "The Tidebound Grotto", 2849, 15, 305, RAID, "Feet", true) },
+                    [250462] = { cacheRow(MIDNIGHT, "Midnight", 2827, 15, 44, WORLD, "Neck", true) },
+                },
+            },
+        }
+    end
+
+    local function previewing(J, instanceID, difficultyID)
+        return J.selectedInstance == instanceID and J.difficulty == difficultyID
+    end
+
+    local function lines(level, upgrade)
+        return {
+            lines = {
+                { type = 22, leftText = "Item" },
+                { type = 31, leftText = "Item Level " .. level },
+                { type = 32, leftText = upgrade },
+            },
+        }
+    end
+
+    local function item(link, level)
+        world.items[link] = { level = level, detailed = { level, false, 108, n = 3 } }
+        world.itemStats[link] = { ITEM_MOD_INTELLECT_SHORT = level }
+    end
+
+    local function seedClient()
+        item(HEROIC, 276)
+        item(RAID, 308)
+        item(RAID_LIVE, 305)
+        item(WORLD, 263)
+        -- The keystone link answers by the view (the hypothesis, above).
+        world.items[KEYSTONE] = {
+            detailed = function(J)
+                local level = (previewing(J, DUNGEON, 8) and J.previewLevel == 10) and 305 or 292
+                return { level, false, 108, n = 3 }
+            end,
+        }
+        world.itemStats[KEYSTONE] = function(J)
+            return { ITEM_MOD_INTELLECT_SHORT = previewing(J, DUNGEON, 8) and 600 or 567 }
+        end
+        world.tooltipData[KEYSTONE] = function(J)
+            return previewing(J, DUNGEON, 8) and lines(305, "Upgrade Level: Champion 5/6")
+                or lines(292, "Upgrade Level: Champion 1/6")
+        end
+        -- The two track rewrites at 305 the client draws at 305 (the tests' own).
+        for _, link in ipairs({
+            ns.EngineStats.RebuildLink(KEYSTONE, { 12837 }),
+            ns.EngineStats.RebuildLink(KEYSTONE, { 3524, 12837 }),
+        }) do
+            item(link, 305)
+        end
+
+        local J = world.journal
+        J.instances.dungeons = { { instanceID = DUNGEON, name = "The Blinding Vale" } }
+        J.instances.raids = {
+            { instanceID = MIDNIGHT, name = "Midnight" },
+            { instanceID = RAID_INSTANCE, name = "The Tidebound Grotto" },
+        }
+        local function lootRow(itemID, encounterID, link)
+            return { itemID = itemID, encounterID = encounterID, name = "Drop " .. itemID, link = link }
+        end
+        J.loot[DUNGEON] = { [8] = { lootRow(250254, 2769, KEYSTONE) } }
+        J.loot[RAID_INSTANCE] = { [15] = { lootRow(268247, 2849, RAID_LIVE) } }
+        J.loot[MIDNIGHT] = { [15] = { lootRow(250462, 2827, WORLD) } }
+        J.currentTier = 2
+        J.difficulty = 23
+        J.lootFilter = { 7, 262 }
+    end
+
+    local function candidateFor(data, link)
+        for _, candidate in ipairs(data.candidates) do
+            if candidate.link == link then
+                return candidate
+            end
+        end
+    end
+
+    local function variant(candidate, rule, bonusID)
+        for _, v in ipairs(candidate.variants) do
+            if v.rule == rule and v.bonusID == bonusID then
+                return v
+            end
+        end
+    end
+
+    local function run()
+        local final
+        local first = ns.RunCapture("linklevel", function(r)
+            final = r
+        end)
+        world.runTimers(120)
+        return final, first
+    end
+
+    before_each(function()
+        ns, world = H.load()
+        seedCache()
+        seedClient()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("refuses when no journal walk is cached, and touches nothing", function()
+        ns.db.global.journalCache = {}
+        local result = ns.RunCapture("linklevel")
+        assert.is_false(result.ok)
+        assert.equal("capture 'linklevel' " .. ns.LINKLEVEL_NO_JOURNAL, result.reason)
+        assert.is_nil(ns.db.global.captures.linklevel)
+        assert.same({}, world.journal.selectCalls)
+        assert.same({}, world.itemStatsCalls)
+    end)
+
+    it("refuses when every cached row reads at the walk's level, and touches nothing", function()
+        item(KEYSTONE, 305)
+        item(RAID, 305)
+        item(WORLD, 44)
+        world.itemStatsCalls = {}
+        local result = ns.RunCapture("linklevel")
+        assert.is_false(result.ok)
+        assert.equal("capture 'linklevel' " .. ns.LINKLEVEL_NONE, result.reason)
+        assert.is_nil(ns.db.global.captures.linklevel)
+        assert.same({}, world.journal.selectCalls)
+        assert.same({}, world.itemStatsCalls)
+    end)
+
+    it("refuses in combat, and touches nothing", function()
+        world.inCombat = true
+        local result = ns.RunCapture("linklevel")
+        assert.is_false(result.ok)
+        assert.equal("combat", result.reason)
+        assert.same({}, world.journal.selectCalls)
+        assert.same({}, world.itemStatsCalls)
+    end)
+
+    it("takes the rows the client reads at another level, by difficulty in turn, to the bound", function()
+        local rows, summary = ns.LinkLevelCandidates(ns.db.global.journalCache, 12)
+        assert.equal(4, summary.rowsWithLink)
+        assert.equal(3, summary.differing)
+        assert.same({ [8] = 1, [15] = 2 }, summary.differingByDifficulty)
+        assert.equal(12, summary.max)
+        -- Difficulty 8 first, then 15; within 15 one instance after the other.
+        assert.equal(KEYSTONE, rows[1].link)
+        assert.equal(292, rows[1].ownLevel)
+        assert.equal(10, rows[1].previewMythicPlusLevel)
+        local rest = { [rows[2].link] = true, [rows[3].link] = true }
+        assert.same({ [RAID] = true, [WORLD] = true }, rest)
+        local two = ns.LinkLevelCandidates(ns.db.global.journalCache, 2)
+        assert.equal(2, #two)
+        assert.equal(KEYSTONE, two[1].link)
+        assert.equal(15, two[2].difficultyID)
+        assert.equal(12, ns.LINKLEVEL_MAX)
+    end)
+
+    it("reads every candidate link three ways, side by side, and stores it", function()
+        local final, first = run()
+        assert.is_true(first.pending)
+        assert.is_true(final.ok)
+        assert.is_false(final.snapshot.sawSecret)
+        local data = ns.db.global.captures.linklevel[1].data
+        assert.equal(3, #data.candidates)
+        assert.equal("12.1.0.69933", data.trackTable.build)
+        assert.same({ itemLevel = 31, upgradeLevel = 32 }, data.lineTypes)
+
+        local k = candidateFor(data, KEYSTONE)
+        assert.equal(305, k.walkLevel)
+        assert.equal(292, k.ownLevel)
+        assert.same({ 3524 }, k.bonusIDs)
+        assert.equal(16, k.context)
+        assert.equal(2, k.trackSteps)
+        local rules = {}
+        for i, v in ipairs(k.variants) do
+            rules[i] = v.rule .. (v.bonusID and (":" .. v.bonusID) or "")
+        end
+        assert.same({
+            "kept",
+            "track-replace:12837",
+            "track-append:12837",
+            "track-replace:12841",
+            "track-append:12841",
+        }, rules)
+
+        -- The kept link: 292 before and after, 305 while the journal previews it.
+        local kept = k.variants[1]
+        assert.equal(292, kept.before.detailedLevel[1])
+        assert.equal(305, kept.journal.detailedLevel[1])
+        assert.equal(292, kept.after.detailedLevel[1])
+        assert.equal(567, kept.before.stats[1].ITEM_MOD_INTELLECT_SHORT)
+        assert.equal(600, kept.journal.stats[1].ITEM_MOD_INTELLECT_SHORT)
+        assert.equal("Item Level 292", kept.before.itemLevelLine)
+        assert.equal("Item Level 305", kept.journal.itemLevelLine)
+        assert.equal("Upgrade Level: Champion 5/6", kept.journal.upgradeLevelLine)
+        assert.equal(3, #kept.before.tooltipLines)
+
+        -- The Champion 5/6 rewrite draws 305 every way; the Hero 1/6 one the
+        -- stub does not know, and the capture records that as it is.
+        local champion = variant(k, "track-replace", 12837)
+        assert.equal("Champion", champion.track)
+        assert.equal(5, champion.step)
+        assert.is_false(champion.clientConfirmedLevel)
+        assert.equal(
+            "|cnIQ4:|Hitem:250254::::::::90:105::16:1:12837:1:28:1279:::::|h[Seed of Radiant Hope]|h|r",
+            champion.link
+        )
+        for _, view in ipairs({ "before", "journal", "after" }) do
+            assert.equal(305, champion[view].detailedLevel[1], view)
+        end
+        local hero = variant(k, "track-append", 12841)
+        assert.equal("Hero", hero.track)
+        assert.is_nil(hero.before.detailedLevel[1])
+
+        -- The live journal link equals the kept one: no extra variant.
+        assert.is_true(k.live.found)
+        assert.is_true(k.live.sameAsKept)
+        assert.equal(10, k.live.previewLevel)
+        assert.equal(305, k.live.walkDetailedLevel[1])
+    end)
+
+    it("adds the live journal link when it differs, read under the view and after", function()
+        run()
+        local data = ns.db.global.captures.linklevel[1].data
+        local r = candidateFor(data, RAID)
+        assert.equal(RAID_LIVE, r.live.link)
+        assert.is_false(r.live.sameAsKept)
+        local live = variant(r, "journal-live", nil)
+        assert.equal(RAID_LIVE, live.link)
+        assert.is_nil(live.before)
+        assert.equal(305, live.journal.detailedLevel[1])
+        assert.equal(305, live.after.detailedLevel[1])
+    end)
+
+    it("says so when no track step draws the walk's level, and still reads the kept link", function()
+        run()
+        local w = candidateFor(ns.db.global.captures.linklevel[1].data, WORLD)
+        assert.equal(44, w.walkLevel)
+        assert.equal(0, w.trackSteps)
+        assert.equal("no track step draws 44", w.trackNote)
+        assert.equal(1, #w.variants)
+        assert.equal("kept", w.variants[1].rule)
+        assert.equal(263, w.variants[1].journal.detailedLevel[1])
+    end)
+
+    it("walks only the candidates' targets, previews the keystone level, and puts the view back", function()
+        run()
+        local J = world.journal
+        local selected = {}
+        for _, call in ipairs(J.selectCalls) do
+            if call.instance then
+                selected[#selected + 1] = call.instance
+            end
+        end
+        assert.same({ DUNGEON, MIDNIGHT, RAID_INSTANCE }, selected)
+        assert.same({ 10 }, J.previewLevelCalls)
+        assert.equal(2, J.currentTier)
+        assert.equal(23, J.difficulty)
+        assert.same({ 7, 262 }, J.lootFilter)
+        local data = ns.db.global.captures.linklevel[1].data
+        assert.equal(3, data.selectedTier)
+        assert.equal(3, data.walk.targets)
+        assert.is_table(data.walk.restored)
+        assert.is_nil(data.walk.errors)
+    end)
+
+    it("stores nothing when combat starts during the walk, and still puts the view back", function()
+        world.journal.lootDelaySeconds = 0.5
+        local final
+        ns.RunCapture("linklevel", function(r)
+            final = r
+        end)
+        world.inCombat = true
+        world.runTimers(120)
+        assert.is_false(final.ok)
+        assert.equal("capture 'linklevel' " .. ns.LINKLEVEL_COMBAT, final.reason)
+        assert.is_nil(ns.db.global.captures.linklevel)
+        assert.equal(2, world.journal.currentTier)
+        assert.equal(23, world.journal.difficulty)
+        assert.same({ 7, 262 }, world.journal.lootFilter)
+    end)
+
+    it("masks a secret answer and says it saw one", function()
+        world.itemStats[WORLD] = world.secretTable("stats")
+        local final = run()
+        assert.is_true(final.ok)
+        assert.is_true(final.snapshot.sawSecret)
+        local w = candidateFor(final.snapshot.data, WORLD)
+        assert.equal(ns.MARKERS.secretTable, w.variants[1].before.stats[1])
+    end)
+
+    it("names every client function and every module read it makes", function()
+        run()
+        local data = ns.db.global.captures.linklevel[1].data
+        assert.same(ns.LINKLEVEL_FUNCTION_NAMES, data.functionNames)
+        assert.same({
+            "C_Item.GetDetailedItemLevelInfo",
+            "C_Item.GetItemStats",
+            "C_TooltipInfo.GetHyperlink",
+        }, data.functionNames)
+        assert.same(ns.LINKLEVEL_MODULE_READS, data.moduleReads)
+    end)
+
+    -- The source half: every `C_Namespace.Function` the section mentions is on
+    -- its list, every module function it reaches is on the other, and nothing
+    -- that acts - nor any journal call made around the adapter - is in it.
+    -- Comments are left out of the scan.
+    it("calls nothing in its source that its lists do not name, and nothing that acts", function()
+        local source = assert(io.open("Lootpath/Captures.lua")):read("*a")
+        local start = assert(source:find("-- linklevel (E-0g, WKE-677)", 1, true))
+        local code = {}
+        for line in source:sub(start):gmatch("[^\n]*") do
+            code[#code + 1] = (line:gsub("%-%-.*$", ""))
+        end
+        local body = table.concat(code, "\n")
+        local named = {}
+        for _, name in ipairs(ns.LINKLEVEL_FUNCTION_NAMES) do
+            named[name] = true
+        end
+        local found = 0
+        for name in body:gmatch("C_[%w_]+%.[%w_]+") do
+            found = found + 1
+            assert.is_true(named[name] == true, name .. " is called but not named")
+        end
+        for fn in body:gmatch("[^%w_.]I%.([%w_]+)") do
+            found = found + 1
+            assert.is_true(named["C_Item." .. fn] == true, "C_Item." .. fn .. " is called but not named")
+        end
+        assert.is_true(found > 0)
+        local reads = {}
+        for _, name in ipairs(ns.LINKLEVEL_MODULE_READS) do
+            reads[name] = true
+        end
+        local modules = 0
+        for module, fn in body:gmatch("ns%.([%w_]+)%.([%w_]+)%(") do
+            modules = modules + 1
+            assert.is_true(reads["ns." .. module .. "." .. fn] == true, module .. "." .. fn .. " is not named")
+        end
+        for fn in body:gmatch("Adapter%.([%w_]+)%(") do
+            modules = modules + 1
+            assert.is_true(reads["ns.JournalAdapter." .. fn] == true, "JournalAdapter." .. fn .. " is not named")
+        end
+        assert.is_true(modules > 0)
+        for _, forbidden in ipairs({
+            "EJ_",
+            "SetPreviewMythicPlusLevel",
+            "GetLootInfoByIndex",
+            "SetItemUpgradeFromLocation",
+            "UpgradeItem",
+            "OnUIInteract",
+            "RequestLoadItemDataByID",
+            "EquipItemByName",
+            "PickupContainerItem",
+        }) do
+            assert.is_nil(body:find(forbidden, 1, true), forbidden)
+        end
     end)
 end)

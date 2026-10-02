@@ -21,6 +21,16 @@
 --     ns.EngineScore.UpgradePercent(worn, candidate, { assumedFinish = true,
 --     forceTier = true, contentType, keyLevel = the document's }); theirs is
 --     `upgradePercent` read through UPGRADE_BETTER_PERCENT_SIGN.
+--   * The level the candidate is read at (E-0g, WKE-677): the walk's link
+--     reads at its OWN level, not the walk's (a keystone row listed at 305
+--     reads 292 - ARCHITECTURE.md section 11). With REBUILD_AT_LEVEL on, every
+--     joined row is read through ns.EngineStats.LinkAtLevel(link, the row's
+--     level) and kept only when the client draws the rebuilt link at that
+--     level (ns.EngineStats.AtLevel); a row that cannot be rebuilt, or reads
+--     at another level, is LEFT OUT and counted on its own header line, never
+--     scored at the wrong level. The switch is OFF until `capture linklevel`'s
+--     transcript proves a rule; off, the compare reads the walk's link exactly
+--     as before.
 --   * The band: the key level goes into every SetValue and UpgradePercent
 --     call and ns.EngineScore.BandFor picks the band (E-0h, WKE-678) - the
 --     Upgrade Finder document's own level, and for the Top Gear block the
@@ -88,6 +98,11 @@ EngineCompare.BAR = {
     pooledN = 30,
 }
 
+-- E-0g (WKE-677): read every joined Upgrade Finder row through a link rebuilt
+-- at the row's level. OFF until the `capture linklevel` transcript proves the
+-- rule ns.EngineStats.LinkAtLevel takes; flipping it is the second PR's.
+EngineCompare.REBUILD_AT_LEVEL = false
+
 -- The shelf the Top Gear block is stored on beside the key levels.
 EngineCompare.TOP_GEAR_KEY = "pass1"
 
@@ -138,6 +153,7 @@ EngineCompare.TEXT = {
     trinketNone = "  trinket: no row a rule covers yet",
     notCompared = "  not compared: %d (%s)",
     verboseRow = "    %s · %s %s · %s · %s",
+    atLevel = "  at level: %d rebuilt, %d left out (%s)",
     bar = "bar (printed, not enforced): %s",
     stored = "stored for week %s.",
     noWeek = "the weekly reset clock did not answer; nothing stored.",
@@ -632,6 +648,16 @@ function EngineCompare.UFJoin(verdict, journalByKey)
     return { joined = joined, noLink = noLink, other = other }
 end
 
+-- The link a joined row's candidate is read from: the walk's own link with
+-- REBUILD_AT_LEVEL off; with it on, the link ns.EngineStats.LinkAtLevel
+-- rebuilds at the row's level, or nil and why it could not.
+function EngineCompare.CandidateLink(pair)
+    if not EngineCompare.REBUILD_AT_LEVEL then
+        return pair.row.link
+    end
+    return ns.EngineStats.LinkAtLevel(pair.row.link, pair.row.itemLevel)
+end
+
 local function wornVectors(inputs)
     local worn, missing = {}, 0
     for _, record in ipairs(inputs.worn or {}) do
@@ -673,6 +699,21 @@ local function finishBlock(block, rows)
     return block
 end
 
+-- Why a joined row is left out under REBUILD_AT_LEVEL, or nil: no rebuilt
+-- link (LinkAtLevel's reason), or a read the client drew at another level
+-- (AtLevel's). A rebuilt link not read yet is not left out here; it is
+-- `not ready` like every unread row.
+local function leftOutAtLevel(link, notBuilt, candidate, level)
+    if not link then
+        return notBuilt or "not rebuilt"
+    end
+    if not candidate then
+        return nil
+    end
+    local _, notAt = ns.EngineStats.AtLevel(candidate, level)
+    return notAt
+end
+
 function EngineCompare.CompareUF(inputs, worn)
     local document = inputs.document
     local join = EngineCompare.UFJoin(document.verdict, inputs.journalByKey or {})
@@ -691,36 +732,53 @@ function EngineCompare.CompareUF(inputs, worn)
     local opts = scoreOpts(inputs.contentType, inputs.file, document.keyLevel)
     local rows = {}
     local sign = ns.UFImport.UPGRADE_BETTER_PERCENT_SIGN
+    if EngineCompare.REBUILD_AT_LEVEL then
+        block.atLevel = { rebuilt = 0, leftOut = 0, reasons = {} }
+    end
     for _, pair in ipairs(join.joined) do
         local slot = pair.row.slot or pair.entry.slot
-        local candidate = vectorFor(inputs.reads, pair.row.link, slot)
-        local percent, detail
-        if candidate then
-            percent, detail = ns.EngineScore.UpgradePercent(worn, candidate, opts)
+        local link, notBuilt = EngineCompare.CandidateLink(pair)
+        local candidate = vectorFor(inputs.reads, link, slot)
+        local why = block.atLevel and leftOutAtLevel(link, notBuilt, candidate, pair.row.itemLevel) or nil
+        if why then
+            -- Counted on the block's own `at level` line: never scored at
+            -- another level, and not a `not compared` row either.
+            block.atLevel.leftOut = block.atLevel.leftOut + 1
+            block.atLevel.reasons[why] = (block.atLevel.reasons[why] or 0) + 1
         else
-            detail = "not ready"
-        end
-        if percent and type(detail) == "table" and detail.effectUnmodelled then
-            notRated(block, pair.entry.key, detail.unmodelled)
-        elseif percent and type(detail) == "table" and detail.effectUnknown then
-            block.unknown = block.unknown + 1
-        elseif percent then
-            if type(detail) == "table" and detail.generic then
-                block.generic = block.generic + 1
+            if block.atLevel and candidate then
+                block.atLevel.rebuilt = block.atLevel.rebuilt + 1
             end
-            rows[#rows + 1] = {
-                key = pair.entry.key,
-                slot = slot,
-                class = EngineCompare.CLASS_OF_SLOT[slot] or "other",
-                ours = percent,
-                theirs = pair.entry.upgradePercent * sign,
-                link = pair.row.link,
-                level = candidate and candidate.level or nil,
-            }
-        else
-            block.notCompared = block.notCompared + 1
-            local why = tostring(detail)
-            block.reasons[why] = (block.reasons[why] or 0) + 1
+            local percent, detail
+            if candidate then
+                percent, detail = ns.EngineScore.UpgradePercent(worn, candidate, opts)
+            else
+                detail = "not ready"
+            end
+            if percent and type(detail) == "table" and detail.effectUnmodelled then
+                notRated(block, pair.entry.key, detail.unmodelled)
+            elseif percent and type(detail) == "table" and detail.effectUnknown then
+                block.unknown = block.unknown + 1
+            elseif percent then
+                if type(detail) == "table" and detail.generic then
+                    block.generic = block.generic + 1
+                end
+                rows[#rows + 1] = {
+                    key = pair.entry.key,
+                    slot = slot,
+                    class = EngineCompare.CLASS_OF_SLOT[slot] or "other",
+                    ours = percent,
+                    theirs = pair.entry.upgradePercent * sign,
+                    -- The link the read was made from: the rebuilt one under
+                    -- REBUILD_AT_LEVEL, the walk's own otherwise.
+                    link = link,
+                    level = candidate and candidate.level or nil,
+                }
+            else
+                block.notCompared = block.notCompared + 1
+                local reason = tostring(detail)
+                block.reasons[reason] = (block.reasons[reason] or 0) + 1
+            end
         end
     end
     return finishBlock(block, rows)
@@ -1025,6 +1083,14 @@ function EngineCompare.Lines(run)
             uf.noLink,
             uf.other
         )
+        if uf.atLevel then
+            lines[#lines + 1] = string.format(
+                T.atLevel,
+                uf.atLevel.rebuilt,
+                uf.atLevel.leftOut,
+                uf.atLevel.leftOut > 0 and reasonsText(uf.atLevel.reasons) or "none"
+            )
+        end
         blockTail(lines, uf, run.verbose)
     elseif run.noDocument then
         lines[#lines + 1] = string.format(T.ufNone, run.contentType, tostring(run.askedLevel or "any key level"))
@@ -1136,7 +1202,7 @@ function EngineCompare.Gather(contentType, keyLevel)
     end
     if inputs.document and inputs.journalByKey then
         for _, pair in ipairs(EngineCompare.UFJoin(inputs.document.verdict, inputs.journalByKey).joined) do
-            want(pair.row.link)
+            want((EngineCompare.CandidateLink(pair)))
         end
     end
     if inputs.topGear then
@@ -1248,6 +1314,7 @@ local function entryOf(block, file)
         derivedAt = file.derivedAt,
         qeExportedAt = block.exportedAt,
         band = block.band,
+        atLevel = block.atLevel,
         rows = block.rows,
         metrics = block.metrics,
         notRated = block.notRated,
