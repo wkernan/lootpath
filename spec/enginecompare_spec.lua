@@ -278,7 +278,11 @@ describe("EngineCompare.Compute on hand-made inputs", function()
         end
         assert.is_true(byKey["10@300"].ours > 0)
         assert.equal(0.8, byKey["10@300"].theirs)
-        assert.is_true(byKey["11@300"].ours < 0)
+        -- A worse drop: the percent is negative, the row compares it floored at
+        -- the Upgrade Finder's 0 (E-0j) and keeps the percent as `raw`.
+        assert.is_true(byKey["11@300"].raw < 0)
+        assert.equal(0, byKey["11@300"].ours)
+        assert.equal(byKey["10@300"].raw, byKey["10@300"].ours)
         assert.equal(-0.3, byKey["11@300"].theirs)
         assert.equal("tier", byKey["10@300"].class)
         assert.equal("armour", byKey["11@300"].class)
@@ -1164,7 +1168,7 @@ describe("/lootpath engine compare raid over the 2026-10-01 transcript", functio
         assert.is_table(run, "the run finished")
         io.write("\n[" .. label .. " transcript run: engine compare raid, verbose on]\n" .. world.output() .. "\n")
         for _, row in ipairs(run.result.uf.rows) do
-            io.write(string.format("[%s pin] uf %s %.17g at %s\n", label, row.key, row.ours, tostring(row.level)))
+            io.write(string.format("[%s pin] uf %s %.17g at %s\n", label, row.key, row.raw, tostring(row.level)))
         end
         for _, row in ipairs(run.result.tg.rows) do
             io.write(string.format("[%s pin] tg %s %.17g\n", label, row.key, row.ours))
@@ -1186,7 +1190,9 @@ describe("/lootpath engine compare raid over the 2026-10-01 transcript", functio
         assert.same(pin.atLevel, uf.atLevel)
         local seen = 0
         for _, row in ipairs(uf.rows) do
-            pinned(pin.uf[row.key], row.ours, row.key)
+            -- The pin is the unfloored percent; the row compares it floored (E-0j).
+            pinned(pin.uf[row.key], row.raw, row.key)
+            assert.equal(math.max(0, row.raw), row.ours, row.key)
             assert.equal(pin.levels[row.key], row.level, row.key)
             seen = seen + 1
         end
@@ -1481,6 +1487,78 @@ describe("/lootpath engine compare at the row's level, over the owner's 2026-09-
                 local bonusIDs = ns.EngineStats.LinkFields(row.link).bonusIDs
                 assert.equal(step.bonusID, bonusIDs[#bonusIDs], row.key)
             end
+        end
+    end)
+end)
+
+-- E-0j (WKE-681): the Upgrade Finder floors its own rows at 0 (its Top Gear
+-- keeps the worn set when a drop is worse), so the compare floors ours the
+-- same way before any metric. Unfloored, k read 0.35-0.47 on +6 and about 1.1
+-- on +10 and Raid: the share of censored rows, not the engine. Held over the
+-- rows one real compare stored (spec/fixtures/engine/compare-20260929.lua,
+-- extracted unedited from the owner's SavedVariables): floored, k on armour
+-- and on tier is the same on all three documents to within a few percent;
+-- unfloored it is not. Every k below was read from tools/engine/
+-- percent-scale.js's output over the same rows, to three decimals.
+describe("EngineCompare floors ours at the Upgrade Finder's 0", function()
+    local ns
+    local Stored = dofile("spec/fixtures/engine/compare-20260929.lua")
+    before_each(function()
+        ns = H.load()
+    end)
+    after_each(function()
+        H.unload()
+    end)
+
+    local function metricsOf(doc, floored)
+        local rows = {}
+        for i, r in ipairs(Stored[doc].rows) do
+            local ours = floored and ns.EngineCompare.UFOurs(r.ours) or r.ours
+            rows[i] = { key = r.key, slot = r.slot, class = r.class, ours = ours, theirs = r.theirs }
+        end
+        return ns.EngineCompare.ClassMetrics(rows)
+    end
+
+    local function near(expected, actual, what)
+        assert.is_number(actual, what)
+        assert.is_true(
+            math.abs(expected - actual) < 0.0005,
+            string.format("%s: expected %.3f, got %.6f", what, expected, actual)
+        )
+    end
+
+    it("floors a negative percent at 0 and leaves the rest alone", function()
+        assert.equal(0, ns.EngineCompare.UF_FLOOR)
+        assert.equal(0, ns.EngineCompare.UFOurs(-0.5))
+        assert.equal(0.3, ns.EngineCompare.UFOurs(0.3))
+        assert.equal(0, ns.EngineCompare.UFOurs(0))
+    end)
+
+    it("reads the stored run's band-dependent k unfloored", function()
+        near(0.462, metricsOf("Dungeon 6", false).tier.k, "+6 tier")
+        near(0.694, metricsOf("Dungeon 6", false).armour.k, "+6 armour")
+        near(1.420, metricsOf("Dungeon 10", false).tier.k, "+10 tier")
+        near(1.080, metricsOf("Dungeon 10", false).armour.k, "+10 armour")
+        near(1.444, metricsOf("Raid", false).tier.k, "Raid tier")
+        near(1.071, metricsOf("Raid", false).armour.k, "Raid armour")
+    end)
+
+    it("floored, gives one k per class on every document", function()
+        near(1.458, metricsOf("Dungeon 6", true).tier.k, "+6 tier")
+        near(1.114, metricsOf("Dungeon 6", true).armour.k, "+6 armour")
+        near(1.430, metricsOf("Dungeon 10", true).tier.k, "+10 tier")
+        near(1.106, metricsOf("Dungeon 10", true).armour.k, "+10 armour")
+        near(1.484, metricsOf("Raid", true).tier.k, "Raid tier")
+        near(1.137, metricsOf("Raid", true).armour.k, "Raid armour")
+        for _, class in ipairs({ "tier", "armour" }) do
+            local lo, hi, sum = math.huge, -math.huge, 0
+            for _, doc in ipairs({ "Dungeon 6", "Dungeon 10", "Raid" }) do
+                local k = metricsOf(doc, true)[class].k
+                lo, hi, sum = math.min(lo, k), math.max(hi, k), sum + k
+            end
+            -- The bar's own k spread ((hi - lo) / mean <= 10%, Verdicts') holds
+            -- across the three bands.
+            assert.is_true((hi - lo) / (sum / 3) <= ns.EngineCompare.BAR.kSpread, class)
         end
     end)
 end)

@@ -54,6 +54,17 @@
 --     (E-1a). The worn set's value is printed beside it.
 --   * Both are UNSCALED: Top Gear's constant 1.5 is not divided out. MAE is
 --     reported raw and after k, the least-squares scale of ours onto theirs.
+--   * The Upgrade Finder's floor (E-0j, WKE-681): an Upgrade Finder row never
+--     reads below 0 - its Top Gear keeps the worn set when the drop is worse
+--     (fork UpgradeFinderEngine.js:361-373), so 1843 of the 4730 rows in the
+--     14 documents read so far are exactly 0 and none is negative. Our percent
+--     is not floored, so before E-0j every censored row paired a negative ours
+--     with a 0 theirs, k (sum ours*theirs / sum ours^2) shrank by the share of
+--     such rows, and that share is set by the band: most +6 drops are below
+--     the worn set, few +10 or raid drops are. Every Upgrade Finder row now
+--     compares ours FLOORED the same way (EngineCompare.UFOurs, UF_FLOOR) and
+--     keeps the unfloored percent as `raw`. Top Gear rows are not floored:
+--     theirs is negative there for a worse alternative.
 --   * Effects (E-3a, WKE-679): a row whose swap moves an item the effects
 --     table carries without a model (every entry today) is `not rated` and
 --     LEFT OUT of every metric - counted, and named under the count with
@@ -88,6 +99,8 @@ EngineCompare.FUNCTION_NAMES = {
 
 -- The metrics' fixed numbers (docs/OWN-ENGINE.md section 6).
 EngineCompare.DEAD_ZONE = 0.1 -- |theirs| below this is a tie for the sign
+-- The lowest an Upgrade Finder row reads (E-0j): ours is floored here too.
+EngineCompare.UF_FLOOR = 0
 EngineCompare.TOP1_WITHIN = 0.1 -- our pick within this many points of their best
 EngineCompare.MIN_RHO_N = 5 -- no Spearman under this many rows
 EngineCompare.WEEKS_KEPT = 12
@@ -243,6 +256,15 @@ function EngineCompare.Spearman(xs, ys)
         return nil
     end
     return sxy / math.sqrt(sxx * syy)
+end
+
+-- UFOurs(percent) -> the percent an Upgrade Finder row compares: ours
+-- floored at UF_FLOOR, as the Upgrade Finder floors theirs (E-0j, WKE-681).
+function EngineCompare.UFOurs(percent)
+    if percent < EngineCompare.UF_FLOOR then
+        return EngineCompare.UF_FLOOR
+    end
+    return percent
 end
 
 -- k minimising sum (theirs - k * ours)^2, or nil when ours is all zero.
@@ -774,7 +796,10 @@ function EngineCompare.CompareUF(inputs, worn)
                     key = pair.entry.key,
                     slot = slot,
                     class = EngineCompare.CLASS_OF_SLOT[slot] or "other",
-                    ours = percent,
+                    -- Floored as the Upgrade Finder floors theirs (E-0j);
+                    -- the unfloored percent is kept as `raw`.
+                    ours = EngineCompare.UFOurs(percent),
+                    raw = percent,
                     theirs = pair.entry.upgradePercent * sign,
                     -- The link the read was made from: the rebuilt one under
                     -- REBUILD_AT_LEVEL, the walk's own otherwise.
