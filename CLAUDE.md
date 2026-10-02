@@ -12,7 +12,8 @@ QE Live's `qe-live-droptimizer` v1 export, transported unchanged. Lootpath
 scans, walks the journal, matches, and displays. If a gap tempts you to
 estimate, stop. **One scoped exception, decided 2026-09-30 (ARCHITECTURE.md
 §7, E-0; `docs/OWN-ENGINE.md`):** the developer-only engine modules
-(`EngineStats`, `EngineScore`, `EngineCompare`, `Data/EngineWeights.lua`)
+(`EngineStats`, `EngineScore`, `EngineCompare`, `EngineEffects`, `EngineSearch`,
+`Data/EngineWeights.lua`, `Data/EngineEffects.lua`)
 may compute a value BESIDE QE Live's, behind `db.global.developer.engine`,
 on no player surface and never in a list with QE Live's numbers, to measure
 parity. The rule above still governs every surface a player sees.
