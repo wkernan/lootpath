@@ -1521,7 +1521,10 @@ describe("EngineCompare floors ours at the Upgrade Finder's 0", function()
 
     local function near(expected, actual, what)
         assert.is_number(actual, what)
-        assert.is_true(math.abs(expected - actual) < 0.0005, string.format("%s: expected %.3f, got %.6f", what, expected, actual))
+        assert.is_true(
+            math.abs(expected - actual) < 0.0005,
+            string.format("%s: expected %.3f, got %.6f", what, expected, actual)
+        )
     end
 
     it("floors a negative percent at 0 and leaves the rest alone", function()
