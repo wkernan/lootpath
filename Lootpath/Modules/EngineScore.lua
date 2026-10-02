@@ -572,10 +572,20 @@ local function slotIndices(worn, slot)
     return out
 end
 
+-- The slots worn in pairs. A pair never holds two copies of one item (E-0l,
+-- WKE-683): QE Live's Top Gear drops every set whose ring pair or trinket pair
+-- shares an item ID (fork TopGearEngine.ts:415-420 rings, :428 trinkets), so
+-- a candidate whose itemID a worn ring or trinket carries takes only that
+-- copy's place. Before this rule a lower copy of a worn ring took the OTHER
+-- ring's place and read as an upgrade the Upgrade Finder never offers
+-- (252258@305 beside the worn 252258@321: ours 0.282, theirs 0).
+local PAIRED = { Finger = true, [TRINKET] = true }
+
 -- Every set the candidate makes by taking a slot it fits: either ring, either
--- trinket, the two-hander's place or both hands for a two-hander. A
--- one-hander or an off-hand beside a worn two-hander makes none: it needs a
--- partner the comparison does not add (E-0e's score.js does the same).
+-- trinket (only the worn copy's place when the pair already holds the same
+-- item), the two-hander's place or both hands for a two-hander. A one-hander
+-- or an off-hand beside a worn two-hander makes none: it needs a partner the
+-- comparison does not add (E-0e's score.js holds the same rules).
 function EngineScore.Placements(worn, candidate)
     local out = {}
     local function swap(replaced)
@@ -616,6 +626,17 @@ function EngineScore.Placements(worn, candidate)
         end
     end
     local same = slotIndices(worn, slot)
+    if PAIRED[slot] and candidate.itemID ~= nil then
+        local twins = {}
+        for _, i in ipairs(same) do
+            if worn[i].itemID == candidate.itemID then
+                twins[#twins + 1] = i
+            end
+        end
+        if #twins > 0 then
+            same = twins
+        end
+    end
     if #same > 0 then
         for _, i in ipairs(same) do
             swap({ i })
