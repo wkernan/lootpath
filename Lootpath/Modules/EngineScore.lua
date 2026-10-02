@@ -574,7 +574,7 @@ end
 
 -- The slots worn in pairs. A pair never holds two copies of one item (E-0l,
 -- WKE-683): QE Live's Top Gear drops every set whose ring pair or trinket pair
--- shares an item ID (fork TopGearEngine.ts:415-420 rings, :427 trinkets), so
+-- shares an item ID (fork TopGearEngine.ts:415-420 rings, :428 trinkets), so
 -- a candidate whose itemID a worn ring or trinket carries takes only that
 -- copy's place. Before this rule a lower copy of a worn ring took the OTHER
 -- ring's place and read as an upgrade the Upgrade Finder never offers

@@ -166,7 +166,8 @@ Jan'thrazet 271092, Aqirbane Reliquary 268265, Polished Lightwood Channeler
 ## The model and the fit
 
 `lib/score.js` is E-0c's contract: totals over the worn set with the row's item
-swapped in (either ring, either trinket, a two-hander for both hands; a
+swapped in (either ring, either trinket - only the worn copy's place when the pair
+already holds the same item ID, E-0l -, a two-hander for both hands; a
 one-hander or off-hand beside a worn two-hander is not comparable), plus the
 assumed finish; DR after the sum; `value = (base + w_int·int + Σ w_r·pct_r) ×
 tier`, tier forced on; `percent = 100 × (V(with) − V(worn)) / V(worn)`, the best
@@ -338,4 +339,41 @@ client's item info, the catalyst source from link modifier 64) and the offset
 per slot that brings each row to armour's k. With `--stats` it also refits each
 measured document's band IN SAMPLE (offline stats, as `percent-scale.js`
 reads them) beside the dev band. `test/probe-tier.test.js` pins the figures on
+
+## probe-jewellery.js - why jewellery misses where armour hits (E-0l, WKE-683)
+
+```powershell
+node probe-jewellery.js `
+  --stats ..\..\spec\fixtures\captures\Lootpath-20260915-162015.lua `
+  --stats ..\..\spec\fixtures\captures\Lootpath-20260916-152428.lua `
+  --stats ..\..\spec\fixtures\captures\Lootpath-20261001-092631.lua `
+  --stats ..\..\spec\fixtures\captures\Lootpath-20261001-200927.lua `
+  --key-levels 1=2,2=4,4=6,6=8,7=10 `
+  --compare ..\..\spec\fixtures\captures\Lootpath-20261002-112757.lua `
+  --week 2026-09-29 --char "Hotornot - Arthas" `
+  ..\..\spec\fixtures\qe
+```
+
+Reads the rows a real compare STORED (week one's, PR #313) and the worn set
+from the same file's inventory snapshot `--inventory` (default 4), fits the
+bands as `fit-weights.js` does, and prints:
+
+- **reproduce** - every stored row whose candidate link a transcript read,
+  re-scored against its stored `raw`; every stored block's metrics recomputed
+  from its rows through a line-for-line port of `EngineCompare.Metrics` (the
+  test holds the port's fixed numbers equal to the compare's);
+- **recover** - the client's stat vector of each jewellery row stored in two
+  or more documents. Each document scored the same link with another band's
+  weights, so for each pair of secondaries a least-squares fit on the two
+  amounts either meets every stored raw (rms below 1e-5, the amounts whole
+  numbers) or misses by 1e-3 and more; the row a transcript read checks it.
+  A row in one document only is one equation and is not identified;
+- **the four suspects**, jewellery per band (n, ρ, top-1, sign, MAE, k,
+  MAE@k): (1) the parity mode's gem term zeroed; (2) the pair rule - a drop
+  whose itemID a worn ring or trinket carries takes only that copy's place;
+  (3) the mix, on the rows read or recovered: the band's four secondary
+  weights set to their mean, and the bands refitted with the recovered vectors
+  added as client points; (4) every row's read level against its key's.
+
+It changes nothing it reads. `test/probe-jewellery.test.js` pins its figures on
 the committed files.

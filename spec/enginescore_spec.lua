@@ -771,7 +771,7 @@ describe("ns.EngineScore.UpgradePercent", function()
     end)
 
     -- E-0l (WKE-683): QE Live's Top Gear never pairs two copies of one item
-    -- (fork TopGearEngine.ts:415-420 rings, :427 trinkets). Week one's +6
+    -- (fork TopGearEngine.ts:415-420 rings, :428 trinkets). Week one's +6
     -- compare scored 252258@305 over the OTHER ring, beside the worn
     -- 252258@321, and read 0.282 where the Upgrade Finder reads 0.
     it("lets a copy of a worn ring or trinket take only that copy's place", function()
