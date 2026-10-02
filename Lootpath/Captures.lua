@@ -36,6 +36,13 @@
 -- sockets, set ID and uniqueness for worn, bag, vault and CACHED journal links,
 -- and the client's rating conversion for values the character does not have.
 -- It opens no window and changes no view; the full list is above it.
+--
+-- `effects` (E-3b, WKE-684) is purely a read too: the tooltip of every item in
+-- the effects table (Data/EngineEffects.lua), for every CACHED journal row and
+-- every owned copy that carries it, at the walk's level, at the link's own
+-- level and at one more track step. It never touches the Adventure Guide: the
+-- links are already cached, and an item whose data is not is waited on
+-- through ns.ItemData.Watch, never by opening anything.
 
 local _, ns = ...
 
@@ -2116,6 +2123,494 @@ ns.RegisterCapture(
             end
             finish(data)
         end)
+    end,
+    { async = true }
+)
+
+-- effects (E-3b, WKE-684): what the client's tooltip says about every item the
+-- effects table carries (Data/EngineEffects.lua, E-3a: 25 trinkets and four
+-- armour / weapon pieces, every one `not_modelled` with `params = nil`), at
+-- the level each row is valued at. The table's numbers - a proc's amount,
+-- duration, cooldown, targets - are in the "Use:" / "Equip:" text and nowhere
+-- else the client answers; this capture records that text and decides nothing.
+-- tools/engine/extract-effects.js turns the transcript into one record per
+-- item per level; a later issue (E-3c) fills `params` from it.
+--
+-- The targets, per itemID in `ns.engineEffects.items` (ascending):
+--   * every cached journal row that carries the ID, at every level the walk
+--     listed it at (`source = "journal"`), out of every `journalCache` entry
+--     `capture journal` left behind, once per link and level;
+--   * every owned copy `ns.Inventory.Scan` finds - worn, bags, and the bank
+--     while it is open (`source = "owned"`).
+-- The reads, per target (`reads[i]`, each with the link it read):
+--   * `walk` (journal rows) - the link REBUILT at the walk's level through
+--     `ns.EngineStats.LinkAtLevel` (the installed `track-append` rule, E-0g
+--     step 2). This is the read that answers at the level the row is valued
+--     at: the kept link answers at whatever level the Adventure Guide's
+--     CURRENT view implies (ARCHITECTURE.md section 7, E-0g step 2). A level
+--     no step draws (the world rows' 44) has no rebuilt link, and says why;
+--   * `kept` - the link exactly as the walk kept it or as the bag holds it.
+--     For an owned item that is its own level; for a journal row it is
+--     whatever the client answers now, recorded beside the other two;
+--   * `next` - the link rebuilt one track step away (the next step up on the
+--     track that draws the row's level, or the one below at a track's top),
+--     so the transcript says whether a proc's NUMBER follows the item level
+--     (docs/OWN-ENGINE.md section 3, the trinket-effects row's (iv)).
+-- For every read: `GetDetailedItemLevelInfo`, and every tooltip line's
+-- `type`, `leftText` and `rightText`, unchanged; the Item Level line (type 31)
+-- and the Upgrade Level line (32) are picked out by TYPE, as `capture
+-- linklevel` does. The effect line is NOT picked out here: the one committed
+-- "Use:" line is type 44 (spec/fixtures/captures/Lootpath-20261001-092631.lua),
+-- a type the annotations' Enum.TooltipDataLineType does not list (it ends at
+-- UsageRequirement = 43 under .luals/), and no committed line says what type
+-- an "Equip:" text has - so every line is kept and the extractor reads text.
+--
+-- Every tooltip is read TWICE: once when the item data is in, and `again`
+-- `ns.EFFECTS_REREAD_SECONDS` later. Of the six trinket tooltips the itemstats
+-- transcript read once, only Freightrunner's Flask carried its "Use:" line;
+-- Stormbound Emblem of Dazar, Ruby Whelp Shell, Seed of Radiant Hope and
+-- Mycolic Medicine - all effect items in the table - carried none
+-- (ARCHITECTURE.md section 11, E-3a). Whether the effect text arrives after a
+-- first ask, the way item data does, is unknown (iv); the two reads side by
+-- side are what settle it, and nothing here assumes either answer.
+--
+-- Not the Adventure Guide: nothing here selects an instance, a difficulty, a
+-- loot filter or a keystone level, and no Encounter Journal call is made,
+-- directly or through a module. CLAUDE.md's capture exceptions are
+-- unchanged. Items whose data is not cached are asked for once per item ID
+-- through `ns.ItemData.Watch` and waited on for at most
+-- `ns.EFFECTS_WAIT_SECONDS` in all; a row still uncached is read anyway and
+-- says so. Refused in combat by ns.RunCapture; combat during either wait
+-- stores nothing. Refused with `ns.EFFECTS_NO_TABLE` when the effects table did not
+-- load, with `ns.EFFECTS_NO_JOURNAL` when no cached journal row has a link,
+-- and with `ns.EFFECTS_NONE` when no table item is in the walk or owned.
+--
+-- Every client function this section calls, with its exported documentation
+-- line (Ketho's annotations under .luals/, Blizzard_APIDocumentationGenerated/):
+--
+--   ItemDocumentation.lua:126        C_Item.GetDetailedItemLevelInfo(itemInfo)
+--   ItemDocumentation.lua:545        C_Item.IsItemDataCachedByID(itemInfo) -> isCached
+--   TooltipInfoDocumentation.lua:121 C_TooltipInfo.GetHyperlink(hyperlink, ...) -> TooltipData
+--                                      (Type/Structure.lua:52 TooltipDataLine: type,
+--                                      leftText, rightText, ...)
+--
+-- and through the addon's own modules, in EFFECTS_MODULE_READS:
+-- `ns.Inventory.Scan` (the inventory capture's reader), `ns.ItemData.*` (which
+-- names its client calls in ItemData.FUNCTION_NAMES) and four functions of
+-- `ns.EngineStats` that parse a link, rebuild it and read the shipped track
+-- table - they ask the client nothing. Nothing is found by walking a namespace.
+local EFFECTS_FUNCTION_NAMES = {
+    "C_Item.GetDetailedItemLevelInfo",
+    "C_Item.IsItemDataCachedByID",
+    "C_TooltipInfo.GetHyperlink",
+}
+ns.EFFECTS_FUNCTION_NAMES = EFFECTS_FUNCTION_NAMES
+
+local EFFECTS_MODULE_READS = {
+    "ns.EngineStats.LinkAtLevel",
+    "ns.EngineStats.LinkFields",
+    "ns.EngineStats.LinkLevelRuleName",
+    "ns.EngineStats.TrackBonusesAt",
+    "ns.Inventory.Scan",
+    "ns.ItemData.Cancel",
+    "ns.ItemData.IsCached",
+    "ns.ItemData.Watch",
+}
+ns.EFFECTS_MODULE_READS = EFFECTS_MODULE_READS
+
+-- The wait bound, as `capture itemstats` has it; the pause before the second
+-- read of every tooltip; and the two line types picked out of each read.
+ns.EFFECTS_WAIT_SECONDS = 3
+ns.EFFECTS_REREAD_SECONDS = 2
+ns.EFFECTS_LINE_ITEM_LEVEL = 31
+ns.EFFECTS_LINE_UPGRADE_LEVEL = 32
+
+ns.EFFECTS_NO_TABLE = "needs the effects table (Data/EngineEffects.lua), which did not load"
+ns.EFFECTS_NO_JOURNAL = ns.ITEMSTATS_NO_JOURNAL
+ns.EFFECTS_NONE = "found no item of the effects table in the cached walk or in your bags"
+ns.EFFECTS_COMBAT = "stopped: combat started while it waited for item data; nothing stored"
+ns.EFFECTS_COMBAT_REREAD = "stopped: combat started before the second read; nothing stored"
+
+-- One tooltip's lines: `type`, `leftText` and `rightText`, raw. A secret at
+-- any level is stored as itself, so ns.CopyRaw masks it and the snapshot's
+-- `sawSecret` says so; nothing is indexed through one.
+local function effectsLines(read, probe)
+    local data = ns.Safe(probe[1])
+    if type(data) ~= "table" then
+        read.tooltipData = probe
+        return
+    end
+    local lines = ns.Safe(data.lines)
+    if type(lines) ~= "table" then
+        read.tooltipLines = data.lines
+        return
+    end
+    read.tooltipLines = {}
+    for i, line in ipairs(lines) do
+        if type(ns.Safe(line)) == "table" then
+            read.tooltipLines[i] = { type = line.type, leftText = line.leftText, rightText = line.rightText }
+            local lineType = ns.Safe(line.type)
+            if lineType == ns.EFFECTS_LINE_ITEM_LEVEL and read.itemLevelLine == nil then
+                read.itemLevelLine = line.leftText
+            elseif lineType == ns.EFFECTS_LINE_UPGRADE_LEVEL and read.upgradeLevelLine == nil then
+                read.upgradeLevelLine = line.leftText
+            end
+        else
+            read.tooltipLines[i] = line
+        end
+    end
+end
+
+-- One read of one link. `read` arrives with its rule, the level asked for and
+-- the link (or why there is none); the client's answers are added to it.
+local function effectsRead(read)
+    if type(read.link) ~= "string" then
+        return read
+    end
+    local I = C_Item or {}
+    read.detailedLevel = ns.Probe(I.GetDetailedItemLevelInfo, read.link)
+    effectsLines(read, ns.Probe(C_TooltipInfo and C_TooltipInfo.GetHyperlink, read.link))
+    return read
+end
+
+-- The second read of one link's tooltip, beside the first (`read.again`).
+local function effectsReadAgain(read)
+    if type(read.link) ~= "string" then
+        return
+    end
+    read.again = {}
+    effectsLines(read.again, ns.Probe(C_TooltipInfo and C_TooltipInfo.GetHyperlink, read.link))
+end
+
+-- Every bonus ID of the shipped track table, as { track, step, steps } - data
+-- the addon ships (Data/TrackBonusIDs.lua), read without a call.
+local function trackSteps()
+    local byBonus = {}
+    local data = ns.trackBonusIDs
+    for _, track in ipairs(type(data) == "table" and data.tracks or {}) do
+        for step, entry in ipairs(track.steps or {}) do
+            byBonus[entry.bonusID] = { track = track.name, step = step, steps = track.steps }
+        end
+    end
+    return byBonus
+end
+
+-- The one more level: the track step that draws `level` - the one the link
+-- already carries when it carries one, else the first `TrackBonusesAt` names,
+-- the step `TrackRule` appends - and the step above it on the same track, or
+-- the one below at the track's top. nil and why when no step draws `level`.
+local function nextTrackLevel(link, level, byBonus)
+    local here
+    local parsed = ns.EngineStats.LinkFields(link)
+    for _, id in ipairs(parsed and parsed.bonusIDs or {}) do
+        local entry = byBonus[id]
+        if entry and entry.steps[entry.step].itemLevel == level then
+            here = entry
+        end
+    end
+    if not here then
+        local first = ns.EngineStats.TrackBonusesAt(level)[1]
+        here = first and byBonus[first.bonusID] or nil
+    end
+    if not here then
+        return nil, "no track step draws " .. tostring(level)
+    end
+    local up, down = here.steps[here.step + 1], here.steps[here.step - 1]
+    local to = up or down
+    if not to then
+        return nil, "the " .. tostring(here.track) .. " track has one step"
+    end
+    return {
+        level = to.itemLevel,
+        track = here.track,
+        fromStep = here.step,
+        toStep = up and here.step + 1 or here.step - 1,
+        direction = up and "up" or "down",
+    }
+end
+
+-- A rebuilt read: the link LinkAtLevel makes for `level`, or the reason it
+-- makes none.
+local function rebuiltRead(rule, link, level)
+    local rebuilt, why = ns.EngineStats.LinkAtLevel(link, level)
+    return { rule = rule, level = level, link = rebuilt, why = (not rebuilt) and why or nil }
+end
+
+-- Every cached journal row that carries a table item, once per link and
+-- level, in a fixed order (journalRowBefore, then the level). Also counts
+-- every row with a link, whatever item, so an empty cache refuses.
+local function effectsJournalRows(cache, wanted)
+    local rows, seen, entries, withLink = {}, {}, {}, 0
+    if type(cache) ~= "table" then
+        return rows, { cacheEntries = entries, rowsWithLink = 0 }
+    end
+    local keys = {}
+    for key in pairs(cache) do
+        keys[#keys + 1] = tostring(key)
+    end
+    table.sort(keys)
+    for _, key in ipairs(keys) do
+        local entry = cache[key]
+        if type(entry) == "table" and type(entry.sources) == "table" then
+            entries[#entries + 1] = { key = key, build = entry.build, walkAt = entry.walkAt }
+            for itemID, list in pairs(entry.sources) do
+                local id = tonumber(itemID)
+                for _, row in ipairs(type(list) == "table" and list or {}) do
+                    local link = type(row) == "table" and row.link or nil
+                    if type(link) == "string" and link ~= "" then
+                        withLink = withLink + 1
+                        local seenKey = link .. "@" .. tostring(row.itemLevel)
+                        if id and wanted[id] and not seen[seenKey] then
+                            seen[seenKey] = true
+                            rows[#rows + 1] = {
+                                link = link,
+                                itemID = id,
+                                instanceID = row.instanceID,
+                                instanceName = row.instanceName,
+                                encounterID = row.encounterID,
+                                difficultyID = row.difficultyID,
+                                itemLevel = row.itemLevel,
+                                slot = row.slot,
+                                isRaid = row.isRaid,
+                                cacheKey = key,
+                            }
+                        end
+                    end
+                end
+            end
+        end
+    end
+    table.sort(rows, function(a, b)
+        if a.link == b.link then
+            return num(a.itemLevel) < num(b.itemLevel)
+        end
+        return journalRowBefore(a, b)
+    end)
+    return rows, { cacheEntries = entries, rowsWithLink = withLink }
+end
+
+-- The targets, grouped by table item (ascending itemID), before anything is
+-- read; and the table items found nowhere.
+local function effectsTargets(tableItems, journalRows, inventory)
+    local ids = {}
+    for itemID in pairs(tableItems) do
+        if type(itemID) == "number" then
+            ids[#ids + 1] = itemID
+        end
+    end
+    table.sort(ids)
+    local byID, items, missing = {}, {}, {}
+    for _, itemID in ipairs(ids) do
+        local entry = type(tableItems[itemID]) == "table" and tableItems[itemID] or {}
+        byID[itemID] = { itemID = itemID, name = entry.name, slot = entry.slot, kind = entry.kind, targets = {} }
+    end
+    for _, row in ipairs(journalRows) do
+        table.insert(byID[row.itemID].targets, {
+            source = "journal",
+            link = row.link,
+            walkLevel = row.itemLevel,
+            instanceID = row.instanceID,
+            instanceName = row.instanceName,
+            encounterID = row.encounterID,
+            difficultyID = row.difficultyID,
+            slot = row.slot,
+            isRaid = row.isRaid,
+            cacheKey = row.cacheKey,
+        })
+    end
+    for _, record in ipairs(type(inventory) == "table" and inventory.records or {}) do
+        local item = byID[record.itemID]
+        if item then
+            table.insert(item.targets, {
+                source = "owned",
+                link = record.link,
+                location = record.location,
+                bag = record.bag,
+                slotIndex = record.slotIndex,
+                slot = record.slot,
+                ownedLevel = record.itemLevel,
+            })
+        end
+    end
+    for _, itemID in ipairs(ids) do
+        local item = byID[itemID]
+        if #item.targets > 0 then
+            items[#items + 1] = item
+        else
+            missing[#missing + 1] = { itemID = itemID, name = item.name }
+        end
+    end
+    return items, missing
+end
+
+-- Every read of one target, once the wait is over: `walk` (journal rows only),
+-- `kept`, `next`, in that order.
+local function effectsReadTarget(target, byBonus)
+    local reads = {}
+    if target.source == "journal" then
+        reads[#reads + 1] = effectsRead(rebuiltRead("walk", target.link, target.walkLevel))
+    end
+    local kept = effectsRead({ rule = "kept", link = target.link })
+    reads[#reads + 1] = kept
+    -- The level the next step is counted from: the walk's for a journal row
+    -- (the level it is valued at), the client's own answer for an owned one.
+    local fromLevel = target.walkLevel
+    if target.source ~= "journal" then
+        fromLevel = ns.Safe(kept.detailedLevel and kept.detailedLevel[1])
+        if type(fromLevel) ~= "number" then
+            fromLevel = target.ownedLevel
+        end
+    end
+    local step, why
+    if type(fromLevel) == "number" then
+        step, why = nextTrackLevel(target.link, fromLevel, byBonus)
+    else
+        why = "no level to step from"
+    end
+    if step then
+        local read = rebuiltRead("next", target.link, step.level)
+        read.fromLevel = fromLevel
+        read.track = step.track
+        read.fromStep = step.fromStep
+        read.toStep = step.toStep
+        read.direction = step.direction
+        reads[#reads + 1] = effectsRead(read)
+    else
+        reads[#reads + 1] = { rule = "next", fromLevel = fromLevel, why = why }
+    end
+    target.reads = reads
+end
+
+ns.RegisterCapture(
+    "effects",
+    "the tooltip of every effects-table item in the cached walk and your bags, at the walk's level, "
+        .. "its own and one track step more (async; reads only)",
+    function(finish)
+        local effects = ns.engineEffects
+        if type(effects) ~= "table" or type(effects.items) ~= "table" then
+            return finish(nil, ns.EFFECTS_NO_TABLE)
+        end
+        local cache = ns.db and ns.db.global and ns.db.global.journalCache or nil
+        local journalRows, journal = effectsJournalRows(cache, effects.items)
+        if journal.rowsWithLink == 0 then
+            return finish(nil, ns.EFFECTS_NO_JOURNAL)
+        end
+        local inventory = ns.Inventory.Scan()
+        local items, missing = effectsTargets(effects.items, journalRows, inventory)
+        if #items == 0 then
+            return finish(nil, ns.EFFECTS_NONE)
+        end
+        journal.rowsTaken = #journalRows
+        local trackData = ns.trackBonusIDs
+        local data = {
+            functionNames = EFFECTS_FUNCTION_NAMES,
+            moduleReads = EFFECTS_MODULE_READS,
+            effectsTable = {
+                schema = effects.schema,
+                version = effects.version,
+                patch = effects.patch,
+                derivedAt = effects.derivedAt,
+            },
+            trackTable = type(trackData) == "table" and { build = trackData.build, source = trackData.source } or nil,
+            linkLevelRule = ns.EngineStats.LinkLevelRuleName(),
+            lineTypes = { itemLevel = ns.EFFECTS_LINE_ITEM_LEVEL, upgradeLevel = ns.EFFECTS_LINE_UPGRADE_LEVEL },
+            journal = journal,
+            inventory = {
+                ok = type(inventory) == "table" and inventory.ok or nil,
+                reason = type(inventory) == "table" and inventory.reason or nil,
+                records = type(inventory) == "table" and type(inventory.records) == "table" and #inventory.records or 0,
+                bankAvailable = type(inventory) == "table" and inventory.bankAvailable or nil,
+            },
+            waitSeconds = ns.EFFECTS_WAIT_SECONDS,
+            items = items,
+            missing = missing,
+        }
+
+        -- Ask for what is not cached, once per item ID, and wait for at most
+        -- the bound - `capture itemstats`' wait, unchanged.
+        local waiting, handles, pending, done = {}, {}, 0, false
+        local function readAll(timedOut)
+            if done then
+                return
+            end
+            done = true
+            for _, handle in ipairs(handles) do
+                ns.ItemData.Cancel(handle)
+            end
+            if InCombatLockdown() then
+                return finish(nil, ns.EFFECTS_COMBAT)
+            end
+            data.waitTimedOut = timedOut
+            data.stillWaiting = pending
+            local byBonus = trackSteps()
+            for _, item in ipairs(items) do
+                local state = waiting[item.itemID]
+                if state then
+                    item.waited = true
+                    item.gaveUp = not state.resolved
+                end
+                item.cachedAtRead = ns.Probe(C_Item and C_Item.IsItemDataCachedByID, item.itemID)
+                for _, target in ipairs(item.targets) do
+                    effectsReadTarget(target, byBonus)
+                end
+            end
+            -- The second read of every tooltip, after the pause.
+            local function readAgain()
+                if InCombatLockdown() then
+                    return finish(nil, ns.EFFECTS_COMBAT_REREAD)
+                end
+                for _, item in ipairs(items) do
+                    for _, target in ipairs(item.targets) do
+                        for _, read in ipairs(target.reads) do
+                            effectsReadAgain(read)
+                        end
+                    end
+                end
+                finish(data)
+            end
+            data.rereadSeconds = ns.EFFECTS_REREAD_SECONDS
+            if C_Timer and C_Timer.After then
+                C_Timer.After(ns.EFFECTS_REREAD_SECONDS, readAgain)
+            else
+                readAgain()
+            end
+        end
+        local function settleOne()
+            pending = pending - 1
+            if pending == 0 then
+                readAll(false)
+            end
+        end
+
+        for _, item in ipairs(items) do
+            local id = item.itemID
+            item.cachedBefore = ns.Probe(C_Item and C_Item.IsItemDataCachedByID, id)
+            if ns.Safe(item.cachedBefore[1]) ~= true and not waiting[id] then
+                local state = {}
+                waiting[id] = state
+                pending = pending + 1
+                handles[#handles + 1] = ns.ItemData.Watch(id, function(itemID)
+                    local cached = ns.Safe(ns.Probe(C_Item and C_Item.IsItemDataCachedByID, itemID)[1])
+                    if cached ~= true and not ns.ItemData.IsCached(itemID) then
+                        return false
+                    end
+                    state.resolved = true
+                    settleOne()
+                    return true
+                end, settleOne)
+            end
+        end
+        data.requested = pending
+        if pending == 0 then
+            return readAll(false)
+        end
+        if C_Timer and C_Timer.After then
+            C_Timer.After(ns.EFFECTS_WAIT_SECONDS, function()
+                readAll(true)
+            end)
+        else
+            readAll(true)
+        end
     end,
     { async = true }
 )

@@ -471,16 +471,27 @@ describe("capture journal", function()
 
     -- It is the LAST capture now: R-0's `spike` registered after it until R-2
     -- (WKE-563) built the surface it was measuring for and deleted it.
-    -- E-0a's `itemstats` (WKE-675) and then E-0g's `linklevel` (WKE-677)
-    -- register at the end of Captures.lua, so they sit between `upgrade` and
-    -- this one.
-    it("is registered after env, inventory, vault, currencies, glow, upgrade, itemstats and linklevel", function()
-        assert.same(
-            { "env", "inventory", "vault", "currencies", "glow", "upgrade", "itemstats", "linklevel", "journal" },
-            ns.captureOrder
-        )
-        assert.is_true(ns.captures.journal.async)
-    end)
+    -- E-0a's `itemstats` (WKE-675), E-0g's `linklevel` (WKE-677) and E-3b's
+    -- `effects` (WKE-684) register at the end of Captures.lua, so they sit
+    -- between `upgrade` and this one.
+    it(
+        "is registered after env, inventory, vault, currencies, glow, upgrade, itemstats, linklevel and effects",
+        function()
+            assert.same({
+                "env",
+                "inventory",
+                "vault",
+                "currencies",
+                "glow",
+                "upgrade",
+                "itemstats",
+                "linklevel",
+                "effects",
+                "journal",
+            }, ns.captureOrder)
+            assert.is_true(ns.captures.journal.async)
+        end
+    )
 
     it("reports itself pending and stores the snapshot when the walk finishes", function()
         local final, immediate = run()
