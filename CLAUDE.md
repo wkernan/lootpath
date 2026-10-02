@@ -87,7 +87,11 @@ already edited the shared checkout, move the work to a worktree first
 - Captures (`/lootpath capture <name>`) only read, with three recorded
   exceptions:
   `capture journal` sets the Adventure Guide's view state because the API has
-  no other way to ask for loot, and restores what it can (ARCHITECTURE.md §7);
+  no other way to ask for loot, and restores what it can (ARCHITECTURE.md §7) -
+  and since 2026-10-02 (E-0g, WKE-677, the owner's "merge") `capture linklevel`
+  does the same through the same walk and the same restore, because a
+  context-scaled journal link reads at a level the Guide's view may decide and
+  the only way to learn which is to read it while the Guide previews the row;
   `capture vault` **and once at login** call `C_WeeklyRewards.OnUIInteract()`,
   read on every `WEEKLY_REWARDS_UPDATE` for a bounded few seconds - settling on
   the read that carries rewards - and then call `CloseInteraction()` - always,
