@@ -18,22 +18,27 @@ describe("captures", function()
         H.unload()
     end)
 
-    it(
-        "registers env, inventory, vault, currencies, glow, upgrade, itemstats, linklevel and journal in that order",
-        function()
-            -- `journal` registers in Modules/Journal.lua, which the .toc loads
-            -- after this file, so it comes last. R-0's `spike` was the sixth and
-            -- went away with R-2 (WKE-563), which is the surface it measured;
-            -- `glow` is R-2a's (WKE-571) and `upgrade` M3-17's (WKE-574), and both
-            -- register here, at the end of this file; `itemstats` is E-0a's
-            -- (WKE-675) and registers after them; `linklevel` is E-0g's (WKE-677)
-            -- and registers after it.
-            assert.same(
-                { "env", "inventory", "vault", "currencies", "glow", "upgrade", "itemstats", "linklevel", "journal" },
-                ns.captureOrder
-            )
-        end
-    )
+    it("registers env to linklevel, then effects, then journal, in that order", function()
+        -- `journal` registers in Modules/Journal.lua, which the .toc loads
+        -- after this file, so it comes last. R-0's `spike` was the sixth and
+        -- went away with R-2 (WKE-563), which is the surface it measured;
+        -- `glow` is R-2a's (WKE-571) and `upgrade` M3-17's (WKE-574), and both
+        -- register here, at the end of this file; `itemstats` is E-0a's
+        -- (WKE-675) and registers after them; `linklevel` is E-0g's (WKE-677)
+        -- and registers after it; `effects` is E-3b's (WKE-684), after that.
+        assert.same({
+            "env",
+            "inventory",
+            "vault",
+            "currencies",
+            "glow",
+            "upgrade",
+            "itemstats",
+            "linklevel",
+            "effects",
+            "journal",
+        }, ns.captureOrder)
+    end)
 
     describe("env", function()
         it("records the build tuple raw", function()
@@ -1261,10 +1266,18 @@ describe("captures", function()
         end)
 
         it("registers after upgrade and before journal", function()
-            assert.same(
-                { "env", "inventory", "vault", "currencies", "glow", "upgrade", "itemstats", "linklevel", "journal" },
-                ns.captureOrder
-            )
+            assert.same({
+                "env",
+                "inventory",
+                "vault",
+                "currencies",
+                "glow",
+                "upgrade",
+                "itemstats",
+                "linklevel",
+                "effects",
+                "journal",
+            }, ns.captureOrder)
         end)
 
         it("refuses when no journal walk is cached, and reads nothing", function()
@@ -1981,8 +1994,11 @@ describe("captures linklevel", function()
     it("calls nothing in its source that its lists do not name, and nothing that acts", function()
         local source = assert(io.open("Lootpath/Captures.lua")):read("*a")
         local start = assert(source:find("-- linklevel (E-0g, WKE-677)", 1, true))
+        -- Up to the next capture's own section (E-3b's `effects`, which holds
+        -- itself to its own lists in its own test).
+        local stop = assert(source:find("-- effects (E-3b, WKE-684)", start, true))
         local code = {}
-        for line in source:sub(start):gmatch("[^\n]*") do
+        for line in source:sub(start, stop - 1):gmatch("[^\n]*") do
             code[#code + 1] = (line:gsub("%-%-.*$", ""))
         end
         local body = table.concat(code, "\n")
@@ -2016,6 +2032,571 @@ describe("captures linklevel", function()
         assert.is_true(modules > 0)
         for _, forbidden in ipairs({
             "EJ_",
+            "SetPreviewMythicPlusLevel",
+            "GetLootInfoByIndex",
+            "SetItemUpgradeFromLocation",
+            "UpgradeItem",
+            "OnUIInteract",
+            "RequestLoadItemDataByID",
+            "EquipItemByName",
+            "PickupContainerItem",
+        }) do
+            assert.is_nil(body:find(forbidden, 1, true), forbidden)
+        end
+    end)
+end)
+
+-- E-3b (WKE-684). `capture effects` reads the tooltip of every item in the
+-- effects table, for every cached journal row and owned copy that carries
+-- it, at the walk's level (the link rebuilt through EngineStats.LinkAtLevel),
+-- at the link as kept, and at one more track step - and decides nothing.
+-- The tooltip SHAPE is the client's, read from the six-tooltip transcript
+-- (spec/fixtures/captures/Lootpath-20261001-092631.lua, `capture itemstats`):
+-- typed lines 22 name, 0 the difficulty, 31 "Item Level N", 32 "Upgrade
+-- Level: ...", 20 binding, 0 "Unique-Equipped", 21 "Trinket", 0 "+N
+-- Intellect", 42 the other primaries, 1 " ", 44 the "Use:" text, 11 "". The
+-- Freightrunner's Flask lines at 276 and its link are that transcript's,
+-- verbatim; every other level, number and link is the tests' own. The
+-- `rightText` on the slot line is the tests' own too: the annotations name
+-- the field (Type/Structure.lua:52) and no committed line carries one.
+describe("captures effects", function()
+    local ns, world
+
+    local FLASK = 250215
+    local INSIGNIA = 250462
+    local FLASK_HEROIC = "|cnIQ3:|Hitem:250215::::::::90:105::2:1:3524:1:28:3024:::::|h[Freightrunner's Flask]|h|r"
+    local FLASK_KEYSTONE = "|cnIQ4:|Hitem:250215::::::::90:105::16:1:3524:1:28:1279:::::|h[Freightrunner's Flask]|h|r"
+    local INSIGNIA_WORLD = "|cnIQ4:|Hitem:250462::::::::90:105::5:1:3524::::::|h[Forgotten Farstrider's Insignia]|h|r"
+    -- Not in the effects table: a walk row the capture must not read.
+    local BOOTS = "|cnIQ4:|Hitem:268247::::::::90:105::5:1:3524:1:28:5850:::::|h[Breakwater Boots]|h|r"
+    -- An owned Flask on Hero 2/6 (12842, 308).
+    local FLASK_OWNED =
+        "|cnIQ4:|Hitem:250215::::::::90:105::16:2:12842:6652:1:28:1279:::::|h[Freightrunner's Flask]|h|r"
+
+    local DUNGEON, RAID_INSTANCE, MIDNIGHT = 1309, 1400, 1312
+
+    local function cacheRow(instanceID, name, encounterID, difficultyID, level, link, slot, isRaid)
+        return {
+            instanceID = instanceID,
+            instanceName = name,
+            encounterID = encounterID,
+            difficultyID = difficultyID,
+            itemLevel = level,
+            slot = slot,
+            isRaid = isRaid,
+            link = link,
+        }
+    end
+
+    local function seedCache()
+        ns.db.global.journalCache = {
+            ["69933|18|105|2:8:15:16:23"] = {
+                build = "69933",
+                walkAt = 2,
+                shape = 2,
+                summary = { previewMythicPlusLevel = 10 },
+                sources = {
+                    [FLASK] = {
+                        cacheRow(DUNGEON, "Vale", 2769, 2, 276, FLASK_HEROIC, "Trinket", false),
+                        cacheRow(DUNGEON, "Vale", 2769, 8, 305, FLASK_KEYSTONE, "Trinket", false),
+                    },
+                    [268247] = { cacheRow(RAID_INSTANCE, "Grotto", 2849, 15, 305, BOOTS, "Feet", true) },
+                    [INSIGNIA] = { cacheRow(MIDNIGHT, "Midnight", 2827, 15, 44, INSIGNIA_WORLD, "Trinket", true) },
+                    -- A pending row (no link): skipped.
+                    [270171] = { { instanceID = DUNGEON, encounterID = 2770, difficultyID = 8, pending = true } },
+                },
+            },
+            -- An older walk carrying the same Flask row at the same level:
+            -- read once, not twice.
+            ["69587|18|105|2:8:15:16:23"] = {
+                build = "69587",
+                walkAt = 1,
+                shape = 2,
+                sources = { [FLASK] = { cacheRow(DUNGEON, "Vale", 2769, 2, 276, FLASK_HEROIC, "Trinket", false) } },
+            },
+        }
+    end
+
+    -- The transcript's Freightrunner's Flask tooltip, with its two level
+    -- lines and the "Use:" text's number put in by the caller.
+    local function flaskLines(level, upgrade, amount)
+        return {
+            lines = {
+                { type = 22, leftText = "Freightrunner's Flask" },
+                { type = 0, leftText = "|cFF 0FF 0Heroic|r" },
+                { type = 31, leftText = "Item Level " .. level },
+                { type = 32, leftText = upgrade },
+                { type = 20, leftText = "Binds when picked up" },
+                { type = 0, leftText = "Unique-Equipped" },
+                { type = 21, leftText = "Trinket", rightText = "Test Right" },
+                { type = 0, leftText = "+104 Intellect" },
+                { type = 42, leftText = "+104 Agility" },
+                { type = 1, leftText = " " },
+                {
+                    type = 44,
+                    leftText = "Use: Take a sip of the drink you swiped from the freight, "
+                        .. "increasing your Critical Strike by "
+                        .. amount
+                        .. " for 15 sec. (1 |4Min:Min; 30 |4Sec:Sec; Cooldown)",
+                },
+                { type = 11, leftText = "" },
+            },
+        }
+    end
+
+    local function item(link, level, tooltip)
+        world.items[link] = { level = level, detailed = { level, false, level, n = 3 } }
+        world.tooltipData[link] = tooltip
+    end
+
+    local function at(link, level)
+        return assert(ns.EngineStats.LinkAtLevel(link, level))
+    end
+
+    local function seedClient()
+        -- The kept heroic link answers at whatever the Guide's view implies;
+        -- 219 here (the tests' own; E-0g step 2 read a raid link at 219).
+        item(FLASK_HEROIC, 219, flaskLines(219, "Upgrade Level: Adventurer 1/6", 400))
+        item(at(FLASK_HEROIC, 276), 276, flaskLines(276, "Upgrade Level: Adventurer 4/6", 528))
+        item(at(FLASK_HEROIC, 279), 279, flaskLines(279, "Upgrade Level: Adventurer 5/6", 540))
+        item(FLASK_KEYSTONE, 292, flaskLines(292, "Upgrade Level: Champion 1/6", 600))
+        item(at(FLASK_KEYSTONE, 305), 305, flaskLines(305, "Upgrade Level: Champion 5/6", 660))
+        item(at(FLASK_KEYSTONE, 308), 308, flaskLines(308, "Upgrade Level: Champion 6/6", 672))
+        item(INSIGNIA_WORLD, 263, { lines = { { type = 22, leftText = "Forgotten Farstrider's Insignia" } } })
+        item(BOOTS, 308, { lines = { { type = 22, leftText = "Breakwater Boots" } } })
+        for _, id in ipairs({ FLASK, INSIGNIA, 268247 }) do
+            world.itemDataCached[id] = true
+        end
+    end
+
+    local function wearFlask()
+        world.equipped[13] = { link = FLASK_OWNED, id = FLASK }
+        world.items[FLASK_OWNED] = {
+            level = 308,
+            detailed = { 308, false, 308, n = 3 },
+            instant = { FLASK, "Armor", "Miscellaneous", "INVTYPE_TRINKET", 1, 4, 0 },
+        }
+        world.tooltipData[FLASK_OWNED] = flaskLines(308, "Upgrade Level: Hero 2/6", 672)
+        item(at(FLASK_OWNED, 311), 311, flaskLines(311, "Upgrade Level: Hero 3/6", 684))
+    end
+
+    -- Every Encounter Journal function the stub defines, wrapped so a call to
+    -- any of them is counted - the capture must make none.
+    local function countJournalCalls()
+        local calls = {}
+        for name, fn in pairs(_G) do
+            if type(name) == "string" and name:match("^EJ_") and type(fn) == "function" then
+                _G[name] = function(...)
+                    calls[#calls + 1] = name
+                    return fn(...)
+                end
+            end
+        end
+        local CEJ = rawget(_G, "C_EncounterJournal")
+        if type(CEJ) == "table" then
+            for name, fn in pairs(CEJ) do
+                if type(fn) == "function" then
+                    CEJ[name] = function(...)
+                        calls[#calls + 1] = "C_EncounterJournal." .. name
+                        return fn(...)
+                    end
+                end
+            end
+        end
+        return calls
+    end
+
+    local function run()
+        local final
+        local first = ns.RunCapture("effects", function(r)
+            final = r
+        end)
+        world.runTimers(ns.EFFECTS_WAIT_SECONDS + 1)
+        return final, first
+    end
+
+    local function itemFor(data, itemID)
+        for _, entry in ipairs(data.items) do
+            if entry.itemID == itemID then
+                return entry
+            end
+        end
+    end
+
+    local function targetFor(entry, source, link, level)
+        for _, target in ipairs(entry.targets) do
+            if target.source == source and target.link == link and (level == nil or target.walkLevel == level) then
+                return target
+            end
+        end
+    end
+
+    local function readOf(target, rule)
+        for _, read in ipairs(target.reads) do
+            if read.rule == rule then
+                return read
+            end
+        end
+    end
+
+    before_each(function()
+        ns, world = H.load()
+        seedCache()
+        seedClient()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("refuses when no journal walk is cached, and reads nothing", function()
+        ns.db.global.journalCache = {}
+        local result = ns.RunCapture("effects")
+        assert.is_false(result.ok)
+        assert.equal("capture 'effects' " .. ns.EFFECTS_NO_JOURNAL, result.reason)
+        assert.is_nil(ns.db.global.captures.effects)
+        assert.same({}, world.tooltipCalls)
+    end)
+
+    it("refuses when the effects table did not load, and reads nothing", function()
+        ns.engineEffects = nil
+        local result = ns.RunCapture("effects")
+        assert.is_false(result.ok)
+        assert.equal("capture 'effects' " .. ns.EFFECTS_NO_TABLE, result.reason)
+        assert.is_nil(ns.db.global.captures.effects)
+        assert.same({}, world.tooltipCalls)
+    end)
+
+    it("refuses when no table item is in the walk or owned, and reads nothing", function()
+        ns.db.global.journalCache = {
+            ["k"] = {
+                build = "69933",
+                sources = { [268247] = { cacheRow(RAID_INSTANCE, "Grotto", 2849, 15, 305, BOOTS, "Feet", true) } },
+            },
+        }
+        local result = ns.RunCapture("effects")
+        assert.is_false(result.ok)
+        assert.equal("capture 'effects' " .. ns.EFFECTS_NONE, result.reason)
+        assert.is_nil(ns.db.global.captures.effects)
+        assert.same({}, world.tooltipCalls)
+    end)
+
+    it("refuses in combat, and reads nothing", function()
+        world.inCombat = true
+        local result = ns.RunCapture("effects")
+        assert.is_false(result.ok)
+        assert.equal("combat", result.reason)
+        assert.is_nil(ns.db.global.captures.effects)
+        assert.same({}, world.tooltipCalls)
+    end)
+
+    it("reads a journal row at the walk's level through the rebuilt link, the kept link and one step up", function()
+        local final, first = run()
+        assert.is_true(first.ok)
+        assert.is_true(final.ok)
+        local snapshot = final.snapshot
+        assert.is_false(snapshot.sawSecret)
+        assert.is_number(snapshot.durationMs)
+        assert.is_number(snapshot.capturedAt)
+        assert.is_table(snapshot.build)
+        local data = snapshot.data
+        assert.equal("track-append", data.linkLevelRule)
+        assert.equal("12.1.0.69933", data.trackTable.build)
+        assert.equal("lootpath-engine-effects", data.effectsTable.schema)
+        assert.same({ itemLevel = 31, upgradeLevel = 32 }, data.lineTypes)
+
+        local flask = itemFor(data, FLASK)
+        assert.equal("Freightrunner's Flask", flask.name)
+        assert.equal("stat_on_use", flask.kind)
+        local row = targetFor(flask, "journal", FLASK_HEROIC, 276)
+        assert.equal(2, row.difficultyID)
+        assert.same({ "walk", "kept", "next" }, { row.reads[1].rule, row.reads[2].rule, row.reads[3].rule })
+
+        -- The walk's level: the track step that draws 276 (Adventurer 4/6,
+        -- 12820) APPENDED to the journal link's own bonus list.
+        local walk = readOf(row, "walk")
+        assert.equal(276, walk.level)
+        assert.equal(
+            "|cnIQ3:|Hitem:250215::::::::90:105::2:2:3524:12820:1:28:3024:::::|h[Freightrunner's Flask]|h|r",
+            walk.link
+        )
+        assert.equal(276, walk.detailedLevel[1])
+        assert.equal("Item Level 276", walk.itemLevelLine)
+        assert.equal("Upgrade Level: Adventurer 4/6", walk.upgradeLevelLine)
+        -- Every line, unchanged and in order: the transcript's twelve.
+        assert.same(flaskLines(276, "Upgrade Level: Adventurer 4/6", 528).lines, walk.tooltipLines)
+        assert.equal(44, walk.tooltipLines[11].type)
+        assert.equal("Test Right", walk.tooltipLines[7].rightText)
+
+        -- The kept link: whatever the client answers now, beside it.
+        local kept = readOf(row, "kept")
+        assert.equal(FLASK_HEROIC, kept.link)
+        assert.equal(219, kept.detailedLevel[1])
+        assert.equal("Item Level 219", kept.itemLevelLine)
+
+        -- One step up the same track: Adventurer 5/6 at 279.
+        local nextRead = readOf(row, "next")
+        assert.equal(279, nextRead.level)
+        assert.equal(276, nextRead.fromLevel)
+        assert.equal("Adventurer", nextRead.track)
+        assert.equal(4, nextRead.fromStep)
+        assert.equal(5, nextRead.toStep)
+        assert.equal("up", nextRead.direction)
+        assert.equal(at(FLASK_HEROIC, 279), nextRead.link)
+        assert.equal("Item Level 279", nextRead.itemLevelLine)
+        assert.truthy(nextRead.tooltipLines[11].leftText:find("by 540 for", 1, true))
+    end)
+
+    it("reads every row that carries the item, at every listed level, once per link and level", function()
+        run()
+        local flask = itemFor(ns.db.global.captures.effects[1].data, FLASK)
+        local journal = 0
+        for _, target in ipairs(flask.targets) do
+            if target.source == "journal" then
+                journal = journal + 1
+            end
+        end
+        -- The heroic row (in both walks, read once) and the keystone row.
+        assert.equal(2, journal)
+        local keystone = targetFor(flask, "journal", FLASK_KEYSTONE, 305)
+        assert.equal(305, readOf(keystone, "walk").detailedLevel[1])
+        assert.equal(292, readOf(keystone, "kept").detailedLevel[1])
+        local nextRead = readOf(keystone, "next")
+        assert.equal(308, nextRead.level)
+        assert.equal("Champion", nextRead.track)
+        assert.equal("Item Level 308", nextRead.itemLevelLine)
+    end)
+
+    it("says why when no track step draws the walk's level, and still reads the kept link", function()
+        run()
+        local insignia = itemFor(ns.db.global.captures.effects[1].data, INSIGNIA)
+        local row = targetFor(insignia, "journal", INSIGNIA_WORLD, 44)
+        local walk = readOf(row, "walk")
+        assert.is_nil(walk.link)
+        assert.equal("no track step draws 44", walk.why)
+        assert.is_nil(walk.tooltipLines)
+        assert.equal(263, readOf(row, "kept").detailedLevel[1])
+        local nextRead = readOf(row, "next")
+        assert.is_nil(nextRead.link)
+        assert.equal("no track step draws 44", nextRead.why)
+    end)
+
+    it("reads an owned copy at its own level and one step up its own track", function()
+        wearFlask()
+        run()
+        local flask = itemFor(ns.db.global.captures.effects[1].data, FLASK)
+        local owned = targetFor(flask, "owned", FLASK_OWNED)
+        assert.equal("equipped", owned.location)
+        assert.equal(13, owned.slotIndex)
+        assert.equal(308, owned.ownedLevel)
+        assert.is_nil(readOf(owned, "walk"))
+        assert.equal("Item Level 308", readOf(owned, "kept").itemLevelLine)
+        local nextRead = readOf(owned, "next")
+        -- Hero 2/6 -> Hero 3/6: the link's own track step (12842) is dropped
+        -- and the one that draws 311 (12843) appended.
+        assert.equal(311, nextRead.level)
+        assert.equal("Hero", nextRead.track)
+        assert.equal(2, nextRead.fromStep)
+        assert.equal(
+            "|cnIQ4:|Hitem:250215::::::::90:105::16:2:6652:12843:1:28:1279:::::|h[Freightrunner's Flask]|h|r",
+            nextRead.link
+        )
+        assert.equal("Upgrade Level: Hero 3/6", nextRead.upgradeLevelLine)
+    end)
+
+    it("steps down at a track's top", function()
+        -- The keystone row's next step is Champion 6/6 (the top); read from
+        -- 308 the Champion track has no step above, so it steps down.
+        ns.db.global.journalCache["69933|18|105|2:8:15:16:23"].sources[FLASK][2].itemLevel = 308
+        run()
+        local flask = itemFor(ns.db.global.captures.effects[1].data, FLASK)
+        local nextRead = readOf(targetFor(flask, "journal", FLASK_KEYSTONE, 308), "next")
+        assert.equal("down", nextRead.direction)
+        assert.equal(305, nextRead.level)
+        assert.equal(6, nextRead.fromStep)
+        assert.equal(5, nextRead.toStep)
+    end)
+
+    it("never reads an item the table does not carry, and lists the table items it found nowhere", function()
+        run()
+        local data = ns.db.global.captures.effects[1].data
+        for _, call in ipairs(world.tooltipCalls) do
+            assert.is_nil(call:find("268247", 1, true), "read a link outside the table")
+        end
+        assert.equal(2, #data.items)
+        local tableSize = 0
+        for _ in pairs(ns.engineEffects.items) do
+            tableSize = tableSize + 1
+        end
+        assert.equal(tableSize - 2, #data.missing)
+        for _, entry in ipairs(data.missing) do
+            assert.is_string(entry.name)
+            assert.is_not_equal(FLASK, entry.itemID)
+        end
+        assert.equal(2, data.journal.cacheEntries and #data.journal.cacheEntries)
+        assert.equal(3, data.journal.rowsTaken)
+    end)
+
+    it("never touches the Adventure Guide", function()
+        local calls = countJournalCalls()
+        local J = world.journal
+        local before = { J.currentTier, J.difficulty, J.selectedInstance, J.previewLevel }
+        local final = run()
+        assert.is_true(final.ok)
+        assert.same({}, calls)
+        assert.same({}, J.selectCalls)
+        assert.same({}, J.lootFilterCalls)
+        assert.same({}, J.previewLevelCalls)
+        assert.same(before, { J.currentTier, J.difficulty, J.selectedInstance, J.previewLevel })
+    end)
+
+    it("writes nothing but its own captures.effects entry", function()
+        local function copy(t, seen)
+            if type(t) ~= "table" then
+                return t
+            end
+            seen = seen or {}
+            if seen[t] then
+                return seen[t]
+            end
+            local out = {}
+            seen[t] = out
+            for k, v in pairs(t) do
+                out[k] = copy(v, seen)
+            end
+            return out
+        end
+        local global = copy(ns.db.global)
+        local char = copy(ns.db.char)
+        local profile = copy(ns.db.profile)
+        run()
+        local captures = ns.db.global.captures
+        assert.equal(1, #captures.effects)
+        local after = copy(ns.db.global)
+        after.captures.effects = nil
+        assert.same(global, after)
+        assert.same(char, copy(ns.db.char))
+        assert.same(profile, copy(ns.db.profile))
+    end)
+
+    it("masks a secret answer and says it saw one", function()
+        world.tooltipData[at(FLASK_HEROIC, 276)] = world.secretTable("tooltip")
+        local final = run()
+        assert.is_true(final.ok)
+        assert.is_true(final.snapshot.sawSecret)
+        local flask = itemFor(final.snapshot.data, FLASK)
+        local walk = readOf(targetFor(flask, "journal", FLASK_HEROIC, 276), "walk")
+        assert.equal(ns.MARKERS.secretTable, walk.tooltipData[1])
+    end)
+
+    describe("an item whose data is not cached", function()
+        before_each(function()
+            world.itemDataCached[INSIGNIA] = nil
+        end)
+
+        it("asks for it, waits, and reads it once the client answers", function()
+            local first = ns.RunCapture("effects")
+            assert.is_true(first.pending)
+            assert.is_nil(ns.db.global.captures.effects)
+            assert.same({ INSIGNIA }, world.itemDataRequests)
+            assert.same({}, world.tooltipCalls)
+
+            world.itemDataCached[INSIGNIA] = true
+            world.fireEvent("ITEM_DATA_LOAD_RESULT", INSIGNIA, true)
+
+            local data = ns.db.global.captures.effects[1].data
+            assert.equal(1, data.requested)
+            assert.is_false(data.waitTimedOut)
+            local insignia = itemFor(data, INSIGNIA)
+            assert.is_false(insignia.cachedBefore[1])
+            assert.is_true(insignia.waited)
+            assert.is_false(insignia.gaveUp)
+            assert.is_true(insignia.cachedAtRead[1])
+        end)
+
+        it("gives up inside the bound and reads it anyway", function()
+            assert.is_true(ns.RunCapture("effects").pending)
+            world.runTimers(ns.EFFECTS_WAIT_SECONDS)
+            assert.is_true(ns.EFFECTS_WAIT_SECONDS <= 5)
+            local data = ns.db.global.captures.effects[1].data
+            -- ItemData's own per-item bound (8 x 0.25 s) gives up first and
+            -- settles the wait; the capture's bound is the backstop.
+            assert.equal(0, data.stillWaiting)
+            local insignia = itemFor(data, INSIGNIA)
+            assert.is_true(insignia.gaveUp)
+            assert.is_false(insignia.cachedAtRead[1])
+            assert.is_table(readOf(insignia.targets[1], "kept").tooltipLines)
+        end)
+
+        it("stores nothing when combat starts during the wait", function()
+            local final
+            ns.RunCapture("effects", function(r)
+                final = r
+            end)
+            world.inCombat = true
+            world.runTimers(ns.EFFECTS_WAIT_SECONDS + 1)
+            assert.is_false(final.ok)
+            assert.equal("capture 'effects' " .. ns.EFFECTS_COMBAT, final.reason)
+            assert.is_nil(ns.db.global.captures.effects)
+            assert.same({}, world.tooltipCalls)
+        end)
+    end)
+
+    it("names every client function and every module read it makes", function()
+        run()
+        local data = ns.db.global.captures.effects[1].data
+        assert.same(ns.EFFECTS_FUNCTION_NAMES, data.functionNames)
+        assert.same({
+            "C_Item.GetDetailedItemLevelInfo",
+            "C_Item.IsItemDataCachedByID",
+            "C_TooltipInfo.GetHyperlink",
+        }, data.functionNames)
+        assert.same(ns.EFFECTS_MODULE_READS, data.moduleReads)
+    end)
+
+    -- The source half: every `C_Namespace.Function` the section mentions is on
+    -- its list, every module function it reaches is on the other, and nothing
+    -- that acts - nor anything that touches the Adventure Guide - is in it.
+    -- Comments are left out of the scan.
+    it("calls nothing in its source that its lists do not name, and nothing that acts", function()
+        local source = assert(io.open("Lootpath/Captures.lua")):read("*a")
+        local start = assert(source:find("-- effects (E-3b, WKE-684)", 1, true))
+        local code = {}
+        for line in source:sub(start):gmatch("[^\n]*") do
+            code[#code + 1] = (line:gsub("%-%-.*$", ""))
+        end
+        local body = table.concat(code, "\n")
+        local named = {}
+        for _, name in ipairs(ns.EFFECTS_FUNCTION_NAMES) do
+            named[name] = true
+        end
+        -- The bound's timer schedules; it reads nothing about the client.
+        named["C_Timer.After"] = true
+        local found = 0
+        for name in body:gmatch("C_[%w_]+%.[%w_]+") do
+            found = found + 1
+            assert.is_true(named[name] == true, name .. " is called but not named")
+        end
+        for fn in body:gmatch("[^%w_.]I%.([%w_]+)") do
+            found = found + 1
+            assert.is_true(named["C_Item." .. fn] == true, "C_Item." .. fn .. " is called but not named")
+        end
+        assert.is_true(found > 0)
+        local reads = {}
+        for _, name in ipairs(ns.EFFECTS_MODULE_READS) do
+            reads[name] = true
+        end
+        local modules = 0
+        for module, fn in body:gmatch("ns%.([%w_]+)%.([%w_]+)%(") do
+            modules = modules + 1
+            assert.is_true(reads["ns." .. module .. "." .. fn] == true, module .. "." .. fn .. " is not named")
+        end
+        assert.is_true(modules > 0)
+        for _, forbidden in ipairs({
+            "EJ_",
+            "C_EncounterJournal",
+            "JournalAdapter",
+            "Adapter.",
             "SetPreviewMythicPlusLevel",
             "GetLootInfoByIndex",
             "SetItemUpgradeFromLocation",
