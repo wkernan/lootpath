@@ -282,3 +282,28 @@ worse), so an unfloored k shrinks by the share of censored rows, which the band
 sets; compare floored figures only. Never read the owner's SavedVariables in
 place - copy them first. `test/percent-scale.test.js` holds the harness's floor
 equal to `EngineCompare.UF_FLOOR` and pins its figures on the committed files.
+
+## probe-tier.js - why tier k differs by band (E-0k, WKE-682)
+
+```powershell
+node probe-tier.js `
+  --compare ..\..\spec\fixtures\captures\Lootpath-20261002-112757.lua `
+  --week 2026-09-29 --char "Hotornot - Arthas" `
+  [--tier2 0.03 --tier4 0.055] `
+  [--stats <the four transcripts above> --key-levels 1=2,2=4,4=6,6=8,7=10 --qe ..\..\spec\fixtures\qe]
+```
+
+Re-scores the tier-class rows a real compare STORED under each suspect and
+prints k and MAE@k per band. The re-score needs no item stats: with the tier
+bonus forced on both sides the game's percent gives `L(with) / L(worn) = 1 +
+raw / 100` exactly, so any other multiplier rule is `100 (L1 M'(with) / (L0
+M'(worn)) - 1)`, floored at `UF_FLOOR`. Rules: `additive-forced` (E-0c, what
+`EngineScore` does), `multiplicative-forced`, and both NOT forced (`-counted`:
+a non-tier drop in a tier slot breaks the worn 4-piece), each over a grid of
+2- and 4-piece values. Then the gap by the worn piece each row replaces (read
+off the newest `capture itemstats` snapshot in the same file: `setID` from the
+client's item info, the catalyst source from link modifier 64) and the offset
+per slot that brings each row to armour's k. With `--stats` it also refits each
+measured document's band IN SAMPLE (offline stats, as `percent-scale.js`
+reads them) beside the dev band. `test/probe-tier.test.js` pins the figures on
+the committed files.
