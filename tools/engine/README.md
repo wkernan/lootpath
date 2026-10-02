@@ -239,6 +239,36 @@ node extract-itemstats.js [spec\fixtures\captures\<transcript>.lua] [spec\fixtur
 (paths relative to the repo root). `test/extract.test.js` re-runs it and
 compares the bytes with the committed fixture.
 
+## The effects transcript (E-3b, WKE-684)
+
+`extract-effects.js` reads the owner's `/lootpath capture effects` transcript
+(the capture is in `Lootpath/Captures.lua`; ARCHITECTURE.md section 7,
+2026-10-02, E-3b) and writes `spec/fixtures/engine/effects-real.lua`: one record
+per effects-table item, per target (a cached journal row or an owned copy), per
+read - `walk` (the link rebuilt at the walk's level by
+`EngineStats.LinkAtLevel`), `kept` (the link as kept) and `next` (one track step
+away) - with the level asked for, the link, `GetDetailedItemLevelInfo`'s
+returns, the Item Level and Upgrade Level lines, and every line whose text
+starts `Use:` or `Equip:` with the digits in it **as text** (`"528"`, never
+528) - for the first read and for `again`, the same tooltip read a second time
+after the capture's pause (four of the six trinket tooltips the itemstats
+transcript read once carried no effect line). Found by text, not by line type: the one committed `Use:` line is type 44,
+which the annotations' enum does not list. Nothing is parsed into a value; the
+follow-up (E-3c) reads the records and fills `Data/EngineEffects.lua`'s
+`params`.
+
+**No transcript yet**, so the script has no default input:
+
+```powershell
+cd C:\Code\lootpath-<n>\tools\engine
+node extract-effects.js spec\fixtures\captures\<transcript>.lua [spec\fixtures\engine\effects-real.lua]
+```
+
+`test/extract-effects.test.js` holds it to a SavedVariables in the capture's
+stored shape (the tests' own, with the committed Freightrunner's Flask `Use:`
+line verbatim). When the transcript lands, E-3c commits the output and adds a
+byte-for-byte test to `test/extract.test.js`, as E-0f did for itemstats.
+
 ## Tests
 
 `node --test` here (the CI `companion` job runs it beside the companion's, with
@@ -251,7 +281,9 @@ carries the fitted numbers; the itemstats transcript is read (80 items, the
 helm's stats, versatility's key, `client` rows flagged with their source, the
 two client sources agreeing where they overlap); the DR table reproduces the
 client's 35 conversions; the real-stats fixture is the extraction, byte for
-byte. No npm dependency: Node's own runner and
+byte; the effects extractor keeps every effect number as text, finds `Use:` and
+`Equip:` lines by their text whatever their type, and refuses anything but one
+snapshot. No npm dependency: Node's own runner and
 `tools/companion/lib/lua-savedvariables.js`.
 
 ## percent-scale.js - why k moved with the band (E-0j, WKE-681)

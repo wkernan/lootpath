@@ -2165,14 +2165,23 @@ ns.RegisterCapture(
 -- UsageRequirement = 43 under .luals/), and no committed line says what type
 -- an "Equip:" text has - so every line is kept and the extractor reads text.
 --
+-- Every tooltip is read TWICE: once when the item data is in, and `again`
+-- `ns.EFFECTS_REREAD_SECONDS` later. Of the six trinket tooltips the itemstats
+-- transcript read once, only Freightrunner's Flask carried its "Use:" line;
+-- Stormbound Emblem of Dazar, Ruby Whelp Shell, Seed of Radiant Hope and
+-- Mycolic Medicine - all effect items in the table - carried none
+-- (ARCHITECTURE.md section 11, E-3a). Whether the effect text arrives after a
+-- first ask, the way item data does, is unknown (iv); the two reads side by
+-- side are what settle it, and nothing here assumes either answer.
+--
 -- Not the Adventure Guide: nothing here selects an instance, a difficulty, a
 -- loot filter or a keystone level, and no Encounter Journal call is made,
 -- directly or through a module. CLAUDE.md's capture exceptions are
 -- unchanged. Items whose data is not cached are asked for once per item ID
 -- through `ns.ItemData.Watch` and waited on for at most
 -- `ns.EFFECTS_WAIT_SECONDS` in all; a row still uncached is read anyway and
--- says so. Refused in combat by ns.RunCapture; combat during the wait stores
--- nothing. Refused with `ns.EFFECTS_NO_TABLE` when the effects table did not
+-- says so. Refused in combat by ns.RunCapture; combat during either wait
+-- stores nothing. Refused with `ns.EFFECTS_NO_TABLE` when the effects table did not
 -- load, with `ns.EFFECTS_NO_JOURNAL` when no cached journal row has a link,
 -- and with `ns.EFFECTS_NONE` when no table item is in the walk or owned.
 --
@@ -2209,9 +2218,10 @@ local EFFECTS_MODULE_READS = {
 }
 ns.EFFECTS_MODULE_READS = EFFECTS_MODULE_READS
 
--- The wait bound, as `capture itemstats` has it, and the two line types picked
--- out of each read.
+-- The wait bound, as `capture itemstats` has it; the pause before the second
+-- read of every tooltip; and the two line types picked out of each read.
 ns.EFFECTS_WAIT_SECONDS = 3
+ns.EFFECTS_REREAD_SECONDS = 2
 ns.EFFECTS_LINE_ITEM_LEVEL = 31
 ns.EFFECTS_LINE_UPGRADE_LEVEL = 32
 
@@ -2219,6 +2229,7 @@ ns.EFFECTS_NO_TABLE = "needs the effects table (Data/EngineEffects.lua), which d
 ns.EFFECTS_NO_JOURNAL = ns.ITEMSTATS_NO_JOURNAL
 ns.EFFECTS_NONE = "found no item of the effects table in the cached walk or in your bags"
 ns.EFFECTS_COMBAT = "stopped: combat started while it waited for item data; nothing stored"
+ns.EFFECTS_COMBAT_REREAD = "stopped: combat started before the second read; nothing stored"
 
 -- One tooltip's lines: `type`, `leftText` and `rightText`, raw. A secret at
 -- any level is stored as itself, so ns.CopyRaw masks it and the snapshot's
@@ -2260,6 +2271,15 @@ local function effectsRead(read)
     read.detailedLevel = ns.Probe(I.GetDetailedItemLevelInfo, read.link)
     effectsLines(read, ns.Probe(C_TooltipInfo and C_TooltipInfo.GetHyperlink, read.link))
     return read
+end
+
+-- The second read of one link's tooltip, beside the first (`read.again`).
+local function effectsReadAgain(read)
+    if type(read.link) ~= "string" then
+        return
+    end
+    read.again = {}
+    effectsLines(read.again, ns.Probe(C_TooltipInfo and C_TooltipInfo.GetHyperlink, read.link))
 end
 
 -- Every bonus ID of the shipped track table, as { track, step, steps } - data
@@ -2534,7 +2554,26 @@ ns.RegisterCapture(
                     effectsReadTarget(target, byBonus)
                 end
             end
-            finish(data)
+            -- The second read of every tooltip, after the pause.
+            local function readAgain()
+                if InCombatLockdown() then
+                    return finish(nil, ns.EFFECTS_COMBAT_REREAD)
+                end
+                for _, item in ipairs(items) do
+                    for _, target in ipairs(item.targets) do
+                        for _, read in ipairs(target.reads) do
+                            effectsReadAgain(read)
+                        end
+                    end
+                end
+                finish(data)
+            end
+            data.rereadSeconds = ns.EFFECTS_REREAD_SECONDS
+            if C_Timer and C_Timer.After then
+                C_Timer.After(ns.EFFECTS_REREAD_SECONDS, readAgain)
+            else
+                readAgain()
+            end
         end
         local function settleOne()
             pending = pending - 1

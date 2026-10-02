@@ -477,21 +477,18 @@ describe("capture journal", function()
     it(
         "is registered after env, inventory, vault, currencies, glow, upgrade, itemstats, linklevel and effects",
         function()
-            assert.same(
-                {
-                    "env",
-                    "inventory",
-                    "vault",
-                    "currencies",
-                    "glow",
-                    "upgrade",
-                    "itemstats",
-                    "linklevel",
-                    "effects",
-                    "journal",
-                },
-                ns.captureOrder
-            )
+            assert.same({
+                "env",
+                "inventory",
+                "vault",
+                "currencies",
+                "glow",
+                "upgrade",
+                "itemstats",
+                "linklevel",
+                "effects",
+                "journal",
+            }, ns.captureOrder)
             assert.is_true(ns.captures.journal.async)
         end
     )

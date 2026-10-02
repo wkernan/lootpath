@@ -2211,7 +2211,7 @@ describe("captures effects", function()
         local first = ns.RunCapture("effects", function(r)
             final = r
         end)
-        world.runTimers(ns.EFFECTS_WAIT_SECONDS + 1)
+        world.runTimers(ns.EFFECTS_WAIT_SECONDS + ns.EFFECTS_REREAD_SECONDS + 1)
         return final, first
     end
 
@@ -2417,6 +2417,55 @@ describe("captures effects", function()
         assert.equal(5, nextRead.toStep)
     end)
 
+    -- The itemstats transcript's first reads of four effect trinkets carried
+    -- no "Use:" line; whether a later read does is what the second read is
+    -- for. Here the client answers the walk link's first ask without the
+    -- effect line and every later ask with it (the tests' own model).
+    it("reads every tooltip a second time, after the pause, beside the first", function()
+        local walkLink = at(FLASK_HEROIC, 276)
+        local full = flaskLines(276, "Upgrade Level: Adventurer 4/6", 528)
+        local asked = 0
+        world.tooltipData[walkLink] = function()
+            asked = asked + 1
+            if asked == 1 then
+                local short = { lines = {} }
+                for i = 1, 10 do
+                    short.lines[i] = full.lines[i]
+                end
+                return short
+            end
+            return full
+        end
+        local first = ns.RunCapture("effects")
+        assert.is_true(first.pending)
+        assert.is_nil(ns.db.global.captures.effects)
+        world.runTimers(ns.EFFECTS_REREAD_SECONDS)
+        local data = ns.db.global.captures.effects[1].data
+        assert.equal(2, data.rereadSeconds)
+        local flask = itemFor(data, FLASK)
+        local walk = readOf(targetFor(flask, "journal", FLASK_HEROIC, 276), "walk")
+        assert.equal(10, #walk.tooltipLines)
+        assert.equal(12, #walk.again.tooltipLines)
+        assert.equal(44, walk.again.tooltipLines[11].type)
+        assert.equal("Item Level 276", walk.again.itemLevelLine)
+        assert.equal(2, asked)
+        -- A read with no link has no second read either.
+        local insignia = itemFor(data, INSIGNIA)
+        assert.is_nil(readOf(targetFor(insignia, "journal", INSIGNIA_WORLD, 44), "walk").again)
+    end)
+
+    it("stores nothing when combat starts before the second read", function()
+        local final
+        ns.RunCapture("effects", function(r)
+            final = r
+        end)
+        world.inCombat = true
+        world.runTimers(ns.EFFECTS_REREAD_SECONDS + 1)
+        assert.is_false(final.ok)
+        assert.equal("capture 'effects' " .. ns.EFFECTS_COMBAT_REREAD, final.reason)
+        assert.is_nil(ns.db.global.captures.effects)
+    end)
+
     it("never reads an item the table does not carry, and lists the table items it found nowhere", function()
         run()
         local data = ns.db.global.captures.effects[1].data
@@ -2503,6 +2552,8 @@ describe("captures effects", function()
 
             world.itemDataCached[INSIGNIA] = true
             world.fireEvent("ITEM_DATA_LOAD_RESULT", INSIGNIA, true)
+            assert.same({}, ns.db.global.captures.effects or {})
+            world.runTimers(ns.EFFECTS_REREAD_SECONDS)
 
             local data = ns.db.global.captures.effects[1].data
             assert.equal(1, data.requested)
@@ -2516,7 +2567,7 @@ describe("captures effects", function()
 
         it("gives up inside the bound and reads it anyway", function()
             assert.is_true(ns.RunCapture("effects").pending)
-            world.runTimers(ns.EFFECTS_WAIT_SECONDS)
+            world.runTimers(ns.EFFECTS_WAIT_SECONDS + ns.EFFECTS_REREAD_SECONDS)
             assert.is_true(ns.EFFECTS_WAIT_SECONDS <= 5)
             local data = ns.db.global.captures.effects[1].data
             -- ItemData's own per-item bound (8 x 0.25 s) gives up first and
