@@ -770,6 +770,39 @@ describe("ns.EngineScore.UpgradePercent", function()
         near(percent, p2, "either finger")
     end)
 
+    -- E-0l (WKE-683): QE Live's Top Gear never pairs two copies of one item
+    -- (fork TopGearEngine.ts:415-420 rings, :427 trinkets). Week one's +6
+    -- compare scored 252258@305 over the OTHER ring, beside the worn
+    -- 252258@321, and read 0.282 where the Upgrade Finder reads 0.
+    it("lets a copy of a worn ring or trinket take only that copy's place", function()
+        local strong = vec("Finger", { haste = 600 }, { itemID = 252258 })
+        local weak = vec("Finger", { haste = 100 }, { itemID = 279010 })
+        local base = { vec("Head", { int = 200 }), strong, weak }
+        -- A lower copy of the strong ring: over the weak ring it would gain;
+        -- it may only replace the strong one, so it loses.
+        local copy = vec("Finger", { haste = 400 }, { itemID = 252258 })
+        local percent, detail = ns.EngineScore.UpgradePercent(base, copy, O())
+        assert.same({ 2 }, detail.replaced)
+        local before = 1000 + 300 + 20 * 750 / 44
+        local after = 1000 + 300 + 20 * 550 / 44
+        near(100 * (after - before) / before, percent, "copy percent")
+        assert.is_true(percent < 0)
+        -- Another ring of the same stats still takes the weaker finger.
+        local other = vec("Finger", { haste = 400 }, { itemID = 999001 })
+        local _, d2 = ns.EngineScore.UpgradePercent(base, other, O())
+        assert.same({ 3 }, d2.replaced)
+        -- Trinkets the same.
+        local trinkets = {
+            vec("Trinket", { int = 300 }, { itemID = 999101 }),
+            vec("Trinket", { int = 50 }, { itemID = 999102 }),
+        }
+        local placements = ns.EngineScore.Placements(trinkets, vec("Trinket", { int = 200 }, { itemID = 999101 }))
+        assert.equal(1, #placements)
+        assert.same({ 1 }, placements[1].replaced)
+        -- A vector with no itemID keeps both places.
+        assert.equal(2, #ns.EngineScore.Placements(trinkets, vec("Trinket", { int = 200 })))
+    end)
+
     -- E-3a: the flags speak about the swap. 270162 and 250214 are in the
     -- shipped table with no numbers.
     it("carries the effect flag for what the swap moves, not for what both sets wear", function()
