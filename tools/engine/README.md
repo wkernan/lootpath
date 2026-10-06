@@ -417,3 +417,64 @@ bands as `fit-weights.js` does, and prints:
 
 It changes nothing it reads. `test/probe-jewellery.test.js` pins its figures on
 the committed files.
+
+## exhaustive.js - brute force against the search (E-1d, WKE-687)
+
+```powershell
+cd C:\Code\lootpath-<n>\tools\engine
+node exhaustive.js dungeon 10      # or: node exhaustive.js raid
+# [--mode all|kept|both] [--no-search] [--itemstats <capture.lua>] [--derived-at <ISO>] [--out <dir>]
+```
+
+Enumerates **every** wearable set of the owned pieces, values each with
+`lib/score.js` (the yardstick E-0l measured against the game's stored rows),
+and holds `EngineSearch`'s answer to it. Two modes, both by default: every
+piece, and the kept pool after the outclass rule - so the rule's "never drops
+the optimum" is checked on real stats too.
+
+- **The pieces:** every `worn` and `bag` record of the committed `capture
+  itemstats` transcript (`Lootpath-20261001-092631.lua`), as `ns.EngineStats`
+  builds a vector: the client's stats for the link with enchant and gems
+  blanked, sockets, setID, `GetItemUniquenessByID`. These are the owned set:
+  every inventory snapshot from 2026-10-01 20:09 to 2026-10-05 16:31 holds the
+  same 40 links (the test holds it on the committed 2026-10-02 snapshot). The
+  bank was never open in those snapshots, so a bank piece is in none of them.
+- **The weights:** the dev file the game ran, refitted in a temp dir with the
+  fit command above and `--derived-at 2026-10-02T02:21:19.971Z` (the stored
+  compare header; `--resamples` does not change the file).
+- **The rules**, ported from `EngineSearch.lua` and cited there by line:
+  positions, pair options (two copies of one unique itemID never pair), weapon
+  options (one-hand with each off-hand, or alone; two-hand), `UniqueOK`
+  (unique ID and limit category), the outclass drop (an effect item and every
+  trinket the effects table does not carry are never dropped, as
+  `EngineScore.EffectOf` decides), the masks (a set's tier key per tier slot),
+  and `SetValue` with the parity finish and the tier COUNTED, never forced.
+  `score.js` counts one tier set; a weights file with more is refused.
+- **The search** is the real `Lootpath/Modules/EngineSearch.lua`, run
+  unchanged in Lua 5.1 (PATH, or the gates' `lootpath-lua` image) with its
+  `EngineScore` and `EngineEffects`, the effects table's `params` taken out (as
+  the game ran on 2026-10-05: classified, nothing modelled), `dr = "table"`
+  (the client's conversion in game; the table reproduces it to single
+  precision, `test/dr.test.js`). Not a Node port: the thing checked is the code
+  that ran in the client. It prints `Best`, the drop, the worn set's value and
+  every mask's `Ascend`, each held to the brute force's optimum in that mask.
+
+It prints the optimum and the next distinct values, set counts and times per
+mode, the most rating any set can carry against the first DR bracket, the
+search's answer and counts, and EQUAL or DIFFERENT; it writes
+`out/exhaustive-<band>.json`. About 15-20 s per mode per band on the owner's
+40 pieces (3,499,200 sets every piece, 2,332,800 kept).
+
+`test/exhaustive.test.js` runs it over the committed files: the Node
+enumeration equals `EngineSearch.BruteForce` on 24 seeded synthetic inventories
+(`lib/synthetic.js`: every slot kind, a unique ring and its copy, unique
+trinkets, one-hand + off-hand + shield against two-handers, a four-piece tier
+trap, a parity gem and ring enchant, half of them with a limit category shared
+by a neck and a ring); the kept pool keeps the optimum and drops what
+`Candidates` drops; the search's misses on those seeds are PINNED (a
+two-coordinate move: the trinket pair with the weapon in the DR brackets, the
+neck with the ring under the category - ARCHITECTURE.md section 11); a lone
+ascent without the masks misses and the comparison says so; and on the owner's
+real pieces, Dungeon +10 and Raid, every-piece and kept-pool brute force, the
+search and all 16 masks agree, with the game's own counts (632 set values,
+16 masks, 1 outclassed).
