@@ -767,6 +767,45 @@ describe("VaultPanel frames", function()
         assert.equal(1, labelled)
     end)
 
+    -- V-9 (WKE-690): the pick label had a left edge and no right one. It now
+    -- ends short of the reward cell's tick, at the narrowest cell the window
+    -- allows and at a wide one.
+    it("gives the pick label a right edge inside the cell, clear of the tick (V-9)", function()
+        generateReward(world, 1, COVERED_ITEM.id, COVERED_ITEM.bonusIDs, COVERED_ITEM.name, 298)
+        ns.QEImport.Store(realVerdict(ns))
+        local Panel, UI = ns.VaultPanel, ns.UI
+        local frame = Panel.Create()
+        local model = frame:Refresh()
+        for _, windowWidth in ipairs({ UI.WIDTH, 1950 }) do
+            frame.scroll:SetWidth(windowWidth - UI.PANEL_INSET_LEFT - UI.PANEL_INSET_RIGHT - Panel.SCROLL_INSET)
+            frame:Refresh({ model = model })
+            local labelled = 0
+            for _, gridRow in ipairs(frame.gridRows) do
+                for _, cell in ipairs(gridRow.cells) do
+                    local label = cell.label
+                    assert.equal(2, #label.points)
+                    assert.same({ "TOPLEFT", cell, "TOPLEFT", 4, -2 }, label.points[1])
+                    local right = label.points[2]
+                    assert.equal("TOPRIGHT", right[1])
+                    assert.equal(cell, right[2])
+                    assert.equal("TOPRIGHT", right[3])
+                    -- On the same line as the left anchor, so the height stands.
+                    assert.equal(-2, right[5])
+                    if label:IsShown() then
+                        labelled = labelled + 1
+                        -- The tick sits at TOPRIGHT -4 and is drawn no wider
+                        -- than its band; the label ends before it.
+                        assert.same({ "TOPRIGHT", cell, "TOPRIGHT", -4, -2 }, cell.tick.points[1])
+                        assert.is_true(-right[4] >= 4 + cell.tick:GetWidth())
+                        -- And there is room left for the words at the narrowest cell.
+                        assert.is_true(cell:GetWidth() + right[4] - 4 > 0)
+                    end
+                end
+            end
+            assert.equal(1, labelled)
+        end
+    end)
+
     it("hides the hint and the cells a shorter render does not use", function()
         ns.QEImport.Store(realVerdict(ns))
         local frame = ns.VaultPanel.Create()
@@ -4250,6 +4289,101 @@ describe("the Vault tab's grid over the live client (V-5)", function()
         assert.same({ "TOPRIGHT", reward, "TOPRIGHT", -4, -2 }, reward.tick.points[1])
         assert.is_false(reward.locked:IsShown())
         assert.same({ "TOPLEFT", reward, "TOPLEFT", 6, -18 }, reward.line.points[1])
+    end)
+
+    -- V-9 (WKE-690). The owner's screenshot of 2026-10-05: on a stretched
+    -- window the Dungeons cells' words ran on one line past the art's right
+    -- edge. The words, the tick and the progress hang off the BADGE - the cell
+    -- art at its own proportions, centred - and the badge, held to the cell's
+    -- 110 points by one factor, stops growing long before the cell does. The
+    -- sizes below are the stub's PLACEHOLDER 219 x 126 for both cell atlases
+    -- (spec/stubs/wow.lua), never a measured atlas.
+    it("measures the badge the way it is drawn, never wider than the cell (V-9)", function()
+        local Panel = ns.VaultPanel
+        local LOCKED = Panel.CELL_ATLAS.locked
+        -- The 760 window's 164-point cell: the badge fills it.
+        assert.equal(164, Panel.BadgeWidth(164, 110, LOCKED))
+        -- Wider cells: one factor, 110 / 126, so 219 x 110 / 126 = 191.19.
+        assert.equal(191, Panel.BadgeWidth(261, 110, LOCKED))
+        assert.equal(191, Panel.BadgeWidth(1200, 110, LOCKED))
+        -- Art smaller than the cell is drawn at its own size.
+        world.atlases[LOCKED] = { width = 150, height = 90 }
+        assert.equal(150, Panel.BadgeWidth(600, 110, LOCKED))
+        -- No art: the flat fill covers the cell, so the cell is the box.
+        world.atlases[LOCKED] = nil
+        assert.equal(600, Panel.BadgeWidth(600, 110, LOCKED))
+        assert.equal(600, Panel.BadgeWidth(600, 110, nil))
+        assert.is_nil(Panel.BadgeWidth(0, 110, LOCKED))
+    end)
+
+    it("keeps a no-reward cell's words inside its badge at every width the window takes (V-9)", function()
+        local Panel, UI = ns.VaultPanel, ns.UI
+        -- The resize bounds, read from MainFrame's own function over a
+        -- 3840-point UIParent at scale 1 - a screen this test sets, not a
+        -- measured one. The minimum is the window's own 760.
+        _G.UIParent:SetSize(3840, 2160)
+        local bounds = UI.WindowBounds(nil)
+        assert.equal(760, bounds.minWidth)
+        assert.equal(3840, bounds.maxWidth)
+        local panel = Panel.Create()
+        local shown = panel:Refresh()
+        -- The owner's screenshot was roughly 1,950 wide; the rest are the
+        -- bounds and a step between.
+        local widths = { bounds.minWidth, 1000, 1950, bounds.maxWidth }
+        for _, windowWidth in ipairs(widths) do
+            -- What the window's corner anchors give the scroll frame: the
+            -- panel's insets (MainFrame) and the scrollbar's (this file).
+            local scrollWidth = windowWidth - UI.PANEL_INSET_LEFT - UI.PANEL_INSET_RIGHT - Panel.SCROLL_INSET
+            panel.scroll:SetWidth(scrollWidth)
+            panel:Refresh({ model = shown })
+            local checked = 0
+            for _, gridRow in ipairs(panel.gridRows) do
+                for _, cell in ipairs(gridRow.cells) do
+                    if cell.data and cell.data.kind == "locked" then
+                        checked = checked + 1
+                        local at = string.format("window %d, %s", windowWidth, tostring(cell.data.text))
+                        local badge = cell.background:GetWidth()
+                        assert.is_true(badge <= cell:GetWidth(), at)
+                        local place = Panel.CellPlace(badge, Panel.CELL_HEIGHT)
+                        local words = cell.locked
+                        -- Blizzard's shape: one anchor and a width, capped in lines.
+                        assert.equal(1, #words.points, at)
+                        assert.same({ "TOPLEFT", cell.background, "TOPLEFT", place.x, -place.y }, words.points[1], at)
+                        assert.equal(place.width, words:GetWidth(), at)
+                        assert.equal(Panel.THRESHOLD_MAX_LINES, words:GetMaxLines(), at)
+                        assert.is_true(words.wordWrap, at)
+                        -- Its right edge is inside the badge, and so inside the cell.
+                        assert.is_true(place.x + words:GetWidth() <= badge, at)
+                        -- The tick stays left of the words.
+                        if cell.tick:IsShown() then
+                            assert.same(
+                                { "TOPLEFT", cell.background, "TOPLEFT", place.tickX, -place.tickY },
+                                cell.tick.points[1],
+                                at
+                            )
+                            assert.is_true(place.tickX + cell.tick:GetWidth() <= place.x, at)
+                        end
+                    end
+                end
+            end
+            assert.equal(9, checked)
+        end
+        -- At the minimum nothing moved: V-7's own figures on the 164 cell.
+        panel.scroll:SetWidth(bounds.minWidth - UI.PANEL_INSET_LEFT - UI.PANEL_INSET_RIGHT - Panel.SCROLL_INSET)
+        panel:Refresh({ model = shown })
+        local narrow = panel.gridRows[1].cells[2]
+        assert.equal(164, narrow:GetWidth())
+        assert.same({ "TOPLEFT", narrow.background, "TOPLEFT", 27, -14 }, narrow.locked.points[1])
+        assert.equal(129, narrow.locked:GetWidth())
+        -- At the maximum the cell is far wider than its badge, and the words
+        -- are the badge's: 36 x 191/219 = 31.4, 191 - 31 - 10 = 150.
+        panel.scroll:SetWidth(bounds.maxWidth - UI.PANEL_INSET_LEFT - UI.PANEL_INSET_RIGHT - Panel.SCROLL_INSET)
+        panel:Refresh({ model = shown })
+        local wide = panel.gridRows[1].cells[2]
+        assert.is_true(wide:GetWidth() > 1000)
+        assert.equal(191, wide.background:GetWidth())
+        assert.same({ "TOPLEFT", wide.background, "TOPLEFT", 31, -14 }, wide.locked.points[1])
+        assert.equal(150, wide.locked:GetWidth())
     end)
 
     it("draws all of it without interacting with the vault", function()
