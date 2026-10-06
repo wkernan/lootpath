@@ -188,7 +188,7 @@ EngineCompare.TEXT = {
     searchNoPool = "  top set not searched: pass 1 stored no pool.",
     searchNot = "  top set not searched: %s",
     notSearchable = "  top set not searchable: %d piece(s) outside the pool / without a link",
-    differs = "  top set differs at %s: ours %s, QE Live's %s - ours by %s%% by our value",
+    differs = "  top set differs at %s: ours %s, theirs %s - ours by %s%% by our value",
     agrees = "top set: agrees on %d of %d positions (searched %d pieces in pass 1's pool; %d owned outside it,"
         .. " %d not ready; band %s, %d set values).",
     tableHead = "  class      n    rho    top1  top3  sign   MAE    k      MAE@k",

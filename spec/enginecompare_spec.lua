@@ -1878,7 +1878,7 @@ describe("EngineCompare's top-set agreement", function()
         assert.equal(2, #lines)
         assert.equal(
             string.format(
-                "  top set differs at Head: ours Bag Head 300, QE Live's Worn Head 300 - ours by %+.3f%% by our value",
+                "  top set differs at Head: ours Bag Head 300, theirs Worn Head 300 - ours by %+.3f%% by our value",
                 search.disagreements[1].delta
             ),
             lines[1]
