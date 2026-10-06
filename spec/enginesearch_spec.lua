@@ -928,3 +928,142 @@ describe("ns.EngineSearch over the owner's real inventory (synthetic stats)", fu
         end
     end)
 end)
+
+-- E-1b (WKE-688): what the runner-up line says. The owner's 2026-10-05 screens
+-- printed `next best -0.000%` on every single slot and the weapon: the
+-- runner-up compared option TABLES across two calls (always different), so
+-- the "alternative" was the position's own piece. A position with no other
+-- piece now says `only piece`; a different piece worth exactly as much says
+-- `tie` and names it. And a `no band` refusal lists the bands the file
+-- carries for the content type, with the command's usage.
+describe("ns.EngineSearch's runner-up words and the no-band refusal", function()
+    local ns, world
+    before_each(function()
+        ns, world = loaded()
+    end)
+    after_each(function()
+        H.unload()
+    end)
+
+    local function item(id, slot, int, extra)
+        local v = {
+            itemID = id,
+            key = "e1b:" .. id,
+            name = "Piece " .. id,
+            slot = slot,
+            level = 300,
+            int = int,
+            stamina = 0,
+            haste = 100,
+            crit = 100,
+            mastery = 100,
+            vers = 100,
+            leech = 0,
+            sockets = 0,
+            gems = {},
+            ready = true,
+        }
+        for k, x in pairs(extra or {}) do
+            v[k] = x
+        end
+        return v
+    end
+
+    -- Head: a strong and a weak piece (the weak one has more haste, so it is
+    -- not outclassed and stays a candidate); Legs: one piece; trinkets: a
+    -- strong one and two different pieces with the same stats. (Two equal
+    -- single-slot pieces never tie: the outclass drop keeps the first. A
+    -- trinket is never dropped - the effects table decides it - so two equal
+    -- trinkets stay, as the owner's Oculus and Mycolic Medicine did.)
+    local function small()
+        return {
+            item(980001, "Head", 300),
+            item(980002, "Head", 200, { haste = 150 }),
+            item(980003, "Legs", 250),
+            item(980004, "Trinket", 120),
+            item(980005, "Trinket", 120),
+            item(980006, "Trinket", 150),
+        }
+    end
+
+    local function byPosition(result)
+        local out = {}
+        for _, p in ipairs(result.positions) do
+            out[p.position] = p
+        end
+        return out
+    end
+
+    it("names another piece as the runner-up, never the position's own", function()
+        local r = assert(ns.EngineSearch.Best(small(), weights(), OPTS))
+        local head = byPosition(r).Head
+        assert.equal(980001, head.pieces[1].itemID)
+        assert.equal(980002, head.alternative[1].itemID)
+        assert.equal("next", head.state)
+        assert.equal(2, head.candidates)
+        assert.is_true(head.delta > 0)
+    end)
+
+    it("says `only piece` for a position with one candidate and `tie` for an equal other piece", function()
+        local r = assert(ns.EngineSearch.Best(small(), weights(), OPTS))
+        local p = byPosition(r)
+        assert.equal("only", p.Legs.state)
+        assert.equal(1, p.Legs.candidates)
+        assert.is_nil(p.Legs.alternative)
+        local tie
+        for _, position in ipairs({ "Trinket 1", "Trinket 2" }) do
+            if p[position].pieces[1].itemID ~= 980006 then
+                tie = p[position]
+            end
+        end
+        assert.equal("tie", tie.state)
+        assert.equal(2, tie.candidates) -- itself and the other, its partner kept
+        assert.are_not.equal(tie.pieces[1].itemID, tie.alternative[1].itemID)
+        assert.equal(0, tie.delta)
+        local lines = ns.EngineSearch.Lines({ file = weights(), contentType = "Dungeon", result = r })
+        local text = table.concat(lines, "\n")
+        assert.truthy(text:find("  Legs: Piece 980003 300 · bag · only piece", 1, true))
+        assert.truthy(text:find("· next best tie: Piece 98000", 1, true))
+        assert.truthy(text:find("  Head: Piece 980001 300 · bag · next best -", 1, true))
+        assert.is_nil(text:find("-0.000%", 1, true))
+    end)
+
+    it("lists the bands the file carries and the usage when it finds no band", function()
+        ns.engineWeights = dofile("spec/fixtures/engine/weights-fitted-shape.lua")
+        ns.EngineScore.file = nil
+        assert(ns.EngineScore.Load())
+        world.printed = {}
+        local run
+        ns.EngineCompare.Command("best dungeon", function(r)
+            run = r
+        end)
+        local guard = 0
+        while not run do
+            guard = guard + 1
+            assert(guard < 1000, "runaway")
+            for _, f in ipairs(world.frames) do
+                if f.scripts.OnUpdate then
+                    f.scripts.OnUpdate(f, 0.016)
+                end
+            end
+        end
+        local out = world.output()
+        assert.truthy(out:find("engine best found no set: no band\n", 1, true))
+        assert.truthy(
+            out:find(
+                "bands the weights file carries for Dungeon: 2, 4, 6, 8, 10."
+                    .. " usage: /lootpath engine best dungeon <n> | raid",
+                1,
+                true
+            )
+        )
+        -- With a key level the file has no band for, the same listing.
+        local lines =
+            ns.EngineSearch.Lines({ file = ns.EngineScore.file, contentType = "Raid", why = "no band for +7" })
+        assert.equal(
+            "bands the weights file carries for Raid: raid-3. usage: /lootpath engine best dungeon <n> | raid",
+            lines[3]
+        )
+        assert.same({ "2", "4", "6", "8", "10" }, ns.EngineSearch.BandKeys(ns.EngineScore.file, nil, "Dungeon"))
+    end)
+end)
