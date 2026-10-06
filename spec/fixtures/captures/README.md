@@ -10,6 +10,38 @@ snapshots arrive with every loop rather than by request.
 
 ## Committed
 
+- Lootpath-20261005-163103.lua - **E-3b's `capture effects` on the Druid
+  (WKE-684, built in PR #317), committed unedited by E-3c (WKE-686).** The
+  owner ran `/lootpath capture effects` and pulled (SavedVariables written
+  16:31:03 local, 2026-10-05). As pulled (CRLF): sha256
+  `e31cf6eae378df33ab620957ef269b91a2138bb3ceaf570c8e30aba72cfbdacb`,
+  6,473,520 bytes, read in the owner's checkout and again in this worktree
+  after the copy; as committed, after `.gitattributes`' `eol=lf` turned each
+  of its 347,889 CRLFs into LF and touched nothing else (the pulled bytes with
+  CRLF -> LF are byte-identical to the staged blob): sha256
+  `fae3e4228f92d8e8707b2400100f1eb7d1252d36517d4fd85dbfc3c72b8e04c2`,
+  6,125,631 bytes, read from the staged blob after `git add` and from the
+  checked-out file.
+  One `effects` snapshot (16:30:34 local, `capturedAt` 1791235834, `trigger`
+  `command`), client 12.1.0 build 69933 (Sep 18 2026), `durationMs` 2084.72,
+  `sawSecret` false (no `sawSecret = true` anywhere in the file).
+  `journal.rowsTaken` 47 of 475 cached rows with a link (the walk of
+  1790903344, key `69933|18|105|2:8:15:16:23`); 21 of the table's 29 items
+  found (journal or bags), 8 in `missing` (248583, 251788, 251792, 252957,
+  264701, 274493, 274494, 280091); 13 items waited for item data
+  (`requested` 13), `gaveUp` false on all 13, `waitTimedOut` false,
+  `stillWaiting` 0. 52 targets, 151 reads (`walk` 47, `kept` 52, `next` 52;
+  141 journal, 10 owned). What it settles - the effect text arrives on
+  the second read (45 reads carried it on the first ask, 137 on the second,
+  none on the first only), the numbers follow the item level, an "Equip:"
+  line is type 45 beside "Use:" type 44, the rebuilt link reads the walk's
+  level on all 41 `walk` reads that have one - is in ARCHITECTURE.md §7, §9
+  and §11 (E-3c); `spec/fixtures/engine/effects-real.lua` is extracted from
+  it by `tools/engine/extract-effects.js`, and `Lootpath/Data/EngineEffects.lua`'s
+  params are read from that. The file also carries the rest of the owner's
+  SavedVariables as written that afternoon; `engineCompare` holds only week
+  `2026-09-29` (already committed as Lootpath-20261002-112757.lua), so no new
+  compare week is in it. No secrets.
 - Lootpath-20261002-112757.lua - **week one of the engine compare's stored
   rows (E-0; WKE-670), on the Druid, pulled after the owner's closing
   `/reload` of 2026-10-02 (SavedVariables written 11:27:57 local).** As pulled

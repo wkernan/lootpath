@@ -66,13 +66,16 @@
 --     keeps the unfloored percent as `raw`. Top Gear rows are not floored:
 --     theirs is negative there for a worse alternative.
 --   * Effects (E-3a, WKE-679): a row whose swap moves an item the effects
---     table carries without a model (every entry today) is `not rated` and
---     LEFT OUT of every metric - counted, and named under the count with
---     `/lootpath engine verbose`; a row whose swap moves a trinket the table
---     does not carry is left out too, counted apart. A row with a modelled
---     effect stays in and is counted as `generic`. So the trinket class holds
---     only rows a rule covers - none until the table carries numbers - and
---     the report says so.
+--     table carries without a model is `not rated` and LEFT OUT of every
+--     metric - counted, and named under the count with `/lootpath engine
+--     verbose`; a row whose swap moves a trinket the table does not carry is
+--     left out too, counted apart. A row with a modelled effect stays in and
+--     is counted as `generic`. So the trinket class holds only rows a rule
+--     covers at the levels read (E-3c, WKE-686: three trinkets, from the
+--     owner's `capture effects` transcript), and its metrics are printed and
+--     stored beside the other classes. Reported, never gated: the bar's
+--     trinket verdict moves by the same per-week rule as every class and
+--     nothing reads it to promote anything.
 --   * What was read (E-0i, WKE-680): every row keeps, beside `ours` and
 --     `theirs`, the candidate `link` as scored and `level`, the client's read
 --     level of that link (ns.EngineStats' `level`, GetDetailedItemLevelInfo),
@@ -1040,8 +1043,8 @@ function EngineCompare.RowLines(rows)
 end
 
 -- After the class table: the trinket line when no trinket row is in it (the
--- class holds only rows a rule covers - none until the effects table carries
--- numbers), the generic count, the not-rated count with its items under it
+-- class holds only rows a rule covers at the item's level), the generic
+-- count, the not-rated count with its items under it
 -- when verbose, the trinkets the table does not carry, and (verbose) every
 -- scored row.
 local function blockTail(lines, block, verbose)

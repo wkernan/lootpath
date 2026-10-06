@@ -548,4 +548,4 @@ if (require.main === module) {
     }
 }
 
-module.exports = { run, metrics, spearman, ranks, recover, percent };
+module.exports = { run, metrics, spearman, ranks, recover, percent, value, fitBands, expandExports, storedBlocks, parseArgs, UF_FLOOR, NO_STEP_LEVELS };

@@ -258,17 +258,55 @@ which the annotations' enum does not list. Nothing is parsed into a value; the
 follow-up (E-3c) reads the records and fills `Data/EngineEffects.lua`'s
 `params`.
 
-**No transcript yet**, so the script has no default input:
+**The transcript** is the owner's first run (E-3c, WKE-686):
+`spec/fixtures/captures/Lootpath-20261005-163103.lua`, committed unedited
+(sha256 `fae3e422...b8e04c2` as committed; `spec/fixtures/captures/README.md`
+has both figures). It is the script's default input, and it read it as built -
+no fix was needed:
 
 ```powershell
-cd C:\Code\lootpath-<n>\tools\engine
-node extract-effects.js spec\fixtures\captures\<transcript>.lua [spec\fixtures\engine\effects-real.lua]
+cd C:\Code\lootpath-<n>
+node tools\engine\extract-effects.js [spec\fixtures\captures\<transcript>.lua] [spec\fixtures\engine\effects-real.lua]
 ```
 
 `test/extract-effects.test.js` holds it to a SavedVariables in the capture's
-stored shape (the tests' own, with the committed Freightrunner's Flask `Use:`
-line verbatim). When the transcript lands, E-3c commits the output and adds a
-byte-for-byte test to `test/extract.test.js`, as E-0f did for itemstats.
+stored shape; `test/extract.test.js` re-runs it on the committed transcript
+and compares the bytes with the committed `effects-real.lua` (151 records, 21
+items found, 8 missing). `Lootpath/Data/EngineEffects.lua`'s params are read
+from that file by hand, per item and per level read, and
+`spec/engineeffects_spec.lua` finds every one of their numbers in it.
+
+## probe-trinkets.js - the trinket class before and after the params (E-3c, WKE-686)
+
+```powershell
+node probe-trinkets.js `
+  --stats ..\..\spec\fixtures\captures\Lootpath-20260915-162015.lua `
+  --stats ..\..\spec\fixtures\captures\Lootpath-20260916-152428.lua `
+  --stats ..\..\spec\fixtures\captures\Lootpath-20261001-092631.lua `
+  --stats ..\..\spec\fixtures\captures\Lootpath-20261001-200927.lua `
+  --key-levels 1=2,2=4,4=6,6=8,7=10 `
+  --compare ..\..\spec\fixtures\captures\Lootpath-20261002-112757.lua `
+  --week 2026-09-29 --char "Hotornot - Arthas" `
+  [--rows ..\..\spec\fixtures\engine\compare-20260929.lua] [--effects ..\..\Lootpath\Data\EngineEffects.lua] `
+  ..\..\spec\fixtures\qe
+```
+
+Re-runs week one's compare headless with the shipped effects table: the
+bands fitted as `fit-weights.js` fits them (the dev weights the game ran), the
+worn set from the `--compare` file's inventory snapshot, the stored entries as
+the BEFORE (every trinket row `not rated`), week one's trinket rows from
+`--rows` (the same week's E-0h run, which still stored them; less the levels
+no track step draws, and checked against the stored `notRated` count), and
+the effects through the table's params at each item's level (`lib/luatable.js`
+reads the Lua table; the two rules a `generic` entry uses today are ported,
+and `test/probe-trinkets.test.js` holds the port to the figures
+`spec/engineeffects_spec.lua` reads off the Lua module). AFTER: every stored
+non-trinket row rescaled by V(worn) / V(worn + the worn trinkets' effects) -
+exact when no single swap reaches a DR bracket, which the probe checks against
+the largest amount any transcript-read item carries, and re-scored directly
+for every row a transcript read - and every trinket row whose candidate and
+replaced trinket are both `generic` scored with both effects. It changes
+nothing it reads; nothing is promoted.
 
 ## Tests
 
@@ -284,7 +322,9 @@ two client sources agreeing where they overlap); the DR table reproduces the
 client's 35 conversions; the real-stats fixture is the extraction, byte for
 byte; the effects extractor keeps every effect number as text, finds `Use:` and
 `Equip:` lines by their text whatever their type, and refuses anything but one
-snapshot. No npm dependency: Node's own runner and
+snapshot; the effects fixture is the extraction of the committed transcript,
+byte for byte; the trinket probe reads the shipped effects table as the Lua
+module does and pins week one's before and after. No npm dependency: Node's own runner and
 `tools/companion/lib/lua-savedvariables.js`.
 
 ## percent-scale.js - why k moved with the band (E-0j, WKE-681)

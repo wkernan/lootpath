@@ -160,8 +160,7 @@ test('the file it writes is labelled with the transcript and loads the same byte
     assert.equal(render(extract(SV), 'x.lua', 'abc', 1).split('rule = "walk",').length - 1, 2);
 });
 
-test('it refuses without a transcript and without exactly one snapshot', () => {
-    assert.throws(() => run([]), /usage/);
+test('it refuses a transcript without exactly one snapshot', () => {
     assert.throws(() => extract('LootpathDB = { ["global"] = { ["captures"] = {} } }'), /one effects snapshot/);
     const two = 'LootpathDB = { ["global"] = { ["captures"] = { ["effects"] = { { ["data"] = {} }, { ["data"] = {} } } } } }';
     assert.throws(() => extract(two), /found 2/);

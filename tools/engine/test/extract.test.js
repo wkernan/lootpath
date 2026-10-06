@@ -30,3 +30,17 @@ test('the committed linklevel fixture is the extraction of the committed transcr
     assert.equal(r.text.split('rule = "track-append",').length - 1, 4 * 2 + 4);
     assert.equal(r.text.split('trackNote = "no track step draws 44",').length - 1, 4);
 });
+
+// E-3c (WKE-686): spec/fixtures/engine/effects-real.lua is what
+// extract-effects.js writes from the committed `capture effects` transcript.
+test('the committed effects fixture is the extraction of the committed transcript', () => {
+    const r = require('../extract-effects').run([]);
+    assert.equal(r.sha, 'fae3e4228f92d8e8707b2400100f1eb7d1252d36517d4fd85dbfc3c72b8e04c2');
+    const committed = fs.readFileSync(r.outPath, 'utf8');
+    assert.equal(committed, r.text);
+    // 151 records over 21 items found; 8 table items found nowhere.
+    assert.equal(r.text.split('        source = ').length - 1, 151);
+    assert.ok(r.text.includes('F.ITEMS = 21\n'));
+    assert.equal(r.text.split('        itemID = ').length - 1, 151 + 8);
+    assert.ok(r.text.includes('F.SAW_SECRET = false\n'));
+});

@@ -26,9 +26,10 @@
 -- modelled healing effect is kept in `effects` and added to the value only
 -- when the band (or the file) carries `hpsPerValue` - healing per second per
 -- point of value - else it is NOT added and the result says
--- `hpsNotAdded = true`. An effect not modelled (every entry today: the table
--- ships with no numbers) leaves the item's STATS counting and marks the
--- result `effectUnmodelled` with the item named. A trinket the table does not
+-- `hpsNotAdded = true`. An effect not modelled (no rule for its kind, or no
+-- params at the item's level - E-3c filled them only where the client's
+-- tooltip gave every field, at the levels it was read) leaves the item's
+-- STATS counting and marks the result `effectUnmodelled` with the item named. A trinket the table does not
 -- carry is scored on its stats and marked `effectUnknown`.
 
 local _, ns = ...
@@ -407,7 +408,9 @@ function EngineScore.EffectOf(item, effects)
         end
         return nil
     end
-    local answer = ns.EngineEffects.Evaluate(entry)
+    -- The rule reads the params at the level the client read the item at
+    -- (E-3c): a level the effects capture did not read is not modelled.
+    local answer = ns.EngineEffects.Evaluate(entry, item.level)
     if answer then
         return "modelled", entry, answer
     end
