@@ -234,6 +234,19 @@ local function attachFontSurface(r)
     function r:SetTextColor(red, green, blue, alpha)
         self.textColor = { red, green, blue, alpha }
     end
+    -- How many lines a wrapping string may take before the client ends it
+    -- with an ellipsis is a contract too (V-9, WKE-690): the vault cell's
+    -- words cap themselves as Blizzard's own reward Name does. The real
+    -- widget has both halves (`FontString:SetMaxLines(maxLines)` at
+    -- Font/FontString.lua:190, `GetMaxLines()` at :79 under .luals/); the
+    -- getter answers what was set. What the client answers before any call
+    -- is not in the annotations, so the stub answers nil, never a guess.
+    function r:SetMaxLines(maxLines)
+        self.maxLines = maxLines
+    end
+    function r:GetMaxLines()
+        return self.maxLines
+    end
     -- FontString:GetStringWidth (Font/FontString.lua:115) is real, and since
     -- M5-2b (WKE-601) the status strip and the vault's currency chips fit
     -- themselves with it. Nothing headless can measure a glyph, so the stub
