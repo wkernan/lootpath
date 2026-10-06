@@ -3,9 +3,13 @@
 -- hand-made params against a value computed by hand in the comment beside it;
 -- nil params, and the kinds no rule covers, answer `not modelled`; the
 -- shipped table's classification (25 trinkets by kind, the four effect
--- armour and weapon pieces, every entry `not_modelled` with `params = nil`);
--- every itemID found in the repo's own data; the chunk discipline; a pure
--- module; no UI file naming it.
+-- armour and weapon pieces); every itemID found in the repo's own data; the
+-- chunk discipline; a pure module; no UI file naming it. Since E-3c
+-- (WKE-686): the params filled from the effects transcript - three entries
+-- `generic` with every field their rule reads at every level they list,
+-- every number found in spec/fixtures/engine/effects-real.lua at its level,
+-- every `not_modelled` entry still `not modelled` at every level, and a level
+-- the capture did not read never answered.
 local H = require("spec.helpers.addon")
 local R = require("spec.helpers.replay")
 
@@ -13,6 +17,18 @@ local SHIPPED = "Lootpath/Data/EngineEffects.lua"
 local MODULE = "Lootpath/Modules/EngineEffects.lua"
 local SV = "spec/fixtures/captures/Lootpath-20260916-162655.lua"
 local WALK_KEY = "69587|18|105|2:8:15:16:23"
+local EFFECTS = "spec/fixtures/engine/effects-real.lua"
+
+-- What each rule reads before it answers (this spec's own reading of
+-- Lootpath/Modules/EngineEffects.lua): a flat heal's rate is
+-- `procsPerMinute` or `cooldown`, listed here as the cooldown.
+local RULE_READS = {
+    passive_stat = { "stat" },
+    stat_proc = { "stat", "amount", "rppm", "duration" },
+    stat_on_use = { "stat", "amount", "duration", "cooldown" },
+    flat_heal = { "heal", "cooldown", "overheal", "targets" },
+    heal_on_use = { "amount", "cooldown", "overheal" },
+}
 
 local function readAll(path)
     local f = assert(io.open(path, "rb"))
@@ -68,6 +84,8 @@ describe("Data/EngineEffects.lua", function()
                 or line:match("^%s*sets = {},$")
                 or line:match("^%s*[%w_.]+ = {$")
                 or line:match("^%s*%[%d+%] = {$")
+                or line:match("^%s*%[%d+%] = { [%a_]+ = %d+ },$")
+                or line:match("^%s*%[%d+%] = { stat = { [%a_]+ = %d+ } },$")
                 or line:match("^%s*},?$")
             assert.is_truthy(ok, "unexpected line in a data-only chunk: " .. line)
             assert.is_falsy(line:match("^[^%-]*%f[%w]function%f[%W]"), line)
@@ -90,15 +108,23 @@ describe("Data/EngineEffects.lua", function()
         assert.same({}, t.sets)
     end)
 
-    -- docs/OWN-ENGINE.md section 4's classification, counted off the file.
-    it("classifies the season's 25 trinkets and four effect pieces, and ships no numbers", function()
+    -- docs/OWN-ENGINE.md section 4's classification, counted off the file;
+    -- since E-3c (WKE-686) the numbers the effects transcript gave.
+    it("classifies the season's 25 trinkets and four effect pieces, with numbers only where read", function()
         local t = loadShipped().engineEffects
         local trinkets, others = {}, {}
         local n = 0
+        local generic, withParams = {}, {}
         for id, entry in pairs(t.items) do
             n = n + 1
-            assert.equal("not_modelled", entry.confidence, id)
-            assert.is_nil(entry.params, id)
+            if entry.confidence == "generic" then
+                generic[#generic + 1] = id
+            else
+                assert.equal("not_modelled", entry.confidence, id)
+            end
+            if entry.params ~= nil then
+                withParams[#withParams + 1] = id
+            end
             assert.is_string(entry.name, id)
             local bucket = entry.slot == "Trinket" and trinkets or others
             bucket[entry.kind] = (bucket[entry.kind] or 0) + 1
@@ -118,6 +144,151 @@ describe("Data/EngineEffects.lua", function()
         for _, id in ipairs({ 270164, 270167, 270169, 193757 }) do
             assert.equal("unique", t.items[id].kind, id)
         end
+        -- Generic: the three whose tooltip gives every field the rule reads.
+        table.sort(generic)
+        assert.same({ 250215, 273649, 274495 }, generic)
+        -- Params: every item whose effect text the capture read and whose
+        -- kind a rule covers; never the eight the capture found nowhere,
+        -- never a kind no rule reads.
+        table.sort(withParams)
+        assert.same({
+            193748,
+            250214,
+            250215,
+            250248,
+            250254,
+            250255,
+            251789,
+            270162,
+            270171,
+            273649,
+            273796,
+            274495,
+        }, withParams)
+        local Effects = dofile(EFFECTS)
+        for _, m in ipairs(Effects.MISSING) do
+            assert.is_table(t.items[m.itemID], m.itemID)
+            assert.is_nil(t.items[m.itemID].params, m.itemID)
+            assert.equal("not_modelled", t.items[m.itemID].confidence, m.itemID)
+        end
+        assert.equal(8, #Effects.MISSING)
+        for id, entry in pairs(t.items) do
+            if not RULE_READS[entry.kind] then
+                assert.is_nil(entry.params, id)
+            end
+        end
+    end)
+
+    -- E-3c: every generic entry carries, at every level it lists, every field
+    -- its rule reads - the list below is this spec's own reading of each rule
+    -- in Lootpath/Modules/EngineEffects.lua, not the module's.
+    it("gives every generic entry every field its rule reads, at every level it lists", function()
+        local t = loadShipped().engineEffects
+        local ns = { engineEffects = t }
+        assert(loadfile(MODULE))("Lootpath", ns)
+        local checked = 0
+        for id, entry in pairs(t.items) do
+            if entry.confidence == "generic" then
+                local reads = RULE_READS[entry.kind]
+                assert.is_table(reads, id)
+                assert.is_table(entry.params.byLevel, id)
+                for level in pairs(entry.params.byLevel) do
+                    local p = ns.EngineEffects.ParamsAt(entry.params, level)
+                    for _, field in ipairs(reads) do
+                        assert.is_not_nil(p[field], string.format("%d@%d lacks %s", id, level, field))
+                    end
+                    local answer = ns.EngineEffects.Evaluate(entry, level)
+                    assert.is_table(answer, string.format("%d@%d", id, level))
+                    assert.equal("generic", answer.confidence)
+                    checked = checked + 1
+                end
+            end
+        end
+        assert.equal(14, checked) -- 2 Oculus levels, 8 Flask, 4 Emblem
+    end)
+
+    -- E-3c: every number in the table is a string the client wrote, at the
+    -- level the entry files it under. Amounts are found among the effect
+    -- line's own digits (`numbers`, as the client wrote them, "34,166") on a
+    -- record whose tooltip says "Item Level <level>"; a duration as "<n>
+    -- sec" in that text; a cooldown as the text's "(N Min M Sec Cooldown)".
+    it("cites every number to effects-real.lua at the level it is filed under", function()
+        local Effects = dofile(EFFECTS)
+        local function grouped(n)
+            local s = tostring(n)
+            local out = s:reverse():gsub("(%d%d%d)", "%1,"):reverse()
+            return (out:gsub("^,", ""))
+        end
+        local function linesAt(id, level)
+            local out = {}
+            for _, r in ipairs(Effects.RECORDS) do
+                if r.itemID == id then
+                    for _, read in ipairs({ r, r.again or {} }) do
+                        if read.itemLevelLine == "Item Level " .. level then
+                            for _, e in ipairs(read.effects or {}) do
+                                out[#out + 1] = e
+                            end
+                        end
+                    end
+                end
+            end
+            return out
+        end
+        local function cooldownOf(text)
+            local inner = text:match("%(([^()]*Cooldown)%)")
+            if not inner then
+                return nil
+            end
+            inner = inner:gsub("|4", "")
+            local mins = tonumber(inner:match("(%d+) Min")) or 0
+            local secs = tonumber(inner:match("(%d+) Sec")) or 0
+            return mins * 60 + secs
+        end
+        local cited = 0
+        for id, entry in pairs(loadShipped().engineEffects.items) do
+            if entry.params then
+                for level, at in pairs(entry.params.byLevel) do
+                    local lines = linesAt(id, level)
+                    assert.is_true(#lines > 0, string.format("no effect line for %d at %d", id, level))
+                    local values = {}
+                    for k, v in pairs(at) do
+                        if type(v) == "table" then
+                            for _, x in pairs(v) do
+                                values[#values + 1] = x
+                            end
+                        else
+                            values[#values + 1] = v
+                        end
+                        assert.is_not_nil(k)
+                    end
+                    for _, v in ipairs(values) do
+                        local found = false
+                        for _, e in ipairs(lines) do
+                            for _, s in ipairs(e.numbers) do
+                                found = found or s == grouped(v)
+                            end
+                        end
+                        assert.is_true(found, string.format("%d@%d: %s is not in the client's text", id, level, v))
+                        cited = cited + 1
+                    end
+                    if entry.params.duration then
+                        local found = false
+                        for _, e in ipairs(lines) do
+                            found = found or e.text:find(entry.params.duration .. " sec", 1, true) ~= nil
+                        end
+                        assert.is_true(found, string.format("%d@%d: duration", id, level))
+                    end
+                    if entry.params.cooldown then
+                        local found = false
+                        for _, e in ipairs(lines) do
+                            found = found or cooldownOf(e.text) == entry.params.cooldown
+                        end
+                        assert.is_true(found, string.format("%d@%d: cooldown", id, level))
+                    end
+                end
+            end
+        end
+        assert.equal(64, cited)
     end)
 
     -- Every ID is in the committed walk's journalCache or in an export under
@@ -257,14 +428,56 @@ describe("ns.EngineEffects rules", function()
         assert.equal(100, r.hps)
     end)
 
-    it("answers every shipped entry as not modelled today", function()
+    -- E-3c: a `not_modelled` entry still reads `not modelled` - with no
+    -- level, and at every level it carries numbers for - so the compare
+    -- still leaves its row out as `not rated`; a `generic` entry answers only
+    -- at a level the capture read.
+    it("answers every not_modelled entry as not modelled at every level it carries", function()
+        local notModelled = 0
         for id, entry in pairs(ns.engineEffects.items) do
             assert.equal(entry, ns.EngineEffects.Classify(id))
             assert.same({ nil, "not modelled" }, { ns.EngineEffects.Evaluate(entry) }, id)
+            if entry.confidence == "not_modelled" then
+                notModelled = notModelled + 1
+                local levels = entry.params and entry.params.byLevel or { [308] = true }
+                for level in pairs(levels) do
+                    assert.same(
+                        { nil, "not modelled" },
+                        { ns.EngineEffects.Evaluate(entry, level) },
+                        string.format("%d@%d", id, level)
+                    )
+                end
+            end
         end
+        assert.equal(26, notModelled)
         assert.is_nil(ns.EngineEffects.Classify(999999))
         assert.is_nil(ns.EngineEffects.Classify(nil))
         assert.is_nil(ns.EngineEffects.Classify(270162, { schema = "other", version = 1, items = {} }))
+    end)
+
+    it("reads params at the item's level only, never between levels", function()
+        -- Freightrunner's Flask: 608 crit at 305, 617 at 308, both for 15 s
+        -- every 90 s: 608 * 15 / 90 = 101.333..., 617 * 15 / 90 = 102.833...
+        local flask = ns.engineEffects.items[250215]
+        near(608 * 15 / 90, ns.EngineEffects.Evaluate(flask, 305).stat.crit, "flask 305")
+        near(617 * 15 / 90, ns.EngineEffects.Evaluate(flask, 308).stat.crit, "flask 308")
+        -- 306 sits between two levels read: not modelled, never interpolated.
+        assert.same({ nil, "not modelled" }, { ns.EngineEffects.Evaluate(flask, 306) })
+        assert.same({ nil, "not modelled" }, { ns.EngineEffects.Evaluate(flask, nil) })
+        -- Pulse Seeker's Oculus: the always-on Mastery at the level read.
+        assert.same(
+            { stat = { mastery = 92 }, confidence = "generic" },
+            ns.EngineEffects.Evaluate(ns.engineEffects.items[274495], 308)
+        )
+        -- ParamsAt lays the level's fields over the shared ones and keeps no
+        -- `byLevel`; params without `byLevel` pass through as they are.
+        assert.same(
+            { stat = "crit", duration = 15, cooldown = 90, amount = 608 },
+            ns.EngineEffects.ParamsAt(flask.params, 305)
+        )
+        local flat = { amount = 1, cooldown = 2 }
+        assert.equal(flat, ns.EngineEffects.ParamsAt(flat, 999))
+        assert.is_nil(ns.EngineEffects.ParamsAt({ byLevel = { [1] = { amount = 1 } } }, 2))
     end)
 end)
 

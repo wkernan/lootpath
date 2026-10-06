@@ -11,9 +11,11 @@
 --                 there: the rule's stats or healing are added, confidence
 --                 `generic`.
 --   not modelled  the table has it, but its kind has no rule (`unique`,
---                 `unknown`, `damage_only`) or its params are nil (every
---                 entry today): `nil, "not modelled"`; the item's stats still
---                 count and the result says what is missing.
+--                 `unknown`, `damage_only`), its params are nil, it has no
+--                 params at the item's level, or its params lack a field the
+--                 rule reads (an RPPM, an overheal: no tooltip carries them):
+--                 `nil, "not modelled"`; the item's stats still count and the
+--                 result says what is missing.
 --   unknown       the table does not have it: EngineScore scores its stats
 --                 and, for a trinket, says the effect is unknown.
 --
@@ -202,10 +204,42 @@ EngineEffects.RULES = {
     heal_on_use = "HealOnUse",
 }
 
--- Evaluate(entry) -> { stat = vector } | { hps = n } with confidence
--- `generic`, or nil, "not modelled" (a kind no rule covers, params nil, or
--- params a rule refuses).
-function EngineEffects.Evaluate(entry)
+-- ParamsAt(params, level) -> the params a rule reads at one item level, or
+-- nil. Params read from a tooltip (E-3c, WKE-686) carry the level-independent
+-- fields at the top and the amounts that follow the item level under
+-- `byLevel[level]`, one entry per level the client was read at: the rule gets
+-- the top fields with that level's fields laid over them. A level the client
+-- was not read at answers nil - never the nearest level, never interpolated
+-- (docs/ARCHITECTURE.md section 7, 2026-10-05, E-3c). Params without `byLevel`
+-- are taken as they are.
+function EngineEffects.ParamsAt(params, level)
+    if type(params) ~= "table" then
+        return nil
+    end
+    if params.byLevel == nil then
+        return params
+    end
+    local at = type(params.byLevel) == "table" and params.byLevel[tonumber(level)] or nil
+    if type(at) ~= "table" then
+        return nil
+    end
+    local out = {}
+    for k, v in pairs(params) do
+        if k ~= "byLevel" then
+            out[k] = v
+        end
+    end
+    for k, v in pairs(at) do
+        out[k] = v
+    end
+    return out
+end
+
+-- Evaluate(entry[, level]) -> { stat = vector } | { hps = n } with confidence
+-- `generic`, or nil, "not modelled" (a kind no rule covers, params nil, no
+-- params at this level, or params a rule refuses). `level` is the item level
+-- the client read the item at (ns.EngineStats' `level`).
+function EngineEffects.Evaluate(entry, level)
     if type(entry) ~= "table" then
         return notModelled()
     end
@@ -213,5 +247,9 @@ function EngineEffects.Evaluate(entry)
     if not rule or entry.params == nil then
         return notModelled()
     end
-    return EngineEffects[rule](entry.params)
+    local params = EngineEffects.ParamsAt(entry.params, level)
+    if params == nil then
+        return notModelled()
+    end
+    return EngineEffects[rule](params)
 end

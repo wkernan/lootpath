@@ -302,6 +302,143 @@ describe("EngineCompare.Compute on hand-made inputs", function()
     end)
 end)
 
+-- E-3c (WKE-686): trinkets enter the compare REPORTED, never gated. The worn
+-- pair is the owner's own (Pulse Seeker's Oculus 308, Freightrunner's Flask
+-- 334, both `generic` at those levels in the shipped table); four trinket
+-- drops: two the table models at their level (Flask 305, Stormbound Emblem
+-- 292), one at a level the effects capture never read (Flask 300) and one
+-- whose kind has no RPPM (Lightspire Core 305). The modelled two are scored
+-- into the trinket class with a value; the other two stay `not rated`. The
+-- class's metrics print and store beside the others, and the bar's trinket
+-- verdict moves by the same per-week rule as every class.
+describe("EngineCompare trinket rows (E-3c)", function()
+    local ns
+    local function vec(itemID, level, stats)
+        local v = { ready = true, sockets = 0, gems = {}, itemID = itemID, level = level }
+        for _, k in ipairs({ "int", "haste", "crit", "mastery", "vers", "leech" }) do
+            v[k] = 0
+        end
+        for k, x in pairs(stats) do
+            v[k] = x
+        end
+        return v
+    end
+    local function drop(key, percent)
+        return { key = key, dropType = "drop", upgradePercent = percent, sources = {} }
+    end
+    local function inputs()
+        return {
+            contentType = "Dungeon",
+            file = dofile(WEIGHTS),
+            worn = {
+                { link = "oculus-308", slot = "Trinket" },
+                { link = "flask-334", slot = "Trinket" },
+                { link = "worn-head", slot = "Head" },
+            },
+            reads = {
+                ["oculus-308"] = vec(274495, 308, { int = 141 }),
+                ["flask-334"] = vec(250215, 334, { int = 179 }),
+                ["worn-head"] = vec(1, 300, { int = 100 }),
+                ["flask-305"] = vec(250215, 305, { int = 150 }),
+                ["flask-300"] = vec(250215, 300, { int = 145 }),
+                ["emblem-292"] = vec(273649, 292, { int = 190 }),
+                ["core-305"] = vec(250214, 305, { int = 150 }),
+            },
+            journalByKey = {
+                ["250215@305"] = { link = "flask-305", slot = "Trinket" },
+                ["250215@300"] = { link = "flask-300", slot = "Trinket" },
+                ["273649@292"] = { link = "emblem-292", slot = "Trinket" },
+                ["250214@305"] = { link = "core-305", slot = "Trinket" },
+            },
+            document = {
+                keyLevel = 10,
+                verdict = {
+                    exportedAt = "x",
+                    order = { "250215@305", "250215@300", "273649@292", "250214@305" },
+                    items = {
+                        ["250215@305"] = drop("250215@305", 0),
+                        ["250215@300"] = drop("250215@300", 0),
+                        ["273649@292"] = drop("273649@292", 0.4),
+                        ["250214@305"] = drop("250214@305", 0.2),
+                    },
+                },
+            },
+        }
+    end
+
+    before_each(function()
+        ns = H.load()
+        ns.EngineCompare.REBUILD_AT_LEVEL = false
+    end)
+    after_each(function()
+        ns.EngineCompare.REBUILD_AT_LEVEL = true
+        H.unload()
+    end)
+
+    it("scores the trinkets a rule covers at their level and leaves the rest not rated", function()
+        local uf = ns.EngineCompare.Compute(inputs()).uf
+        assert.equal(4, uf.joined)
+        assert.equal(2, uf.generic)
+        assert.equal(2, uf.notRated)
+        assert.equal(0, uf.unknown)
+        local names = {}
+        for _, item in ipairs(uf.notRatedItems) do
+            names[item.key] = item.names
+        end
+        -- Flask at 300: the table has no params at a level the capture did
+        -- not read, so the candidate is not modelled there.
+        assert.same({ ["250214@305"] = "Lightspire Core", ["250215@300"] = "Freightrunner's Flask" }, names)
+        local keys = {}
+        for _, row in ipairs(uf.rows) do
+            assert.equal("trinket", row.class, row.key)
+            assert.is_number(row.ours, row.key)
+            keys[#keys + 1] = row.key
+        end
+        assert.same({ "250215@305", "273649@292" }, keys)
+        assert.is_table(uf.metrics.trinket)
+        assert.equal(2, uf.metrics.trinket.n)
+    end)
+
+    it("prints the trinket class in the table beside the others", function()
+        local result = ns.EngineCompare.Compute(inputs())
+        local lines = ns.EngineCompare.Lines({
+            file = dofile(WEIGHTS),
+            charKey = "c",
+            weekKey = "2026-10-05",
+            contentType = "Dungeon",
+            result = result,
+        })
+        local out = table.concat(lines, "\n") .. "\n"
+        assert.truthy(out:find("\n  trinket%s+2%s"), out)
+        assert.falsy(out:find("trinket: no row a rule covers yet", 1, true), out)
+        assert.truthy(out:find("  generic: 2 (effect from a generic rule)\n", 1, true), out)
+        assert.truthy(out:find("  not rated: 2 (effect not modelled)\n", 1, true), out)
+    end)
+
+    it("moves the bar's trinket verdict only by the per-week rule, like every class", function()
+        local m = ns.EngineCompare.Compute(inputs()).uf.metrics.trinket
+        local store = {}
+        ns.EngineCompare.Store(store, "2026-10-05", "c", "Dungeon", 10, { metrics = { trinket = m } })
+        -- Two rows: no Spearman under five, so the per-run half of the bar is
+        -- not met, and the memo's rule (docs/OWN-ENGINE.md section 6: "any
+        -- week below the floor demotes the class") reads `no` - exactly what
+        -- the tier class reads for the same metrics. A report: nothing reads
+        -- it to promote or demote anything.
+        assert.is_false(ns.EngineCompare.Passes(m))
+        assert.equal("no", ns.EngineCompare.Verdicts(store, "c").trinket)
+        local tierStore = {}
+        ns.EngineCompare.Store(tierStore, "2026-10-05", "c", "Dungeon", 10, { metrics = { tier = m } })
+        assert.equal("no", ns.EngineCompare.Verdicts(tierStore, "c").tier)
+        -- With no trinket row stored, the class stays where week one left it.
+        assert.equal("0/3 weeks", ns.EngineCompare.Verdicts({}, "c").trinket)
+        local PASS = { n = 12, rhoMedian = 0.99, rhoMin = 0.95, top1 = 1, sign = 1, maeK = 0.01, k = 1.0 }
+        local store2 = {}
+        ns.EngineCompare.Store(store2, "2026-10-05", "c", "Dungeon", 10, { metrics = { trinket = PASS } })
+        ns.EngineCompare.Store(store2, "2026-10-05", "c", "Raid", 10, { metrics = { trinket = PASS } })
+        assert.equal("1/3 weeks", ns.EngineCompare.Verdicts(store2, "c").trinket)
+    end)
+end)
+
 describe("EngineCompare week, store and verdicts", function()
     local ns
     before_each(function()
@@ -998,18 +1135,26 @@ describe("/lootpath engine compare with the effects table", function()
         -- 15, not 17: the two one-handers (Jan'thrazet, Polished Lightwood
         -- Channeler) beside the worn two-hander are `not comparable` first.
         -- And since E-0g step 2, 3 of those 15 sit at 344, which no track step
-        -- draws: left out at their level and counted there, so 12 are `not
-        -- rated` (as read from the run above).
+        -- draws: left out at their level and counted there, so 12 rows are
+        -- left out for an effect. Since E-3c (WKE-686) Freightrunner's Flask
+        -- has params at 305 and is `generic`, so its row 250215@305 is no
+        -- longer `not rated`: its best placement replaces the worn Heart of
+        -- Wind (250256@282, a trinket the table does not carry), so it is
+        -- counted as `unknown` instead - 11 not rated, 1 unknown (as read from
+        -- the run above).
         table.sort(oneHanders)
         assert.same({ 271092, 273778 }, oneHanders)
         assert.same({ ["not comparable"] = uf.notCompared }, uf.reasons)
         assert.equal(3, carriedNoStep)
-        assert.equal(15 - carriedNoStep, uf.notRated)
+        assert.equal(15 - carriedNoStep - 1, uf.notRated)
+        for _, item in ipairs(uf.notRatedItems) do
+            assert.are_not.equal("250215@305", item.key)
+        end
         assert.same(
             { rule = "track-append", rebuilt = 77, leftOut = 7, reasons = { ["no track step draws 344"] = 7 } },
             uf.atLevel
         )
-        assert.equal(0, uf.unknown)
+        assert.equal(1, uf.unknown)
         assert.equal(0, uf.generic)
         -- No metric holds a row whose item the table carries, and no trinket
         -- row is in the class table.
@@ -1080,33 +1225,43 @@ local TRANSCRIPT_NOW = 1790864791
 local TRANSCRIPT_RESET = 1791298800
 
 local PINNED_TG = {
-    { "271528:6652:12845:13440:13692:13695:13698", 0.24358358586260817 },
-    { "277781:6652:12836:13662:13696", -0.064902948040283195 },
+    { "271528:6652:12845:13440:13692:13695:13698", 0.24022459057337234 },
+    { "277781:6652:12836:13662:13696", -0.06400794234460401 },
 }
 
 local PINNED_KEPT = {
     uf = {
-        ["268234@324"] = 0.39908906504140779,
-        ["268247@318"] = 0.37838637717233659,
+        ["268234@324"] = 0.39359534431947568,
+        ["268247@318"] = 0.37317764242298229,
     },
     levels = { ["268234@324"] = 321, ["268247@318"] = 321 },
     notReady = 28,
     tg = PINNED_TG,
-    worn = 5709.2518928414584,
-    best = 5699.0687604303903,
+    worn = 5788.9404254501542,
+    best = 5778.7572930390861,
 }
 
+-- E-3c (WKE-686) moved both pins, and only through the worn set: this
+-- transcript's worn trinkets are Pulse Seeker's Oculus at 308 and
+-- Freightrunner's Flask at 334, and both now carry a `generic` effect at
+-- exactly those levels (mastery 92; crit 689 x 15 / 90), so every value that
+-- holds the worn trinkets grows and every percent over it moves. The E-0i and
+-- E-0g step 2 figures before E-3c: uf 268234@324 0.39908906504140779 (kept)
+-- and 0.48254247201694361 (rebuilt), 268247@318 0.37838637717233659,
+-- 268252@324 -0.017063755431706674, tg 0.24358358586260817 and
+-- -0.064902948040283195, worn 5709.2518928414584, best 5699.0687604303903.
+-- Read from this spec's own run after the change.
 local PINNED = {
     uf = {
-        ["268234@324"] = 0.48254247201694361,
-        ["268252@324"] = -0.017063755431706674,
+        ["268234@324"] = 0.4758999608334894,
+        ["268252@324"] = -0.016828861732478349,
     },
     levels = { ["268234@324"] = 324, ["268252@324"] = 324 },
     notReady = 21,
     atLevel = { rule = "track-append", rebuilt = 2, leftOut = 7, reasons = { ["no track step draws 344"] = 7 } },
     tg = PINNED_TG,
-    worn = 5709.2518928414584,
-    best = 5699.0687604303903,
+    worn = 5788.9404254501542,
+    best = 5778.7572930390861,
 }
 
 local function transcriptWorld()

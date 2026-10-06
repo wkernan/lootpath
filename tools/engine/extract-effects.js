@@ -2,13 +2,14 @@
 // Extracts spec/fixtures/engine/effects-real.lua from the owner's
 // `capture effects` transcript (E-3b, WKE-684). DEV ONLY - nothing here ships.
 //
-//   node extract-effects.js <transcript.lua> [out.lua]
+//   node extract-effects.js [transcript.lua] [out.lua]
 //
-// There is no default transcript yet: the capture is built and has not run in
-// a client. Once the owner's pull is committed under spec/fixtures/captures/,
-// the follow-up (E-3c) runs this script on it, commits the output beside the
-// transcript, and adds a byte-for-byte test to tools/engine/test/extract.test.js
-// as E-0f did for extract-itemstats.js.
+// The default transcript is the owner's first `capture effects` pull
+// (spec/fixtures/captures/Lootpath-20261005-163103.lua, committed unedited by
+// E-3c, WKE-686); tools/engine/test/extract.test.js re-runs the script on it
+// and holds the committed spec/fixtures/engine/effects-real.lua to the output
+// byte for byte, as E-0f did for extract-itemstats.js. It read the real
+// transcript as built: no fix was needed.
 //
 // One record per item, per target, per read - so per itemID per level: where
 // the link came from (`journal` row or `owned` copy), the read's rule (`walk` -
@@ -33,6 +34,7 @@ const { parseSavedVariables, luaArray } = require('../companion/lib/lua-savedvar
 const { lua } = require('./extract-itemstats');
 
 const REPO = path.join(__dirname, '..', '..');
+const DEFAULT_IN = path.join('spec', 'fixtures', 'captures', 'Lootpath-20261005-163103.lua');
 const DEFAULT_OUT = path.join('spec', 'fixtures', 'engine', 'effects-real.lua');
 
 // A probe `{ [1] = v, ..., n = count }` kept exactly as stored.
@@ -189,8 +191,7 @@ function render(x, inputRel, sha, bytes) {
 }
 
 function run(argv) {
-    const inputRel = argv[0];
-    if (!inputRel) throw new Error('usage: node extract-effects.js <transcript.lua> [out.lua]');
+    const inputRel = argv[0] || DEFAULT_IN;
     const outRel = argv[1] || DEFAULT_OUT;
     const raw = fs.readFileSync(path.resolve(REPO, inputRel));
     const sha = crypto.createHash('sha256').update(raw).digest('hex');
