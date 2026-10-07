@@ -1717,3 +1717,219 @@ describe("EngineCompare floors ours at the Upgrade Finder's 0", function()
         end
     end)
 end)
+
+-- E-1b (WKE-688): after the single-swap rows, the Top Gear block runs
+-- ns.EngineSearch.Best over the owned pieces in pass 1's `considered` pool and
+-- reports top-set agreement by position - rings, trinkets and the weapons as
+-- unordered groups - with our delta for every disagreement. Reported, never
+-- gated; stored with the week's `tg` entry.
+describe("EngineCompare's top-set agreement", function()
+    local ns
+    before_each(function()
+        ns = H.load()
+        ns.db.global.developer = { engine = true }
+    end)
+    after_each(function()
+        H.unload()
+    end)
+
+    local function piece(key, slot)
+        return { key = key, slot = slot }
+    end
+
+    it("counts a ring or trinket pair as unordered, and a weapon pair as one group", function()
+        local theirs = {
+            piece("a", "Head"),
+            piece("r1", "Finger"),
+            piece("r2", "Finger"),
+            piece("t1", "Trinket"),
+            piece("t2", "Trinket"),
+            piece("staff", "2H Weapon"),
+        }
+        -- The same set with each pair the other way round.
+        local ours = {
+            piece("t2", "Trinket"),
+            piece("r2", "Finger"),
+            piece("staff", "2H Weapon"),
+            piece("t1", "Trinket"),
+            piece("a", "Head"),
+            piece("r1", "Finger"),
+        }
+        local same = ns.EngineCompare.Agreement(ours, theirs)
+        assert.equal(6, same.positions)
+        assert.equal(6, same.agree)
+        assert.same({}, same.disagreements)
+        -- One ring differs: one place of two, named once, its two pieces.
+        ours[2] = piece("r3", "Finger")
+        local one = ns.EngineCompare.Agreement(ours, theirs)
+        assert.equal(5, one.agree)
+        assert.equal(1, #one.disagreements)
+        assert.equal("Finger", one.disagreements[1].position)
+        assert.equal("r3", one.disagreements[1].ours[1].key)
+        assert.equal("r2", one.disagreements[1].theirs[1].key)
+        -- A one-hand + off-hand against the two-hander: two places, none shared.
+        ours[3] = piece("mace", "1H Weapon")
+        ours[#ours + 1] = piece("orb", "Offhand")
+        local hands = ns.EngineCompare.Agreement(ours, theirs)
+        assert.equal(7, hands.positions)
+        assert.equal(4, hands.agree)
+        assert.equal("Weapon", hands.disagreements[2].position)
+        assert.equal(2, #hands.disagreements[2].ours)
+        assert.equal(1, #hands.disagreements[2].theirs)
+    end)
+
+    local function vec(stats)
+        local v = { ready = true, sockets = 0, gems = {} }
+        for _, k in ipairs({ "int", "haste", "crit", "mastery", "vers", "leech" }) do
+            v[k] = 0
+        end
+        for k, x in pairs(stats) do
+            v[k] = x
+        end
+        return v
+    end
+
+    -- QE Live's top set wears 1 (head) and 2 (wrist); its pool holds them and
+    -- the bag head 3 and wrist 4; the bag head 5 is the strongest piece owned
+    -- and OUTSIDE the pool.
+    local function inputs(pool)
+        local considered = {}
+        for _, id in ipairs(pool) do
+            considered[#considered + 1] = { itemID = id, bonusIDs = { 1 } }
+        end
+        return {
+            contentType = "Dungeon",
+            file = dofile(WEIGHTS),
+            worn = { { link = "worn-head", slot = "Head" }, { link = "worn-wrist", slot = "Wrist" } },
+            owned = {
+                ["1:1"] = { link = "worn-head", slot = "Head", name = "Worn Head", itemLevel = 300 },
+                ["2:1"] = { link = "worn-wrist", slot = "Wrist", name = "Worn Wrist", itemLevel = 300 },
+                ["3:1"] = { link = "bag-head-better", slot = "Head", name = "Bag Head", itemLevel = 300 },
+                ["4:1"] = { link = "bag-wrist-worse", slot = "Wrist", name = "Bag Wrist", itemLevel = 300 },
+                ["5:1"] = { link = "bag-head-elsewhere", slot = "Head", name = "Strong Head", itemLevel = 300 },
+            },
+            reads = {
+                ["worn-head"] = vec({ int = 100 }),
+                ["worn-wrist"] = vec({ int = 50 }),
+                ["bag-head-better"] = vec({ int = 200 }),
+                ["bag-wrist-worse"] = vec({ int = 10 }),
+                ["bag-head-elsewhere"] = vec({ int = 300 }),
+            },
+            topGear = {
+                exportedAt = "y",
+                considered = considered,
+                topSet = {
+                    order = { "1:1", "2:1" },
+                    items = { ["1:1"] = { slot = "Head", level = 300 }, ["2:1"] = { slot = "Wrist", level = 300 } },
+                },
+                alternatives = {},
+            },
+        }
+    end
+
+    local function setOf(search)
+        local out = {}
+        for _, p in ipairs(search.set) do
+            out[p.position] = p.key
+        end
+        return out
+    end
+
+    it("never puts a strong owned piece outside pass 1's pool into our set", function()
+        local search = ns.EngineCompare.Compute(inputs({ 1, 2, 3, 4 })).tg.search
+        assert.equal(4, search.pool)
+        assert.equal(1, search.outside)
+        assert.same({ Head = "3:1", Wrist = "2:1" }, setOf(search))
+        assert.equal(1, search.agree)
+        assert.equal(2, search.positions)
+        assert.equal(1, #search.disagreements)
+        local d = search.disagreements[1]
+        assert.equal("Head", d.position)
+        assert.same({ "3:1" }, d.ours)
+        assert.same({ "1:1" }, d.theirs)
+        assert.equal("Bag Head 300", d.oursNames)
+        assert.equal("Worn Head 300", d.theirsNames)
+        assert.is_true(d.delta > 0)
+        -- The control: in the pool, the same piece IS chosen - the test above
+        -- can fail.
+        local all = ns.EngineCompare.Compute(inputs({ 1, 2, 3, 4, 5 })).tg.search
+        assert.equal(0, all.outside)
+        assert.equal("5:1", setOf(all).Head)
+    end)
+
+    it("says the top set is not searchable when a piece of it is outside the pool", function()
+        local search = ns.EngineCompare.Compute(inputs({ 2, 3, 4 })).tg.search
+        assert.equal(1, search.notSearchable)
+        assert.is_nil(search.set)
+        local lines = ns.EngineCompare.SearchLines({}, search)
+        assert.same({ "  top set not searchable: 1 piece(s) outside the pool / without a link" }, lines)
+        -- A document with no pool is not searched at all.
+        local noPool = inputs({ 1, 2 })
+        noPool.topGear.considered = nil
+        assert.same(
+            { "  top set not searched: pass 1 stored no pool." },
+            ns.EngineCompare.SearchLines({}, ns.EngineCompare.Compute(noPool).tg.search)
+        )
+    end)
+
+    it("prints one line per disagreeing position, then the agreement count", function()
+        local search = ns.EngineCompare.Compute(inputs({ 1, 2, 3, 4 })).tg.search
+        local lines = ns.EngineCompare.SearchLines({}, search)
+        assert.equal(2, #lines)
+        assert.equal(
+            string.format(
+                "  top set differs at Head: ours Bag Head 300, theirs Worn Head 300 - ours by %+.3f%% by our value",
+                search.disagreements[1].delta
+            ),
+            lines[1]
+        )
+        assert.truthy(
+            lines[2]:find("^top set: agrees on 1 of 2 positions %(searched 4 pieces in pass 1's pool; 1 owned")
+        )
+        assert.is_nil(table.concat(lines, "\n"):lower():find("plan", 1, true))
+    end)
+end)
+
+-- E-1b over the owner's 2026-10-01 transcript as committed (the world
+-- transcriptWorld builds: inventory read 4, its Top Gear pass 1 with its
+-- 30-card pool, the client's own item reads) with the SYNTHETIC fitted-shape
+-- weights: the search runs, prints and stores. The week-one figures with the
+-- dev weights the game ran are tools/engine/topgear-agreement.js's
+-- (ARCHITECTURE.md section 9).
+describe("/lootpath engine compare searches pass 1's pool over the 2026-10-01 transcript", function()
+    after_each(function()
+        H.unload()
+    end)
+
+    for _, case in ipairs({ { "dungeon 10", "Dungeon" }, { "raid", "Raid" } }) do
+        it("prints and stores top-set agreement, " .. case[1], function()
+            local ns, world = transcriptWorld()
+            local run
+            ns.EngineCompare.Command("compare " .. case[1], function(r)
+                run = r
+            end)
+            world.runTimers(10)
+            assert.is_table(run, "the run finished")
+            local search = run.result.tg.search
+            io.write("\n[E-1b transcript run: engine compare " .. case[1] .. "]\n" .. world.output() .. "\n")
+            assert.is_number(search.agree)
+            assert.equal(15, search.positions)
+            assert.equal(30, search.pool)
+            assert.equal(0, search.notReady)
+            assert.equal(#search.disagreements, search.positions - search.agree)
+            local out = world.output()
+            assert.truthy(
+                out:find(string.format("top set: agrees on %d of 15 positions", search.agree), 1, true),
+                "the count line"
+            )
+            local _, differs = out:gsub("top set differs at ", "")
+            assert.equal(#search.disagreements, differs)
+            local entry = ns.db.global.engineCompare["2026-09-29"]["Tester - TestRealm"][case[2]].pass1
+            assert.same(search, entry.search)
+            for _, p in ipairs(entry.search.set) do
+                assert.is_string(p.key)
+                assert.is_nil(p.vector)
+            end
+        end)
+    end
+end)

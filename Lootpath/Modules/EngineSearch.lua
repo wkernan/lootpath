@@ -36,7 +36,10 @@
 --      highest full SetValue, until a sweep changes nothing. A set that breaks
 --      a constraint hook is never valued.
 --   4. Best: the best of every mask, plus each position's runner-up: the
---      value given up by the best alternative there with the rest kept.
+--      value given up by the best OTHER piece there with the rest kept (E-1b,
+--      WKE-688: compared by the pieces an option holds, never by the option
+--      table). A position with no other piece reads `only piece`; a different
+--      piece worth exactly as much reads `tie` and is named.
 --
 -- SetValue is called with the parity finish (`assumedFinish = true`, QE
 -- Live's own rule) and WITHOUT `forceTier`: Top Gear counts the pieces a set
@@ -102,6 +105,11 @@ EngineSearch.TEXT = {
     position = "  %s: %s · %s%s",
     runnerUp = " · next best %s%%",
     noRunnerUp = " · nothing else fits",
+    -- E-1b (WKE-688): the position had no other piece at all, or its
+    -- runner-up is a different piece worth exactly as much.
+    onlyPiece = " · only piece",
+    tie = " · next best tie: %s",
+    bands = "bands the weights file carries for %s: %s. usage: /lootpath engine best dungeon <n> | raid",
     values = "best set %s, worn set %s (%s%%)",
     cost = "%d set values over %d tier mask(s); %s ms of work in %d frame(s), %s ms start to finish.",
     paused = "paused for combat %d time(s), picked up after.",
@@ -837,9 +845,50 @@ end
 -- ---------------------------------------------------------------------------
 -- Best.
 
+-- Two options hold the same pieces (in any order). An option is a fresh
+-- table per coordinatesFor call, so two options are compared by the cands
+-- they hold, never by identity: before E-1b (WKE-688) a single slot's and the
+-- weapon's runner-up compared `option ~= current` across two calls, which is
+-- always true, so the "alternative" was the worn piece itself and every such
+-- position printed `next best -0.000%` (the owner's 2026-10-05 screens).
+local function samePieces(a, b)
+    if #a ~= #b then
+        return false
+    end
+    local left = {}
+    for _, c in ipairs(a) do
+        left[c] = (left[c] or 0) + 1
+    end
+    for _, c in ipairs(b) do
+        if not left[c] or left[c] == 0 then
+            return false
+        end
+        left[c] = left[c] - 1
+    end
+    return true
+end
+
+-- What the runner-up says: `only` - the position had no other piece;
+-- `none` - other pieces, none of them wearable here; `tie` - a different
+-- piece worth exactly as much (within EPSILON); `next` - a delta.
+local function runnerUpState(others, alt, delta, value)
+    if others == 0 then
+        return "only"
+    end
+    if not alt or delta == nil then
+        return "none"
+    end
+    if math.abs(delta) <= math.abs(value) * EngineSearch.EPSILON then
+        return "tie"
+    end
+    return "next"
+end
+
 -- Each position of the best set, and what the best alternative there gives
 -- up with every other position kept (any piece the position holds, whatever
 -- the mask). A ring or trinket is a position of its own, its partner kept.
+-- `candidates` counts the pieces the position could hold (its own included),
+-- `state` is runnerUpState's word.
 local function runnerUps(ctx, pools, best)
     local free = coordinatesFor(pools, nil) or {}
     local out = {}
@@ -848,6 +897,7 @@ local function runnerUps(ctx, pools, best)
         local coord = coords[i]
         local current = choice[i]
         local bestAlt, bestValue
+        local others = 0
         local options = {}
         for _, fc in ipairs(free) do
             if fc.name == coord.name then
@@ -856,7 +906,7 @@ local function runnerUps(ctx, pools, best)
             end
         end
         for _, option in ipairs(options) do
-            local fits = option ~= current
+            local fits = not samePieces(option, current)
             if keepPartner then
                 -- Only options that keep the partner and change this piece.
                 fits = #option == 2
@@ -866,6 +916,7 @@ local function runnerUps(ctx, pools, best)
                     )
             end
             if fits then
+                others = others + 1
                 local held = choice[i]
                 choice[i] = option
                 local list, key = flatten(coords, choice)
@@ -878,24 +929,27 @@ local function runnerUps(ctx, pools, best)
                 choice[i] = held
             end
         end
-        return bestAlt, bestValue
+        return bestAlt, bestValue, others
     end
     for i, coord in ipairs(coords) do
         local option = choice[i]
         if coord.kind == "pair" and #option == 2 then
             for n = 1, 2 do
                 local self, partner = option[n], option[3 - n]
-                local alt, v = alternatives(i, { self = self, partner = partner })
+                local alt, v, others = alternatives(i, { self = self, partner = partner })
                 local altPiece = alt and ((alt[1] == partner) and alt[2] or alt[1]) or nil
+                local delta = v and (best.value - v) or nil
                 out[#out + 1] = {
                     position = coord.name .. " " .. n,
                     pieces = { self.item },
                     alternative = altPiece and { altPiece.item } or nil,
-                    delta = v and (best.value - v) or nil,
+                    delta = delta,
+                    candidates = others + 1,
+                    state = runnerUpState(others, altPiece, delta, best.value),
                 }
             end
         else
-            local alt, v = alternatives(i)
+            local alt, v, others = alternatives(i)
             local pieces, altPieces = {}, nil
             for _, c in ipairs(option) do
                 pieces[#pieces + 1] = c.item
@@ -906,11 +960,14 @@ local function runnerUps(ctx, pools, best)
                     altPieces[#altPieces + 1] = c.item
                 end
             end
+            local delta = v and (best.value - v) or nil
             out[#out + 1] = {
                 position = coord.name,
                 pieces = pieces,
                 alternative = altPieces,
-                delta = v and (best.value - v) or nil,
+                delta = delta,
+                candidates = others + 1,
+                state = runnerUpState(others, alt, delta, best.value),
             }
         end
     end
@@ -1205,6 +1262,62 @@ local function whereOf(items)
     return table.concat(words, " + ")
 end
 
+-- BandKeys(file, spec, contentType) -> the band keys the weights file carries
+-- for that content type, key levels first in number order, then the rest in
+-- text order ({} when it carries none). The `no band` refusal names them
+-- (E-1b, WKE-688): a fitted file's Dungeon side carries one band per key
+-- level, so `best` with no key level finds none (EngineScore.BandFor rule 3).
+function EngineSearch.BandKeys(file, spec, contentType)
+    local specs = type(file) == "table" and file.specs
+    local bySpec = type(specs) == "table" and specs[spec or ns.EngineScore.DEFAULT_SPEC]
+    local content = type(bySpec) == "table" and bySpec[contentType or ns.EngineScore.DEFAULT_CONTENT]
+    local bands = type(content) == "table" and content.bands
+    local keys = {}
+    if type(bands) ~= "table" then
+        return keys
+    end
+    for key, band in pairs(bands) do
+        if type(band) == "table" then
+            keys[#keys + 1] = tostring(key)
+        end
+    end
+    table.sort(keys, function(a, b)
+        local na, nb = tonumber(a), tonumber(b)
+        if na and nb then
+            return na < nb
+        end
+        if na or nb then
+            return na ~= nil
+        end
+        return a < b
+    end)
+    return keys
+end
+
+local function namesOf(items)
+    local names = {}
+    for _, item in ipairs(items or {}) do
+        names[#names + 1] = nameOf(item)
+    end
+    return table.concat(names, " + ")
+end
+
+-- The tail of one position's line: the runner-up's delta, `only piece`, a
+-- tie with the piece named, or `nothing else fits`.
+local function runnerUpTail(p)
+    local T = EngineSearch.TEXT
+    if p.state == "only" then
+        return T.onlyPiece
+    end
+    if p.state == "tie" then
+        return string.format(T.tie, namesOf(p.alternative))
+    end
+    if p.percent then
+        return string.format(T.runnerUp, fmt(-p.percent, "%.3f"))
+    end
+    return T.noRunnerUp
+end
+
 -- Lines(run) -> the chat lines for one finished search.
 function EngineSearch.Lines(run)
     local T = EngineSearch.TEXT
@@ -1222,18 +1335,15 @@ function EngineSearch.Lines(run)
     local result = run.result
     if not result then
         lines[#lines + 1] = string.format(T.noSet, tostring(run.why))
+        if tostring(run.why):find("^no band") then
+            local keys = EngineSearch.BandKeys(run.file, nil, run.contentType)
+            lines[#lines + 1] =
+                string.format(T.bands, tostring(run.contentType), #keys > 0 and table.concat(keys, ", ") or "none")
+        end
         return lines
     end
     for _, p in ipairs(result.positions) do
-        local names = {}
-        for _, item in ipairs(p.pieces) do
-            names[#names + 1] = nameOf(item)
-        end
-        local tail = T.noRunnerUp
-        if p.percent then
-            tail = string.format(T.runnerUp, fmt(-p.percent, "%.3f"))
-        end
-        lines[#lines + 1] = string.format(T.position, p.position, table.concat(names, " + "), whereOf(p.pieces), tail)
+        lines[#lines + 1] = string.format(T.position, p.position, namesOf(p.pieces), whereOf(p.pieces), runnerUpTail(p))
     end
     local gain = run.wornValue and run.wornValue ~= 0 and (100 * (result.value - run.wornValue) / run.wornValue) or nil
     lines[#lines + 1] =

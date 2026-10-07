@@ -44,14 +44,30 @@
 --     level the header prints (the one asked for, or the highest stored). Each
 --     block's header names the band key used; a level with no band is
 --     reported as `not compared: N (no band for +6)`.
---   * Top Gear `asOffered` pass 1 (the plan's own document, which is
+--   * Top Gear `asOffered` pass 1 (the rating's own document, which is
 --     QEImport.ForContentTypeAndScenario's shelf - QEImport.ForPass never holds
 --     pass 1): each alternative that swaps ONE item, the item in the pass's
 --     `considered` pool and owned (its link from the inventory scan), against
 --     the best set: ours = 100 * (V(best set with the swap) - V(best set)) /
 --     V(best set); theirs is `scorePercent` turned into the same direction
---     through ALT_WORSE_SCORE_PERCENT_SIGN, never re-derived. No best-set search
---     (E-1a). The worn set's value is printed beside it.
+--     through ALT_WORSE_SCORE_PERCENT_SIGN, never re-derived. The worn set's
+--     value is printed beside it.
+--   * The best-set search over the same pool (E-1b, WKE-688; memo section 6,
+--     "Joins"): after the single-swap rows, ns.EngineSearch.Best runs
+--     SYNCHRONOUSLY over the owned pieces ns.Companion.IsConsidered puts in
+--     pass 1's `considered` pool - never over the whole inventory, so ours
+--     answers the question QE Live answered - with the parity finish,
+--     forceTier off and the block's key level. Every piece of QE Live's top
+--     set must be in that pool, owned and read, else the block says `top set
+--     not searchable: N piece(s) outside the pool / without a link`. Top-set
+--     AGREEMENT is counted per position by key, the two rings, the two
+--     trinkets and the weapons each as one unordered group; each position
+--     where the sets differ prints one line with both sides' pieces and OUR
+--     delta between them, then `top set: agrees on N of M positions`. Our set,
+--     its value, QE Live's set valued the same way, the count and every
+--     disagreement are stored in the week's `tg` entry as `search`. The count
+--     is REPORTED, never gated: the bar's criteria are unchanged and nothing
+--     reads it to promote anything.
 --   * Both are UNSCALED: Top Gear's constant 1.5 is not divided out. MAE is
 --     reported raw and after k, the least-squares scale of ours onto theirs.
 --   * The Upgrade Finder's floor (E-0j, WKE-681): an Upgrade Finder row never
@@ -168,6 +184,13 @@ EngineCompare.TEXT = {
         .. "(%d not in the pool, %d with no link here, %d paired); worn set %s, best set %s.",
     tgNone = "Top Gear pass 1 %s: none stored.",
     tgNoLink = "Top Gear pass 1 %s: %d piece(s) of the best set have no link here; not compared.",
+    -- E-1b (WKE-688): the best-set search over pass 1's pool.
+    searchNoPool = "  top set not searched: pass 1 stored no pool.",
+    searchNot = "  top set not searched: %s",
+    notSearchable = "  top set not searchable: %d piece(s) outside the pool / without a link",
+    differs = "  top set differs at %s: ours %s, theirs %s - ours by %s%% by our value",
+    agrees = "top set: agrees on %d of %d positions (searched %d pieces in pass 1's pool; %d owned outside it,"
+        .. " %d not ready; band %s, %d set values).",
     tableHead = "  class      n    rho    top1  top3  sign   MAE    k      MAE@k",
     tableRow = "  %-9s %4d  %-6s %-5s %-5s %-6s %-6s %-6s %s",
     generic = "  generic: %d (effect from a generic rule)",
@@ -822,6 +845,281 @@ end
 
 local HANDS = { ["1H Weapon"] = true, Offhand = true, Shield = true }
 
+-- ---------------------------------------------------------------------------
+-- The best-set search over pass 1's pool, and top-set agreement (E-1b,
+-- WKE-688; docs/OWN-ENGINE.md section 6, "Joins").
+
+-- The position a piece holds for agreement: its slot, but the two rings, the
+-- two trinkets and the weapons (one-hand + off-hand or two-hand) are each ONE
+-- position compared as an unordered group, so a pair worn in the other order
+-- agrees.
+EngineCompare.POSITION_OF_SLOT = {
+    Finger = "Finger",
+    Trinket = "Trinket",
+    ["1H Weapon"] = "Weapon",
+    ["2H Weapon"] = "Weapon",
+    Offhand = "Weapon",
+    Shield = "Weapon",
+}
+EngineCompare.POSITION_ORDER = {
+    "Head",
+    "Neck",
+    "Shoulder",
+    "Back",
+    "Chest",
+    "Wrist",
+    "Hands",
+    "Waist",
+    "Legs",
+    "Feet",
+    "Finger",
+    "Trinket",
+    "Weapon",
+}
+
+local function positionOf(slot)
+    return EngineCompare.POSITION_OF_SLOT[slot] or slot
+end
+
+local function byKey(a, b)
+    return a.key < b.key
+end
+
+-- Agreement(ours, theirs) -> `{ agree, positions, disagreements = { {
+-- position, ours = { piece }, theirs = { piece } } } }`. Each side is a list
+-- of `{ key, slot, ... }`; a position counts max(#ours, #theirs) places and
+-- agrees on as many as the two sides share by key (a multiset: two copies of
+-- one key match two copies). A position where the sides differ is listed
+-- once, with the pieces each side holds that the other does not.
+function EngineCompare.Agreement(ours, theirs)
+    local groups, names = {}, {}
+    local function add(side, piece)
+        local position = positionOf(piece.slot)
+        if not groups[position] then
+            groups[position] = { ours = {}, theirs = {} }
+            names[#names + 1] = position
+        end
+        local list = groups[position][side]
+        list[#list + 1] = piece
+    end
+    for _, piece in ipairs(ours or {}) do
+        add("ours", piece)
+    end
+    for _, piece in ipairs(theirs or {}) do
+        add("theirs", piece)
+    end
+    local rank = {}
+    for i, position in ipairs(EngineCompare.POSITION_ORDER) do
+        rank[position] = i
+    end
+    table.sort(names, function(a, b)
+        local ra, rb = rank[a] or math.huge, rank[b] or math.huge
+        if ra ~= rb then
+            return ra < rb
+        end
+        return a < b
+    end)
+    local out = { agree = 0, positions = 0, disagreements = {} }
+    for _, position in ipairs(names) do
+        local o, t = groups[position].ours, groups[position].theirs
+        table.sort(o, byKey)
+        table.sort(t, byKey)
+        local left = {}
+        for _, piece in ipairs(t) do
+            left[piece.key] = (left[piece.key] or 0) + 1
+        end
+        local oursOnly, shared = {}, {}
+        for _, piece in ipairs(o) do
+            if (left[piece.key] or 0) > 0 then
+                left[piece.key] = left[piece.key] - 1
+                shared[piece.key] = (shared[piece.key] or 0) + 1
+            else
+                oursOnly[#oursOnly + 1] = piece
+            end
+        end
+        local theirsOnly = {}
+        for _, piece in ipairs(t) do
+            if (shared[piece.key] or 0) > 0 then
+                shared[piece.key] = shared[piece.key] - 1
+            else
+                theirsOnly[#theirsOnly + 1] = piece
+            end
+        end
+        local places = math.max(#o, #t)
+        out.positions = out.positions + places
+        out.agree = out.agree + (places - math.max(#oursOnly, #theirsOnly))
+        if #oursOnly > 0 or #theirsOnly > 0 then
+            out.disagreements[#out.disagreements + 1] = { position = position, ours = oursOnly, theirs = theirsOnly }
+        end
+    end
+    return out
+end
+
+-- The owned pieces in pass 1's `considered` pool, `{ key, record }` in key
+-- order, and how many owned pieces are outside it - through
+-- ns.Companion.IsConsidered, the gate the single-swap rows apply. nil when the
+-- document stores no pool.
+function EngineCompare.PoolRecords(inputs, verdict)
+    if type(verdict) ~= "table" or type(verdict.considered) ~= "table" then
+        return nil
+    end
+    local pool, outside = {}, 0
+    local owned = inputs.owned or {}
+    for _, key in ipairs(sortedKeys(owned)) do
+        local record = owned[key]
+        if ns.Companion.IsConsidered(verdict.considered, key, { name = record.name, level = record.itemLevel }) then
+            pool[#pool + 1] = { key = key, record = record }
+        else
+            outside = outside + 1
+        end
+    end
+    return pool, outside
+end
+
+local function pieceName(name, level, key)
+    if name then
+        return string.format("%s %s", tostring(name), tostring(level or "?"))
+    end
+    return tostring(key)
+end
+
+local function keysAndNames(list)
+    local keys, names = {}, {}
+    for _, piece in ipairs(list) do
+        keys[#keys + 1] = piece.key
+        names[#names + 1] = piece.name
+    end
+    return keys, table.concat(names, " + ")
+end
+
+-- SearchTopSet(inputs, verdict, keyLevel) -> the `search` record the `tg`
+-- block stores: ns.EngineSearch.Best over the owned pieces in pass 1's pool,
+-- SYNCHRONOUSLY - the compare is already one job (it waits on its item reads
+-- in Resolve and computes once they are in), the pool is pass 1's cards (30
+-- in week one's documents; the search over all 40 owned pieces took 45.6 ms
+-- of work on the owner's screen), and EngineSearch.Run's one-job state stays
+-- free for `/lootpath engine best`. The parity finish, forceTier OFF (Top Gear
+-- counts the tier pieces a set wears, as Best does), the block's key level.
+-- Then QE Live's top set valued the same way, and top-set agreement by
+-- position. Reported, never gated: nothing reads it to promote anything.
+function EngineCompare.SearchTopSet(inputs, verdict, keyLevel)
+    local pool, outside = EngineCompare.PoolRecords(inputs, verdict)
+    if not pool then
+        return { noPool = true }
+    end
+    local search = { outside = outside, notReady = 0 }
+    local poolKeys = {}
+    local items = {}
+    for _, entry in ipairs(pool) do
+        local record = entry.record
+        poolKeys[entry.key] = true
+        local v = vectorFor(inputs.reads, record.link, record.slot)
+        if v then
+            v.recordKey = entry.key
+            v.name = record.name
+            v.location = record.location
+            v.level = v.level or record.itemLevel
+            items[#items + 1] = v
+        else
+            search.notReady = search.notReady + 1
+        end
+    end
+    search.pool = #items
+    -- Every piece of QE Live's top set must be one the search could choose:
+    -- in the pool, owned, and read.
+    local theirs, unsearchable = {}, 0
+    local topSet = verdict.topSet or {}
+    for _, key in ipairs(topSet.order or {}) do
+        local item = topSet.items and topSet.items[key]
+        local record = inputs.owned and inputs.owned[key]
+        local v = item and record and poolKeys[key] and vectorFor(inputs.reads, record.link, item.slot)
+        if v then
+            local name = pieceName(record.name, item.level or v.level, key)
+            theirs[#theirs + 1] = { key = key, slot = item.slot, vector = v, name = name }
+        else
+            unsearchable = unsearchable + 1
+        end
+    end
+    if unsearchable > 0 then
+        search.notSearchable = unsearchable
+        return search
+    end
+    local result, why =
+        ns.EngineSearch.Best(items, inputs.file, { contentType = inputs.contentType, keyLevel = keyLevel })
+    if not result then
+        search.why = tostring(why)
+        return search
+    end
+    local valueOpts = {
+        file = inputs.file,
+        contentType = inputs.contentType,
+        keyLevel = keyLevel,
+        assumedFinish = true,
+        forceTier = false,
+    }
+    local theirVectors = {}
+    for i, piece in ipairs(theirs) do
+        theirVectors[i] = piece.vector
+    end
+    local theirScored = ns.EngineScore.SetValue(theirVectors, valueOpts)
+    search.band = result.band
+    search.evaluations = result.evaluations
+    search.ourValue = result.value
+    search.theirValue = theirScored and theirScored.value or nil
+    local ours = {}
+    for _, v in ipairs(result.items) do
+        ours[#ours + 1] =
+            { key = v.recordKey, slot = v.slot, vector = v, name = pieceName(v.name, v.level, v.recordKey) }
+    end
+    local agreement = EngineCompare.Agreement(ours, theirs)
+    search.agree, search.positions = agreement.agree, agreement.positions
+    search.set = {}
+    for _, piece in ipairs(ours) do
+        search.set[#search.set + 1] = { position = positionOf(piece.slot), slot = piece.slot, key = piece.key }
+    end
+    table.sort(search.set, function(a, b)
+        if a.position ~= b.position then
+            return a.position < b.position
+        end
+        return a.key < b.key
+    end)
+    -- Each disagreement: the pieces on each side, and OUR delta between them -
+    -- our best set against our best set with QE Live's pieces there instead,
+    -- in percent of ours (positive: our pieces are worth more by our value).
+    search.disagreements = {}
+    for _, d in ipairs(agreement.disagreements) do
+        local drop = {}
+        for _, piece in ipairs(d.ours) do
+            drop[piece.vector] = true
+        end
+        local swapped = {}
+        for _, v in ipairs(result.items) do
+            if not drop[v] then
+                swapped[#swapped + 1] = v
+            end
+        end
+        for _, piece in ipairs(d.theirs) do
+            swapped[#swapped + 1] = piece.vector
+        end
+        local scored = ns.EngineScore.SetValue(swapped, valueOpts)
+        local delta
+        if scored and result.value ~= 0 then
+            delta = 100 * (result.value - scored.value) / result.value
+        end
+        local oursKeys, oursNames = keysAndNames(d.ours)
+        local theirsKeys, theirsNames = keysAndNames(d.theirs)
+        search.disagreements[#search.disagreements + 1] = {
+            position = d.position,
+            ours = oursKeys,
+            theirs = theirsKeys,
+            oursNames = oursNames,
+            theirsNames = theirsNames,
+            delta = delta,
+        }
+    end
+    return search
+end
+
 -- The key level the Top Gear block is scored at: the Upgrade Finder
 -- document's (the one asked for, or the highest stored - what the header
 -- prints), else the level asked for.
@@ -946,6 +1244,7 @@ function EngineCompare.CompareTopGear(inputs, worn)
             end
         end
     end
+    block.search = EngineCompare.SearchTopSet(inputs, verdict, keyLevel)
     return finishBlock(block, rows)
 end
 
@@ -1083,6 +1382,43 @@ function EngineCompare.VerdictLine(verdicts)
     return string.format(EngineCompare.TEXT.bar, table.concat(parts, " · "))
 end
 
+-- SearchLines(lines, search): the search's lines under the Top Gear block -
+-- one per position where the sets differ, then the agreement count.
+function EngineCompare.SearchLines(lines, search)
+    local T = EngineCompare.TEXT
+    if type(search) ~= "table" then
+        return lines
+    end
+    if search.noPool then
+        lines[#lines + 1] = T.searchNoPool
+    elseif search.notSearchable then
+        lines[#lines + 1] = string.format(T.notSearchable, search.notSearchable)
+    elseif search.why then
+        lines[#lines + 1] = string.format(T.searchNot, search.why)
+    else
+        for _, d in ipairs(search.disagreements or {}) do
+            lines[#lines + 1] = string.format(
+                T.differs,
+                d.position,
+                d.oursNames ~= "" and d.oursNames or "-",
+                d.theirsNames ~= "" and d.theirsNames or "-",
+                fmt(d.delta, "%+.3f")
+            )
+        end
+        lines[#lines + 1] = string.format(
+            T.agrees,
+            search.agree,
+            search.positions,
+            search.pool,
+            search.outside,
+            search.notReady,
+            tostring(search.band),
+            search.evaluations or 0
+        )
+    end
+    return lines
+end
+
 -- Lines(run) -> the printed report, one string per chat line.
 function EngineCompare.Lines(run)
     local T = EngineCompare.TEXT
@@ -1150,6 +1486,7 @@ function EngineCompare.Lines(run)
             fmt(tg.topValue, "%.1f")
         )
         blockTail(lines, tg, run.verbose)
+        EngineCompare.SearchLines(lines, tg.search)
     else
         lines[#lines + 1] = string.format(T.tgNone, run.contentType)
     end
@@ -1252,6 +1589,10 @@ function EngineCompare.Gather(contentType, keyLevel)
                 local record = inputs.owned[alt.items[1].key]
                 want(record and record.link)
             end
+        end
+        -- E-1b: every owned piece in pass 1's pool, for the search.
+        for _, entry in ipairs(EngineCompare.PoolRecords(inputs, inputs.topGear) or {}) do
+            want(entry.record.link)
         end
     end
     return inputs, links
@@ -1357,6 +1698,9 @@ local function entryOf(block, file)
         notRated = block.notRated,
         generic = block.generic,
         unknown = block.unknown,
+        -- E-1b (WKE-688): the best-set search over pass 1's pool and its
+        -- top-set agreement (Top Gear blocks only).
+        search = block.search,
     }
 end
 

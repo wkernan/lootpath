@@ -324,7 +324,9 @@ byte; the effects extractor keeps every effect number as text, finds `Use:` and
 `Equip:` lines by their text whatever their type, and refuses anything but one
 snapshot; the effects fixture is the extraction of the committed transcript,
 byte for byte; the trinket probe reads the shipped effects table as the Lua
-module does and pins week one's before and after. No npm dependency: Node's own runner and
+module does and pins week one's before and after; the Top Gear compare's search
+over pass 1's pool reproduces week one's stored single-swap rows and pins its
+top-set agreement per band (E-1b). No npm dependency: Node's own runner and
 `tools/companion/lib/lua-savedvariables.js`.
 
 ## percent-scale.js - why k moved with the band (E-0j, WKE-681)
@@ -478,3 +480,32 @@ ascent without the masks misses and the comparison says so; and on the owner's
 real pieces, Dungeon +10 and Raid, every-piece and kept-pool brute force, the
 search and all 16 masks agree, with the game's own counts (632 set values,
 16 masks, 1 outclassed).
+
+## topgear-agreement.js - top-set agreement on week one (E-1b, WKE-688)
+
+```powershell
+cd C:\Code\lootpath-<n>\tools\engine
+node topgear-agreement.js                      # the refitted dev weights
+node topgear-agreement.js --weights "C:\World of Warcraft\_retail_\Interface\AddOns\Lootpath\Data\EngineWeights.lua"
+```
+
+Runs the REAL compare - `EngineCompare.lua`, `EngineSearch.lua` and
+`EngineScore.lua` loaded as the addon loads them, through the specs' own stub
+world (`spec/helpers/addon.lua`) - in Lua 5.1 (PATH, else the gates'
+`lootpath-lua` image), over week one as the owner's client stored it:
+`spec/fixtures/captures/Lootpath-20261002-112757.lua` (the Top Gear pass-1
+documents with their 30-card pools, inventory read 4, the week's stored
+compare), the client's own reads (`itemstats-real.lua`, `linklevel-real.lua`),
+and the dev weights. Without `--weights` they are refitted by `exhaustive.js`'s
+`gameWeights` (E-1d); the refit is byte-identical to the game's own
+`Data/EngineWeights.lua` (sha256 `72126c5d...b9c78d`, the test holds it).
+
+For `compare dungeon 6`, `dungeon 10` and `raid`, each twice - the effects
+table's params taken out (the table the game ran on 2026-10-02, so the
+single-swap rows must reproduce the STORED rows) and the shipped table - it
+prints the single-swap rows beside the stored ones, the search's top-set
+agreement with every disagreement and our delta, the worn set's value by the
+client's conversion (as `/lootpath engine best` values it) and by the `dr`
+table (as E-1d's harness did), and `/lootpath engine best`'s own lines. It
+writes `out/topgear-agreement.json` and changes nothing it reads.
+`test/topgear-agreement.test.js` pins its figures on the committed files.
