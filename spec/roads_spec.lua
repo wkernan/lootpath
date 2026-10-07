@@ -1096,7 +1096,21 @@ describe("Roads over the owner's week of 2026-09-08", function()
             itemLevel = 295,
             location = "bag",
         }
+        -- The conversion spent the Lynx Spaulders (R-2k, WKE-694): while the
+        -- source the road converts is still held under its own key, nothing
+        -- else is the pick.
+        local source = pick.owned
+        assert.is_table(source)
+        assert.is_true(ns.Roads.HoldsOwnKey(pick, inputs))
+        for index, held in ipairs(inputs.inventory.records) do
+            if held.key == source.key then
+                table.remove(inputs.inventory.records, index)
+                break
+            end
+        end
         table.insert(inputs.inventory.records, converted)
+        pick = group("Shoulder", ns.Roads.GROUP_SET)[1]
+        assert.is_nil(pick.ownHeld)
         assert.is_true(ns.Roads.IsArrivedPick(converted, pick))
         assert.equal("Put these on - then refresh.", ns.Roads.ItemSentence(answerFor("Shoulder", converted.key)))
         -- A Catalyst road is not a vault road and gains no vault badge.
@@ -1358,6 +1372,9 @@ describe("Roads over the owner's week of 2026-09-08", function()
     end
 
     -- A copy of it the plan has never seen, wherever the player has put it.
+    -- It REPLACES the rated record (R-2k, WKE-694): cresting the pick changes
+    -- its key, so the rated key leaves the inventory - and while that key is
+    -- still held, no other copy is the pick (`Roads.HoldsOwnKey`).
     local function cloakCopy(level, location)
         local record = cloakRecord()
         assert.is_table(record)
@@ -1375,6 +1392,12 @@ describe("Roads over the owner's week of 2026-09-08", function()
             itemLevel = level,
             location = location,
         }
+        for index, held in ipairs(inputs.inventory.records) do
+            if held == record then
+                table.remove(inputs.inventory.records, index)
+                break
+            end
+        end
         table.insert(inputs.inventory.records, copy)
         return copy
     end
@@ -2887,7 +2910,10 @@ describe("Roads over a worn copy of the pick below the pick's level (R-2h)", fun
         local road = pick()
         assert.equal(ns.Roads.KIND_KEEP, road.kind)
         assert.is_nil(road.wornIsPick)
-        assert.is_true(ns.Roads.IsArrivedPick(bag, road))
+        -- R-2k (WKE-694): the Keep pick's own key is held, so no other copy
+        -- is the pick at all - the twin is refused one step earlier.
+        assert.is_true(road.ownHeld)
+        assert.is_false(ns.Roads.IsArrivedPick(bag, road))
         assert.is_false(ns.Roads.WornUnderCrested(bag, road))
         local sentence, answer = sentenceFor(bag)
         assert.equal(ns.Roads.GROUP_SET, answer.own.group)
