@@ -2065,6 +2065,15 @@ function Roads.IsArrivedPick(held, pick)
             return false
         end
     end
+    -- R-2k (WKE-694): the pick is still in your hands under its own key, so it
+    -- has not arrived as anything else - every other copy of the item is
+    -- another item (decision 2026-09-05). Everything below exists because a
+    -- claimed or crested pick changes key; while the rated key is held, that
+    -- never happened. `MarkArrived` records it, because the hover holds no
+    -- inventory.
+    if pick.ownHeld == true then
+        return false
+    end
     local becomes = type(pick.becomes) == "table" and tonumber(pick.becomes.itemID) or nil
     local wanted = type(pick.item) == "table" and tonumber(pick.item.itemID) or nil
     local matches = becomes ~= nil and becomes == itemID
@@ -2268,6 +2277,33 @@ function Roads.HoldsVaultPick(held, pick)
     return false
 end
 
+-- Whether the inventory holds a record under one of the pick's own keys (R-2k,
+-- WKE-694): the copy the rating rated, in your hands as it was rated.
+--
+-- The owner, 2026-10-06 evening, after a refresh: `everything upgraded` picked
+-- the 318 helm in his bags at 334 - its own key, the Myth track crested to its
+-- cap - over the 321 Hero helm he wears. The worn 321 was read as that pick
+-- "already worn" (`Refresh - you're already wearing it.`) and the bag 308 as
+-- the pick "short of its crest" (`Crest this to 318 - then refresh.`), each
+-- carrying the 318's `rated with:` line, because R-3c's identity is the item ID
+-- and both copies share it. That identity is only ever needed when the pick
+-- changed key; while its own key is held, no other copy is it.
+function Roads.HoldsOwnKey(pick, inputs)
+    if type(pick) ~= "table" or type(inputs) ~= "table" then
+        return false
+    end
+    local own = {}
+    for _, key in ipairs(pick.keys or {}) do
+        own[key] = true
+    end
+    for _, record in ipairs(records(inputs.inventory)) do
+        if record.key ~= nil and own[record.key] then
+            return true
+        end
+    end
+    return false
+end
+
 -- The slot's pick, which is the one road the whole set group is arranged
 -- around. At most one exists: his own `ItemSet.ts:205` allows one vault option
 -- per set and `setRoad` marks exactly the top-set entries.
@@ -2305,6 +2341,10 @@ function Roads.MarkArrived(slotRoads, inputs)
     -- Whether a worn copy can be this pick at all (R-2f), recorded on the road
     -- so the hover, which holds no inputs, asks the same question.
     pick.wornIsPick = Roads.WornCanBePick(pick, inputs) or nil
+    -- Whether the inventory holds the pick under one of its own keys (R-2k,
+    -- WKE-694), recorded for the same reason: `IsArrivedPick` refuses every
+    -- other copy then, on the hover as here.
+    pick.ownHeld = Roads.HoldsOwnKey(pick, inputs) or nil
     -- Every key the set group already speaks for, not just the pick's own
     -- (R-3c). Two worn rings of one item ID are two rated roads on this screen,
     -- and the second of them has not "arrived" anywhere: the document knows it
@@ -3179,6 +3219,12 @@ Roads.WEAR_SENTENCE = "Wear %s."
 -- wearing now - and never written here. With no Keep road on the slot there is
 -- nothing to name, and the sentence is the verb alone.
 Roads.WEAR_OVER_SENTENCE = "Wear %s - better than your %s."
+-- The same bag pick when the rating put it above the level it is at (R-2k,
+-- WKE-694): `everything upgraded` picks the bag copy at its cap. The crest
+-- clause is the Grab and Catalyst sentences' own ("crest it after"), so the
+-- step after putting it on reads the way the step after the vault and the
+-- Catalyst already does; the level stays on the road's badge.
+Roads.WEAR_CREST_SENTENCE = "Wear %s - crest %s after."
 Roads.CATALYST_SENTENCE = "Catalyst %s - tier %s."
 -- The same, over the vault reward it is made from, when the rating put the tier
 -- piece above the level the reward is at (R-2e, WKE-663). The crest clause is
@@ -3340,6 +3386,15 @@ function Roads.ItemSentence(answer)
                 return string.format(Roads.CATALYST_SENTENCE, Roads.ThisWord(slot), Roads.SlotWord(slot) or "piece")
             elseif own.kind == Roads.KIND_KEEP then
                 return string.format(Roads.KEEP_SENTENCE, Roads.ThisWord(slot))
+            end
+            -- R-2k (WKE-694): a bag pick the rating took at a level above the
+            -- one it is at. `Wear this.` alone told the owner to put on a 318
+            -- in place of his 321 when the rating had valued it at 334.
+            local rating = own.rating
+            if rating and tonumber(rating.level) and tonumber(own.arrivesAt) then
+                if tonumber(rating.level) > tonumber(own.arrivesAt) then
+                    return string.format(Roads.WEAR_CREST_SENTENCE, Roads.ThisWord(slot), Roads.ItWord(slot))
+                end
             end
             return Roads.WearSentence(answer, slot)
         end

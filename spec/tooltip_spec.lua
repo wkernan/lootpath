@@ -1559,6 +1559,14 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
             itemLevel = 308,
             location = "equipped",
         }
+        -- The crest replaced the rated key (R-2k, WKE-694): while the pick's
+        -- own key is still held, no other copy is the pick.
+        for index, held in ipairs(gathered.inventory.records) do
+            if held == record then
+                table.remove(gathered.inventory.records, index)
+                break
+            end
+        end
         table.insert(gathered.inventory.records, worn)
         model = ns.UpgradeMapPanel.Model(gathered)
         ns.RoadsCache.SetMap(ns.RoadsCache.Build(model))
@@ -2255,5 +2263,216 @@ describe("The tooltip over a worn piece whose rated gem sits in another worn pie
         local helm, neck = record(BARE_HELM_LINK, "Head", 318), record(NECK_LINK, "Neck", 321)
         local lines = block(helm, { helm, neck })
         assert.equal("rated with: Empowered Hex of Leeching · Stub Meta Gem (missing)", lines[3])
+    end)
+end)
+
+-- R-2k (WKE-694): the owner's three copies of his tier helm after the reset-day
+-- refresh, 2026-10-06 evening. "After a new refresh the tooltip on the item says
+-- to wear this, but Equip Now tab doesn't show this." The bag 318 (Myth 1/6,
+-- from the vault) read `Wear this.` over `rated with: Empowered Hex of Leeching
+-- (missing)`, while Equip Now kept the worn 321 (Hero 6/6).
+--
+-- The replay (ARCHITECTURE.md §9) found the issue's premise wrong: every copy
+-- was answered by its OWN key, never by level or item ID. The bag 318's
+-- answer was its own - `everything upgraded`, the highlighted scenario, picks
+-- that very copy at 334 - and lacked only the crest. The copies that borrowed
+-- another copy's answer were the OTHER two: R-3c's item-ID identity read the
+-- worn 321 as the pick "already worn" and the bag 308 as the pick "short of its
+-- crest", each with the 318's `rated with:` line. Equip Now reads `as offered`,
+-- which keeps the worn 321, and is unchanged.
+--
+-- The documents are his pass-1 Dungeon `asOffered` and `maxed` of 02:43:42Z and
+-- 02:46:02Z, from the companion's verdict file of 02:46:35Z; the links are his
+-- inventory capture of 2026-10-07 02:46:39 UTC (spec/fixtures/qe/README.md).
+describe("The tooltip over three copies of the worn top-set helm (R-2k)", function()
+    local ns
+    local MAXED = "spec/fixtures/qe/qe-droptimizer-Hotornot-zdgtaqcigomq.json"
+    local AS_OFFERED = "spec/fixtures/qe/qe-droptimizer-Hotornot-abqtlwlwsnms.json"
+    local WORN_LINK = "|cnIQ4:|Hitem:271528:7961:240892::::::90:105::35:6:6652:13440:13695:13692:13698:12846"
+        .. ":1:64:239033:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    local BAG_318_LINK = "|cnIQ4:|Hitem:271528::::::::90:105::35:6:13692:12849:13440:6652:13696:13698"
+        .. "::::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    local BAG_308_LINK = "|cnIQ4:|Hitem:271528:7960:::::::90:105::23:7:6652:13439:13696:12838:13692:13698:1561"
+        .. ":1:64:251140:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    -- Five minutes after the `maxed` document's own `exportedAt`.
+    local FIVE_MINUTES_LATER = 1791341462
+
+    local worn, bag318, bag308, lookups
+
+    local function record(link, level, location)
+        local parsed = ns.ParseItemLink(link)
+        return {
+            key = parsed.key,
+            itemID = parsed.itemID,
+            bonusIDs = parsed.bonusIDs,
+            link = link,
+            name = "Enigmatic Dreamwatcher's Somnolent Stare",
+            slot = "Head",
+            itemLevel = level,
+            location = location,
+        }
+    end
+
+    -- The map over his three copies under one scenario, built the way the
+    -- hover reads it.
+    local function build(path, scenario, settings)
+        local parsed = ns.QEImport.Parse(readFile(path))
+        assert.is_true(parsed.ok, parsed.reason)
+        parsed.verdict.scenario = scenario
+        parsed.verdict.qeSettings = settings
+        local inputs = {
+            verdicts = { { verdict = parsed.verdict, scenario = scenario } },
+            highlightedScenario = scenario,
+            inventory = { records = { worn, bag318, bag308 } },
+            -- After the claim: no gear in the vault, nothing waiting.
+            vault = { ok = true, hasAvailableRewards = false, options = { { rewards = {} } } },
+        }
+        ns.RoadsCache.SetMap(ns.RoadsCache.Build({ roadInputs = inputs }))
+        return inputs
+    end
+
+    local function block(link)
+        local answer, key = ns.UI.Tooltip.Answer(link)
+        assert.is_table(answer, link)
+        local out = {}
+        for index, line in ipairs(ns.UI.Tooltip.Lines(answer, { now = FIVE_MINUTES_LATER })) do
+            out[index] = line.text
+        end
+        return out, answer, key
+    end
+
+    local function maxed()
+        return build(MAXED, "maxed", { autoUpgradeVault = true, autoUpgradeAll = true, autoCatalyze = true })
+    end
+
+    local function asOffered()
+        return build(
+            AS_OFFERED,
+            "asOffered",
+            { autoUpgradeVault = false, autoUpgradeAll = false, autoCatalyze = false }
+        )
+    end
+
+    before_each(function()
+        ns = H.load()
+        worn = record(WORN_LINK, 321, "equipped")
+        bag318 = record(BAG_318_LINK, 318, "bag")
+        bag308 = record(BAG_308_LINK, 308, "bag")
+        -- Every fallback lookup counted: a copy you hold must never need one.
+        lookups = 0
+        local atLevel, item = ns.RoadsCache.LookupAtLevel, ns.RoadsCache.LookupItem
+        ns.RoadsCache.LookupAtLevel = function(...)
+            lookups = lookups + 1
+            return atLevel(...)
+        end
+        ns.RoadsCache.LookupItem = function(...)
+            lookups = lookups + 1
+            return item(...)
+        end
+    end)
+
+    after_each(function()
+        ns.RoadsCache.Reset()
+        H.unload()
+    end)
+
+    -- The replay's first finding, kept: a copy you hold is answered by its own
+    -- key and nothing else, so neither fallback is ever asked.
+    it("answers every copy he holds by its own key", function()
+        maxed()
+        for _, held in ipairs({ worn, bag318, bag308 }) do
+            local _, answer, key = block(held.link)
+            assert.equal(held.key, key)
+            assert.is_true(answer.held)
+            assert.equal(held.key, answer.heldItem.key)
+        end
+        assert.equal(0, lookups)
+    end)
+
+    -- PROVEN RED: without the crest clause the second line is `Wear this.`, the
+    -- owner's sentence.
+    it("tells the bag 318 to go on and be crested, from its own rating", function()
+        maxed()
+        local lines, answer = block(bag318.link)
+        assert.equal("Lootpath · Head", lines[1])
+        assert.equal("Wear this - crest it after.", lines[2])
+        -- Its own entry, at 334: the rating enchants that very copy, and the
+        -- copy carries no enchant.
+        assert.equal(bag318.key, answer.own.verdictItem.key)
+        assert.equal(334, answer.own.verdictItem.level)
+        assert.equal("rated with: Empowered Hex of Leeching (missing)", lines[3])
+        for _, text in ipairs(lines) do
+            assert.is_nil(usesForbidden(text), text)
+        end
+    end)
+
+    -- PROVEN RED: with `IsArrivedPick` reading the item ID while the pick's own
+    -- key is held, this is `Refresh - you're already wearing it.` over the
+    -- 318's `rated with: Empowered Hex of Leeching`.
+    it("never calls the worn 321 the 318's pick, nor gives it the 318's finish", function()
+        local inputs = maxed()
+        local lines, answer = block(worn.link)
+        assert.equal("Swap this - use your Dreamwatcher helm.", lines[2])
+        assert.is_nil(answer.finish)
+        for _, text in ipairs(lines) do
+            assert.is_nil(text:find("already wearing", 1, true), text)
+            assert.is_nil(text:find("rated with", 1, true), text)
+        end
+        local pick = ns.Roads.PlanPick(ns.RoadsCache.Map().bySlot.Head)
+        assert.is_true(pick.ownHeld)
+        assert.is_true(ns.Roads.HoldsOwnKey(pick, inputs))
+        assert.is_false(ns.Roads.IsArrivedPick(worn, pick))
+        -- And the pick's row is not "now worn" over a copy that is not it.
+        assert.is_nil(pick.claimed)
+        assert.is_nil(pick.arrived)
+    end)
+
+    -- PROVEN RED: the same mutation reads `Crest this to 318 - then refresh.`
+    -- here, with the 318's finish line.
+    it("passes on the bag 308, and never tells it to crest to the 318's level", function()
+        maxed()
+        local lines, answer = block(bag308.link)
+        assert.equal("Pass - use your Dreamwatcher helm.", lines[2])
+        assert.is_nil(answer.finish)
+        for _, text in ipairs(lines) do
+            assert.is_nil(text:find("Crest this", 1, true), text)
+            assert.is_nil(text:find("rated with", 1, true), text)
+        end
+    end)
+
+    -- What Equip Now reads, `as offered`: the worn 321 is the pick, its block
+    -- names its own enchant, and both bag copies pass. Unchanged by R-2k.
+    it("keeps the worn 321 on as offered, with its own finish", function()
+        asOffered()
+        local lines, answer = block(worn.link)
+        assert.equal("Keep this on.", lines[2])
+        assert.equal(worn.key, answer.own.verdictItem.key)
+        -- The client names the gem in game; headless it is `a gem`. His socket
+        -- is filled, so nothing is marked (R-2i).
+        assert.equal("rated with: Empowered Hex of Leeching · a gem", lines[3])
+        for _, held in ipairs({ bag318, bag308 }) do
+            local bagLines, bagAnswer = block(held.link)
+            assert.equal("Pass - use your Dreamwatcher helm.", bagLines[2])
+            assert.is_nil(bagAnswer.finish)
+        end
+    end)
+
+    -- Equip Now's own join over the same three copies and the `as offered`
+    -- document: the worn copy, by key (M2-6).
+    it("leaves Equip Now on the worn 321", function()
+        local parsed = ns.QEImport.Parse(readFile(AS_OFFERED))
+        assert.is_true(parsed.ok, parsed.reason)
+        local matched = ns.Match.Build({ ok = true, records = { worn, bag318, bag308 } }, parsed.verdict)
+        assert.is_true(matched.ok, matched.reason)
+        local head
+        for _, row in ipairs(matched.rows) do
+            if row.slot == "Head" then
+                head = row
+            end
+        end
+        assert.is_table(head)
+        assert.equal(worn.key, head.best.key)
+        assert.equal(ns.Match.MATCHED_BY_KEY, head.matchedBy)
+        assert.equal(ns.Match.STATUS.EQUIPPED_IS_BEST, head.status)
     end)
 end)

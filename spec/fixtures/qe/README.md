@@ -318,6 +318,26 @@ gemmed worn pieces carry. The links in `spec/roads_spec.lua`'s,
 `spec/tooltip_spec.lua`'s and `spec/ui_spec.lua`'s R-2i blocks are his
 inventory capture of 2026-09-30 22:20:53 UTC.
 
+## Three copies of the worn top-set helm (R-2k, WKE-694)
+
+Two documents **written by the companion** on 2026-10-07 02:43-02:46 UTC (the
+owner's reset-day evening, 2026-10-06 local), extracted unedited from the
+`Data/QEVerdict.lua` it wrote into his addon folder (written 02:46:35Z,
+1,180,108 bytes; the `json` string of exports 1 and 19 of 22 - the pass-1
+Dungeon document of `asOffered` and of `maxed`). Each file is that string byte
+for byte (read with `sha256sum` on 2026-10-06):
+
+| File | Scenario | Exported | Bytes | Top-set score | Head in the top set | sha256 |
+|---|---|---|---|---|---|---|
+| `qe-droptimizer-Hotornot-abqtlwlwsnms.json` | `asOffered` | 02:43:42.412Z | 18221 | 6317.104 | 271528 @321, the worn copy's key, `[240983]`, Empowered Hex of Leeching | `e931ec1b83e2131c192c941b8a941720f2b847d9d21ee2b32e63c7c8504b616a` |
+| `qe-droptimizer-Hotornot-zdgtaqcigomq.json` | `maxed` | 02:46:02.923Z | 19470 | 6390.67 | 271528 @334, the bag 318 copy's key, no gem, Empowered Hex of Leeching | `3eb41440de401c9deec7ebe99edaf15e330b593913298c68e51faa0f61f7526c` |
+
+His three copies of 271528, by his inventory capture of 02:46:39 UTC: worn 321
+(bonus IDs `6652, 13440, 13695, 13692, 13698, 12846`), bag 318 from the vault
+(`13692, 12849, 13440, 6652, 13696, 13698`) and bag 308. `asOffered` keeps the
+worn 321; `maxed` takes the bag 318 crested to 334, by that copy's own key. The
+links in `spec/tooltip_spec.lua`'s R-2k block are that capture's.
+
 ## The two exports the compare joins (E-0d, WKE-673)
 
 `spec/enginecompare_spec.lua` parses the +10 pair of the 2026-09-08 companion run
