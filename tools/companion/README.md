@@ -191,7 +191,11 @@ node companion.js --watch   # the same, then again on every /reload
 The fork must be on branch `lootpath/upgrade-finder-export` (it is the branch
 that has the Export > Copy JSON control at all - the live site has none). If
 nothing answers `http://localhost:3000` the companion runs `npm start` in the
-configured clone and waits for it.
+configured clone and waits for it. On Windows it runs it as `cmd.exe /d /s /c "npm start"`, window
+hidden, the same call `start-companion.ps1` makes: Node refuses to spawn `npm.cmd`
+without a shell since its April 2024 security release (CVE-2024-27980), and an
+older companion logged `FAILED: spawn EINVAL` here (C-17). If the start fails the
+log says `run "npm start" in <forkPath> yourself`.
 
 | flag | what it does |
 |---|---|

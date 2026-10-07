@@ -52,9 +52,70 @@ async function isUp(url, timeoutMs) {
     }
 }
 
-// `npm start` in the fork clone. Detached and inheriting nothing, so the CRA
-// dev server outlives one companion run and the next one finds it already up.
-async function ensureUp(config, log) {
+// How the fork is started (C-17, WKE-691). `npm start` in the fork clone,
+// detached and inheriting nothing, so the CRA dev server outlives one companion
+// run and the next one finds it already up.
+//
+// On Windows `npm` is `npm.cmd`, a batch file, and since Node's April 2024
+// security release (CVE-2024-27980; 18.20.2 / 20.12.2 / 21.7.3, 2024-04-10, and
+// every line after) `spawn` of a .bat or .cmd WITHOUT the `shell` option throws
+// `spawn EINVAL` before any process exists. Until C-17 this module did exactly
+// that - 'npm.cmd' with the shell off on win32 - so on the owner's Node 24 the
+// fork was never started by the companion at all (his log, 2026-10-07T02:28:30Z).
+//
+// The fix is the third of the three ways the Node 24 docs list for running a
+// .cmd ("Spawning .bat and .cmd files on Windows"): spawn `cmd.exe` itself and
+// hand it the command. It is the same call `start-companion.ps1` has always
+// made (`cmd.exe /c npm start`, window hidden), it needs no `shell` option, so
+// it is not the form the docs mark "not recommended" (DEP0190), and the command
+// is a constant, so no argument can carry anything into it. `/d` skips
+// AutoRun, `/s` keeps the quoting cmd.exe gets exactly as Node writes it.
+// `windowsHide` because a detached console child otherwise opens its own
+// console window, and the owner is usually in the game when this runs.
+function forkStart(config, platform) {
+    const options = {
+        cwd: config.forkPath,
+        detached: true,
+        stdio: 'ignore',
+        env: { ...process.env, BROWSER: 'none' },
+        windowsHide: true,
+    };
+    if ((platform || process.platform) === 'win32') {
+        return { file: process.env.ComSpec || 'cmd.exe', args: ['/d', '/s', '/c', 'npm start'], options };
+    }
+    return { file: 'npm', args: ['start'], options };
+}
+
+// What a fork that would not start tells the reader to do: the same words the
+// timeout has always used.
+function startYourself(config) {
+    return `run "npm start" in ${config.forkPath} yourself`;
+}
+
+// Starts the fork and returns a getter for an asynchronous spawn error. A
+// synchronous throw (the EINVAL above) and an 'error' event (no cmd.exe, say)
+// both become the same ForkError naming the cause and what to do; an 'error'
+// event with no listener would otherwise take the whole watcher down.
+function startFork(config, spawnFn) {
+    const how = forkStart(config);
+    let child;
+    try {
+        child = (spawnFn || spawn)(how.file, how.args, how.options);
+    } catch (e) {
+        throw new ForkError(
+            `could not start "npm start" in ${config.forkPath} (${e.message}); ${startYourself(config)}`,
+            UNREACHABLE
+        );
+    }
+    let failed = null;
+    child.on('error', (e) => {
+        failed = e;
+    });
+    child.unref();
+    return () => failed;
+}
+
+async function ensureUp(config, log, spawnFn) {
     if (await isUp(config.forkUrl)) {
         log.info(`fork already serving ${config.forkUrl}`);
         return { started: false };
@@ -66,24 +127,24 @@ async function ensureUp(config, log) {
         throw new ForkError(`no QE Live clone at ${config.forkPath} (set forkPath in the config)`, UNREACHABLE);
     }
     log.info(`nothing answers ${config.forkUrl}; starting "npm start" in ${config.forkPath}`);
-    const child = spawn('npm.cmd', ['start'], {
-        cwd: config.forkPath,
-        detached: true,
-        stdio: 'ignore',
-        env: { ...process.env, BROWSER: 'none' },
-        shell: process.platform !== 'win32',
-    });
-    child.unref();
+    const spawnError = startFork(config, spawnFn);
     const deadline = Date.now() + config.forkStartTimeoutSeconds * 1000;
     while (Date.now() < deadline) {
         await new Promise((r) => setTimeout(r, 2000));
+        const failed = spawnError();
+        if (failed) {
+            throw new ForkError(
+                `could not start "npm start" in ${config.forkPath} (${failed.message}); ${startYourself(config)}`,
+                UNREACHABLE
+            );
+        }
         if (await isUp(config.forkUrl)) {
             log.info('fork answered');
             return { started: true };
         }
     }
     throw new ForkError(
-        `the fork did not answer ${config.forkUrl} within ${config.forkStartTimeoutSeconds}s; run "npm start" in ${config.forkPath} yourself and look at its output`,
+        `the fork did not answer ${config.forkUrl} within ${config.forkStartTimeoutSeconds}s; ${startYourself(config)} and look at its output`,
         UNREACHABLE
     );
 }
@@ -1527,6 +1588,8 @@ async function run(config, profileText, log, options) {
 module.exports = {
     run,
     ensureUp,
+    forkStart,
+    startFork,
     isUp,
     readCards,
     readCardRows,
