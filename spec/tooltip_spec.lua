@@ -1591,6 +1591,70 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         assert.is_false(ns.Glow.Wants(claimed.key))
     end)
 
+    -- R-2j (WKE-693): the block over the vault pick in the bags under the
+    -- vault's OWN key, before a refresh. The owner's screen of 2026-10-06 read
+    -- `Grab this from the vault.` over the helm he had just taken; the same
+    -- state on this week's files is the Worldroot taken as offered (the vault
+    -- reward's own record from snapshot 9, with only `location` added, because
+    -- no capture holds a claim made between two refreshes) and the client's
+    -- vault after a claim (no activity carries a reward, nothing waiting:
+    -- V-3, R-2f). PROVEN RED: without the R-2j branch in `ItemSentence` the
+    -- second line is `Grab this from the vault.`
+    local function takeWorldrootAsOffered()
+        local reward
+        for _, option in ipairs(gathered.vault.options) do
+            for _, held in ipairs(option.rewards or {}) do
+                if tonumber(held.itemID) == 251935 then
+                    reward = held
+                end
+            end
+        end
+        assert.is_table(reward)
+        assert.equal(VAULT_WORLDROOT, reward.key)
+        for _, option in ipairs(gathered.vault.options) do
+            option.rewards = {}
+        end
+        gathered.vault.hasAvailableRewards = false
+        local record = {
+            key = reward.key,
+            itemID = reward.itemID,
+            bonusIDs = reward.bonusIDs,
+            link = reward.link,
+            name = reward.name,
+            slot = "2H Weapon",
+            itemLevel = reward.itemLevel,
+            location = "bag",
+        }
+        table.insert(gathered.inventory.records, record)
+        model = ns.UpgradeMapPanel.Model(gathered)
+        ns.RoadsCache.SetMap(ns.RoadsCache.Build(model))
+        return record
+    end
+
+    it("never tells the player to grab from the vault the pick in his bags (R-2j)", function()
+        local before = lines(VAULT_WORLDROOT)
+        assert.equal("Grab this - crest it after.", before[2])
+        local held = takeWorldrootAsOffered()
+        local block = lines(held.key)
+        assert.equal("Lootpath · 2H Weapon", block[1])
+        assert.equal("Crest this to 321 - then refresh.", block[2])
+        -- Everything under the sentence is the block it was: the `Better:`
+        -- line stays, and so does the age line with its command.
+        assert.equal(#before, #block)
+        for index = 3, #block do
+            assert.equal(before[index], block[index])
+        end
+        assert.is_truthy(block[#block]:find("^Rated 5h ago · /lootpath "))
+        for _, text in ipairs(block) do
+            assert.is_nil(text:find("Grab", 1, true), text)
+            assert.is_nil(text:find("from the vault", 1, true), text)
+            assert.is_nil(usesForbidden(text), text)
+        end
+        -- The row the block no longer sends him along says where the piece is.
+        local pick = ns.Roads.PlanPick(ns.RoadsCache.Map().bySlot["2H Weapon"])
+        assert.equal(ns.Roads.VAULT_CLAIMED, pick.claimed)
+    end)
+
     -- -----------------------------------------------------------------------
     -- Defect 3: the names the request never delivered.
 

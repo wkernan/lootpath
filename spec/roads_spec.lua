@@ -1137,6 +1137,184 @@ describe("Roads over the owner's week of 2026-09-08", function()
     end)
 
     -- -----------------------------------------------------------------------
+    -- R-2j (WKE-693): the vault pick in your hands under the vault's OWN key.
+    --
+    -- The owner, 2026-10-06, reset day: he took the helm the vault pick named,
+    -- hovered the copy in his bags before a refresh, and read `Grab this from
+    -- the vault.` R-3b was built on "claiming changes the key", and for a
+    -- reward taken as offered it does not - nor does the rating's crest: this
+    -- week's `thisWeek` document carries the vault Worldroot as
+    -- `251935:6652:12841` at 321, and the vault's own link (snapshot 9) is
+    -- `251935:6652:12841` at 305. So the copy in the bags matched the vault
+    -- road's own key, `IsArrivedPick` refused it as "the road's own item", and
+    -- the vault branch of `ItemSentence` answered before anything asked.
+    --
+    -- No capture holds such a copy - the claim falls between two refreshes - so
+    -- it is HAND-BUILT from the vault's own reward record: its link, key, name
+    -- and level unchanged, with only where it sits added. The claim itself is
+    -- the client's measured answer after one (V-3, R-2f): no activity carries a
+    -- reward and nothing is waiting.
+    local WORLDROOT_VAULT_KEY = "251935:6652:12841"
+
+    local function vaultWorldroot()
+        for _, option in ipairs(inputs.vault.options) do
+            for _, reward in ipairs(option.rewards or {}) do
+                if tonumber(reward.itemID) == 251935 then
+                    return reward
+                end
+            end
+        end
+        return nil
+    end
+
+    local function emptyTheVault()
+        for _, option in ipairs(inputs.vault.options) do
+            option.rewards = {}
+        end
+        inputs.vault.hasAvailableRewards = false
+    end
+
+    -- The reward, taken as offered: `location` is "bag" or "equipped". Worn,
+    -- the 308 he had on goes into the bags, because a slot holds one staff.
+    local function holdWorldroot(location)
+        local reward = vaultWorldroot()
+        assert.is_table(reward)
+        assert.equal(WORLDROOT_VAULT_KEY, reward.key)
+        assert.equal(305, reward.itemLevel)
+        if location == "equipped" then
+            for _, record in ipairs(inputs.inventory.records) do
+                if record.location == "equipped" and record.itemID == 251935 then
+                    record.location = "bag"
+                end
+            end
+        end
+        local record = {
+            key = reward.key,
+            itemID = reward.itemID,
+            bonusIDs = reward.bonusIDs,
+            link = reward.link,
+            name = reward.name,
+            slot = "2H Weapon",
+            itemLevel = reward.itemLevel,
+            location = location,
+        }
+        table.insert(inputs.inventory.records, record)
+        return record
+    end
+
+    local function noSurfaceGrabs(texts)
+        for _, text in pairs(texts) do
+            assert.is_nil(text:find("Grab", 1, true), text)
+            assert.is_nil(text:find("grab", 1, true), text)
+            assert.is_nil(text:find("from the vault", 1, true), text)
+        end
+    end
+
+    -- The premise, on the committed files: the document's vault pick and the
+    -- vault's own reward are one key, at two levels; R-3b's refusal of that key
+    -- is untouched, and the new rule is what reads it.
+    it("reads the vault's own key as the pick in your hands (R-2j premise)", function()
+        local held = holdWorldroot("bag")
+        emptyTheVault()
+        local pick = group("2H Weapon", ns.Roads.GROUP_SET)[1]
+        assert.equal(ns.Roads.KIND_VAULT, pick.kind)
+        assert.is_true(pick.planPick)
+        assert.same({ WORLDROOT_VAULT_KEY }, pick.keys)
+        assert.equal(321, pick.rating.level)
+        -- With the reward out of the vault, the road arrives at the rating's
+        -- own level, which is why the owner's line had no crest clause.
+        assert.equal(321, pick.arrivesAt)
+        assert.is_false(ns.Roads.IsArrivedPick(held, pick))
+        assert.is_true(ns.Roads.HoldsVaultPick(held, pick))
+        -- Only the pick's own road, and only a vault one.
+        assert.is_false(ns.Roads.HoldsVaultPick(held, group("2H Weapon", ns.Roads.GROUP_SET)[2]))
+        assert.is_false(ns.Roads.HoldsVaultPick({ key = "251935:6652:12838" }, pick))
+        assert.is_false(ns.Roads.HoldsVaultPick(nil, pick))
+    end)
+
+    -- The owner's screen. PROVEN RED: without the R-2j branch in
+    -- `ItemSentence` this is `Grab this from the vault.`, his own line.
+    it("never sends a bag copy of the vault pick back to the vault (R-2j)", function()
+        local held = holdWorldroot("bag")
+        emptyTheVault()
+        local answer = answerFor("2H Weapon", held.key)
+        assert.is_true(answer.held)
+        assert.equal(WORLDROOT_VAULT_KEY, answer.own.keys[1])
+        local sentence = ns.Roads.ItemSentence(answer)
+        assert.equal("Crest this to 321 - then refresh.", sentence)
+        local slotRoads = ns.Roads.ForSlot("2H Weapon", inputs)
+        local plan = ns.Roads.PlanSentence(inputs).sentence
+        noSurfaceGrabs({ sentence, slotRoads.plan, plan })
+    end)
+
+    -- Between the claim and the client's next vault event the vault can still
+    -- list the reward. The bag copy is still the reward; R-3b's words read it
+    -- against the level the vault lists. PROVEN RED: without the branch this
+    -- is `Grab this - crest it after.`
+    it("reads the bag copy as the pick while the vault still lists it (R-2j)", function()
+        local held = holdWorldroot("bag")
+        local sentence = ns.Roads.ItemSentence(answerFor("2H Weapon", held.key))
+        assert.equal("Put this on - then refresh.", sentence)
+        noSurfaceGrabs({ sentence })
+    end)
+
+    -- The road under it, the slot's line and the week's sentence. PROVEN RED,
+    -- one at a time: without the `HoldsVaultPick` clause in `MarkArrived` the
+    -- row is `open now · do: take it` and the slot's line `Grab the Worldroot
+    -- from the vault and crest it.`; without the `heldVault` clause in
+    -- `PlanSentence` the week opens on `Grab the Worldroot from the vault and
+    -- crest it.`
+    it("marks the row claimed and says the slot's and the week's line as held (R-2j)", function()
+        holdWorldroot("bag")
+        emptyTheVault()
+        local slotRoads = ns.Roads.ForSlot("2H Weapon", inputs)
+        local pick = ns.Roads.PlanPick(slotRoads)
+        assert.equal(ns.Roads.VAULT_CLAIMED, pick.claimed)
+        assert.equal(ns.Roads.VERB_REFRESH, pick.verb)
+        assert.equal(ns.Roads.TODO_REFRESH, pick.todo)
+        assert.equal("Put on the Worldroot and crest it.", slotRoads.plan)
+        -- Said once: the bag copy is not named again as a second thing to put
+        -- on, and the rest of the week is untouched.
+        local plan = ns.Roads.PlanSentence(inputs).sentence
+        assert.equal(
+            "Put on the Worldroot and crest it."
+                .. " Catalyst the Lynx shoulders in your bag."
+                .. " Skip the vault shoulders.",
+            plan
+        )
+        noSurfaceGrabs({ slotRoads.plan, plan, pick.todo })
+    end)
+
+    -- The same copy worn: R-3b's worn words, the crest first while it is under
+    -- the level the rating picked it at. PROVEN RED: without the branch this
+    -- is `Grab this from the vault.` over the staff on his back.
+    it("gives a worn copy of the vault pick R-3b's worn words (R-2j)", function()
+        local held = holdWorldroot("equipped")
+        emptyTheVault()
+        assert.equal("Crest this to 321 - then refresh.", ns.Roads.ItemSentence(answerFor("2H Weapon", held.key)))
+        local slotRoads = ns.Roads.ForSlot("2H Weapon", inputs)
+        assert.equal(ns.Roads.ARRIVED_CLAIMED_WORN, ns.Roads.PlanPick(slotRoads).claimed)
+        assert.equal("Crest the Worldroot.", slotRoads.plan)
+        held.itemLevel = 321
+        assert.equal("Refresh - you're already wearing it.", ns.Roads.ItemSentence(answerFor("2H Weapon", held.key)))
+        noSurfaceGrabs({ slotRoads.plan, ns.Roads.PlanSentence(inputs).sentence })
+    end)
+
+    -- And with no copy held, the vault road is the vault road: `Grab` as before
+    -- on the reward's own answer, the row and both lines.
+    it("still says Grab when nothing in the inventory is the reward (R-2j)", function()
+        local answer = answerFor("2H Weapon", WORLDROOT_VAULT_KEY)
+        assert.is_false(answer.held)
+        assert.equal("Grab this - crest it after.", ns.Roads.ItemSentence(answer))
+        local slotRoads = ns.Roads.ForSlot("2H Weapon", inputs)
+        assert.is_nil(ns.Roads.PlanPick(slotRoads).claimed)
+        assert.equal("Grab the Worldroot from the vault and crest it.", slotRoads.plan)
+        assert.is_truthy(ns.Roads.PlanSentence(inputs).sentence:find("Grab the Worldroot from the vault", 1, true))
+        emptyTheVault()
+        assert.equal("Grab this from the vault.", ns.Roads.ItemSentence(answerFor("2H Weapon", WORLDROOT_VAULT_KEY)))
+    end)
+
+    -- -----------------------------------------------------------------------
     -- R-3c (WKE-580): the pick that has moved slot as well as key.
     --
     -- One step past R-3b. The owner crested the staff the plan picked out of

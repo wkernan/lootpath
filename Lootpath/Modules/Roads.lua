@@ -2231,6 +2231,43 @@ function Roads.WornUnderCrested(held, pick)
     return Roads.IsArrivedPick(held, pick) and Roads.ArrivedShort(held, pick)
 end
 
+-- Whether a held record IS the vault pick, carried under the pick's own key
+-- (R-2j, WKE-693).
+--
+-- The owner, 2026-10-06, reset day: he took the helm the vault pick named,
+-- hovered the copy in his bags before a refresh, and read `Grab this from the
+-- vault.` R-3b's rule was written on the premise that claiming a reward changes
+-- its key, so `IsArrivedPick` refuses anything under one of the pick's own keys
+-- as "the road's own item, where it always was". For a vault reward that is
+-- wrong the moment the reward is in your hands: the document keeps the offer's
+-- bonus IDs even when it rates the reward crested (the committed `thisWeek`
+-- document carries the vault Worldroot as `251935:6652:12841` at 321, the
+-- vault's own link at 305), and taking the reward out of the vault does not
+-- touch them. The vault itself is never in the inventory scan, so a record the
+-- scan holds under the vault pick's own key is the reward, taken - wherever it
+-- sits. Only the inventory decides it, read live; the claim reaches no capture
+-- until the next refresh, and `week.vaultClaimed` stays the Vault tab's.
+--
+-- What it gives up: a second copy of the very item with the very bonus IDs the
+-- vault offers, already owned, reads as the reward. It is the item the rating
+-- picked either way, so the words it gets - put it on, crest it, refresh - are
+-- still the rating's; only "from the vault" would be lost, and that is the
+-- clause that was wrong.
+function Roads.HoldsVaultPick(held, pick)
+    if type(held) ~= "table" or type(pick) ~= "table" then
+        return false
+    end
+    if pick.planPick ~= true or pick.kind ~= Roads.KIND_VAULT or held.key == nil then
+        return false
+    end
+    for _, key in ipairs(pick.keys or {}) do
+        if key == held.key then
+            return true
+        end
+    end
+    return false
+end
+
 -- The slot's pick, which is the one road the whole set group is arranged
 -- around. At most one exists: his own `ItemSet.ts:205` allows one vault option
 -- per set and `setRoad` marks exactly the top-set entries.
@@ -2283,7 +2320,11 @@ function Roads.MarkArrived(slotRoads, inputs)
     -- claimed, crested and equipped is not told to equip it again.
     local arrived
     for _, record in ipairs(records(inputs.inventory)) do
-        if record.slot == slotRoads.slot and not spokenFor[record.key] and Roads.IsArrivedPick(record, pick) then
+        -- R-2j (WKE-693): or the vault reward itself, taken, under the key the
+        -- pick's own road carries (`HoldsVaultPick`).
+        local isPick = (not spokenFor[record.key] and Roads.IsArrivedPick(record, pick))
+            or Roads.HoldsVaultPick(record, pick)
+        if record.slot == slotRoads.slot and isPick then
             if not arrived or (record.location == "equipped" and arrived.location ~= "equipped") then
                 arrived = record
             end
@@ -2952,7 +2993,29 @@ function Roads.PlanSentence(week)
     -- and the rest of the plan stays - the Catalyst charge and the crests are
     -- still this week's. The caller states the claim; nothing here reads the
     -- vault for it, because a claimed vault answers the same as an empty one.
-    local vaultItem = not week.vaultClaimed and planVaultItem(allItems) or nil
+    --
+    -- R-2j (WKE-693): and once the reward is in your hands. The live inventory
+    -- holding the pick's own key is the claim, read before any capture can say
+    -- it (`Roads.HoldsVaultPick`), so the clause is what is left to do with the
+    -- piece instead - in the Grab clause's own shape, and whether or not the
+    -- caller has stated the claim.
+    local pickVault = planVaultItem(allItems)
+    local heldVault = pickVault and pickVault.key and owned[pickVault.key] or nil
+    if pickVault and heldVault then
+        local reward = vaultByKey[pickVault.key]
+        local name = Roads.ShortName(heldVault) or Roads.ShortName({ slot = pickVault.slot })
+        local level = tonumber(heldVault.itemLevel or heldVault.level)
+        -- The level the pick arrives at, as the slot's road reads it: the
+        -- vault's while the vault still lists it, else the rating's own.
+        local arrivesAt = tonumber(reward and reward.itemLevel or pickVault.level)
+        local short = level ~= nil and arrivesAt ~= nil and level < arrivesAt
+        if heldVault.location ~= "equipped" then
+            parts[#parts + 1] = string.format("Put on %s", name or "it") .. (short and " and crest it" or "") .. "."
+        elseif short then
+            parts[#parts + 1] = string.format("Crest %s.", name or "it")
+        end
+    end
+    local vaultItem = not heldVault and not week.vaultClaimed and pickVault or nil
     if vaultItem then
         local reward = vaultItem.key and vaultByKey[vaultItem.key] or nil
         local name = Roads.ShortName({
@@ -2974,7 +3037,7 @@ function Roads.PlanSentence(week)
     local equips = {}
     for _, item in ipairs(allItems) do
         local record = item.key and owned[item.key] or nil
-        if record and record.location ~= "equipped" then
+        if record and record.location ~= "equipped" and record ~= heldVault then
             equips[#equips + 1] = Roads.ShortName(record) or record.name
         end
     end
@@ -3262,6 +3325,13 @@ function Roads.ItemSentence(answer)
     if type(own) == "table" and own.group == Roads.GROUP_SET then
         if own.planPick then
             if own.kind == Roads.KIND_VAULT then
+                -- R-2j (WKE-693): the reward is in your hands under the vault's
+                -- own key, so "from the vault" is the one thing that is no
+                -- longer true. R-3b's words for the pick, arrived, are the
+                -- answer: put it on, crest it, or refresh.
+                if answer.held == true and Roads.HoldsVaultPick(answer.heldItem, own) then
+                    return Roads.ArrivedSentence(answer.heldItem, own)
+                end
                 if own.rating and own.rating.level and own.arrivesAt and own.rating.level > own.arrivesAt then
                     return string.format(Roads.GRAB_CREST_SENTENCE, Roads.ThisWord(slot))
                 end
@@ -3379,7 +3449,25 @@ function Roads.SlotSentence(slotRoads)
 
     local clauses = {}
     local name = Roads.ShortName(pick.item)
-    if pick.kind == Roads.KIND_VAULT then
+    -- R-2j (WKE-693): a vault pick already in your hands - under the vault's
+    -- own key, or claimed and crested since (R-3b) - is no longer a trip to the
+    -- vault. `MarkArrived` has run over this slot, so `pick.arrived` is the
+    -- copy the inventory holds, and the clause is what is left to do with it,
+    -- in the Grab clause's own shape: put it on, and crest it when it is under
+    -- the level the pick arrives at.
+    local arrived = pick.kind == Roads.KIND_VAULT and type(pick.arrived) == "table" and pick.arrived or nil
+    local arrivedShort = arrived ~= nil and Roads.ArrivedShort(arrived, pick)
+    if arrived then
+        -- The copy in hand names itself off its own link; the road may not,
+        -- once the reward has left the vault (R-3b's note on `FillNames`).
+        local held = Roads.ShortName(arrived) or name or "it"
+        if arrived.location == "equipped" then
+            clauses[#clauses + 1] = arrivedShort and string.format("Crest %s", held)
+                or capitalised(Roads.TODO_KEEP_WORN)
+        else
+            clauses[#clauses + 1] = string.format("Put on %s", held) .. (arrivedShort and " and crest it" or "")
+        end
+    elseif pick.kind == Roads.KIND_VAULT then
         local clause = string.format("Grab %s from the vault", name or "it")
         if pick.rating and pick.rating.level and pick.arrivesAt and pick.rating.level > pick.arrivesAt then
             clause = clause .. " and crest it"
@@ -3401,11 +3489,13 @@ function Roads.SlotSentence(slotRoads)
         clauses[#clauses + 1] = "skip the vault ones"
     end
 
-    local crested = pick.kind == Roads.KIND_VAULT
-        and pick.rating
-        and pick.rating.level
-        and pick.arrivesAt
-        and pick.rating.level > pick.arrivesAt
+    local crested = arrivedShort
+        or not arrived
+            and pick.kind == Roads.KIND_VAULT
+            and pick.rating
+            and pick.rating.level
+            and pick.arrivesAt
+            and pick.rating.level > pick.arrivesAt
     if not crested then
         clauses[#clauses + 1] = "no crests here"
     end
