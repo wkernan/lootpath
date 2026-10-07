@@ -65,6 +65,54 @@ local COVERED_ITEM = {
     name = "Arctic Explorer's Legwraps",
 }
 
+-- V-9b (WKE-692): where an anchor lands, in the cell's own coordinates - x
+-- from the cell's left edge, y up from its top edge (so negative inside it).
+-- A cell's regions are anchored to the cell or to its badge
+-- (`cell.background`), which `paintCell` centres on the cell at the size it
+-- drew the art at, or spreads over the whole cell with `SetAllPoints` when it
+-- drew none. The stub lays nothing out, so this does the one sum the client
+-- would. An anchor on any other region answers nil: those are compared as
+-- written.
+local RELATIVE_POINT = {
+    TOPLEFT = { 0, 0 },
+    TOP = { 0.5, 0 },
+    TOPRIGHT = { 1, 0 },
+    LEFT = { 0, 0.5 },
+    CENTER = { 0.5, 0.5 },
+    RIGHT = { 1, 0.5 },
+    BOTTOMLEFT = { 0, 1 },
+    BOTTOM = { 0.5, 1 },
+    BOTTOMRIGHT = { 1, 1 },
+}
+
+-- The rect of the cell or of its badge, as left, top (down from the cell's
+-- top), width, height.
+local function cellRect(cell, region)
+    local width, height = cell:GetWidth(), cell:GetHeight()
+    if region == cell then
+        return 0, 0, width, height
+    end
+    if region == cell.background then
+        local first = cell.background.points[1]
+        if first and first[1] == "ALL" then
+            return 0, 0, width, height
+        end
+        assert.same({ "CENTER", cell, "CENTER", 0, 0 }, first)
+        local w, h = cell.background:GetWidth(), cell.background:GetHeight()
+        return (width - w) / 2, (height - h) / 2, w, h
+    end
+    return nil
+end
+
+local function cellPoint(cell, point)
+    local left, top, w, h = cellRect(cell, point[2])
+    if not left then
+        return nil
+    end
+    local at = RELATIVE_POINT[point[3]]
+    return left + at[1] * w + (point[4] or 0), -(top + at[2] * h) + (point[5] or 0)
+end
+
 describe("VaultPanel over the committed vault transcript", function()
     local ns, world
 
@@ -743,20 +791,24 @@ describe("VaultPanel frames", function()
             for _, cell in ipairs(gridRow.cells) do
                 local point = cell.label.points[1]
                 assert.is_not_nil(point)
-                -- point, relativeTo, relativePoint, x, y
+                -- point, relativeTo, relativePoint, x, y. On the badge since
+                -- V-9b (WKE-692), so where it lands is read in the cell's own
+                -- coordinates (`cellPoint`).
                 assert.equal("TOPLEFT", point[1])
-                assert.equal(cell, point[2])
+                assert.equal(cell.background, point[2])
                 assert.equal("TOPLEFT", point[3])
-                assert.is_true(point[4] >= 0)
+                local x, y = cellPoint(cell, point)
+                assert.is_true(x >= 0)
                 -- Down from the cell's own top edge, never up past it.
-                assert.is_true(point[5] <= 0)
+                assert.is_true(y <= 0)
                 -- And the whole label, not just its anchor, is inside: every
                 -- cell reserves a band above its item line for it, whether or
                 -- not this cell is the one that is labelled. 14 is the band
                 -- (12) plus the label's own 2-point inset.
                 local line = cell.line.points[1]
                 assert.equal("TOPLEFT", line[1])
-                assert.is_true(line[5] <= -14)
+                local _, lineY = cellPoint(cell, line)
+                assert.is_true(lineY <= -14)
                 if cell.label:IsShown() then
                     labelled = labelled + 1
                 end
@@ -768,42 +820,107 @@ describe("VaultPanel frames", function()
     end)
 
     -- V-9 (WKE-690): the pick label had a left edge and no right one. It now
-    -- ends short of the reward cell's tick, at the narrowest cell the window
-    -- allows and at a wide one.
-    it("gives the pick label a right edge inside the cell, clear of the tick (V-9)", function()
+    -- ends short of the reward cell's tick. V-9b (WKE-692): the label, the
+    -- tick, the item line, its tags and the extras of a REWARD cell hang off
+    -- the badge - Blizzard's cell art, drawn at its own proportions and centred
+    -- - and not the cell, which on a stretched window is far wider than the
+    -- art (the owner's screenshot, 2026-10-06: the tick in the gap past the
+    -- art, the icon left of it). Checked at the window's minimum, the owner's
+    -- ~1,950, and the widest the resize bounds allow over a 3840-point
+    -- UIParent this test sets (not a measured screen). The badge is the stub's
+    -- PLACEHOLDER 219 x 126 art, never a measured atlas.
+    it("keeps a reward cell's label, tick, item, tags and extras inside its badge at every width (V-9b)", function()
         generateReward(world, 1, COVERED_ITEM.id, COVERED_ITEM.bonusIDs, COVERED_ITEM.name, 298)
         ns.QEImport.Store(realVerdict(ns))
         local Panel, UI = ns.VaultPanel, ns.UI
+        _G.UIParent:SetSize(3840, 2160)
+        local bounds = UI.WindowBounds(nil)
+        assert.equal(3840, bounds.maxWidth)
         local frame = Panel.Create()
         local model = frame:Refresh()
-        for _, windowWidth in ipairs({ UI.WIDTH, 1950 }) do
+        for _, windowWidth in ipairs({ bounds.minWidth, 1950, bounds.maxWidth }) do
             frame.scroll:SetWidth(windowWidth - UI.PANEL_INSET_LEFT - UI.PANEL_INSET_RIGHT - Panel.SCROLL_INSET)
             frame:Refresh({ model = model })
-            local labelled = 0
+            local labelled, rewards = 0, 0
             for _, gridRow in ipairs(frame.gridRows) do
                 for _, cell in ipairs(gridRow.cells) do
+                    local at = string.format("window %d", windowWidth)
+                    local badge = cell.background
+                    -- The badge's own edges, in the cell's coordinates.
+                    local badgeLeft = cellPoint(cell, { "TOPLEFT", badge, "TOPLEFT", 0, 0 })
+                    local badgeRight = cellPoint(cell, { "TOPRIGHT", badge, "TOPRIGHT", 0, 0 })
+                    local function inside(region, index)
+                        local point = region.points[index]
+                        assert.equal(badge, point[2], at)
+                        local x = cellPoint(cell, point)
+                        assert.is_true(x >= badgeLeft and x <= badgeRight, at)
+                        return x, point
+                    end
                     local label = cell.label
-                    assert.equal(2, #label.points)
-                    assert.same({ "TOPLEFT", cell, "TOPLEFT", 4, -2 }, label.points[1])
-                    local right = label.points[2]
-                    assert.equal("TOPRIGHT", right[1])
-                    assert.equal(cell, right[2])
-                    assert.equal("TOPRIGHT", right[3])
+                    assert.equal(2, #label.points, at)
+                    local labelLeft, left = inside(label, 1)
+                    local labelRight, right = inside(label, 2)
+                    assert.equal("TOPLEFT", left[1], at)
+                    assert.equal("TOPRIGHT", right[1], at)
                     -- On the same line as the left anchor, so the height stands.
-                    assert.equal(-2, right[5])
-                    if label:IsShown() then
-                        labelled = labelled + 1
-                        -- The tick sits at TOPRIGHT -4 and is drawn no wider
-                        -- than its band; the label ends before it.
-                        assert.same({ "TOPRIGHT", cell, "TOPRIGHT", -4, -2 }, cell.tick.points[1])
-                        assert.is_true(-right[4] >= 4 + cell.tick:GetWidth())
-                        -- And there is room left for the words at the narrowest cell.
-                        assert.is_true(cell:GetWidth() + right[4] - 4 > 0)
+                    assert.equal(left[5], right[5], at)
+                    -- Room for the words at the narrowest cell.
+                    assert.is_true(labelRight - labelLeft > 0, at)
+                    if cell.data and cell.data.kind == "reward" then
+                        rewards = rewards + 1
+                        assert.is_true(badge:GetWidth() <= cell:GetWidth(), at)
+                        -- The item line, the tags and the extras end inside the art.
+                        assert.equal(2, #cell.line.points, at)
+                        inside(cell.line, 1)
+                        inside(cell.line, 2)
+                        assert.equal(cell.line, cell.tags.points[1][2], at)
+                        inside(cell.tags, 2)
+                        assert.equal(cell.tags, cell.extras.points[1][2], at)
+                        inside(cell.extras, 2)
+                        -- The tick in the art's top-right corner, all of it inside.
+                        assert.is_true(cell.tick:IsShown(), at)
+                        assert.equal(1, #cell.tick.points, at)
+                        assert.equal("TOPRIGHT", cell.tick.points[1][1], at)
+                        local tickRight = inside(cell.tick, 1)
+                        local tickLeft = tickRight - cell.tick:GetWidth()
+                        assert.is_true(tickLeft >= badgeLeft, at)
+                        -- The corner text follows the tick, as it always has.
+                        assert.same({ "TOPRIGHT", cell.tick, "TOPLEFT", -2, 0 }, cell.corner.points[1], at)
+                        -- The badge's words: bottom-right of the art (V-8).
+                        assert.equal(badge, cell.badge.points[1][2], at)
+                        -- No region of the cell is anchored to the cell itself.
+                        for _, region in ipairs({ label, cell.line, cell.tags, cell.extras, cell.tick }) do
+                            for _, point in ipairs(region.points) do
+                                assert.are_not.equal(cell, point[2], at)
+                            end
+                        end
+                        if label:IsShown() then
+                            labelled = labelled + 1
+                            -- The label ends before the tick starts.
+                            assert.is_true(labelRight <= tickLeft, at)
+                        end
                     end
                 end
             end
+            assert.equal(1, rewards)
             assert.equal(1, labelled)
         end
+        -- At the widest the cell is far wider than its art, and the art is
+        -- where the item and the tick are: the badge 191 of a cell over 1000,
+        -- the line 6 in from the art's left and the tick 4 in from its right.
+        local wide
+        for _, gridRow in ipairs(frame.gridRows) do
+            for _, cell in ipairs(gridRow.cells) do
+                if cell.data and cell.data.kind == "reward" then
+                    wide = cell
+                end
+            end
+        end
+        assert.is_true(wide:GetWidth() > 1000)
+        assert.equal(191, wide.background:GetWidth())
+        local gap = (wide:GetWidth() - 191) / 2
+        assert.equal(gap + 6, (cellPoint(wide, wide.line.points[1])))
+        assert.equal(gap + 191 - 4, (cellPoint(wide, wide.tick.points[1])))
     end)
 
     it("hides the hint and the cells a shorter render does not use", function()
@@ -4286,9 +4403,67 @@ describe("the Vault tab's grid over the live client (V-5)", function()
         local reward = frame.gridRows[1].cells[1]
         assert.equal("reward", reward.data.kind)
         assert.is_true(reward.tick:IsShown())
-        assert.same({ "TOPRIGHT", reward, "TOPRIGHT", -4, -2 }, reward.tick.points[1])
+        -- V-5's corner band and V-5's item line, measured from the badge's
+        -- edges since V-9b (WKE-692); where they land is pinned below.
+        assert.equal(reward.background, reward.tick.points[1][2])
         assert.is_false(reward.locked:IsShown())
-        assert.same({ "TOPLEFT", reward, "TOPLEFT", 6, -18 }, reward.line.points[1])
+        assert.equal(reward.background, reward.line.points[1][2])
+    end)
+
+    -- V-9b (WKE-692): the 760 window is the one the owner has watched since
+    -- V-5, so every cell region is pinned there by where it LANDS in the cell,
+    -- not by what it is anchored to - this test was written and run green
+    -- before a single anchor moved, and has to stay green after. The figures
+    -- are the code's own at 760: a 164 x 110 cell, its badge the stub's
+    -- PLACEHOLDER 219 x 126 art fitted to 164 x 94 and centred (8 above, 8
+    -- below), never a measured atlas.
+    it("lands every cell region where V-5 put it on the 760 window (V-9b)", function()
+        generateReward(world, 1, COVERED_ITEM.id, COVERED_ITEM.bonusIDs, COVERED_ITEM.name, 272)
+        local Panel, UI = ns.VaultPanel, ns.UI
+        local frame = Panel.Create()
+        frame.scroll:SetWidth(UI.WIDTH - UI.PANEL_INSET_LEFT - UI.PANEL_INSET_RIGHT - Panel.SCROLL_INSET)
+        frame:Refresh()
+        local function lands(x, y, region, index, at)
+            local px, py = cellPoint(region.cell, region.points[index])
+            assert.equal(x, px, at)
+            assert.equal(y, py, at)
+        end
+        local checked = 0
+        for rowIndex, gridRow in ipairs(frame.gridRows) do
+            for cellIndex, cell in ipairs(gridRow.cells) do
+                checked = checked + 1
+                local at = string.format("row %d cell %d", rowIndex, cellIndex)
+                assert.equal(164, cell:GetWidth(), at)
+                local function on(region)
+                    return { cell = cell, points = region.points }
+                end
+                -- The pick label's band, across the top, short of the tick.
+                assert.equal(2, #cell.label.points, at)
+                lands(4, -2, on(cell.label), 1, at)
+                lands(146, -2, on(cell.label), 2, at)
+                -- The item line: its top-left under the band, its right 6 in.
+                assert.equal(2, #cell.line.points, at)
+                lands(6, -18, on(cell.line), 1, at)
+                lands(158, -55, on(cell.line), 2, at)
+                -- The tags and the extras hang under the line, right 6 in.
+                assert.equal(2, #cell.tags.points, at)
+                assert.same({ "TOPLEFT", cell.line, "BOTTOMLEFT", 0, -2 }, cell.tags.points[1], at)
+                lands(158, -55, on(cell.tags), 2, at)
+                assert.equal(2, #cell.extras.points, at)
+                assert.same({ "TOPLEFT", cell.tags, "BOTTOMLEFT", 0, -2 }, cell.extras.points[1], at)
+                lands(158, -55, on(cell.extras), 2, at)
+            end
+        end
+        assert.equal(9, checked)
+        -- The reward cell's own: the tick in the top band's right corner, the
+        -- corner text beside it, the badge bottom-right inside the art.
+        local reward = frame.gridRows[1].cells[1]
+        assert.equal("reward", reward.data.kind)
+        assert.is_true(reward.tick:IsShown())
+        assert.equal(1, #reward.tick.points)
+        lands(160, -2, { cell = reward, points = reward.tick.points }, 1, "tick")
+        assert.same({ "TOPRIGHT", reward.tick, "TOPLEFT", -2, 0 }, reward.corner.points[1])
+        lands(149, -87, { cell = reward, points = reward.badge.points }, 1, "badge")
     end)
 
     -- V-9 (WKE-690). The owner's screenshot of 2026-10-05: on a stretched
