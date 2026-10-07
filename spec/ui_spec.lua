@@ -1163,6 +1163,54 @@ describe("the Equip Now panel on a Great Vault option in the top set (WKE-541)",
         assert.is_truthy(described.text:find("nothing equipped", 1, true))
         assert.is_truthy(described.note:find("Great Vault option in this slot", 1, true))
     end)
+
+    -- R-2j (WKE-693): the same week with the reward already in the bags, taken
+    -- as offered - the vault's own record from snapshot 9, with only `location`
+    -- added, because no capture holds a claim made between two refreshes. The
+    -- issue named `grab <name> from the vault` (EquipPanel.lua) among the
+    -- surfaces that could send him back for it; the join never could. Pass 1
+    -- matches a rated item by key before anything else, and the document keeps
+    -- the offer's bonus IDs, so the copy is the slot's match and the row is a
+    -- swap, not `best_in_vault`. Guard, not fix. PROVEN RED by skipping pass
+    -- 1's key match for a Great Vault item in `Match.Build`: the row goes back
+    -- to `best_in_vault` and the answer to `... grab the Worldroot from the
+    -- vault.`
+    it("never sends him to the vault for the reward in his bags (R-2j)", function()
+        R.vault(world, R.snapshot("vault", 9, AFTER_RESET))
+        local vault = ns.Vault.Options()
+        assert.is_true(vault.ok, vault.reason)
+        local reward
+        for _, option in ipairs(vault.options) do
+            for _, held in ipairs(option.rewards or {}) do
+                if tonumber(held.itemID) == WEAPON_ID then
+                    reward = held
+                end
+            end
+        end
+        assert.is_table(reward)
+        local inventory = ns.Inventory.Scan()
+        assert.is_true(inventory.ok, inventory.reason)
+        table.insert(inventory.records, {
+            key = reward.key,
+            itemID = reward.itemID,
+            bonusIDs = reward.bonusIDs,
+            link = reward.link,
+            name = reward.name,
+            slot = "2H Weapon",
+            itemLevel = reward.itemLevel,
+            location = "bag",
+        })
+        local parsed = ns.QEImport.Parse(readFile(VAULT_EXPORT))
+        assert.is_true(parsed.ok, parsed.reason)
+        local match = ns.Match.Build(inventory, parsed.verdict)
+        assert.is_true(match.ok, match.reason)
+        assert.equal(0, match.counts.best_in_vault)
+        assert.equal("swap", match.bySlot["2H Weapon"][1].status)
+        assert.equal(reward.key, match.bySlot["2H Weapon"][1].best.key)
+        local answer = ns.UI.EquipPanel.AnswerText(match)
+        assert.is_nil(answer:find("grab", 1, true), answer)
+        assert.is_nil(answer:find("vault", 1, true), answer)
+    end)
 end)
 
 -- M5-1b (WKE-610): Equip Now redrawn to the approved canvas (WKE-598) with the
