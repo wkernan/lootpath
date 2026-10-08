@@ -233,14 +233,14 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         --     until it lands the tooltip says what kind of thing it is.
         --   * the Seedpods row is a NO RATING road, and it took a line under a
         --     best-set pick to say nothing. Rated roads only, here.
-        -- R-3b (WKE-576) added the fourth clause: this slot's bags hold the
-        -- Miststalker's Spaulders, which the rating never saw, so the header
-        -- says what cures that.
+        -- R-3b (WKE-576) added a fourth clause, `/lootpath refresh` on the age
+        -- line; R-2l (WKE-695) took the `Better:` line and the age line off
+        -- the block on the owner's word of 2026-10-07. The Catalyst road is a
+        -- set verdict, not a percent against what you wear, so there is no
+        -- `Upgrade` line either.
         assert.same({
             "Lootpath · Shoulder",
             "Catalyst these - tier shoulders.",
-            "Better: a crafted piece (331), +1.11%",
-            "Rated 5h ago · /lootpath refresh",
         }, lines(LYNX))
     end)
 
@@ -282,8 +282,6 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         assert.same({
             "Lootpath · Shoulder",
             "Swap these - Catalyst your Lynx shoulders.",
-            "Better: a crafted piece (331), +1.11%",
-            "Rated 5h ago · /lootpath refresh",
         }, lines(SEEDPODS))
         -- And the row the panel draws still says it, beside the crest counts
         -- the reader can see: dropped from the tooltip, not from the model.
@@ -389,7 +387,10 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         assert.equal("Better: crest it to 308", ns.UI.Tooltip.BetterText(road))
     end)
 
-    it("draws ONE other road however many the slot has, and never the pick", function()
+    -- R-2l (WKE-695): the owner, 2026-10-07 - "the user can go to ... Upgrade
+    -- Map to find out". PROVEN RED: with `Lines` drawing `BetterText` again,
+    -- `Better: second (300), +1.50%` comes back.
+    it("draws no other road at all, however many the slot has", function()
         -- Handcrafted, because the model hands over at most two others on the
         -- owner's own week: the rule has to be asserted against an answer that
         -- tries to exceed it, or it is true by accident rather than by rule
@@ -421,44 +422,31 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
                 better = line.text
             end
         end
-        assert.equal(1, drawn)
-        assert.equal("Better: second (300), +1.50%", better)
+        assert.equal(0, drawn)
+        assert.is_nil(better)
     end)
 
-    it("never draws more than four lines, and the last is the age and one command", function()
+    -- R-2l (WKE-695): the block is the header, the percent line when there is
+    -- one, the sentence, and one of R-2c's other-level line or R-2d's finish
+    -- line - never a `Better:` line, never an age, never a command. PROVEN
+    -- RED: with `Lines` drawing `FooterText` again, every key ends on `Rated 5h
+    -- ago · /lootpath ...`.
+    it("never draws more than four lines, and none of them is an age, a command or another road", function()
         local map = ns.RoadsCache.Map()
         for key, answer in pairs(map.byKey) do
             local block = lines(key)
-            -- The two exceptions, never on one answer: a piece you hold that the
-            -- documents rate at another level keeps its Better: line and adds
-            -- the rated figure with both levels under the sentence (R-2c,
-            -- WKE-646; on this week the bag trinket 273796 at 282, rated at
-            -- 305), and a piece of the set adds what the rating enchanted and
-            -- gemmed it with (R-2d, WKE-648; on this week the worn pieces the
-            -- set keeps, such as the ring 251136).
-            local cap = 4
-            if (answer.held and answer.otherLevel) or answer.finish then
-                cap = 5
-            end
             assert.is_false(answer.otherLevel ~= nil and answer.finish ~= nil, key .. " carries both")
-            assert.is_true(#block <= cap, key .. " draws " .. #block .. " lines")
-            local last = block[#block]
-            assert.is_true(
-                last == "Rated 5h ago · /lootpath map" or last == "Rated 5h ago · /lootpath refresh",
-                key .. " ends on " .. tostring(last)
-            )
-            -- One command on the block, and it is on that line.
-            local commands = 0
+            assert.is_true(#block <= 4, key .. " draws " .. #block .. " lines")
             for _, text in ipairs(block) do
-                if text:find("/lootpath", 1, true) then
-                    commands = commands + 1
-                end
+                assert.is_nil(text:find("/lootpath", 1, true), key .. ": " .. text)
+                assert.is_nil(text:find("^Better: "), key .. ": " .. text)
+                assert.is_nil(text:find("^Rated "), key .. ": " .. text)
             end
-            assert.equal(1, commands, key .. " carries " .. commands .. " commands")
         end
     end)
 
-    it("is two lines when there is no sentence and no road that gains", function()
+    -- R-2l (WKE-695): with the age line gone, it is the header alone.
+    it("is the header alone when there is no sentence and no figure", function()
         -- Built rather than found: the owner's week has no such slot, and the
         -- rule is the block's, not the week's. The honesty phrase that used to
         -- take line 2 is cut (UX-3, WKE-599, reading 3).
@@ -466,7 +454,6 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         assert.same(
             {
                 "Lootpath · Shoulder",
-                "Rated: not known · /lootpath map",
             },
             (function()
                 local out = {}
@@ -486,15 +473,16 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         -- pick line 2 has already named. What is left is the one road on the
         -- slot that gains. What the Upgrade Map's row still says about the
         -- reward, word for word, is asserted in `spec/roadsrow_spec.lua`.
-        assert.equal("Better: a crafted piece (331), +1.11%", block[3])
-        assert.equal("Rated 5h ago · /lootpath refresh", block[4])
+        -- R-2l (WKE-695): no `Better:` line and no age line any more, and no
+        -- percent line - its rating is a set verdict.
+        assert.equal(2, #block)
     end)
 
     it("says the pick's part of the plan on the vault weapon, crest clause and all", function()
         local block = lines(VAULT_WORLDROOT)
         assert.equal("Lootpath · 2H Weapon", block[1])
         assert.equal("Grab this - crest it after.", block[2])
-        assert.equal("Rated 5h ago · /lootpath refresh", block[#block])
+        assert.equal(2, #block)
     end)
 
     it("takes a position on a bag piece the rating never saw, and keeps the phrase under it", function()
@@ -514,7 +502,9 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         for _, text in ipairs(block) do
             assert.is_nil(text:find(ns.Roads.PHRASE_NOT_RATED_NEW, 1, true), text)
         end
-        assert.equal("Rated 5h ago · /lootpath refresh", block[#block])
+        -- R-2l (WKE-695): the cure line went with the footer; the window's
+        -- strip still says it.
+        assert.equal(2, #block)
     end)
 
     it("takes a position on every piece in the bags, rated or not", function()
@@ -568,7 +558,8 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
                 assert.is_nil(usesForbidden(text), key .. ": " .. text)
             end
         end
-        assert.is_true(read > 1000, "read only " .. read .. " lines")
+        -- R-2l (WKE-695) took two lines off most blocks; 885 on this week.
+        assert.is_true(read > 800, "read only " .. read .. " lines")
     end)
 
     -- -----------------------------------------------------------------------
@@ -662,7 +653,9 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
     it("appends the block to GameTooltip on a bag hover", function()
         local text = hover(LYNX)
         assert.is_truthy(text:find("Catalyst these - tier shoulders.", 1, true))
-        assert.is_truthy(text:find("/lootpath map", 1, true) or text:find("/lootpath refresh", 1, true))
+        -- R-2l (WKE-695): the block carries no command any more.
+        assert.is_truthy(text:find("Lootpath · Shoulder", 1, true))
+        assert.is_nil(text:find("/lootpath", 1, true))
     end)
 
     it("answers GameTooltip and nothing else, which is 90% of the calls R-0 counted", function()
@@ -775,7 +768,11 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         local text = world.showItemTooltip({ hyperlink = link }).stub.Text()
         assert.is_truthy(text:find(ns.Roads.BEATS_WORN_SENTENCE, 1, true))
         assert.is_truthy(text:find("+1.83% rated at 305 · you hold it at 311 · Refresh rates this one", 1, true))
-        assert.is_truthy(text:find("Better: ", 1, true))
+        -- R-2l (WKE-695): the `Better:` line is off the block, and the figure
+        -- is a row at ANOTHER level than the copy's, so it is never the
+        -- `Upgrade` line either (the other-level line carries it, both levels).
+        assert.is_nil(text:find("Better: ", 1, true))
+        assert.is_nil(text:find("Upgrade", 1, true))
         assert.is_nil(text:find("Pass", 1, true))
         assert.is_nil(text:find("not rated", 1, true))
         assert.is_true(ns.Glow.Wants(key))
@@ -1521,7 +1518,10 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         local block = lines(claimed.key)
         assert.equal("Lootpath · 2H Weapon", block[1])
         assert.equal("Put this on - then refresh.", block[2])
-        assert.equal("Rated 5h ago · /lootpath refresh", block[#block])
+        -- R-2l (WKE-695): no age line; the refresh is in the sentence.
+        for _, text in ipairs(block) do
+            assert.is_nil(text:find("/lootpath", 1, true), text)
+        end
         -- And the road the block no longer draws still says where the piece has
         -- got to, on the Upgrade Map's row: dropped from the tooltip, not from
         -- the model.
@@ -1577,15 +1577,10 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         local worn = wearCrestedCloak()
         local block = lines(worn.key)
         assert.equal("Refresh - you're already wearing it.", block[2])
-        -- The road the worn copy really has - the Upgrade road every worn piece
-        -- gets - rates nothing, so line 3 is the slot's one road that does gain
-        -- instead, named as the item and where it drops. The row on the panel
-        -- still carries the Upgrade road.
-        assert.equal("Better: Silken Voodoo Drape (344), +1.24% · The Venomous Abyss, Mythic raid", block[3])
-        -- The Back slot's bags hold nothing the rating never saw once the pick
-        -- is on the character, so the command is the map's and not the
-        -- refresh's: `answer.stale` is this slot's bags, not the block's mood.
-        assert.equal("Rated 5h ago · /lootpath map", block[4])
+        -- R-2l (WKE-695): the slot's one road that gains (`Better: Silken
+        -- Voodoo Drape (344), +1.24% · ...` before) and the age line are off
+        -- the block; the Upgrade Map's slot still names it.
+        assert.equal(2, #block)
         -- And the row the plan's pick is on says where the piece has got to.
         local pick = ns.Roads.PlanPick(ns.RoadsCache.Map().bySlot.Back)
         assert.equal(ns.Roads.ARRIVED_NOW_WORN, pick.claimed)
@@ -1646,13 +1641,12 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         local block = lines(held.key)
         assert.equal("Lootpath · 2H Weapon", block[1])
         assert.equal("Crest this to 321 - then refresh.", block[2])
-        -- Everything under the sentence is the block it was: the `Better:`
-        -- line stays, and so does the age line with its command.
+        -- Everything under the sentence is the block it was (since R-2l,
+        -- WKE-695, no `Better:` line and no age line on either).
         assert.equal(#before, #block)
         for index = 3, #block do
             assert.equal(before[index], block[index])
         end
-        assert.is_truthy(block[#block]:find("^Rated 5h ago · /lootpath "))
         for _, text in ipairs(block) do
             assert.is_nil(text:find("Grab", 1, true), text)
             assert.is_nil(text:find("from the vault", 1, true), text)
@@ -1731,7 +1725,7 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         assert.is_true(ns.VaultPanel.ShowCellTooltip(cell))
         local text = GameTooltip.stub.Text()
         assert.is_truthy(text:find("Grab this - crest it after.", 1, true))
-        assert.is_truthy(text:find("Rated ", 1, true))
+        assert.is_truthy(text:find("Lootpath · 2H Weapon", 1, true))
     end)
 
     it("puts nothing on the vault cell in combat", function()
@@ -1883,7 +1877,6 @@ describe("The tooltip over a vault the rating never imported (R-3d)", function()
         assert.same({
             "Lootpath · Legs",
             "Not rated yet - refresh.",
-            "Rated 5h ago · /lootpath refresh",
         }, block)
         -- The two words that were the defect, gone from the whole block.
         for _, text in ipairs(block) do
@@ -1907,7 +1900,6 @@ describe("The tooltip over a vault the rating never imported (R-3d)", function()
         assert.same({
             "Lootpath · Legs",
             "Pass - use your Dreamwatcher legs.",
-            "Rated 5h ago · /lootpath refresh",
         }, block)
     end)
 
@@ -1988,7 +1980,6 @@ describe("The tooltip over a claimed vault reward the pick catalyzes (R-2e)", fu
         assert.same({
             "Lootpath · Head",
             "Catalyst this - tier helm, crest it after.",
-            "Rated 5m ago · /lootpath refresh",
         }, lines)
         for _, text in ipairs(lines) do
             assert.is_nil(text:find("Pass", 1, true), text)
@@ -2080,7 +2071,6 @@ describe("The tooltip over the worn vault pick after the claim (R-2f)", function
             -- The rated finish comes with it (R-2d): the helm is the pick now.
             -- The test link carries neither an enchant nor a gem (R-2g).
             "rated with: Empowered Hex of Leeching (missing) · a gem (missing)",
-            "Rated 5m ago · /lootpath refresh",
         }, lines)
         for _, text in ipairs(lines) do
             assert.is_nil(text:find("Swap", 1, true), text)
@@ -2157,7 +2147,6 @@ describe("The tooltip over a worn copy of the pick below the pick's level (R-2h)
         assert.same({
             "Lootpath · Head",
             "Crest this to 321 - then refresh.",
-            "Rated 5m ago · /lootpath map",
         }, lines)
         for _, text in ipairs(lines) do
             assert.is_nil(text:find("Swap", 1, true), text)
@@ -2474,5 +2463,278 @@ describe("The tooltip over three copies of the worn top-set helm (R-2k)", functi
         assert.equal(worn.key, head.best.key)
         assert.equal(ns.Match.MATCHED_BY_KEY, head.matchedBy)
         assert.equal(ns.Match.STATUS.EQUIPPED_IS_BEST, head.status)
+    end)
+end)
+
+-- R-2l (WKE-695): a piece you hold that wins only once it is crested. The
+-- owner, 2026-10-07, over the same bag 318 helm: "if this is telling me to wear
+-- this, then shouldn't Equip Now also be telling me to equip it? ... does it
+-- have to be crested all the way to 334 to be better? If not then we should say
+-- the very next item level that will make it better." And his tooltip design of
+-- the same day: the percent on its own line above the sentence, `+0.19%
+-- Upgrade`, only when it is an upgrade; no `Better:` line; no `Rated ...`
+-- footer; the short sentence `Crest to 324 - then wear`.
+--
+-- The documents are his, unedited (spec/fixtures/qe/README.md): the R-2k pair
+-- for Dungeon (the 23:19-23:21Z run's Dungeon `asOffered` and `maxed` differ
+-- from them only in `exportedAt` and `reportId`), and that later run's Dungeon
+-- +10 and Raid Upgrade Finder documents and Raid pass-1 `asOffered` and
+-- `maxed`. The links are R-2k's, his inventory capture of 2026-10-07 02:46:39
+-- UTC.
+describe("A held piece that wins only once crested (R-2l)", function()
+    local ns
+    local FILES = {
+        Dungeon = {
+            asOffered = "spec/fixtures/qe/qe-droptimizer-Hotornot-abqtlwlwsnms.json",
+            maxed = "spec/fixtures/qe/qe-droptimizer-Hotornot-zdgtaqcigomq.json",
+            uf = "spec/fixtures/qe/qe-upgradefinder-Hotornot-pxfjkvtjslxy.json",
+        },
+        Raid = {
+            asOffered = "spec/fixtures/qe/qe-droptimizer-Hotornot-hfuvwbktjxbn.json",
+            maxed = "spec/fixtures/qe/qe-droptimizer-Hotornot-yomfpzeabcrr.json",
+            uf = "spec/fixtures/qe/qe-upgradefinder-Hotornot-vpbzaajcevxr.json",
+        },
+    }
+    local SETTINGS = {
+        asOffered = { autoUpgradeVault = false, autoUpgradeAll = false, autoCatalyze = false },
+        maxed = { autoUpgradeVault = true, autoUpgradeAll = true, autoCatalyze = true },
+    }
+    local WORN_LINK = "|cnIQ4:|Hitem:271528:7961:240892::::::90:105::35:6:6652:13440:13695:13692:13698:12846"
+        .. ":1:64:239033:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    local BAG_318_LINK = "|cnIQ4:|Hitem:271528::::::::90:105::35:6:13692:12849:13440:6652:13696:13698"
+        .. "::::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    local BAG_308_LINK = "|cnIQ4:|Hitem:271528:7960:::::::90:105::23:7:6652:13439:13696:12838:13692:13698:1561"
+        .. ":1:64:251140:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+
+    local worn, bag318, bag308
+
+    local function record(link, level, location)
+        local parsed = ns.ParseItemLink(link)
+        return {
+            key = parsed.key,
+            itemID = parsed.itemID,
+            bonusIDs = parsed.bonusIDs,
+            link = link,
+            name = "Enigmatic Dreamwatcher's Somnolent Stare",
+            slot = "Head",
+            itemLevel = level,
+            location = location,
+        }
+    end
+
+    local function droptimizer(contentType, scenario)
+        local parsed = ns.QEImport.Parse(readFile(FILES[contentType][scenario]))
+        assert.is_true(parsed.ok, parsed.reason)
+        parsed.verdict.scenario = scenario
+        parsed.verdict.qeSettings = SETTINGS[scenario]
+        return parsed.verdict
+    end
+
+    local function upgradeFinder(contentType)
+        local parsed = ns.UFImport.Parse(readFile(FILES[contentType].uf))
+        assert.is_true(parsed.ok, parsed.reason)
+        return { { verdict = parsed.verdict, keyLevel = 10 } }
+    end
+
+    -- The map over his three copies, the content type on screen, the
+    -- scenario the hover follows - built the way the hover reads it.
+    local function build(contentType, highlighted, documents)
+        local inputs = {
+            verdicts = {
+                { verdict = droptimizer(contentType, "asOffered"), scenario = "asOffered" },
+                { verdict = droptimizer(contentType, "maxed"), scenario = "maxed" },
+            },
+            highlightedScenario = highlighted,
+            ufDocuments = documents or upgradeFinder(contentType),
+            inventory = { records = { worn, bag318, bag308 } },
+            vault = { ok = true, hasAvailableRewards = false, options = { { rewards = {} } } },
+        }
+        ns.RoadsCache.SetMap(ns.RoadsCache.Build({ roadInputs = inputs }))
+        return inputs
+    end
+
+    local function block(link)
+        local answer = ns.UI.Tooltip.Answer(link)
+        assert.is_table(answer, link)
+        local out = {}
+        for index, line in ipairs(ns.UI.Tooltip.Lines(answer, {})) do
+            out[index] = line.text
+        end
+        return out, answer
+    end
+
+    local function headRow(contentType)
+        local matched =
+            ns.Match.Build({ ok = true, records = { worn, bag318, bag308 } }, droptimizer(contentType, "asOffered"))
+        assert.is_true(matched.ok, matched.reason)
+        for _, row in ipairs(matched.rows) do
+            if row.slot == "Head" then
+                return row, matched
+            end
+        end
+        error("no Head row")
+    end
+
+    before_each(function()
+        ns = H.load()
+        worn = record(WORN_LINK, 321, "equipped")
+        bag318 = record(BAG_318_LINK, 318, "bag")
+        bag308 = record(BAG_308_LINK, 308, "bag")
+    end)
+
+    after_each(function()
+        ns.RoadsCache.Reset()
+        H.unload()
+    end)
+
+    -- PROVEN RED (the R-2l branch in `ItemSentence` off): `Wear this - crest it
+    -- after.`, R-2k's words, the order the owner called wrong.
+    it("under Dungeon tells the bag 318 to crest to 324 first, with that level's percent", function()
+        build("Dungeon", "maxed")
+        local lines, answer = block(bag318.link)
+        assert.same({
+            "Lootpath · Head",
+            "+0.19% Upgrade",
+            "Crest to 324 - then wear.",
+            "rated with: Empowered Hex of Leeching (missing)",
+        }, lines)
+        -- The rows, as his documents carry them, from one document.
+        assert.equal(324, answer.crestTo.level)
+        assert.equal(0.194, answer.crestTo.percent)
+        assert.same({ { level = 324, percent = 0.194 }, { level = 334, percent = 0.608 } }, answer.crestTo.rows)
+        for _, text in ipairs(lines) do
+            assert.is_nil(usesForbidden(text), text)
+            assert.is_nil(text:find("Better:", 1, true), text)
+            assert.is_nil(text:find("Rated ", 1, true), text)
+            assert.is_nil(text:find("/lootpath", 1, true), text)
+        end
+    end)
+
+    -- The same copy under the scenario Equip Now reads: not the pick there, and
+    -- still the crest, never a pass on the piece that wins at 324.
+    it("says the same under as offered, where the 318 is rated behind", function()
+        build("Dungeon", "asOffered")
+        local lines = block(bag318.link)
+        assert.same({ "Lootpath · Head", "+0.19% Upgrade", "Crest to 324 - then wear." }, lines)
+    end)
+
+    -- PROVEN RED (the crest step out of `finishSetRoad`): the row's next step is
+    -- `put it on` and the slot's line `Put on the Dreamwatcher helm, no crests
+    -- here.`
+    it("puts both levels on the crest step and takes `no crests here` off the Head line", function()
+        build("Dungeon", "maxed")
+        local slotRoads = ns.RoadsCache.Map().bySlot.Head
+        local pick = ns.Roads.PlanPick(slotRoads)
+        assert.equal(ns.Roads.KIND_SET, pick.kind)
+        assert.equal(bag318.key, pick.keys[1])
+        assert.equal("crest to 324 +0.19% · to 334 +0.61%", pick.nextStep.text)
+        assert.equal("do: crest to 324 - then wear", pick.todo)
+        local line = ns.Roads.SlotSentence(slotRoads)
+        assert.equal("Crest the Dreamwatcher helm to 324, then put it on.", line)
+        assert.is_nil(line:find("no crests here", 1, true))
+    end)
+
+    -- PROVEN RED (`AnswerText` ignoring the pending crests): `You're set -
+    -- every slot is your best.`, the owner's screen.
+    it("has Equip Now name the cresting and never offer the 318 as a swap, under Dungeon", function()
+        build("Dungeon", "maxed")
+        local head = headRow("Dungeon")
+        assert.equal(worn.key, head.best.key)
+        assert.equal(ns.Match.STATUS.EQUIPPED_IS_BEST, head.status)
+        local crests = ns.UI.EquipPanel.PendingCrests()
+        assert.equal(1, #crests)
+        assert.equal(bag318.key, crests[1].key)
+        assert.equal(324, crests[1].level)
+        local match = { ok = true, rows = { head }, counts = { equipped_is_best = 1 } }
+        assert.equal(
+            "You're set - the helm in your bags wants cresting.",
+            ns.UI.EquipPanel.AnswerText(match, nil, crests)
+        )
+        assert.equal("You're set - every slot is your best.", ns.UI.EquipPanel.AnswerText(match, nil, {}))
+    end)
+
+    -- Decision 4: Raid's `as offered` takes the 318 as it is, so the piece is a
+    -- win now and Equip Now offers the swap. The tooltip keeps R-2k's words and
+    -- carries NO percent line: no document rates 271528 at 318, and the +0.37%
+    -- is the 324 row's - a figure for a level the copy is not at (R-2c's rule:
+    -- the rated figure is never stretched to the copy's level).
+    it("under Raid wears the 318 now, offers the swap, and puts no 324 figure on a 318", function()
+        build("Raid", "maxed")
+        local lines, answer = block(bag318.link)
+        assert.same({
+            "Lootpath · Head",
+            "Wear this - crest it after.",
+            "rated with: Empowered Hex of Leeching (missing)",
+        }, lines)
+        assert.is_nil(answer.crestTo)
+        assert.is_true(ns.Roads.WinsAsOffered(build("Raid", "maxed"), bag318))
+        local head = headRow("Raid")
+        assert.equal(ns.Match.STATUS.SWAP, head.status)
+        assert.equal(bag318.key, head.best.key)
+        assert.same({}, ns.UI.EquipPanel.PendingCrests())
+        local match = { ok = true, rows = { head }, counts = { swap = 1 } }
+        assert.equal("Put on the Dreamwatcher helm.", ns.UI.EquipPanel.AnswerText(match, nil, {}))
+        local slotRoads = ns.RoadsCache.Map().bySlot.Head
+        assert.equal("Put on the Dreamwatcher helm and crest it.", ns.Roads.SlotSentence(slotRoads))
+    end)
+
+    -- PROVEN RED (`IsUpgrade` dropped from `FirstWinningLevel`): the 318 reads
+    -- `Crest to 324 - then wear.` over rows that are not upgrades.
+    it("passes on a held copy with no positive row, and shows no percent", function()
+        -- His Dungeon document with every row for this item set to a figure
+        -- that is not an upgrade - the one hand-made case in this block.
+        local documents = upgradeFinder("Dungeon")
+        for _, entry in pairs(documents[1].verdict.items) do
+            if entry.itemID == 271528 then
+                entry.upgradePercent = -0.1
+            end
+        end
+        build("Dungeon", "asOffered", documents)
+        local lines, answer = block(bag318.link)
+        assert.is_nil(answer.crestTo)
+        assert.same({ "Lootpath · Head", "Pass - use your Dreamwatcher helm." }, lines)
+    end)
+
+    -- PROVEN RED (the `CatalystSource` refusal out of `CrestToWin`): a copy
+    -- whose link names the item it was converted from is answered with the
+    -- drop's rows. The transcripts show such a copy carrying its source's
+    -- secondaries (Crit/Haste from the Hood, Haste/Mastery from 251140), so it
+    -- is not the drop at any level.
+    it("never answers a Catalyst copy with the drop's rows", function()
+        local inputs = build("Dungeon", "asOffered")
+        assert.equal(324, ns.Roads.CrestToWin(inputs, bag318).level)
+        local converted = record(BAG_318_LINK:gsub("::::::|h", ":1:64:239033:::::|h", 1), 318, "bag")
+        assert.equal(bag318.key, converted.key)
+        assert.equal(239033, ns.Roads.CatalystSource(converted))
+        assert.is_nil(ns.Roads.CrestToWin(inputs, converted))
+    end)
+
+    -- Decision 3: a drop rated BELOW what you wear keeps its signed badge on
+    -- the Upgrade Map and loses the figure on the tooltip.
+    it("shows no percent over a drop rated negative, and the badge stays signed", function()
+        local answer = {
+            held = false,
+            slot = "Head",
+            others = {},
+            own = {
+                kind = ns.Roads.KIND_DROP,
+                group = ns.Roads.GROUP_ITEM,
+                rating = { kind = ns.Roads.RATING_ITEM, percent = -0.5 },
+            },
+        }
+        assert.is_nil(ns.Roads.UpgradePercent(answer))
+        for _, line in ipairs(ns.UI.Tooltip.Lines(answer, {})) do
+            assert.is_nil(line.text:find("Upgrade", 1, true), line.text)
+            assert.is_nil(line.text:find("%", 1, true), line.text)
+        end
+        assert.equal("-0.50%", ns.Roads.ItemBadge(-0.5))
+        -- And the same drop rated above: the figure is the block's line, and
+        -- the sentence that restated it is not drawn twice.
+        answer.own.rating.percent = 0.372
+        answer.sentence = ns.Roads.ItemSentence(answer)
+        assert.equal("Worth 0.37% over your helm.", answer.sentence)
+        local lines = ns.UI.Tooltip.Lines(answer, {})
+        assert.equal("+0.37% Upgrade", lines[2].text)
+        assert.equal(2, #lines)
     end)
 end)

@@ -303,6 +303,15 @@ EquipPanel.ANSWER_TAIL = " Everything else is your best set."
 -- Digits, as the panel counts everywhere else.
 EquipPanel.ANSWER_FINISH_ONE = "You're set - 1 piece wants finishing."
 EquipPanel.ANSWER_FINISH_MANY = "You're set - %d pieces want finishing."
+-- R-2l (WKE-695): every slot settled as you own it now, and a piece in your
+-- bags wins once it is crested - the pending step, said the way finishing is.
+-- The owner asked for `the Myth helm`; which track a copy is on is read only by
+-- the developer-only track table (Data/TrackBonusIDs.lua), never by a player
+-- surface, so the copy is named by where it is instead.
+EquipPanel.ANSWER_CREST_ONE = "You're set - the %s in your bags %s cresting."
+EquipPanel.ANSWER_CREST_MANY = "You're set - %d pieces in your bags want cresting."
+EquipPanel.ANSWER_ALSO_FINISH_ONE = " 1 piece wants finishing."
+EquipPanel.ANSWER_ALSO_FINISH_MANY = " %d pieces want finishing."
 
 -- C-14b (WKE-627). **The empty tab, when the reason it is empty is known.**
 --
@@ -515,6 +524,44 @@ function EquipPanel.FinishWords(row)
         return nil
     end
     return table.concat(words, EquipPanel.FINISH_SEPARATOR)
+end
+
+-- The pieces you carry that win only once crested (R-2l, WKE-695), read off
+-- the hover's own map so the tab and the tooltip cannot disagree: one entry
+-- per key, `{ key, slot, level }`, in slot order. The map is built over the
+-- content on screen, as this tab is.
+function EquipPanel.PendingCrests(map)
+    map = map or (ns.RoadsCache and ns.RoadsCache.Map and ns.RoadsCache.Map()) or nil
+    local out = {}
+    if type(map) ~= "table" or type(map.byKey) ~= "table" then
+        return out
+    end
+    for key, answer in pairs(map.byKey) do
+        if type(answer) == "table" and answer.held == true and type(answer.crestTo) == "table" then
+            local held = type(answer.heldItem) == "table" and answer.heldItem or {}
+            out[#out + 1] = { key = key, slot = held.slot or answer.slot, level = answer.crestTo.level }
+        end
+    end
+    table.sort(out, function(left, right)
+        if (left.slot or "") ~= (right.slot or "") then
+            return (left.slot or "") < (right.slot or "")
+        end
+        return left.key < right.key
+    end)
+    return out
+end
+
+-- The answer line's pending-crest sentence, or nil.
+function EquipPanel.CrestText(crests)
+    if type(crests) ~= "table" or #crests == 0 then
+        return nil
+    end
+    if #crests > 1 then
+        return string.format(EquipPanel.ANSWER_CREST_MANY, #crests)
+    end
+    local slot = crests[1].slot
+    local word = ns.Roads.SlotWord(slot) or "piece"
+    return string.format(EquipPanel.ANSWER_CREST_ONE, word, ns.Roads.SlotIsPlural(slot) and "want" or "wants")
 end
 
 -- How many settled rows want finishing.
@@ -806,7 +853,7 @@ function EquipPanel.SecondText(unrated)
     return EquipPanel.UNRATED_SECOND
 end
 
-function EquipPanel.AnswerText(match, unrated)
+function EquipPanel.AnswerText(match, unrated, crests)
     if type(match) ~= "table" then
         if unrated then
             return EquipPanel.UNRATED_HEADER
@@ -854,6 +901,17 @@ function EquipPanel.AnswerText(match, unrated)
             -- or enchant. With a swap or a vault clause on screen the sentence
             -- above is unchanged - a finish mark never moves it.
             local finishing = EquipPanel.FinishCount(match)
+            -- R-2l (WKE-695): a piece in your bags that wins once crested is
+            -- the pending step, never a swap; finishing follows it.
+            local crest = EquipPanel.CrestText(crests)
+            if crest then
+                if finishing == 1 then
+                    crest = crest .. EquipPanel.ANSWER_ALSO_FINISH_ONE
+                elseif finishing > 1 then
+                    crest = crest .. string.format(EquipPanel.ANSWER_ALSO_FINISH_MANY, finishing)
+                end
+                return crest
+            end
             if finishing == 1 then
                 return EquipPanel.ANSWER_FINISH_ONE
             elseif finishing > 1 then
@@ -1856,7 +1914,7 @@ function EquipPanel.Refresh(panel, match)
     -- from the one answer, so the header, the line under it and the hint cannot
     -- disagree about which state the tab is in.
     local unrated = EquipPanel.UnratedState(match, ns.companionStatus)
-    panel.answer:SetText(EquipPanel.AnswerText(match, unrated))
+    panel.answer:SetText(EquipPanel.AnswerText(match, unrated, EquipPanel.PendingCrests()))
     local second = EquipPanel.SecondText(unrated)
     panel.second:SetText(second or "")
     panel.second:SetShown(second ~= nil)

@@ -1,0 +1,1003 @@
+{
+  "schema": "qe-live-droptimizer",
+  "version": 1,
+  "exportedAt": "2026-10-07T23:21:52.560Z",
+  "player": {
+    "name": "Hotornot",
+    "realm": "Arthas",
+    "region": "US",
+    "spec": "Restoration Druid",
+    "gameType": "Retail"
+  },
+  "contentType": "Raid",
+  "reportId": "yomfpzeabcrr",
+  "topSet": {
+    "score": 6607.39,
+    "stats": {
+      "intellect": 3235.8480000000004,
+      "haste": 1801.5923266929526,
+      "crit": 779.8333333333334,
+      "mastery": 1250,
+      "versatility": 723,
+      "leech": 290,
+      "hps": 853.6712988193442,
+      "dps": 0,
+      "mana": 0,
+      "manaPerc": 1.04,
+      "allyStats": 0,
+      "bonusHPS": 0.08499999999999999
+    },
+    "items": [
+      {
+        "slot": "Head",
+        "id": 271528,
+        "level": 334,
+        "bonusIDs": [
+          13692,
+          12849,
+          13440,
+          6652,
+          13696,
+          13698
+        ],
+        "gems": [],
+        "enchant": "Empowered Hex of Leeching",
+        "tertiary": "",
+        "setId": 2057,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": 1320,
+          "encounterId": 2887
+        }
+      },
+      {
+        "slot": "Neck",
+        "id": 272228,
+        "level": 321,
+        "bonusIDs": [
+          6652,
+          13668,
+          12846
+        ],
+        "gems": [
+          240983
+        ],
+        "enchant": "",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -98,
+          "encounterId": -98
+        }
+      },
+      {
+        "slot": "Shoulder",
+        "id": 244572,
+        "level": 305,
+        "bonusIDs": [
+          12214,
+          13667,
+          12497,
+          13751,
+          14001,
+          8793
+        ],
+        "gems": [],
+        "enchant": "Silvermoon's Mending",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -4,
+          "encounterId": 2
+        }
+      },
+      {
+        "slot": "Back",
+        "id": 251190,
+        "level": 308,
+        "bonusIDs": [
+          6652,
+          13662,
+          12699,
+          11215,
+          12837
+        ],
+        "gems": [],
+        "enchant": "",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -1,
+          "encounterId": 1309
+        }
+      },
+      {
+        "slot": "Chest",
+        "id": 271531,
+        "level": 308,
+        "bonusIDs": [
+          6652,
+          13440,
+          13690,
+          13698,
+          12838
+        ],
+        "gems": [],
+        "enchant": "Mark of the Worldsoul",
+        "tertiary": "",
+        "setId": 2057,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -1,
+          "encounterId": 1313
+        }
+      },
+      {
+        "slot": "Wrist",
+        "id": 275512,
+        "level": 321,
+        "bonusIDs": [
+          6652,
+          13696,
+          13662,
+          12846
+        ],
+        "gems": [],
+        "enchant": "",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -99,
+          "encounterId": -99
+        }
+      },
+      {
+        "slot": "Hands",
+        "id": 271529,
+        "level": 321,
+        "bonusIDs": [
+          6652,
+          12843,
+          13440,
+          13691,
+          13697,
+          1564
+        ],
+        "gems": [],
+        "enchant": "",
+        "tertiary": "",
+        "setId": 2057,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -1,
+          "encounterId": 1030
+        }
+      },
+      {
+        "slot": "Waist",
+        "id": 159301,
+        "level": 308,
+        "bonusIDs": [
+          12836,
+          13440,
+          6652,
+          13696,
+          13662,
+          12699
+        ],
+        "gems": [],
+        "enchant": "",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -1,
+          "encounterId": 1041
+        }
+      },
+      {
+        "slot": "Legs",
+        "id": 271527,
+        "level": 321,
+        "bonusIDs": [
+          13693,
+          13440,
+          6652,
+          13698,
+          12846
+        ],
+        "gems": [],
+        "enchant": "Arcanoweave Spellthread",
+        "tertiary": "",
+        "setId": 2057,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": 1320,
+          "encounterId": 2871
+        }
+      },
+      {
+        "slot": "Feet",
+        "id": 251153,
+        "level": 308,
+        "bonusIDs": [
+          13440,
+          6652,
+          13662,
+          12699,
+          12837
+        ],
+        "gems": [],
+        "enchant": "Shaladrassil's Roots",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -1,
+          "encounterId": 1311
+        }
+      },
+      {
+        "slot": "Finger",
+        "id": 252258,
+        "level": 321,
+        "bonusIDs": [
+          13440,
+          6652,
+          13668,
+          12699,
+          12846
+        ],
+        "gems": [
+          240892
+        ],
+        "enchant": "Silvermoon's Alacrity",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -1,
+          "encounterId": 1313
+        }
+      },
+      {
+        "slot": "Finger",
+        "id": 279010,
+        "level": 308,
+        "bonusIDs": [
+          41,
+          13668,
+          12838
+        ],
+        "gems": [
+          240892
+        ],
+        "enchant": "Silvermoon's Alacrity",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {}
+      },
+      {
+        "slot": "Trinket",
+        "id": 250215,
+        "level": 334,
+        "bonusIDs": [
+          13440,
+          6652,
+          12699,
+          12854
+        ],
+        "gems": [],
+        "enchant": "",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -1,
+          "encounterId": 1304
+        }
+      },
+      {
+        "slot": "Trinket",
+        "id": 274495,
+        "level": 308,
+        "bonusIDs": [
+          6652,
+          12838
+        ],
+        "gems": [],
+        "enchant": "",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -98,
+          "encounterId": -98
+        }
+      },
+      {
+        "slot": "2H Weapon",
+        "id": 251935,
+        "level": 321,
+        "bonusIDs": [
+          6652,
+          12846
+        ],
+        "gems": [],
+        "enchant": "Berserker's Rage",
+        "tertiary": "",
+        "setId": 0,
+        "isVault": false,
+        "isExclusive": false,
+        "source": {
+          "instanceId": -98,
+          "encounterId": -98
+        }
+      }
+    ]
+  },
+  "differentials": [
+    {
+      "scorePercent": 0.04540370706133587,
+      "hpsDifference": -194,
+      "items": [
+        {
+          "slot": "Trinket",
+          "id": 250256,
+          "level": 282,
+          "bonusIDs": [
+            13440,
+            6652,
+            12699,
+            12804
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Trinket",
+          "id": 250215,
+          "level": 334,
+          "bonusIDs": [
+            13440,
+            6652,
+            12699,
+            12854
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.15891297471467553,
+      "hpsDifference": -519,
+      "items": [
+        {
+          "slot": "Waist",
+          "id": 277781,
+          "level": 308,
+          "bonusIDs": [
+            6652,
+            13696,
+            13662,
+            12836
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.20431668177601137,
+      "hpsDifference": -703,
+      "items": [
+        {
+          "slot": "Waist",
+          "id": 277781,
+          "level": 308,
+          "bonusIDs": [
+            6652,
+            13696,
+            13662,
+            12836
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Trinket",
+          "id": 250256,
+          "level": 282,
+          "bonusIDs": [
+            13440,
+            6652,
+            12699,
+            12804
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Trinket",
+          "id": 250215,
+          "level": 334,
+          "bonusIDs": [
+            13440,
+            6652,
+            12699,
+            12854
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.36322965649068695,
+      "hpsDifference": -1283,
+      "items": [
+        {
+          "slot": "Finger",
+          "id": 159459,
+          "level": 321,
+          "bonusIDs": [
+            12842,
+            13440,
+            6652,
+            13668,
+            12699
+          ],
+          "gems": [],
+          "enchant": "Silvermoon's Alacrity",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Finger",
+          "id": 252258,
+          "level": 321,
+          "bonusIDs": [
+            13440,
+            6652,
+            13668,
+            12699,
+            12846
+          ],
+          "gems": [],
+          "enchant": "Silvermoon's Alacrity",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.38593151002135484,
+      "hpsDifference": -1334,
+      "items": [
+        {
+          "slot": "Waist",
+          "id": 277781,
+          "level": 308,
+          "bonusIDs": [
+            6652,
+            13696,
+            13662,
+            12836
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Finger",
+          "id": 159459,
+          "level": 321,
+          "bonusIDs": [
+            12842,
+            13440,
+            6652,
+            13668,
+            12699
+          ],
+          "gems": [],
+          "enchant": "Silvermoon's Alacrity",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Finger",
+          "id": 252258,
+          "level": 321,
+          "bonusIDs": [
+            13440,
+            6652,
+            13668,
+            12699,
+            12846
+          ],
+          "gems": [],
+          "enchant": "Silvermoon's Alacrity",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.4313352170826907,
+      "hpsDifference": -1500,
+      "items": [
+        {
+          "slot": "Finger",
+          "id": 159459,
+          "level": 321,
+          "bonusIDs": [
+            12842,
+            13440,
+            6652,
+            13668,
+            12699
+          ],
+          "gems": [],
+          "enchant": "Silvermoon's Alacrity",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Finger",
+          "id": 252258,
+          "level": 321,
+          "bonusIDs": [
+            13440,
+            6652,
+            13668,
+            12699,
+            12846
+          ],
+          "gems": [],
+          "enchant": "Silvermoon's Alacrity",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Trinket",
+          "id": 250256,
+          "level": 282,
+          "bonusIDs": [
+            13440,
+            6652,
+            12699,
+            12804
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Trinket",
+          "id": 250215,
+          "level": 334,
+          "bonusIDs": [
+            13440,
+            6652,
+            12699,
+            12854
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.4313352170826907,
+      "hpsDifference": -1542,
+      "items": [
+        {
+          "slot": "Waist",
+          "id": 277781,
+          "level": 308,
+          "bonusIDs": [
+            6652,
+            13696,
+            13662,
+            12836
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Finger",
+          "id": 159459,
+          "level": 321,
+          "bonusIDs": [
+            12842,
+            13440,
+            6652,
+            13668,
+            12699
+          ],
+          "gems": [],
+          "enchant": "Silvermoon's Alacrity",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Finger",
+          "id": 252258,
+          "level": 321,
+          "bonusIDs": [
+            13440,
+            6652,
+            13668,
+            12699,
+            12846
+          ],
+          "gems": [],
+          "enchant": "Silvermoon's Alacrity",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Trinket",
+          "id": 250256,
+          "level": 282,
+          "bonusIDs": [
+            13440,
+            6652,
+            12699,
+            12804
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Trinket",
+          "id": 250215,
+          "level": 334,
+          "bonusIDs": [
+            13440,
+            6652,
+            12699,
+            12854
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.45403707061335874,
+      "hpsDifference": -1603,
+      "items": [
+        {
+          "slot": "Back",
+          "id": 275522,
+          "level": 308,
+          "bonusIDs": [
+            41,
+            13662,
+            12835
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "Leech",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.4994407776746945,
+      "hpsDifference": -1753,
+      "items": [
+        {
+          "slot": "Trinket",
+          "id": 274495,
+          "level": 308,
+          "bonusIDs": [
+            6652,
+            12838
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Trinket",
+          "id": 250256,
+          "level": 282,
+          "bonusIDs": [
+            13440,
+            6652,
+            12699,
+            12804
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.5221426312053625,
+      "hpsDifference": -1790,
+      "items": [
+        {
+          "slot": "Back",
+          "id": 275522,
+          "level": 308,
+          "bonusIDs": [
+            41,
+            13662,
+            12835
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "Leech",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Trinket",
+          "id": 250256,
+          "level": 282,
+          "bonusIDs": [
+            13440,
+            6652,
+            12699,
+            12804
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Trinket",
+          "id": 250215,
+          "level": 334,
+          "bonusIDs": [
+            13440,
+            6652,
+            12699,
+            12854
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.6129500453280342,
+      "hpsDifference": -2145,
+      "items": [
+        {
+          "slot": "Back",
+          "id": 275522,
+          "level": 308,
+          "bonusIDs": [
+            41,
+            13662,
+            12835
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "Leech",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Waist",
+          "id": 277781,
+          "level": 308,
+          "bonusIDs": [
+            6652,
+            13696,
+            13662,
+            12836
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    },
+    {
+      "scorePercent": 0.65835375238937,
+      "hpsDifference": -2266,
+      "items": [
+        {
+          "slot": "Waist",
+          "id": 277781,
+          "level": 308,
+          "bonusIDs": [
+            6652,
+            13696,
+            13662,
+            12836
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Trinket",
+          "id": 274495,
+          "level": 308,
+          "bonusIDs": [
+            6652,
+            12838
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        },
+        {
+          "slot": "Trinket",
+          "id": 250256,
+          "level": 282,
+          "bonusIDs": [
+            13440,
+            6652,
+            12699,
+            12804
+          ],
+          "gems": [],
+          "enchant": "",
+          "tertiary": "",
+          "setId": 0,
+          "isVault": false,
+          "isExclusive": false,
+          "source": {}
+        }
+      ],
+      "gems": []
+    }
+  ]
+}
