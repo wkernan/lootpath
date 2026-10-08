@@ -4,53 +4,43 @@
 -- Hover an item in your bags, in Lootpath's vault cell or in the Adventure
 -- Guide and this block appends to the tooltip the client was already drawing:
 --
---   Lootpath · Legs
---   Keep these on.
---   Better: Coiled Hex Legguards (344), +1.41% · The Venomous Abyss, Mythic raid
---   Rated 1h ago · /lootpath map
+--   Lootpath · Head
+--   +0.19% Upgrade
+--   Crest to 324 - then wear.
 --
--- and nothing else. **Four lines at most, one road, no sub-header** - with one
--- exception since R-2c (WKE-646): a piece you hold that the documents rate at
--- another level carries that figure and both levels on a line under the
--- sentence, and keeps its Better: line, so it is five.
+-- and nothing else but, on a piece of the set, the rating's finish line, and,
+-- on a road to something you do not hold, where it comes from. That shape is
+-- the owner's of 2026-10-07 (R-2l, WKE-695; ARCHITECTURE.md §7): the percent on
+-- its own line, only when it is an upgrade; the `Better:` line and the `Rated
+-- ... · /lootpath ...` footer gone - "the user can go to Lootpath to see when
+-- last update was ... and to Upgrade Map to find out".
 --
--- That shape is the owner's, 2026-09-16, hovering his own leggings: "there is a
--- lot of text and this sounds very AI written. It needs to be short, concise,
--- warming to the player and easy for them to understand what this is trying to
--- tell them." The block he read was six lines of middot-joined fragments, and it
--- was `docs/ROADS-UX.md` surface 1 built to the letter. The copy set he approved
--- on 2026-09-17 (WKE-599, 18 cases) is what this file produces; the principles
--- behind it are unchanged and ARCHITECTURE.md §7 dates the change.
+-- The four-line shape before it was the owner's of 2026-09-16, hovering his own
+-- leggings: "there is a lot of text and this sounds very AI written. It needs
+-- to be short, concise, warming to the player and easy for them to understand
+-- what this is trying to tell them." The copy set he approved on 2026-09-17
+-- (WKE-599, 18 cases) is still what the sentence says.
 --
 -- What each line is:
 --
---   1. `Lootpath · <slot>`, and nothing else. The age and the command moved to
---      the last line, so a hover does not open on a command.
---   2. the item's part of the plan as one warm plain sentence a friend would
+--   1. `Lootpath · <slot>`, and nothing else.
+--   2. `+0.19% Upgrade`, only when the hovered item's own Upgrade Finder row is
+--      above zero (`ns.Roads.UpgradePercent`): a drop's row at the level it
+--      arrives at, or the first level a piece you hold wins at once crested.
+--      Absent at zero or below; a Top Gear verdict is never a percent here.
+--   3. the item's part of the plan as one warm plain sentence a friend would
 --      say - `ns.Roads.ItemSentence`, which is where every case is decided.
---      Verb first, the reason after a dash, the number only when it IS the
---      reason. Absent for nothing: a road to something you do not hold states
---      its own figure instead (`ns.Roads.WORTH_SENTENCE`).
---   3. the ONE best other road, when one gains - `Better: <item> (<level>),
---      <badge> · <instance>, <difficulty>`. The map has the rest. A road that is
---      BEHIND gets no line at all: "Better:" would be a lie and a reader cannot
---      act on a worse road. A road to something you do not hold uses this line
---      for its own where instead.
---   4. `Rated 1h ago · /lootpath map`, the age in the shortest unit and the one
---      place a command lives. `/lootpath refresh` takes the command's place when
---      this slot's bags hold something the rating never saw (R-3b's `stale`),
---      because then the refresh is the thing to do.
+--      A road to something you do not hold has no sentence: line 2 is its
+--      figure, and the next line says where it drops.
+--   then R-2c's other-level line or R-2d's `rated with:` line when one applies.
 --
--- **What the rewrite CUT, rather than shortened.** The four honesty phrases no
--- longer take a line of their own: three of the four are not actionable from a
--- tooltip, and where a refresh is the cure line 4 already names it. The
--- sub-header "Other roads for this slot" is gone with the roads it headed. "Why
--- this?" is gone and its destination stayed: line 4 carries `/lootpath map`,
--- which is what principle 9 wanted of it. The item's own road line is gone for a
--- piece you hold - it restated the sentence above it and named the item under
--- the cursor. **The crest quote came ON** (M3-17b): on the one road whose cost
--- the vendor has quoted it is the only thing a reader can act on, and the money
--- is dropped because it is never the reason you would or would not crest.
+-- **What the rewrites CUT, rather than shortened.** UX-3: the four honesty
+-- phrases no longer take a line of their own (three of the four are not
+-- actionable from a tooltip); the sub-header "Other roads for this slot" went
+-- with the roads it headed; "Why this?" went; the item's own road line went for
+-- a piece you hold. R-2l: the `Better:` line - with it the crest quote M3-17b
+-- put there - and the age-and-command footer, both on the owner's word; the
+-- Upgrade Map's row and the window's header still say them.
 --
 -- The panel keeps every clause this drops, because there their referents are
 -- visible: `ns.UpgradeMapPanel.RoadRow` is still what builds the words, so the
@@ -182,6 +172,25 @@ function Tooltip.AgeText(exportedAt, now)
     end
     local short = Tooltip.ShortAge(seconds)
     return short and string.format(Tooltip.RATED_AGO, short) or Tooltip.RATED_NOW
+end
+
+-- The percent line (R-2l, WKE-695): `+0.19% Upgrade`, the row's own figure
+-- signed as the badges sign it, and nothing at all when it is not an upgrade.
+Tooltip.UPGRADE = "%s Upgrade"
+
+function Tooltip.UpgradeText(answer)
+    local percent = ns.Roads.UpgradePercent(answer)
+    if not percent then
+        return nil
+    end
+    return string.format(Tooltip.UPGRADE, ns.Roads.ItemBadge(percent))
+end
+
+-- Drawn in the badges' better tone, the colour a positive figure already wears
+-- on the Upgrade Map; the sign and the word carry it too (principle 14).
+function Tooltip.UpgradeHex()
+    local tone = ns.UI.ItemLine and ns.UI.ItemLine.TONE and ns.UI.ItemLine.TONE.better
+    return tone and tone.hex or nil
 end
 
 -- Line 1.
@@ -364,7 +373,18 @@ function Tooltip.Lines(answer, opts)
     end
 
     add(Tooltip.HeaderText(answer), Tooltip.HEADER_HEX, true)
-    add(answer.sentence)
+    -- R-2l (WKE-695): the hovered item's own percent, on its own line above
+    -- the sentence, and only when it is an upgrade (the owner, 2026-10-07:
+    -- "only if it's an upgrade, never show it if it's a downgrade").
+    local upgrade = Tooltip.UpgradeText(answer)
+    add(upgrade, Tooltip.UpgradeHex())
+    -- A road to something you do not hold has no sentence but its own figure
+    -- (`ns.Roads.WORTH_SENTENCE`), and the line above already says it.
+    local own = type(answer.own) == "table" and answer.own or nil
+    local figureOnly = upgrade ~= nil and answer.held ~= true and own ~= nil and own.group ~= ns.Roads.GROUP_SET
+    if not figureOnly then
+        add(answer.sentence)
+    end
     -- A copy the documents rate at another level (R-2c, WKE-646): the rated
     -- figure and its level beside the copy's own, under the sentence. The
     -- held copy's level is the record's; a link's is the one the hover read.
@@ -375,17 +395,17 @@ function Tooltip.Lines(answer, opts)
     local finishText, finishParts = Tooltip.FinishText(answer)
     add(finishText, nil, nil, finishParts)
 
-    -- Line 3. A road to something you do NOT hold spends it on its own where,
-    -- because that is what a reader who cannot act on it needs; everything you
-    -- hold spends it on the one other road that gains.
-    local own = type(answer.own) == "table" and answer.own or nil
+    -- A road to something you do NOT hold says where it comes from, because
+    -- that is what a reader who cannot act on it needs.
+    --
+    -- R-2l (WKE-695), the owner's call of 2026-10-07: the `Better:` line and
+    -- the `Rated ... · /lootpath ...` footer are no longer drawn on the block -
+    -- "the user can go to Lootpath to see when last update was ... and to
+    -- Upgrade Map to find out". `BetterText`, `BestOther` and `FooterText`
+    -- stay for the surfaces and tests that still read them.
     if own and answer.held ~= true and own.group ~= ns.Roads.GROUP_SET then
         add(Tooltip.WhereText(own))
-    else
-        add(Tooltip.BetterText(Tooltip.BestOther(answer), opts.previewMythicPlusLevel))
     end
-
-    add(Tooltip.FooterText(answer, opts.now))
     return lines
 end
 

@@ -338,6 +338,36 @@ His three copies of 271528, by his inventory capture of 02:46:39 UTC: worn 321
 worn 321; `maxed` takes the bag 318 crested to 334, by that copy's own key. The
 links in `spec/tooltip_spec.lua`'s R-2k block are that capture's.
 
+## A held piece that wins only once crested (R-2l, WKE-695)
+
+Four documents **written by the companion** on 2026-10-07 23:19-23:21 UTC,
+extracted unedited from the `Data/QEVerdict.lua` it wrote into his addon folder
+(written 23:22:02Z, 1,180,108 bytes, sha256
+`423d80df8eb398d7754e43a8ed0b767ab71df08186e918b7646ee3600e73fdff`; the `json`
+strings of exports 7, 8, 10 and 21 of 22). Each file is that string byte for
+byte, named by its own `reportId`, and kept in `r2l/` because `tools/engine`
+reads every `qe-upgradefinder-*` file at this folder's top level and its tests
+hold the eight it was fitted on:
+
+| File | Kind | Content type | Scenario / key | Exported | Bytes | sha256 |
+|---|---|---|---|---|---|---|
+| `r2l/qe-upgradefinder-Hotornot-pxfjkvtjslxy.json` | Upgrade Finder | Dungeon | +10 | 23:19:38.566Z | 118141 | `6e05a8b8fb5cdcaeaffc240ee6e6dbf396000243378e058aaf184eab17599e8f` |
+| `r2l/qe-droptimizer-Hotornot-hfuvwbktjxbn.json` | Top Gear, pass 1 | Raid | `asOffered` | 23:19:50.513Z | 20166 | `b9a3b97c53ce33a2464cba5d6050cb3004a2598b3ed7587814ecfb42060dce8a` |
+| `r2l/qe-upgradefinder-Hotornot-vpbzaajcevxr.json` | Upgrade Finder | Raid | +10 | 23:20:01.895Z | 117966 | `ff8303d36162020be728b551d0a0f9d20eb9c4a6c3a8c8b25f2df56720e3236a` |
+| `r2l/qe-droptimizer-Hotornot-yomfpzeabcrr.json` | Top Gear, pass 1 | Raid | `maxed` | 23:21:52.560Z | 20973 | `efe2ba85a36fefe67241ba30698b12563fee830e535440aef6ef43d6a696a6e4` |
+
+Item 271528 (the tier helm) in them: the Upgrade Finder rows of the raid drop
+(`source` 1320 / 2887, `dropDifficulty` 3) at **324** `drop` **+0.194** and
+**334** `max`/`bonus` **+0.608** (Dungeon), **+0.372** and **+0.783** (Raid),
+and no row at any other level; the Raid `asOffered` top set (6529.623) holds the
+bag 318 copy's key at 318 and rates the worn 321 swapped in as differential 3,
+`scorePercent 0.18377783832236563`; the Raid `maxed` top set (6607.39) holds the
+bag 318 copy at 334. The same run's Dungeon pass-1 `asOffered` and `maxed`
+differ from the R-2k pair above in `exportedAt` and `reportId` only (`diff`,
+2026-10-07), so the R-2k pair stands for them: its `asOffered` rates the bag
+318 swapped in as differential 2, `scorePercent 0.071235173585871`.
+`spec/tooltip_spec.lua`'s R-2l block reads all six.
+
 ## The two exports the compare joins (E-0d, WKE-673)
 
 `spec/enginecompare_spec.lua` parses the +10 pair of the 2026-09-08 companion run
