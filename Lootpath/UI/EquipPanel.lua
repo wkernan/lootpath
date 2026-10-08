@@ -528,8 +528,9 @@ end
 
 -- The pieces you carry that win only once crested (R-2l, WKE-695), read off
 -- the hover's own map so the tab and the tooltip cannot disagree: one entry
--- per key, `{ key, slot, level }`, in slot order. The map is built over the
--- content on screen, as this tab is.
+-- per key, `{ key, slot, level, record }`, in slot order. The map is built over
+-- the content on screen, as this tab is. `record` is the scanned copy (R-2n,
+-- WKE-697), which is what the row under the answer names.
 function EquipPanel.PendingCrests(map)
     map = map or (ns.RoadsCache and ns.RoadsCache.Map and ns.RoadsCache.Map()) or nil
     local out = {}
@@ -537,9 +538,14 @@ function EquipPanel.PendingCrests(map)
         return out
     end
     for key, answer in pairs(map.byKey) do
-        if type(answer) == "table" and answer.held == true and type(answer.crestTo) == "table" then
+        if ns.RoadsCache.CrestPending(answer) then
             local held = type(answer.heldItem) == "table" and answer.heldItem or {}
-            out[#out + 1] = { key = key, slot = held.slot or answer.slot, level = answer.crestTo.level }
+            out[#out + 1] = {
+                key = key,
+                slot = held.slot or answer.slot,
+                level = answer.crestTo.level,
+                record = answer.heldItem,
+            }
         end
     end
     table.sort(out, function(left, right)
@@ -562,6 +568,51 @@ function EquipPanel.CrestText(crests)
     local slot = crests[1].slot
     local word = ns.Roads.SlotWord(slot) or "piece"
     return string.format(EquipPanel.ANSWER_CREST_ONE, word, ns.Roads.SlotIsPlural(slot) and "want" or "wants")
+end
+
+-- R-2n (WKE-697): one row under the answer for each piece the line counts.
+-- The owner, 2026-10-07, over `You're set - 2 pieces in your bags want
+-- cresting.`: "it was difficult for me to determine what the other piece was
+-- I needed to crest." The row is a swap row's shape - icon, name, second line -
+-- with no worn icon, no arrow and no button, because there is nothing to put on
+-- yet. Its words are the crest road's own `do:` clause without the `do: `
+-- (`ns.Roads.TODO_CREST_THEN_WEAR`), so the Upgrade Map and this row cannot say
+-- the step two ways.
+EquipPanel.ELEMENT_CREST = "crest"
+
+function EquipPanel.CrestRowWords(level)
+    level = tonumber(level)
+    if not level then
+        return nil
+    end
+    local clause = (ns.Roads.TODO_CREST_THEN_WEAR:gsub("^do: ", ""))
+    return string.format(clause, level)
+end
+
+-- The row as the two shapes a drawn row binds, `Describe`'s and `Drawn`'s, so
+-- `DrawRow` draws it exactly as it draws a swap: { described, drawn }.
+function EquipPanel.CrestRow(crest)
+    local record = type(crest) == "table" and crest.record or nil
+    local slot = type(crest) == "table" and type(crest.slot) == "string" and crest.slot or ""
+    local where = type(record) == "table" and whereText(record) or "in your bags"
+    local words = EquipPanel.CrestRowWords(type(crest) == "table" and crest.level or nil)
+    local second = words and (where .. EquipPanel.SECOND_SEPARATOR .. words) or where
+    if slot ~= "" then
+        second = slot .. EquipPanel.SECOND_SEPARATOR .. second
+    end
+    local item = EquipPanel.ItemFromRecord(record)
+    local described = {
+        slot = slot,
+        text = string.format("%s - %s", EquipPanel.RecordText(record), second),
+        status = EquipPanel.ELEMENT_CREST,
+        actionable = false,
+        name = item and item.name or nil,
+        second = second,
+        tags = {},
+        item = item,
+    }
+    local drawn = { status = EquipPanel.ELEMENT_CREST, dim = false, second = second }
+    return described, drawn
 end
 
 -- How many settled rows want finishing.
@@ -1059,7 +1110,11 @@ end
 EquipPanel.ELEMENT_ROW = "row"
 EquipPanel.ELEMENT_FOLD = "fold"
 
-function EquipPanel.Layout(match, open)
+-- R-2n (WKE-697): `crests` is `PendingCrests`' list. Each piece is one
+-- `{ kind = "crest", crest = ... }` element after the rows that need something
+-- and before the fold, so the pieces the answer line counts sit right under it
+-- when every slot is set, and never behind the fold.
+function EquipPanel.Layout(match, open, crests)
     if not (type(match) == "table" and match.ok and type(match.rows) == "table") then
         return {}
     end
@@ -1074,6 +1129,9 @@ function EquipPanel.Layout(match, open)
     local elements = {}
     for _, row in ipairs(open_) do
         elements[#elements + 1] = { kind = EquipPanel.ELEMENT_ROW, row = row }
+    end
+    for _, crest in ipairs(type(crests) == "table" and crests or {}) do
+        elements[#elements + 1] = { kind = EquipPanel.ELEMENT_CREST, crest = crest }
     end
     if #folded > 0 then
         elements[#elements + 1] = {
@@ -1914,7 +1972,9 @@ function EquipPanel.Refresh(panel, match)
     -- from the one answer, so the header, the line under it and the hint cannot
     -- disagree about which state the tab is in.
     local unrated = EquipPanel.UnratedState(match, ns.companionStatus)
-    panel.answer:SetText(EquipPanel.AnswerText(match, unrated, EquipPanel.PendingCrests()))
+    -- R-2n (WKE-697): read once, for the line and for the rows under it.
+    local crests = EquipPanel.PendingCrests()
+    panel.answer:SetText(EquipPanel.AnswerText(match, unrated, crests))
     local second = EquipPanel.SecondText(unrated)
     panel.second:SetText(second or "")
     panel.second:SetShown(second ~= nil)
@@ -1949,7 +2009,7 @@ function EquipPanel.Refresh(panel, match)
     -- The header block is set: the list's top can be placed now.
     EquipPanel.AnchorScroll(panel)
 
-    local elements = EquipPanel.Columns(EquipPanel.Layout(match, EquipPanel.FoldOpen(panel.db)))
+    local elements = EquipPanel.Columns(EquipPanel.Layout(match, EquipPanel.FoldOpen(panel.db), crests))
     local rows = (type(match) == "table" and match.ok and match.rows) or {}
     local inCombat = InCombatLockdown() and true or false
     local used = 0
@@ -1964,6 +2024,9 @@ function EquipPanel.Refresh(panel, match)
     -- counter a list whose full rows fell while cells were drawn (an equip, a
     -- bag change) left its old top row shown over the fold.
     local drawn, folded = 0, 0
+    -- The crest rows (R-2n) count against MAX_ROWS like any drawn row, and
+    -- are not match rows, so the overflow line leaves them out.
+    local crestsDrawn = 0
     local rowsDrawn = 0
     local pairsDrawn = 0
     local column = EquipPanel.ColumnWidth(panel.rowWidth)
@@ -2027,6 +2090,26 @@ function EquipPanel.Refresh(panel, match)
                 place(pair, height)
                 pair:Show()
             end
+        elseif element.kind == EquipPanel.ELEMENT_CREST then
+            if drawn < EquipPanel.MAX_ROWS then
+                drawn = drawn + 1
+                crestsDrawn = crestsDrawn + 1
+                rowsDrawn = rowsDrawn + 1
+                local frameRow = panel.rows[rowsDrawn]
+                if not frameRow then
+                    frameRow = createRow(panel, rowsDrawn)
+                    panel.rows[rowsDrawn] = frameRow
+                end
+                local described, shownRow = EquipPanel.CrestRow(element.crest)
+                -- Not a match row: nothing on it can be equipped from here.
+                frameRow.matchRow = nil
+                frameRow.crest = element.crest
+                frameRow.described = described
+                frameRow.drawn = shownRow
+                EquipPanel.DrawRow(frameRow, described, shownRow, inCombat)
+                place(frameRow, frameRow:GetHeight())
+                frameRow:Show()
+            end
         elseif drawn < EquipPanel.MAX_ROWS then
             drawn = drawn + 1
             rowsDrawn = rowsDrawn + 1
@@ -2040,6 +2123,7 @@ function EquipPanel.Refresh(panel, match)
             local described = EquipPanel.Describe(matchRow)
             local shownRow = EquipPanel.Drawn(matchRow, match)
             frameRow.matchRow = matchRow
+            frameRow.crest = nil
             frameRow.described = described
             frameRow.drawn = shownRow
             EquipPanel.DrawRow(frameRow, described, shownRow, inCombat)
@@ -2052,7 +2136,7 @@ function EquipPanel.Refresh(panel, match)
         panel.fold.text:SetText("")
     end
 
-    local shown = drawn
+    local shown = drawn - crestsDrawn
     for i = rowsDrawn + 1, #panel.rows do
         panel.rows[i]:Hide()
         -- A hidden row waits for nothing: its request is cancelled, so a late

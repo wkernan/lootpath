@@ -368,6 +368,33 @@ differ from the R-2k pair above in `exportedAt` and `reportId` only (`diff`,
 318 swapped in as differential 2, `scorePercent 0.071235173585871`.
 `spec/tooltip_spec.lua`'s R-2l block reads all six.
 
+## The second piece that wants cresting (R-2n, WKE-697)
+
+The same run's other four Dungeon Upgrade Finder documents, extracted on
+2026-10-08 the same way from the same `Data/QEVerdict.lua` (read only, copied
+out of the addon folder first; sha256 still
+`423d80df8eb398d7754e43a8ed0b767ab71df08186e918b7646ee3600e73fdff`): the
+`json` strings of exports 3, 4, 5 and 6 of 22, each byte for byte, in `r2n/`
+for the same reason `r2l/` exists.
+
+| File | Kind | Content type | Key | Exported | Bytes | sha256 |
+|---|---|---|---|---|---|---|
+| `r2n/qe-upgradefinder-Hotornot-jokmciwyrjaz.json` | Upgrade Finder | Dungeon | +2 | 23:19:27.867Z | 117067 | `e808280732d9913767c3d4376cd0592db86f0c3de06b7e72af1aa083db59eefd` |
+| `r2n/qe-upgradefinder-Hotornot-xwazpanlfczn.json` | Upgrade Finder | Dungeon | +4 | 23:19:30.665Z | 117118 | `d93ef7a6721ad76d7af6c690afbe12acaaaaf9205766840a3cf91738871789b2` |
+| `r2n/qe-upgradefinder-Hotornot-sskmrrjyvenk.json` | Upgrade Finder | Dungeon | +6 | 23:19:33.316Z | 96686 | `4a5c0ed60d59dd77cb164aab7e2db572bbfa03aafd8ba3649f2df0ac5f0969d7` |
+| `r2n/qe-upgradefinder-Hotornot-qomjnkokpvlb.json` | Upgrade Finder | Dungeon | +8 | 23:19:35.980Z | 96738 | `4b35bcd38cab41f16794746cb906eced88e95ef775b9898a636cf1e4d1b425c1` |
+
+Item 159301 (Primal Dinomancer's Belt, the bag 302 the owner hovered on
+2026-10-07) in the five Dungeon documents: +2 rows at 321 **+0.486**, 308
+**+0.145**, 295 **0**; +4 at 321 **+0.486**, 308 **+0.145**, 298 **0**; +6 at
+321 **+0.486** and **305 +0.068**; +8 at 321 **+0.486** and 308 **+0.145**;
++10 at 334 **+0.87**, 321 **+0.486**, 311 **+0.222**. The Dungeon `maxed`
+document projects the bag copy to **308**, so 305 is the first winning level
+and only the +6 document carries it: his hover's `+0.07% Upgrade` / `Crest to
+305 - then wear.` needs all five, and R-2l's +10 alone leaves the belt with no
+row in (302, 308]. `spec/tooltip_spec.lua`'s R-2n block reads all five with
+R-2l's Dungeon and Raid pairs.
+
 ## The two exports the compare joins (E-0d, WKE-673)
 
 `spec/enginecompare_spec.lua` parses the +10 pair of the 2026-09-08 companion run
