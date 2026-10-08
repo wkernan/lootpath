@@ -2738,3 +2738,231 @@ describe("A held piece that wins only once crested (R-2l)", function()
         assert.equal(2, #lines)
     end)
 end)
+
+-- R-2m (WKE-696): switching the content setting rebuilds the roads. The owner,
+-- 2026-10-07 evening, after R-2l merged and synced: "Hovering over the helm for
+-- both Raid and Mythic look the same." Equip Now followed the switch (it reads
+-- the match fresh on every refresh); the hover and the bag mark did not,
+-- because both read the map `RoadsCache.Rebuild` built, the content type is
+-- read when it is built, and `Options.Set` asked for no rebuild.
+--
+-- Everything here goes through the real path the client takes: the companion's
+-- import of his documents (R-2l's six, the same files the block above reads),
+-- `Options.Set`, `Rebuild` -> `Gather` -> `Model`,
+-- `Tooltip.Answer` and `Glow.Wants`. The one seam is the bag scan: the three
+-- helm records are handed to `Inventory.Scan`, exactly as R-2l hands them to
+-- the road inputs.
+describe("Switching the content setting rebuilds the roads (R-2m)", function()
+    local ns, world
+    local FILES = {
+        Dungeon = {
+            asOffered = "spec/fixtures/qe/qe-droptimizer-Hotornot-abqtlwlwsnms.json",
+            maxed = "spec/fixtures/qe/qe-droptimizer-Hotornot-zdgtaqcigomq.json",
+            uf = "spec/fixtures/qe/r2l/qe-upgradefinder-Hotornot-pxfjkvtjslxy.json",
+        },
+        Raid = {
+            asOffered = "spec/fixtures/qe/r2l/qe-droptimizer-Hotornot-hfuvwbktjxbn.json",
+            maxed = "spec/fixtures/qe/r2l/qe-droptimizer-Hotornot-yomfpzeabcrr.json",
+            uf = "spec/fixtures/qe/r2l/qe-upgradefinder-Hotornot-vpbzaajcevxr.json",
+        },
+    }
+    local SETTINGS = {
+        asOffered = { autoUpgradeVault = false, autoUpgradeAll = false, autoCatalyze = false },
+        maxed = { autoUpgradeVault = true, autoUpgradeAll = true, autoCatalyze = true },
+    }
+    local WORN_LINK = "|cnIQ4:|Hitem:271528:7961:240892::::::90:105::35:6:6652:13440:13695:13692:13698:12846"
+        .. ":1:64:239033:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    local BAG_318_LINK = "|cnIQ4:|Hitem:271528::::::::90:105::35:6:13692:12849:13440:6652:13696:13698"
+        .. "::::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    local BAG_308_LINK = "|cnIQ4:|Hitem:271528:7960:::::::90:105::23:7:6652:13439:13696:12838:13692:13698:1561"
+        .. ":1:64:251140:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    local WRITTEN_AT = "2026-10-07T23:22:02.000Z"
+
+    local DUNGEON_BLOCK = {
+        "Lootpath · Head",
+        "+0.19% Upgrade",
+        "Crest to 324 - then wear.",
+        "rated with: Empowered Hex of Leeching (missing)",
+    }
+    local RAID_BLOCK = {
+        "Lootpath · Head",
+        "Wear this - crest it after.",
+        "rated with: Empowered Hex of Leeching (missing)",
+    }
+
+    local bag318, rebuilds
+
+    local function record(link, level, location)
+        local parsed = ns.ParseItemLink(link)
+        return {
+            key = parsed.key,
+            itemID = parsed.itemID,
+            bonusIDs = parsed.bonusIDs,
+            link = link,
+            name = "Enigmatic Dreamwatcher's Somnolent Stare",
+            slot = "Head",
+            itemLevel = level,
+            location = location,
+        }
+    end
+
+    local function exports()
+        local list = {}
+        for _, contentType in ipairs({ "Dungeon", "Raid" }) do
+            for _, scenario in ipairs({ "asOffered", "maxed" }) do
+                list[#list + 1] = {
+                    schema = "qe-live-droptimizer",
+                    contentType = contentType,
+                    scenario = scenario,
+                    qeSettings = SETTINGS[scenario],
+                    json = readFile(FILES[contentType][scenario]),
+                }
+            end
+            list[#list + 1] = {
+                schema = "qe-live-upgradefinder",
+                contentType = contentType,
+                keyLevel = 10,
+                json = readFile(FILES[contentType].uf),
+            }
+        end
+        return list
+    end
+
+    local function block(link)
+        local answer = ns.UI.Tooltip.Answer(link)
+        assert.is_table(answer, link)
+        local out = {}
+        for index, line in ipairs(ns.UI.Tooltip.Lines(answer, {})) do
+            out[index] = line.text
+        end
+        return out
+    end
+
+    -- Past the debounce, so whatever was asked for has been built.
+    local function settle()
+        world.runTimers(ns.RoadsCache.DEBOUNCE_SECONDS + 1)
+    end
+
+    before_each(function()
+        ns, world = H.load()
+        local worn = record(WORN_LINK, 321, "equipped")
+        bag318 = record(BAG_318_LINK, 318, "bag")
+        local bag308 = record(BAG_308_LINK, 308, "bag")
+        ns.Inventory.Scan = function()
+            return { ok = true, records = { worn, bag318, bag308 } }
+        end
+        -- His SavedVariables of 2026-10-07: the hover follows `maxed`, and the
+        -- content type is unset, which reads as Dungeon.
+        ns.db.profile.settings.vaultScenario = "maxed"
+        local imported = ns.Companion.ImportAll({ writtenAt = WRITTEN_AT, exports = exports() })
+        assert.is_true(imported.ok, imported.reason)
+        assert.equal(6, #imported.imported)
+        settle()
+        rebuilds = 0
+        local rebuild = ns.RoadsCache.Rebuild
+        ns.RoadsCache.Rebuild = function(...)
+            rebuilds = rebuilds + 1
+            return rebuild(...)
+        end
+    end)
+
+    after_each(function()
+        ns.RoadsCache.Reset()
+        H.unload()
+    end)
+
+    -- PROVEN RED (the rebuild out of `Options.Set`): after the switch to Raid
+    -- the hover still reads the Dungeon block - the owner's screen. Asserted
+    -- straight after the call, with no timer run: the switch is built at once.
+    it("answers the bag 318 for Dungeon, then for Raid the moment the setting switches", function()
+        assert.equal("Dungeon", ns.UI.Options.Get())
+        assert.same(DUNGEON_BLOCK, block(bag318.link))
+
+        ns.UI.Options.Set("Raid")
+        assert.same(RAID_BLOCK, block(bag318.link))
+        assert.equal(1, rebuilds)
+
+        ns.UI.Options.Set("Dungeon")
+        assert.same(DUNGEON_BLOCK, block(bag318.link))
+        assert.equal(2, rebuilds)
+    end)
+
+    -- The bag mark reads the same map, so the switch reaches it when it
+    -- reaches the hover. On these documents the mark over the 318 is lit
+    -- under BOTH contents (the copy is in the `maxed` top set either way), so
+    -- what is asserted is the map the mark reads: after the switch it is a new
+    -- build, and every mark on it is what a fresh Raid build marks.
+    -- PROVEN RED with the hover's guard: without the rebuild the mark reads
+    -- the Dungeon map it was built on.
+    it("has the bag mark read the map built for the new setting", function()
+        local before = ns.RoadsCache.Map()
+        assert.is_true(ns.Glow.Wants(bag318.key))
+        ns.UI.Options.Set("Raid")
+        settle()
+        local after = ns.RoadsCache.Map()
+        assert.are_not.equal(before, after)
+        assert.is_true(ns.Glow.Wants(bag318.key))
+        local marked = {}
+        for key, wants in pairs(after.glow) do
+            marked[key] = wants
+        end
+        ns.RoadsCache.Rebuild()
+        assert.same(ns.RoadsCache.Map().glow, marked)
+    end)
+
+    -- The redraw `Options.Set` makes reads the map too: Equip Now's answer
+    -- line takes its pending crests off it (`EquipPanel.PendingCrests`, R-2l).
+    -- Raid has none for the helm and Dungeon has the 318's, so the redraw that
+    -- follows a switch back to Dungeon must already see the Dungeon map - a
+    -- debounced rebuild lands after it, and the tab says `You're set - every
+    -- slot is your best.` over the helm that wants cresting until something
+    -- else redraws it. PROVEN RED (the rebuild made through the debounced
+    -- `Invalidate`, as the issue first asked): the redraw sees no crest.
+    it("rebuilds before the redraw, so Equip Now's crest line follows the switch", function()
+        ns.UI.Options.Set("Raid")
+        settle()
+        assert.same({}, ns.UI.EquipPanel.PendingCrests())
+        local seen
+        local refresh = ns.UI.Refresh
+        ns.UI.Refresh = function(...)
+            seen = ns.UI.EquipPanel.PendingCrests()
+            return refresh(...)
+        end
+        ns.UI.Options.Set("Dungeon")
+        ns.UI.Refresh = refresh
+        assert.is_table(seen)
+        assert.equal(1, #seen)
+        assert.equal(bag318.key, seen[1].key)
+        assert.equal(324, seen[1].level)
+    end)
+
+    -- Nothing runs in combat: a switch made there builds nothing until the
+    -- combat ends, and then the hover answers for the new content. PROVEN RED
+    -- (`Rebuild`'s combat refusal taken out): the map is rebuilt in combat.
+    it("builds nothing in combat and follows the switch once combat ends", function()
+        local before = ns.RoadsCache.Map()
+        world.inCombat = true
+        ns.UI.Options.Set("Raid")
+        settle()
+        assert.equal(before, ns.RoadsCache.Map())
+        assert.same(DUNGEON_BLOCK, block(bag318.link))
+        world.inCombat = false
+        world.fireEvent("PLAYER_REGEN_ENABLED")
+        settle()
+        assert.same(RAID_BLOCK, block(bag318.link))
+    end)
+
+    -- PROVEN RED (the `changed` test out of `Options.Set`): one rebuild for a
+    -- setting that changed no answer.
+    it("rebuilds nothing when the setting is set to the value it already has", function()
+        ns.UI.Options.Set("Dungeon")
+        settle()
+        assert.equal(0, rebuilds)
+        ns.UI.Options.Set("Raid")
+        settle()
+        assert.equal(1, rebuilds)
+        ns.UI.Options.Set("Raid")
+        settle()
+        assert.equal(1, rebuilds)
+    end)
+end)

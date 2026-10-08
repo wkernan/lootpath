@@ -230,12 +230,29 @@ function Options.SetVaultScenario(value)
     end
 end
 
+-- R-2m (WKE-696): the content type is read when the roads are BUILT
+-- (`RoadsCache.Gather`, through the panel's own resolvers), and the hover, the
+-- bag mark and Equip Now's crest line read that built map. A switch therefore
+-- rebuilds it, or the tooltip and the mark keep answering for the old content
+-- until the next bag change or reload - what the owner saw on 2026-10-07 while
+-- Equip Now's rows (matched fresh on every refresh) followed the switch.
+-- Rebuilt HERE, before the redraw, and not through the debounced `Invalidate`:
+-- the redraw below reads the map for Equip Now's pending crests, and a rebuild
+-- half a second later would leave that line on the old content until something
+-- else redrew the tab. A switch is one click, not a burst of bag events, so
+-- there is nothing to fold. `Rebuild` refuses in combat and defers to the end
+-- of it, as for every other caller. A set to the value already stored changes
+-- no answer and rebuilds nothing.
 function Options.Set(value)
     if type(value) ~= "string" or value == "" then
         return
     end
+    local changed = value ~= Options.Get()
     if ns.db and ns.db.profile and ns.db.profile.settings then
         ns.db.profile.settings.contentType = value
+    end
+    if changed and ns.RoadsCache and ns.RoadsCache.Rebuild then
+        ns.RoadsCache.Rebuild()
     end
     if UI.Refresh then
         UI.Refresh()
