@@ -2487,12 +2487,12 @@ describe("A held piece that wins only once crested (R-2l)", function()
         Dungeon = {
             asOffered = "spec/fixtures/qe/qe-droptimizer-Hotornot-abqtlwlwsnms.json",
             maxed = "spec/fixtures/qe/qe-droptimizer-Hotornot-zdgtaqcigomq.json",
-            uf = "spec/fixtures/qe/qe-upgradefinder-Hotornot-pxfjkvtjslxy.json",
+            uf = "spec/fixtures/qe/r2l/qe-upgradefinder-Hotornot-pxfjkvtjslxy.json",
         },
         Raid = {
-            asOffered = "spec/fixtures/qe/qe-droptimizer-Hotornot-hfuvwbktjxbn.json",
-            maxed = "spec/fixtures/qe/qe-droptimizer-Hotornot-yomfpzeabcrr.json",
-            uf = "spec/fixtures/qe/qe-upgradefinder-Hotornot-vpbzaajcevxr.json",
+            asOffered = "spec/fixtures/qe/r2l/qe-droptimizer-Hotornot-hfuvwbktjxbn.json",
+            maxed = "spec/fixtures/qe/r2l/qe-droptimizer-Hotornot-yomfpzeabcrr.json",
+            uf = "spec/fixtures/qe/r2l/qe-upgradefinder-Hotornot-vpbzaajcevxr.json",
         },
     }
     local SETTINGS = {
