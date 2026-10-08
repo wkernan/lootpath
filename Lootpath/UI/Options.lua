@@ -218,12 +218,24 @@ function Options.GetVaultScenario()
     return (settings and settings.vaultScenario) or ns.DB_DEFAULTS.profile.settings.vaultScenario
 end
 
+-- R-2o (WKE-698): the highlighted scenario is read when the roads are BUILT
+-- (`UpgradeMapPanel.Gather` resolves it through `VaultPanel.HighlightScenario`),
+-- so a change rebuilds them exactly as `Options.Set` does for the content type
+-- below (R-2m): at once, before the redraw, deferred by `Rebuild` itself in
+-- combat, and not at all when the value is the one already stored. The rule,
+-- named once in ARCHITECTURE.md §7: every setting the roads read at build time
+-- rebuilds them when it changes. This function is the one writer - the Vault
+-- tab's dropdown and the Settings page both call it.
 function Options.SetVaultScenario(value)
     if type(value) ~= "string" or value == "" then
         return
     end
+    local changed = value ~= Options.GetVaultScenario()
     if ns.db and ns.db.profile and ns.db.profile.settings then
         ns.db.profile.settings.vaultScenario = value
+    end
+    if changed and ns.RoadsCache and ns.RoadsCache.Rebuild then
+        ns.RoadsCache.Rebuild()
     end
     if UI.Refresh then
         UI.Refresh()
