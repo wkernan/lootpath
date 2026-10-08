@@ -2966,3 +2966,342 @@ describe("Switching the content setting rebuilds the roads (R-2m)", function()
         assert.equal(1, rebuilds)
     end)
 end)
+
+-- R-2n (WKE-697): every piece that wants cresting gets the bag mark, and Equip
+-- Now names each one under its answer line. The owner, 2026-10-07 evening,
+-- after R-2l: Equip Now under Dungeon read `You're set - 2 pieces in your bags
+-- want cresting.` - "I notice only 1 of my pieces in the bag has the lootpath
+-- arrow, it was difficult for me to determine what the other piece was I
+-- needed to crest." His own hovers named the two: the bag 318 helm (`+0.19%
+-- Upgrade` / `Crest to 324 - then wear.`) and the bag Primal Dinomancer's Belt
+-- 302 (`+0.07% Upgrade` / `Crest to 305 - then wear.`).
+--
+-- **Why the helm was marked and the belt was not**, read off these documents
+-- rather than assumed: the mark was the road rule alone (`IsForward` on the
+-- piece's own road under the highlighted scenario). His highlighted scenario
+-- is `everything upgraded`, whose Dungeon top set holds the bag 318 by its own
+-- key (R-2k) - so the helm's own road is forward - and keeps the worn buckle,
+-- so the belt's is not. It is not the vault pick's key: the vault is empty.
+--
+-- The documents are his, unedited (spec/fixtures/qe/README.md): R-2l's six,
+-- and the same run's Dungeon +2, +4, +6 and +8 Upgrade Finder documents
+-- (`r2n/`). The belt's 305 row (+0.068) is in the +6 one only; with the +10
+-- document alone - all R-2l committed for Dungeon - the belt has no row
+-- between 302 and its 308 cap and is no crest-pending piece at all. The belt's
+-- link is his inventory capture's (spec/fixtures/captures/Lootpath-20261005-
+-- 163103.lua); the worn buckle is the documents' own equipped entry (277781 at
+-- 302), whose bonus IDs no committed link carries, so it is a record without a
+-- link.
+describe("Every piece that wants cresting is marked and named (R-2n)", function()
+    local ns, world
+    local FILES = {
+        Dungeon = {
+            asOffered = "spec/fixtures/qe/qe-droptimizer-Hotornot-abqtlwlwsnms.json",
+            maxed = "spec/fixtures/qe/qe-droptimizer-Hotornot-zdgtaqcigomq.json",
+            uf = {
+                { "spec/fixtures/qe/r2n/qe-upgradefinder-Hotornot-jokmciwyrjaz.json", 2 },
+                { "spec/fixtures/qe/r2n/qe-upgradefinder-Hotornot-xwazpanlfczn.json", 4 },
+                { "spec/fixtures/qe/r2n/qe-upgradefinder-Hotornot-sskmrrjyvenk.json", 6 },
+                { "spec/fixtures/qe/r2n/qe-upgradefinder-Hotornot-qomjnkokpvlb.json", 8 },
+                { "spec/fixtures/qe/r2l/qe-upgradefinder-Hotornot-pxfjkvtjslxy.json", 10 },
+            },
+        },
+        Raid = {
+            asOffered = "spec/fixtures/qe/r2l/qe-droptimizer-Hotornot-hfuvwbktjxbn.json",
+            maxed = "spec/fixtures/qe/r2l/qe-droptimizer-Hotornot-yomfpzeabcrr.json",
+            uf = { { "spec/fixtures/qe/r2l/qe-upgradefinder-Hotornot-vpbzaajcevxr.json", 10 } },
+        },
+    }
+    local SETTINGS = {
+        asOffered = { autoUpgradeVault = false, autoUpgradeAll = false, autoCatalyze = false },
+        maxed = { autoUpgradeVault = true, autoUpgradeAll = true, autoCatalyze = true },
+    }
+    local HELM = "Enigmatic Dreamwatcher's Somnolent Stare"
+    local BELT = "Primal Dinomancer's Belt"
+    local WORN_LINK = "|cnIQ4:|Hitem:271528:7961:240892::::::90:105::35:6:6652:13440:13695:13692:13698:12846"
+        .. ":1:64:239033:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    local BAG_318_LINK = "|cnIQ4:|Hitem:271528::::::::90:105::35:6:13692:12849:13440:6652:13696:13698"
+        .. "::::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    local BAG_308_LINK = "|cnIQ4:|Hitem:271528:7960:::::::90:105::23:7:6652:13439:13696:12838:13692:13698:1561"
+        .. ":1:64:251140:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    local BELT_LINK = "|cnIQ4:|Hitem:159301::::::::90:105::16:6:12836:13440:6652:13696:13662:12699"
+        .. ":1:28:1279:::::|h[Primal Dinomancer's Belt]|h|r"
+    local GUARDIAN = { index = 3, id = 104, name = "Guardian", icon = 132276, role = "TANK" }
+
+    local worn, bag318, bag308, belt, buckle
+
+    local function record(link, name, slot, level, location)
+        local parsed = ns.ParseItemLink(link)
+        return {
+            key = parsed.key,
+            itemID = parsed.itemID,
+            bonusIDs = parsed.bonusIDs,
+            link = link,
+            name = name,
+            slot = slot,
+            itemLevel = level,
+            location = location,
+        }
+    end
+
+    local function everything()
+        return { worn, bag318, bag308, buckle, belt }
+    end
+
+    local function droptimizer(contentType, scenario)
+        local parsed = ns.QEImport.Parse(readFile(FILES[contentType][scenario]))
+        assert.is_true(parsed.ok, parsed.reason)
+        parsed.verdict.scenario = scenario
+        parsed.verdict.qeSettings = SETTINGS[scenario]
+        return parsed.verdict
+    end
+
+    local function upgradeFinder(contentType)
+        local documents = {}
+        for _, file in ipairs(FILES[contentType].uf) do
+            local parsed = ns.UFImport.Parse(readFile(file[1]))
+            assert.is_true(parsed.ok, parsed.reason)
+            documents[#documents + 1] = { verdict = parsed.verdict, keyLevel = file[2] }
+        end
+        return documents
+    end
+
+    -- The map the hover and the bags read, over the content on screen and the
+    -- scenario he highlights (`everything upgraded` unless a test says).
+    local function build(contentType, records, highlighted)
+        local inputs = {
+            verdicts = {
+                { verdict = droptimizer(contentType, "asOffered"), scenario = "asOffered" },
+                { verdict = droptimizer(contentType, "maxed"), scenario = "maxed" },
+            },
+            highlightedScenario = highlighted or "maxed",
+            ufDocuments = upgradeFinder(contentType),
+            inventory = { records = records or everything() },
+            vault = { ok = true, hasAvailableRewards = false, options = { { rewards = {} } } },
+        }
+        ns.RoadsCache.SetMap(ns.RoadsCache.Build({ roadInputs = inputs }))
+        return inputs
+    end
+
+    -- Equip Now's own match, over `as offered`, as the tab builds it.
+    local function matched(contentType, records)
+        local match =
+            ns.Match.Build({ ok = true, records = records or everything() }, droptimizer(contentType, "asOffered"))
+        assert.is_true(match.ok, match.reason)
+        return match
+    end
+
+    local function block(link)
+        local answer = ns.UI.Tooltip.Answer(link)
+        assert.is_table(answer, link)
+        local out = {}
+        for index, line in ipairs(ns.UI.Tooltip.Lines(answer, {})) do
+            out[index] = line.text
+        end
+        return out
+    end
+
+    -- The full-width rows the panel drew for crest-pending pieces.
+    local function crestRows(panel)
+        local out = {}
+        for _, frameRow in ipairs(panel.rows) do
+            if frameRow.shown and frameRow.crest then
+                out[#out + 1] = frameRow
+            end
+        end
+        return out
+    end
+
+    before_each(function()
+        ns, world = H.load()
+        worn = record(WORN_LINK, HELM, "Head", 321, "equipped")
+        bag318 = record(BAG_318_LINK, HELM, "Head", 318, "bag")
+        bag308 = record(BAG_308_LINK, HELM, "Head", 308, "bag")
+        belt = record(BELT_LINK, BELT, "Waist", 302, "bag")
+        local bonusIDs = { 6652, 13696, 13662, 12836 }
+        buckle = {
+            key = ns.ItemKey(277781, bonusIDs),
+            itemID = 277781,
+            bonusIDs = bonusIDs,
+            name = "Venom-Cursed Lynx's Buckle",
+            slot = "Waist",
+            itemLevel = 302,
+            location = "equipped",
+        }
+    end)
+
+    after_each(function()
+        ns.RoadsCache.Reset()
+        H.unload()
+    end)
+
+    -- The two hovers of his evening, so everything below is about the pieces
+    -- he read.
+    it("reads both of his hovers under Dungeon", function()
+        build("Dungeon")
+        local helm = block(bag318.link)
+        assert.same(
+            { "Lootpath · Head", "+0.19% Upgrade", "Crest to 324 - then wear." },
+            { helm[1], helm[2], helm[3] }
+        )
+        local waist = block(belt.link)
+        assert.same(
+            { "Lootpath · Waist", "+0.07% Upgrade", "Crest to 305 - then wear." },
+            { waist[1], waist[2], waist[3] }
+        )
+    end)
+
+    -- PROVEN RED (the R-2n loop out of `Cache.Build`): the belt answers false
+    -- under both scenarios and the helm under `as offered` - his one arrow of
+    -- two.
+    it("marks the helm and the belt under Dungeon, whichever scenario is highlighted", function()
+        for _, highlighted in ipairs({ "maxed", "asOffered" }) do
+            build("Dungeon", nil, highlighted)
+            assert.is_true(ns.Glow.Wants(bag318.key), highlighted)
+            assert.is_true(ns.Glow.Wants(belt.key), highlighted)
+            assert.is_true(ns.Glow.WantsLink(belt.link), highlighted)
+            -- The cause: the belt's own road is not one the road rule points at.
+            local own = ns.RoadsCache.Lookup(belt.key).own
+            assert.is_false(ns.Roads.IsForward(own), highlighted)
+            assert.is_false(ns.RoadsCache.RoadWantsGlow(own), highlighted)
+            -- And the copy that wants nothing stays dark.
+            assert.is_false(ns.Glow.Wants(bag308.key), highlighted)
+        end
+        -- Under `everything upgraded` the helm's own road already pointed at it,
+        -- which is why it alone carried the mark on his screen.
+        build("Dungeon", nil, "maxed")
+        assert.is_true(ns.Roads.IsForward(ns.RoadsCache.Lookup(bag318.key).own))
+    end)
+
+    -- PROVEN RED (the R-2n branch out of `Bags.LinkLines`): the belt's reason
+    -- reads `its own road is set, and the map does not point at it` under a
+    -- `glow yes`.
+    it("has /lootpath glow name the crest as the reason", function()
+        build("Dungeon")
+        local text = table.concat(ns.UI.Bags.LinkLines(belt.link), "\n")
+        assert.is_truthy(text:find("item: glow yes", 1, true), text)
+        assert.is_truthy(text:find("item: crest pending to 305, and the map points at it", 1, true), text)
+        assert.is_nil(text:find("does not point at", 1, true), text)
+        text = table.concat(ns.UI.Bags.LinkLines(bag318.link), "\n")
+        assert.is_truthy(text:find("item: crest pending to 324, and the map points at it", 1, true), text)
+    end)
+
+    -- PROVEN RED (the gate out of `ns.Glow.Wants`): both pieces answer true in
+    -- Guardian.
+    it("marks nothing in a non-healer spec", function()
+        build("Dungeon")
+        world.spec = GUARDIAN
+        local keys = 0
+        for key in pairs(ns.RoadsCache.Map().byKey) do
+            keys = keys + 1
+            assert.is_false(ns.Glow.Wants(key), key)
+        end
+        assert.is_true(keys > 0)
+        assert.is_false(ns.Glow.WantsLink(belt.link))
+        assert.is_false(ns.Glow.WantsLink(bag318.link))
+    end)
+
+    -- PROVEN RED (the crests out of `EquipPanel.Layout`): the answer line still
+    -- counts two and no row under it names either piece.
+    it("has Equip Now name both pieces under its answer under Dungeon", function()
+        build("Dungeon")
+        local EP = ns.UI.EquipPanel
+        local match = matched("Dungeon")
+        for _, row in ipairs(match.rows) do
+            if row.slot == "Head" or row.slot == "Waist" then
+                assert.equal(ns.Match.STATUS.EQUIPPED_IS_BEST, row.status, row.slot)
+            end
+        end
+        local crests = EP.PendingCrests()
+        assert.equal(2, #crests)
+        assert.same({ bag318.key, belt.key }, { crests[1].key, crests[2].key })
+        assert.equal("You're set - 2 pieces in your bags want cresting.", EP.AnswerText(match, nil, crests))
+        local sep = EP.SECOND_SEPARATOR
+        local _, head = EP.CrestRow(crests[1])
+        local described, waist = EP.CrestRow(crests[2])
+        assert.equal("Head" .. sep .. "in your bags" .. sep .. "crest to 324 - then wear", head.second)
+        assert.equal("Waist" .. sep .. "in your bags" .. sep .. "crest to 305 - then wear", waist.second)
+        assert.equal(BELT, described.name)
+        assert.is_false(described.actionable)
+        assert.is_nil(described.worn)
+        for _, text in ipairs({ head.second, waist.second }) do
+            assert.is_nil(usesForbidden(text), text)
+            assert.is_nil(text:lower():find("plan", 1, true), text)
+        end
+        -- Under the answer, after the rows that need something (here only the
+        -- slots this record leaves empty) and before the fold of `already best`.
+        local kinds = {}
+        for _, element in ipairs(EP.Layout(match, false, crests)) do
+            kinds[#kinds + 1] = element.kind
+        end
+        local n = #kinds
+        assert.same({ EP.ELEMENT_CREST, EP.ELEMENT_CREST, EP.ELEMENT_FOLD }, { kinds[n - 2], kinds[n - 1], kinds[n] })
+        for index = 1, n - 3 do
+            assert.equal(EP.ELEMENT_ROW, kinds[index])
+        end
+
+        -- And drawn: two rows, icon and name and that line, no Equip, no arrow.
+        ns.UI.Frame()
+        local panel = ns.UI.frame.equipPanel
+        EP.Refresh(panel, match)
+        assert.equal("You're set - 2 pieces in your bags want cresting.", panel.answer:GetText())
+        local rows = crestRows(panel)
+        assert.equal(2, #rows)
+        assert.equal(head.second, rows[1].line.second:GetText())
+        assert.equal(waist.second, rows[2].line.second:GetText())
+        assert.is_truthy(rows[1].line.name:GetText():find(HELM, 1, true))
+        assert.is_truthy(rows[2].line.name:GetText():find(BELT, 1, true))
+        for _, frameRow in ipairs(rows) do
+            assert.is_false(frameRow.equip:IsShown())
+            assert.is_false(frameRow.worn:IsShown())
+            assert.is_nil(frameRow.matchRow)
+        end
+        assert.is_false(panel.equipAll:IsShown())
+    end)
+
+    -- One piece: the row still appears, and the line keeps R-2l's form.
+    it("names the one piece when only the helm wants cresting", function()
+        local records = { worn, bag318, bag308, buckle }
+        build("Dungeon", records)
+        local EP = ns.UI.EquipPanel
+        local match = matched("Dungeon", records)
+        assert.equal(1, #EP.PendingCrests())
+        ns.UI.Frame()
+        local panel = ns.UI.frame.equipPanel
+        EP.Refresh(panel, match)
+        assert.equal("You're set - the helm in your bags wants cresting.", panel.answer:GetText())
+        local rows = crestRows(panel)
+        assert.equal(1, #rows)
+        local sep = EP.SECOND_SEPARATOR
+        assert.equal(
+            "Head" .. sep .. "in your bags" .. sep .. "crest to 324 - then wear",
+            rows[1].line.second:GetText()
+        )
+    end)
+
+    -- Under Raid both pieces win as they are: they are swaps, the mark is the
+    -- road rule's, and there is no crest row.
+    it("draws no crest row under Raid, where both pieces are swaps", function()
+        build("Raid")
+        local EP = ns.UI.EquipPanel
+        local match = matched("Raid")
+        local swaps = {}
+        for _, row in ipairs(match.rows) do
+            if row.slot == "Head" or row.slot == "Waist" then
+                assert.equal(ns.Match.STATUS.SWAP, row.status, row.slot)
+                swaps[row.slot] = row.best.key
+            end
+        end
+        assert.same({ Head = bag318.key, Waist = belt.key }, swaps)
+        assert.same({}, EP.PendingCrests())
+        for _, element in ipairs(EP.Layout(match, false, EP.PendingCrests())) do
+            assert.are_not.equal(EP.ELEMENT_CREST, element.kind)
+        end
+        assert.is_true(ns.Glow.Wants(bag318.key))
+        assert.is_true(ns.Glow.Wants(belt.key))
+        ns.UI.Frame()
+        local panel = ns.UI.frame.equipPanel
+        EP.Refresh(panel, match)
+        assert.equal(0, #crestRows(panel))
+    end)
+end)
