@@ -3305,3 +3305,225 @@ describe("Every piece that wants cresting is marked and named (R-2n)", function(
         assert.equal(0, #crestRows(panel))
     end)
 end)
+
+-- R-2o (WKE-698): changing the highlighted vault scenario rebuilds the roads.
+-- R-2m's agent found it beside the content setting: `Options.SetVaultScenario`
+-- wrote the highlight and redrew the tabs, but the map the hover and the bag
+-- mark read is built over the highlight (`UpgradeMapPanel.Gather` resolves it
+-- through `VaultPanel.HighlightScenario`), and nothing asked for a rebuild.
+-- The rule, ARCHITECTURE.md §7: every setting the roads read at build time
+-- rebuilds them when it changes.
+--
+-- The same real path as R-2m's block, over the same six documents (R-2l's):
+-- the companion's import, `Options.SetVaultScenario` - the one writer, which
+-- the Vault tab's dropdown and the Settings page both call - `Rebuild` ->
+-- `Gather` -> `Model`, `Tooltip.Answer` and `Glow.Wants`. The one seam is the
+-- bag scan. The content type stays Dungeon throughout.
+describe("Changing the highlighted vault scenario rebuilds the roads (R-2o)", function()
+    local ns, world
+    local FILES = {
+        Dungeon = {
+            asOffered = "spec/fixtures/qe/qe-droptimizer-Hotornot-abqtlwlwsnms.json",
+            maxed = "spec/fixtures/qe/qe-droptimizer-Hotornot-zdgtaqcigomq.json",
+            uf = "spec/fixtures/qe/r2l/qe-upgradefinder-Hotornot-pxfjkvtjslxy.json",
+        },
+        Raid = {
+            asOffered = "spec/fixtures/qe/r2l/qe-droptimizer-Hotornot-hfuvwbktjxbn.json",
+            maxed = "spec/fixtures/qe/r2l/qe-droptimizer-Hotornot-yomfpzeabcrr.json",
+            uf = "spec/fixtures/qe/r2l/qe-upgradefinder-Hotornot-vpbzaajcevxr.json",
+        },
+    }
+    local SETTINGS = {
+        asOffered = { autoUpgradeVault = false, autoUpgradeAll = false, autoCatalyze = false },
+        maxed = { autoUpgradeVault = true, autoUpgradeAll = true, autoCatalyze = true },
+    }
+    local WORN_LINK = "|cnIQ4:|Hitem:271528:7961:240892::::::90:105::35:6:6652:13440:13695:13692:13698:12846"
+        .. ":1:64:239033:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    local BAG_318_LINK = "|cnIQ4:|Hitem:271528::::::::90:105::35:6:13692:12849:13440:6652:13696:13698"
+        .. "::::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    local BAG_308_LINK = "|cnIQ4:|Hitem:271528:7960:::::::90:105::23:7:6652:13439:13696:12838:13692:13698:1561"
+        .. ":1:64:251140:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    local WRITTEN_AT = "2026-10-07T23:22:02.000Z"
+
+    -- R-2l's two committed blocks for the bag 318 under Dungeon: `as offered`
+    -- (its test "says the same under as offered, where the 318 is rated
+    -- behind") and `everything upgraded` (its owner's-screen test). They
+    -- differ by the finish line, which only the `maxed` pick carries.
+    local AS_OFFERED_BLOCK = {
+        "Lootpath · Head",
+        "+0.19% Upgrade",
+        "Crest to 324 - then wear.",
+    }
+    local MAXED_BLOCK = {
+        "Lootpath · Head",
+        "+0.19% Upgrade",
+        "Crest to 324 - then wear.",
+        "rated with: Empowered Hex of Leeching (missing)",
+    }
+
+    local bag318, rebuilds
+
+    local function record(link, level, location)
+        local parsed = ns.ParseItemLink(link)
+        return {
+            key = parsed.key,
+            itemID = parsed.itemID,
+            bonusIDs = parsed.bonusIDs,
+            link = link,
+            name = "Enigmatic Dreamwatcher's Somnolent Stare",
+            slot = "Head",
+            itemLevel = level,
+            location = location,
+        }
+    end
+
+    local function exports()
+        local list = {}
+        for _, contentType in ipairs({ "Dungeon", "Raid" }) do
+            for _, scenario in ipairs({ "asOffered", "maxed" }) do
+                list[#list + 1] = {
+                    schema = "qe-live-droptimizer",
+                    contentType = contentType,
+                    scenario = scenario,
+                    qeSettings = SETTINGS[scenario],
+                    json = readFile(FILES[contentType][scenario]),
+                }
+            end
+            list[#list + 1] = {
+                schema = "qe-live-upgradefinder",
+                contentType = contentType,
+                keyLevel = 10,
+                json = readFile(FILES[contentType].uf),
+            }
+        end
+        return list
+    end
+
+    local function block(link)
+        local answer = ns.UI.Tooltip.Answer(link)
+        assert.is_table(answer, link)
+        local out = {}
+        for index, line in ipairs(ns.UI.Tooltip.Lines(answer, {})) do
+            out[index] = line.text
+        end
+        return out
+    end
+
+    -- Past the debounce, so whatever was asked for has been built.
+    local function settle()
+        world.runTimers(ns.RoadsCache.DEBOUNCE_SECONDS + 1)
+    end
+
+    before_each(function()
+        ns, world = H.load()
+        local worn = record(WORN_LINK, 321, "equipped")
+        bag318 = record(BAG_318_LINK, 318, "bag")
+        local bag308 = record(BAG_308_LINK, 308, "bag")
+        ns.Inventory.Scan = function()
+            return { ok = true, records = { worn, bag318, bag308 } }
+        end
+        -- Highlighting `as offered`, the scenario Equip Now reads, before the
+        -- import builds the map. The content type is unset: Dungeon.
+        ns.db.profile.settings.vaultScenario = "asOffered"
+        local imported = ns.Companion.ImportAll({ writtenAt = WRITTEN_AT, exports = exports() })
+        assert.is_true(imported.ok, imported.reason)
+        assert.equal(6, #imported.imported)
+        settle()
+        rebuilds = 0
+        local rebuild = ns.RoadsCache.Rebuild
+        ns.RoadsCache.Rebuild = function(...)
+            rebuilds = rebuilds + 1
+            return rebuild(...)
+        end
+    end)
+
+    after_each(function()
+        ns.RoadsCache.Reset()
+        H.unload()
+    end)
+
+    -- PROVEN RED (the rebuild out of `Options.SetVaultScenario`): after the
+    -- change to `everything upgraded` the hover still reads the `as offered`
+    -- block. Asserted straight after the call, with no timer run and no other
+    -- event: the change is built at once.
+    it("answers the bag 318 for as offered, then for everything upgraded the moment the highlight changes", function()
+        assert.equal("Dungeon", ns.UI.Options.Get())
+        assert.equal("asOffered", ns.UI.Options.GetVaultScenario())
+        assert.same(AS_OFFERED_BLOCK, block(bag318.link))
+
+        ns.UI.Options.SetVaultScenario("maxed")
+        assert.same(MAXED_BLOCK, block(bag318.link))
+        assert.equal(1, rebuilds)
+
+        ns.UI.Options.SetVaultScenario("asOffered")
+        assert.same(AS_OFFERED_BLOCK, block(bag318.link))
+        assert.equal(2, rebuilds)
+    end)
+
+    -- The bag mark reads the same map, so the change reaches it when it
+    -- reaches the hover: after the change the map is a new build, and every
+    -- mark on it is what a fresh `everything upgraded` build marks. PROVEN RED
+    -- with the hover's guard: without the rebuild the map is the old one.
+    it("has the bag mark read the map built for the new highlight", function()
+        local before = ns.RoadsCache.Map()
+        ns.UI.Options.SetVaultScenario("maxed")
+        local after = ns.RoadsCache.Map()
+        assert.are_not.equal(before, after)
+        assert.is_true(ns.Glow.Wants(bag318.key))
+        local marked = {}
+        for key, wants in pairs(after.glow) do
+            marked[key] = wants
+        end
+        ns.RoadsCache.Rebuild()
+        assert.same(ns.RoadsCache.Map().glow, marked)
+    end)
+
+    -- The redraw the change makes reads the map (Equip Now's crest line,
+    -- R-2l), so the map must already be the new one when the redraw runs.
+    -- PROVEN RED (the rebuild moved after `UI.Refresh`): the redraw reads the
+    -- map built before the change.
+    it("rebuilds before the redraw", function()
+        local before = ns.RoadsCache.Map()
+        local seen
+        local refresh = ns.UI.Refresh
+        ns.UI.Refresh = function(...)
+            seen = ns.RoadsCache.Map()
+            return refresh(...)
+        end
+        ns.UI.Options.SetVaultScenario("maxed")
+        ns.UI.Refresh = refresh
+        assert.is_table(seen)
+        assert.are_not.equal(before, seen)
+        assert.equal(seen, ns.RoadsCache.Map())
+    end)
+
+    -- Nothing runs in combat: a change made there builds nothing until the
+    -- combat ends, and then the hover answers for the new highlight. PROVEN
+    -- RED (`Rebuild`'s combat refusal taken out): the map is rebuilt in combat.
+    it("builds nothing in combat and follows the change once combat ends", function()
+        local before = ns.RoadsCache.Map()
+        world.inCombat = true
+        ns.UI.Options.SetVaultScenario("maxed")
+        settle()
+        assert.equal(before, ns.RoadsCache.Map())
+        assert.same(AS_OFFERED_BLOCK, block(bag318.link))
+        world.inCombat = false
+        world.fireEvent("PLAYER_REGEN_ENABLED")
+        settle()
+        assert.same(MAXED_BLOCK, block(bag318.link))
+    end)
+
+    -- PROVEN RED (the `changed` test out of `Options.SetVaultScenario`): one
+    -- rebuild for a highlight that changed no answer.
+    it("rebuilds nothing when the highlight is set to the value it already has", function()
+        ns.UI.Options.SetVaultScenario("asOffered")
+        settle()
+        assert.equal(0, rebuilds)
+        ns.UI.Options.SetVaultScenario("maxed")
+        settle()
+        assert.equal(1, rebuilds)
+        ns.UI.Options.SetVaultScenario("maxed")
+        settle()
+        assert.equal(1, rebuilds)
+    end)
+end)
