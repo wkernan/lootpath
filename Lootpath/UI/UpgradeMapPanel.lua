@@ -4706,6 +4706,13 @@ end
 -- beside the icon: the step at the bottom, `second` above it, the name above.
 local function sizeCard(tile, width, height)
     sizeTile(tile, width, height)
+    -- The size the card was given, kept for its art's crop (UX-5i, WKE-701).
+    -- `GetWidth()` / `GetHeight()` read the frame's RECT unless asked
+    -- otherwise (`ignoreRect`, Default = false, ScriptRegion.lua under .luals/),
+    -- and a card in the scroll box is drawn before the client lays it out, so
+    -- the crop is taken from these numbers - as sizeTile takes the mosaic's -
+    -- and never read back from the frame.
+    tile.cardWidth, tile.cardHeight = width, height
     tile.cardIcon:ClearAllPoints()
     tile.cardIcon:SetPoint("BOTTOMLEFT", tile, "BOTTOMLEFT", Panel.TILE_INSET, Panel.TILE_INSET)
     tile.cardLine:ClearAllPoints()
@@ -5275,13 +5282,15 @@ function Panel.InitCard(panel, tile, card)
     -- tile chooses and crops it (UX-5d), when the walk recorded one; otherwise
     -- the item's own icon behind the shade, cropped to the card's proportion
     -- as the mosaic crops (UX-5b) and at the mosaic's alpha. Never a picture of
-    -- somewhere else.
+    -- somewhere else. The proportion is the one sizeCard gave the card, never
+    -- the frame's answer at this moment: on the owner's screen that answer
+    -- kept the whole square icon, which the card then stretched (UX-5i).
     if card.art then
         drawArt(tile.art, card.art, card.artTexCoord, card.artAtlas)
         tile.art:SetAlpha(1)
     else
         tile.art:SetTexture(resolved.icon)
-        tile.art:SetTexCoord(unpack(Panel.MosaicTexCoord(tile:GetWidth(), tile:GetHeight())))
+        tile.art:SetTexCoord(unpack(Panel.MosaicTexCoord(tile.cardWidth, tile.cardHeight)))
         tile.art:SetAlpha(Panel.MOSAIC_ALPHA)
     end
     tile.art:Show()

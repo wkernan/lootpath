@@ -4675,3 +4675,129 @@ describe("UpgradeMapPanel.RoadInputs and the items no pass was shown", function(
         )
     end)
 end)
+
+-- UX-5i (WKE-701): a road card with no instance art draws its item's icon
+-- behind the shade, cropped to the card's proportion as the mosaic crops
+-- (UX-5b). The owner's screenshot showed the square icon pulled across a wide
+-- card: the crop had been asked of the frame (`GetWidth()` / `GetHeight()`,
+-- which read the frame's rect unless `ignoreRect`) while the scroll box had
+-- not laid the card out, so it answered no size and the crop kept the whole
+-- icon. The crop now comes from the size the card is given. Each guard here
+-- makes the frame answer 0 x 0 - the rect the client had not resolved - so a
+-- crop read back from the frame fails it.
+describe("UpgradeMapPanel road card art (UX-5i)", function()
+    local ns, world, Panel
+
+    before_each(function()
+        ns, world = H.load()
+        Panel = ns.UpgradeMapPanel
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- A frame whose rect is not resolved yet: nothing it answers about its own
+    -- size can be used, and an explicit size set on it changes none of that.
+    local function unresolved(tile)
+        tile.GetWidth = function()
+            return 0
+        end
+        tile.GetHeight = function()
+            return 0
+        end
+    end
+
+    local function cardRow(panel, width, height, cards, element)
+        element = element or CreateFrame("Frame", nil, panel)
+        local data = {
+            kind = Panel.ELEMENT_CARD_ROW,
+            height = height + Panel.TILE_ROW_PADDING,
+            tileWidth = width,
+            tileHeight = height,
+            cards = cards,
+        }
+        if element.cards then
+            for _, tile in ipairs(element.cards) do
+                unresolved(tile)
+            end
+        end
+        Panel.InitElement(panel, element, data)
+        return element
+    end
+
+    -- The card's own row, with the frames made unresolved BEFORE the card is
+    -- drawn: the first bind builds the frames, so it is bound twice.
+    local function drawn(panel, width, height, card)
+        local element = cardRow(panel, width, height, { card })
+        return cardRow(panel, width, height, { card }, element).cards[1]
+    end
+
+    local OWNED = { row = { itemID = 250000, icon = 4242, name = "Placeholder Stare", itemLevel = 334, quality = 4 } }
+
+    it("crops the icon to the card's own proportion, whatever the frame answers when it is drawn", function()
+        local panel = Panel.Create()
+        local width, height = Panel.CardSize(nil)
+        assert.is_true(width > height, "the card is wider than tall, or this guard proves nothing")
+        local tile = drawn(panel, width, height, OWNED)
+        assert.equal(0, tile:GetWidth())
+        assert.equal(0, tile:GetHeight())
+        assert.equal(4242, tile.art:GetTexture())
+        local keep = height / width
+        assert.equal(0, tile.art.texCoord[1])
+        assert.equal(1, tile.art.texCoord[2])
+        assert.is_true(math.abs(tile.art.texCoord[3] - (1 - keep) / 2) < 1e-9)
+        assert.is_true(math.abs(tile.art.texCoord[4] - (1 + keep) / 2) < 1e-9)
+        assert.is_not.same({ 0, 1, 0, 1 }, tile.art.texCoord)
+        assert.equal(Panel.MOSAIC_ALPHA, tile.art:GetAlpha())
+    end)
+
+    it("keeps the band when the card is drawn again for a name that arrives later", function()
+        local panel = Panel.Create()
+        local width, height = Panel.CardSize(nil)
+        local pending = { row = { itemID = 250001, icon = 4243, itemLevel = 334 } }
+        local tile = drawn(panel, width, height, pending)
+        assert.is_not_nil(tile.request, "the card never asked for the name, so the re-draw is not exercised")
+        world.items[250001] = {
+            instant = { 250001, "Armor", "Leather", "INVTYPE_HEAD", 4243, 4, 2 },
+            info = { "Placeholder Hood", "|Hitem:250001|h[Placeholder Hood]|h", 4, n = 3 },
+            level = 334,
+        }
+        tile.art.texCoord = nil
+        world.fireEvent("ITEM_DATA_LOAD_RESULT", 250001, true)
+        assert.is_truthy(tile.name:GetText():find("Placeholder Hood", 1, true))
+        assert.same(Panel.MosaicTexCoord(width, height), tile.art.texCoord)
+        assert.is_not.same({ 0, 1, 0, 1 }, tile.art.texCoord)
+    end)
+
+    it("follows a pooled card to its new size", function()
+        local panel = Panel.Create()
+        local width, height = Panel.CardSize(nil)
+        local element = cardRow(panel, width, height, { OWNED })
+        cardRow(panel, width, height, { OWNED }, element)
+        local wider = width + 40
+        cardRow(panel, wider, height, { OWNED }, element)
+        assert.same(Panel.MosaicTexCoord(wider, height), element.cards[1].art.texCoord)
+    end)
+
+    it("keeps the whole icon on a square card", function()
+        local panel = Panel.Create()
+        local _, height = Panel.CardSize(nil)
+        local tile = drawn(panel, height, height, OWNED)
+        assert.same({ 0, 1, 0, 1 }, tile.art.texCoord)
+    end)
+
+    it("leaves a card with instance art on the art's own crop (UX-5d)", function()
+        local panel = Panel.Create()
+        local width, height = Panel.CardSize(nil)
+        local withArt = {
+            row = OWNED.row,
+            art = 1234567,
+            artTexCoord = Panel.TILE_LORE_TEX_COORD,
+        }
+        local tile = drawn(panel, width, height, withArt)
+        assert.equal(1234567, tile.art:GetTexture())
+        assert.same(Panel.TILE_LORE_TEX_COORD, tile.art.texCoord)
+        assert.equal(1, tile.art:GetAlpha())
+    end)
+end)
