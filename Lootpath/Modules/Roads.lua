@@ -3468,10 +3468,13 @@ Roads.WEAR_OVER_SENTENCE = "Wear %s - better than your %s."
 -- Catalyst already does; the level stays on the road's badge.
 Roads.WEAR_CREST_SENTENCE = "Wear %s - crest %s after."
 -- A piece you hold that wins only once it is crested (R-2l, WKE-695): the
--- crest first, to the FIRST level any row rates as a win, then the wear. The
--- owner's short form, 2026-10-07 ("Crest to 324 - then wear"); the percent is
--- the block's own line above it, never in the sentence.
-Roads.CREST_WEAR_SENTENCE = "Crest to %d - then wear."
+-- crest first, to the FIRST level any row rates as a win. The owner's short
+-- form, 2026-10-07 ("Crest to 324 - then wear"), cut again on 2026-10-08
+-- (R-2p, WKE-699): "let's drop the ' - then wear.' Don't end it with a
+-- period." The one tooltip sentence with no period; the crest road's
+-- `TODO_CREST_THEN_WEAR` and Equip Now's crest row keep "- then wear" (§11).
+-- The percent is the block's own line under it, never in the sentence.
+Roads.CREST_WEAR_SENTENCE = "Crest to %d"
 Roads.CATALYST_SENTENCE = "Catalyst %s - tier %s."
 -- The same, over the vault reward it is made from, when the rating put the tier
 -- piece above the level the reward is at (R-2e, WKE-663). The crest clause is
