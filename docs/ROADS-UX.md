@@ -90,6 +90,33 @@ rated with: Empowered Hex of Leeching (missing)
 
   Every other tooltip sentence keeps its period, so the block now holds one line without one beside sentences that end in one; and the Upgrade Map's step (`do: crest to 324 - then wear`) and Equip Now's crest row (`crest to 324 - then wear`) are unchanged. Both are the owner's to rule on (brain §11).
 
+**Surface 1, amended 2026-10-08 night (R-2q, WKE-700; ARCHITECTURE.md §7): a crested copy keeps its answer.** The owner crested the bag 318 helm to 321, then to 324, before a refresh: "After cresting the helm once to 321 - I lose the arrow. And still after the second cresting at 324 same thing." Both hovers read `Crest this to 334 - then refresh.` and no bag mark: cresting gives the copy a key no rating carries. **A copy crested since the rating is the rated copy, crested** - known by the same item and the same bonus IDs but the one a crest replaces, at a higher level - and it answers as that copy: below the first winning level, R-2p's block (`Crest to 324` / `+0.19% Upgrade`); AT it, the bag pick's own sentence, `Wear this.`, over that level's figure. The mark stays on both. A copy crested from one the rating already wears as offered is still a win and gets no crest answer; a Catalyst copy and a worn copy are never asked. No new sentence.
+
+```
+Lootpath · Head
+Crest to 324
++0.19% Upgrade
+rated with: Empowered Hex of Leeching (missing)
+```
+(the copy at 321)
+
+```
+Lootpath · Head
+Wear this.
++0.19% Upgrade
+rated with: Empowered Hex of Leeching (missing)
+```
+(the copy at 324)
+
+**Equip Now, amended 2026-10-08 night (R-2q, WKE-700).** A piece crested to its first winning level is a piece to put on: the answer counts it in the put-on clause (`Put on the Dreamwatcher helm. Everything else is your best set.`), and its row is R-2n's crest row with `wear it` where the crest clause was, plus a swap row's worn icon, arrow and Equip button:
+
+```
+[worn icon] -> [icon] Enigmatic Dreamwatcher's Somnolent Stare      [Equip]
+                      Head · in your bags · wear it
+```
+
+Below the first winning level the crest row stands as R-2n drew it. `Equip all` does not take a wear row; its own button does.
+
 **Equip Now, amended 2026-10-07 (R-2l, WKE-695).** Equip Now stays the answer for right now (`as offered`) and names the pending step the way it names finishing: `You're set - the helm in your bags wants cresting.` (two or more: `You're set - 2 pieces in your bags want cresting.`; finishing follows it: ` 1 piece wants finishing.`). A held copy below its first winning level is never a swap there. The owner asked for `the Myth helm`; which upgrade track a copy is on is read only by the developer-only track table, so the copy is named by where it is. Under Raid, where `as offered` takes the bag 318, the tab offers the swap: M2-6's rule read the worn 321 as that pick crested since, and now refuses a worn copy the document itself rated and left out.
 
 **Equip Now, amended 2026-10-08 (R-2n, WKE-697; ARCHITECTURE.md §7): the line names how many, the rows name which.** The owner, over `You're set - 2 pieces in your bags want cresting.`: "it was difficult for me to determine what the other piece was I needed to crest." Under the answer, one row per piece the line counts, after any row that needs something and before the `already best` fold, in a swap row's shape with nothing to click:

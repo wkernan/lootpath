@@ -136,6 +136,8 @@ Bags.NO_LINK = "item: no link given; hover a bag slot and shift-click it into th
 Bags.BAD_LINK = "item: that is not an item link"
 -- R-2n (WKE-697): the reason a crest-pending piece is marked.
 Bags.CREST_PENDING_LINE = "item: crest pending to %d, and the map points at it"
+-- R-2q (WKE-700): a piece crested since the rating, already at that level.
+Bags.WEAR_PENDING_LINE = "item: wins as it is at %d, and the map points at it"
 
 -- What the map says about one link, in the four steps a false answer can fail
 -- at: the key the link makes, whether that key is in the map, what the map
@@ -161,7 +163,8 @@ function Bags.LinkLines(link)
     -- R-2n (WKE-697): a piece that wins only once crested is marked for that,
     -- whatever its own road says, so the reason is that.
     if ns.RoadsCache.CrestPending(answer) then
-        lines[#lines + 1] = string.format(Bags.CREST_PENDING_LINE, answer.crestTo.level)
+        local line = answer.crestTo.wear and Bags.WEAR_PENDING_LINE or Bags.CREST_PENDING_LINE
+        lines[#lines + 1] = string.format(line, answer.crestTo.level)
     elseif own then
         lines[#lines + 1] = string.format(
             "item: its own road is %s, and the map %s it",

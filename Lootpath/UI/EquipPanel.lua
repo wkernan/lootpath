@@ -545,6 +545,10 @@ function EquipPanel.PendingCrests(map)
                 slot = held.slot or answer.slot,
                 level = answer.crestTo.level,
                 record = answer.heldItem,
+                -- R-2q (WKE-700): a copy crested since the rating that is
+                -- already AT its first winning level - nothing left to
+                -- crest, a piece to put on.
+                wear = answer.crestTo.wear == true or nil,
             }
         end
     end
@@ -557,9 +561,21 @@ function EquipPanel.PendingCrests(map)
     return out
 end
 
--- The answer line's pending-crest sentence, or nil.
+-- The answer line's pending-crest sentence, or nil. A piece already at its
+-- first winning level (R-2q) is a piece to put on, counted by `AnswerText`'s
+-- put-on clause, never here.
 function EquipPanel.CrestText(crests)
-    if type(crests) ~= "table" or #crests == 0 then
+    if type(crests) ~= "table" then
+        return nil
+    end
+    local pending = {}
+    for _, crest in ipairs(crests) do
+        if not crest.wear then
+            pending[#pending + 1] = crest
+        end
+    end
+    crests = pending
+    if #crests == 0 then
         return nil
     end
     if #crests > 1 then
@@ -589,13 +605,62 @@ function EquipPanel.CrestRowWords(level)
     return string.format(clause, level)
 end
 
+-- R-2q (WKE-700): a piece crested since the rating that is already at its
+-- first winning level is no longer a crest row: it is a piece to put on. The
+-- row keeps R-2n's shape with `wear it` where the crest clause was, and gains
+-- what a swap row has - the worn icon, the arrow and the Equip button - built
+-- as a swap row of its own (`WearRow`), because `Match.Build` reads the
+-- `as offered` document, which never rated this copy, and a row it did not
+-- build cannot be made one of its rows without saying the document did. The
+-- evidence is the same QE Live row the hover's percent is: that item at that
+-- level, a positive percent over what you wear.
+EquipPanel.WEAR_ROW_WORDS = "wear it"
+
+-- The worn record a wear row replaces: the one the match put in that slot.
+local function wornFor(match, slot)
+    for _, row in ipairs(type(match) == "table" and type(match.rows) == "table" and match.rows or {}) do
+        if row.slot == slot then
+            local worn = row.equipped
+            if worn == nil and row.status == "equipped_is_best" then
+                worn = row.best
+            end
+            if type(worn) == "table" and worn.location == "equipped" then
+                return worn
+            end
+        end
+    end
+    return nil
+end
+
+-- The swap a wear row's Equip button acts on, in `Match.Build`'s own row shape
+-- so `Equip` takes it through the same checks: the scanned copy as `best`, the
+-- worn record of that slot as `equipped` and its slot as `dstSlot`. nil for a
+-- crest row.
+function EquipPanel.WearRow(crest, match)
+    if type(crest) ~= "table" or not crest.wear or type(crest.record) ~= "table" then
+        return nil
+    end
+    local worn = wornFor(match, crest.slot)
+    return {
+        slot = crest.slot,
+        status = "swap",
+        best = crest.record,
+        equipped = worn,
+        dstSlot = worn and worn.slotIndex or nil,
+        wear = true,
+    }
+end
+
 -- The row as the two shapes a drawn row binds, `Describe`'s and `Drawn`'s, so
--- `DrawRow` draws it exactly as it draws a swap: { described, drawn }.
-function EquipPanel.CrestRow(crest)
+-- `DrawRow` draws it exactly as it draws a swap: { described, drawn }, and for
+-- a wear row (R-2q) the swap its button acts on as the third.
+function EquipPanel.CrestRow(crest, match)
     local record = type(crest) == "table" and crest.record or nil
     local slot = type(crest) == "table" and type(crest.slot) == "string" and crest.slot or ""
     local where = type(record) == "table" and whereText(record) or "in your bags"
-    local words = EquipPanel.CrestRowWords(type(crest) == "table" and crest.level or nil)
+    local wearRow = EquipPanel.WearRow(crest, match)
+    local words = wearRow and EquipPanel.WEAR_ROW_WORDS
+        or EquipPanel.CrestRowWords(type(crest) == "table" and crest.level or nil)
     local second = words and (where .. EquipPanel.SECOND_SEPARATOR .. words) or where
     if slot ~= "" then
         second = slot .. EquipPanel.SECOND_SEPARATOR .. second
@@ -605,14 +670,15 @@ function EquipPanel.CrestRow(crest)
         slot = slot,
         text = string.format("%s - %s", EquipPanel.RecordText(record), second),
         status = EquipPanel.ELEMENT_CREST,
-        actionable = false,
+        actionable = wearRow ~= nil and ns.Match.IsSwap(wearRow),
         name = item and item.name or nil,
         second = second,
         tags = {},
         item = item,
+        worn = wearRow and EquipPanel.ItemFromRecord(wearRow.equipped) or nil,
     }
     local drawn = { status = EquipPanel.ELEMENT_CREST, dim = false, second = second }
-    return described, drawn
+    return described, drawn, wearRow
 end
 
 -- How many settled rows want finishing.
@@ -919,6 +985,14 @@ function EquipPanel.AnswerText(match, unrated, crests)
     -- silently shorten the list rather than the sentence.
     local swaps, vaults = 0, 0
     local swapName, vaultName
+    -- R-2q (WKE-700): a piece at its first winning level is one to put on, the
+    -- same clause a swap gets.
+    for _, crest in ipairs(type(crests) == "table" and crests or {}) do
+        if crest.wear then
+            swaps = swaps + 1
+            swapName = swapName or shortName(EquipPanel.RecordName(crest.record), crest.slot)
+        end
+    end
     for _, row in ipairs(match.rows or {}) do
         if row.status == "swap" then
             swaps = swaps + 1
@@ -2100,9 +2174,10 @@ function EquipPanel.Refresh(panel, match)
                     frameRow = createRow(panel, rowsDrawn)
                     panel.rows[rowsDrawn] = frameRow
                 end
-                local described, shownRow = EquipPanel.CrestRow(element.crest)
-                -- Not a match row: nothing on it can be equipped from here.
-                frameRow.matchRow = nil
+                local described, shownRow, wearRow = EquipPanel.CrestRow(element.crest, match)
+                -- Not a match row. A crest row has nothing to equip; a wear
+                -- row (R-2q) carries its own swap for the Equip button.
+                frameRow.matchRow = wearRow
                 frameRow.crest = element.crest
                 frameRow.described = described
                 frameRow.drawn = shownRow

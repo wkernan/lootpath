@@ -1348,7 +1348,14 @@ end
 -- the SAME document (a row's figures all come from one run, [R5 7]).
 -- `documents` is `ns.UFImport.Documents(contentType)` - the content on
 -- screen's, and only that one's.
-function Roads.FirstWinningLevel(held, documents, cap)
+--
+-- `inclusive` (R-2q, WKE-700): the copy's OWN level counts too, and when it is
+-- the first winning level the answer carries `wear = true`. Only for a crested
+-- successor (`Roads.CrestedFrom`): no document rated that copy as it is, so a
+-- row at its own level is the only evidence there is about it. A copy the
+-- `as offered` document rated as it is and left out has that document's word
+-- at its own level, and a row there is never read over it.
+function Roads.FirstWinningLevel(held, documents, cap, inclusive)
     if type(held) ~= "table" or type(documents) ~= "table" then
         return nil
     end
@@ -1360,7 +1367,7 @@ function Roads.FirstWinningLevel(held, documents, cap)
     end
     local first
     for _, at in ipairs(ns.UFImport.LevelsAcrossLevels(documents, itemID) or {}) do
-        if not first and at > level and at <= top then
+        if not first and (at > level or (inclusive == true and at == level)) and at <= top then
             local entry, keyLevel = ns.UFImport.LookupAcrossLevels(documents, itemID, at)
             if entry and ns.UFImport.IsUpgrade(entry) then
                 first = { level = at, percent = entry.upgradePercent, keyLevel = keyLevel }
@@ -1370,6 +1377,7 @@ function Roads.FirstWinningLevel(held, documents, cap)
     if not first then
         return nil
     end
+    first.wear = first.level <= level or nil
     first.rows = { { level = first.level, percent = first.percent } }
     local document = documentAt(documents, first.keyLevel)
     local verdict = document and document.verdict or nil
@@ -1384,10 +1392,103 @@ function Roads.FirstWinningLevel(held, documents, cap)
     return first
 end
 
+-- The copy a held record was crested FROM, as a document knows it (R-2q,
+-- WKE-700): `{ key, level, name }`, or nil.
+--
+-- The owner, 2026-10-08 night, crested his bag 318 helm to 321 and then to
+-- 324 before a refresh, and both times lost the crest answer and the mark:
+-- cresting gave the copy a key no document carries, and every rule above
+-- answers by key. A crest REPLACES the upgrade bonus ID rather than adding
+-- one (R-3c, 2026-09-15; the owner's own worn helm reads `...:12845` before a
+-- crest and `...:12846` after it in his SavedVariables), so the copy it was
+-- made from is the one the document knows with the same item ID, the same
+-- number of bonus IDs, every one of them the same but exactly one, and a
+-- LOWER level. M2-5's identity: a crested copy is the rated piece, crested.
+-- Read off the keys and the document's own levels; no track table, no level
+-- worked out. Of several, the highest below the copy's level, then the
+-- lowest key, so one answer is always the same answer.
+local function bonusesOf(key)
+    local out = {}
+    local first = true
+    for part in tostring(key):gmatch("[^:]+") do
+        if first then
+            first = false
+        else
+            out[#out + 1] = part
+        end
+    end
+    return out
+end
+
+local function oneSwapped(left, right)
+    local a, b = bonusesOf(left), bonusesOf(right)
+    if #a ~= #b or #a == 0 then
+        return false
+    end
+    local seen = {}
+    for _, bonus in ipairs(a) do
+        seen[bonus] = (seen[bonus] or 0) + 1
+    end
+    local missing = 0
+    for _, bonus in ipairs(b) do
+        if (seen[bonus] or 0) > 0 then
+            seen[bonus] = seen[bonus] - 1
+        else
+            missing = missing + 1
+        end
+    end
+    return missing == 1
+end
+
+function Roads.CrestedFrom(verdict, record)
+    if type(verdict) ~= "table" or type(record) ~= "table" or type(record.key) ~= "string" then
+        return nil
+    end
+    local itemID = tonumber(record.itemID)
+    local level = tonumber(record.itemLevel or record.level)
+    if not itemID or not level then
+        return nil
+    end
+    local best
+    local function offer(key, at)
+        at = tonumber(at)
+        if type(key) ~= "string" or key == record.key or not at or at >= level then
+            return
+        end
+        if tonumber(key:match("^(%d+)")) ~= itemID or not oneSwapped(record.key, key) then
+            return
+        end
+        if not best or at > best.level or (at == best.level and key < best.key) then
+            best = { key = key, level = at, name = record.name }
+        end
+    end
+    local topSet = type(verdict.topSet) == "table" and type(verdict.topSet.items) == "table" and verdict.topSet.items
+        or {}
+    for key, item in pairs(topSet) do
+        offer(type(item) == "table" and item.key or key, type(item) == "table" and item.level or nil)
+    end
+    for _, alternative in ipairs(type(verdict.alternatives) == "table" and verdict.alternatives or {}) do
+        for _, item in ipairs(type(alternative.items) == "table" and alternative.items or {}) do
+            offer(item.key, item.level)
+        end
+    end
+    for _, entry in ipairs(type(verdict.considered) == "table" and verdict.considered or {}) do
+        offer(ns.Companion.ExcludedKey(entry), type(entry) == "table" and entry.level or nil)
+    end
+    return best
+end
+
 -- The whole question for one copy you carry: is it a piece that wins only once
 -- crested, and to which level first. nil for a worn copy, a Catalyst copy, a
 -- copy `as offered` already takes or cannot speak for, and a copy with no
 -- positive row between the level it is at and its cap.
+--
+-- R-2q (WKE-700): a copy the `as offered` document cannot speak for, crested
+-- from one it did rate (`Roads.CrestedFrom`), is asked as that copy - the
+-- document's answer and the `maxed` cap are the rated piece's, because it IS
+-- the rated piece, crested - and its own level counts as a winning level
+-- (`FirstWinningLevel`'s `inclusive`). A copy crested from one `as offered`
+-- already takes inherits that too, and gets no crest answer.
 function Roads.CrestToWin(inputs, record)
     if type(inputs) ~= "table" or type(record) ~= "table" or record.location == "equipped" then
         return nil
@@ -1395,15 +1496,31 @@ function Roads.CrestToWin(inputs, record)
     if Roads.CatalystSource(record) then
         return nil
     end
-    if Roads.WinsAsOffered(inputs, record) ~= false then
+    local asked = record
+    local wins = Roads.WinsAsOffered(inputs, record)
+    local from
+    if wins == nil then
+        from = Roads.CrestedFrom(scenarioVerdict(inputs, Roads.SCENARIO_AS_OFFERED), record)
+        if from then
+            asked = from
+            wins = Roads.WinsAsOffered(inputs, from)
+        end
+    end
+    if wins ~= false then
         return nil
     end
-    local cap = Roads.CrestCap(inputs, record)
+    local cap = Roads.CrestCap(inputs, asked)
     local level = tonumber(record.itemLevel or record.level)
-    if not cap or not level or cap <= level then
+    -- A copy at its cap reads nothing above it, so only a crested copy's own
+    -- level can answer there.
+    if not cap or not level or cap < level then
         return nil
     end
-    return Roads.FirstWinningLevel(record, inputs.ufDocuments, cap)
+    local crestTo = Roads.FirstWinningLevel(record, inputs.ufDocuments, cap, from ~= nil)
+    if crestTo and from then
+        crestTo.crestedFrom = from.key
+    end
+    return crestTo
 end
 
 -- The crest step's words on the road, with every rated level up to the cap:
@@ -3624,7 +3741,15 @@ function Roads.ItemSentence(answer)
     -- `as offered` document kept the 321 and rated the 318 behind it. The
     -- vault pick in your hands keeps R-2j's words: `ForItemIn` never gives it
     -- a `crestTo`.
+    --
+    -- R-2q (WKE-700): asked before the arrived-pick sentences below, so a copy
+    -- crested since the rating keeps the answer; and a crested copy already AT
+    -- its first winning level is told to put it on, in the bag pick's own
+    -- words (`Wear this.`), its row's percent on the line under it.
     if answer.held == true and type(answer.crestTo) == "table" then
+        if answer.crestTo.wear then
+            return string.format(Roads.WEAR_SENTENCE, Roads.ThisWord(slot))
+        end
         return string.format(Roads.CREST_WEAR_SENTENCE, answer.crestTo.level)
     end
     if type(own) == "table" and own.group == Roads.GROUP_SET then

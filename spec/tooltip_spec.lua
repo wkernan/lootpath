@@ -3594,3 +3594,316 @@ describe("Changing the highlighted vault scenario rebuilds the roads (R-2o)", fu
         assert.equal(1, rebuilds)
     end)
 end)
+
+-- R-2q (WKE-700): a crested copy of a crest-to-win piece keeps its answer and
+-- its mark. The owner, 2026-10-08 night, with two screenshots: "After cresting
+-- the helm once to 321 - I lose the arrow. And still after the second cresting
+-- at 324 same thing." Both read `Crest this to 334 - then refresh.` with no
+-- percent line and no mark. Cresting replaces the copy's upgrade bonus ID
+-- (12849 -> 12850 -> 12851, Myth 1/6 -> 2/6 -> 3/6 in `Data/TrackBonusIDs.lua`),
+-- so no document knows its key: `WinsAsOffered` and `CrestCap` both answered
+-- nil, `CrestToWin` gave up, and the copy fell to the arrived-pick sentence
+-- R-3e wrote for a pick that changed key.
+--
+-- R-2l's documents and links, unedited; the two crested links are R-2l's bag
+-- 318 link with the one upgrade bonus ID swapped for the next Myth step's -
+-- the owner's live SavedVariables, flushed at 21:00:54 that day, still carry
+-- the 318 (he crested after it), so the real links were not on disk to read.
+describe("A crested copy keeps the crest answer and the mark (R-2q)", function()
+    local ns
+    local FILES = {
+        Dungeon = {
+            asOffered = "spec/fixtures/qe/qe-droptimizer-Hotornot-abqtlwlwsnms.json",
+            maxed = "spec/fixtures/qe/qe-droptimizer-Hotornot-zdgtaqcigomq.json",
+            uf = "spec/fixtures/qe/r2l/qe-upgradefinder-Hotornot-pxfjkvtjslxy.json",
+        },
+        Raid = {
+            asOffered = "spec/fixtures/qe/r2l/qe-droptimizer-Hotornot-hfuvwbktjxbn.json",
+            maxed = "spec/fixtures/qe/r2l/qe-droptimizer-Hotornot-yomfpzeabcrr.json",
+            uf = "spec/fixtures/qe/r2l/qe-upgradefinder-Hotornot-vpbzaajcevxr.json",
+        },
+    }
+    local SETTINGS = {
+        asOffered = { autoUpgradeVault = false, autoUpgradeAll = false, autoCatalyze = false },
+        maxed = { autoUpgradeVault = true, autoUpgradeAll = true, autoCatalyze = true },
+    }
+    local WORN_LINK = "|cnIQ4:|Hitem:271528:7961:240892::::::90:105::35:6:6652:13440:13695:13692:13698:12846"
+        .. ":1:64:239033:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    local BAG_318_LINK = "|cnIQ4:|Hitem:271528::::::::90:105::35:6:13692:12849:13440:6652:13696:13698"
+        .. "::::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    local BAG_308_LINK = "|cnIQ4:|Hitem:271528:7960:::::::90:105::23:7:6652:13439:13696:12838:13692:13698:1561"
+        .. ":1:64:251140:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
+    -- Myth 2/6 and 3/6: `Data/TrackBonusIDs.lua`'s 12850 (321) and 12851 (324,
+    -- client-confirmed), in place of the 318's 12849.
+    local BAG_321_LINK = (BAG_318_LINK:gsub(":12849:", ":12850:"))
+    local BAG_324_LINK = (BAG_318_LINK:gsub(":12849:", ":12851:"))
+    local FINISH = "rated with: Empowered Hex of Leeching (missing)"
+
+    local worn, bag308
+
+    local function record(link, level, location, slotIndex)
+        local parsed = ns.ParseItemLink(link)
+        return {
+            key = parsed.key,
+            itemID = parsed.itemID,
+            bonusIDs = parsed.bonusIDs,
+            link = link,
+            name = "Enigmatic Dreamwatcher's Somnolent Stare",
+            slot = "Head",
+            itemLevel = level,
+            location = location,
+            bag = location == "bag" and 1 or nil,
+            slotIndex = slotIndex,
+        }
+    end
+
+    local function droptimizer(contentType, scenario)
+        local parsed = ns.QEImport.Parse(readFile(FILES[contentType][scenario]))
+        assert.is_true(parsed.ok, parsed.reason)
+        parsed.verdict.scenario = scenario
+        parsed.verdict.qeSettings = SETTINGS[scenario]
+        return parsed.verdict
+    end
+
+    local function upgradeFinder(contentType)
+        local parsed = ns.UFImport.Parse(readFile(FILES[contentType].uf))
+        assert.is_true(parsed.ok, parsed.reason)
+        return { { verdict = parsed.verdict, keyLevel = 10 } }
+    end
+
+    -- The map over the worn 321, the crested bag copy and the bag 308, the
+    -- way the hover reads it.
+    local function build(contentType, highlighted, copy)
+        local inputs = {
+            verdicts = {
+                { verdict = droptimizer(contentType, "asOffered"), scenario = "asOffered" },
+                { verdict = droptimizer(contentType, "maxed"), scenario = "maxed" },
+            },
+            highlightedScenario = highlighted,
+            ufDocuments = upgradeFinder(contentType),
+            inventory = { records = { worn, copy, bag308 } },
+            vault = { ok = true, hasAvailableRewards = false, options = { { rewards = {} } } },
+        }
+        ns.RoadsCache.SetMap(ns.RoadsCache.Build({ roadInputs = inputs }))
+        return inputs
+    end
+
+    local function block(link)
+        local answer = ns.UI.Tooltip.Answer(link)
+        assert.is_table(answer, link)
+        local out = {}
+        for index, line in ipairs(ns.UI.Tooltip.Lines(answer, {})) do
+            out[index] = line.text
+        end
+        return out, answer
+    end
+
+    -- Equip Now's match: the `as offered` document over the three copies.
+    local function match(contentType, copy)
+        local matched =
+            ns.Match.Build({ ok = true, records = { worn, copy, bag308 } }, droptimizer(contentType, "asOffered"))
+        assert.is_true(matched.ok, matched.reason)
+        return matched
+    end
+
+    local function headRow(matched)
+        for _, row in ipairs(matched.rows) do
+            if row.slot == "Head" then
+                return row
+            end
+        end
+        error("no Head row")
+    end
+
+    before_each(function()
+        ns = H.load()
+        worn = record(WORN_LINK, 321, "equipped", 1)
+        bag308 = record(BAG_308_LINK, 308, "bag", 4)
+    end)
+
+    after_each(function()
+        ns.RoadsCache.Reset()
+        H.unload()
+    end)
+
+    -- The owner's first screenshot, fixed. PROVEN RED (the `CrestedFrom`
+    -- fallback out of `CrestToWin`): `Crest this to 334 - then refresh.`, no
+    -- percent line, `Glow.Wants` false - his screen.
+    it("at 321 says the first winning level, its percent, and keeps the mark", function()
+        local bag321 = record(BAG_321_LINK, 321, "bag", 5)
+        local inputs = build("Dungeon", "maxed", bag321)
+        assert.is_nil(ns.Roads.WinsAsOffered(inputs, bag321))
+        local lines, answer = block(bag321.link)
+        assert.same({ "Lootpath · Head", "Crest to 324", "+0.19% Upgrade", FINISH }, lines)
+        assert.equal(324, answer.crestTo.level)
+        assert.equal(0.194, answer.crestTo.percent)
+        assert.is_nil(answer.crestTo.wear)
+        assert.equal(record(BAG_318_LINK, 318, "bag").key, answer.crestTo.crestedFrom)
+        assert.same({ { level = 324, percent = 0.194 }, { level = 334, percent = 0.608 } }, answer.crestTo.rows)
+        assert.is_true(ns.Glow.Wants(bag321.key))
+        assert.same({
+            "item: key " .. bag321.key,
+            "item: in the map",
+            "item: glow yes",
+            "item: crest pending to 324, and the map points at it",
+        }, ns.UI.Bags.LinkLines(bag321.link))
+        for _, text in ipairs(lines) do
+            assert.is_nil(usesForbidden(text), text)
+        end
+    end)
+
+    -- R-2n's crest row, under the answer R-2l wrote, for the crested copy.
+    it("at 321 leaves Equip Now on the worn helm with the crest row", function()
+        local bag321 = record(BAG_321_LINK, 321, "bag", 5)
+        build("Dungeon", "maxed", bag321)
+        local matched = match("Dungeon", bag321)
+        assert.equal(ns.Match.STATUS.EQUIPPED_IS_BEST, headRow(matched).status)
+        assert.equal(worn.key, headRow(matched).best.key)
+        local crests = ns.UI.EquipPanel.PendingCrests()
+        assert.equal(1, #crests)
+        assert.equal(bag321.key, crests[1].key)
+        assert.is_nil(crests[1].wear)
+        local only = { ok = true, rows = { headRow(matched) }, counts = { equipped_is_best = 1 } }
+        assert.equal(
+            "You're set - the helm in your bags wants cresting.",
+            ns.UI.EquipPanel.AnswerText(only, nil, crests)
+        )
+        local described, drawn, wearRow = ns.UI.EquipPanel.CrestRow(crests[1], matched)
+        assert.equal("Head · in your bags · crest to 324 - then wear", drawn.second)
+        assert.is_false(described.actionable)
+        assert.is_nil(described.worn)
+        assert.is_nil(wearRow)
+    end)
+
+    -- The second screenshot, fixed: the copy is AT its first winning level.
+    -- PROVEN RED twice: `FirstWinningLevel`'s own-level test out (`Crest to
+    -- 334` / `+0.61% Upgrade`); the wear branch out of `ItemSentence` (`Crest
+    -- to 324` over a copy at 324).
+    it("at 324 says wear it, with that level's percent, and keeps the mark", function()
+        local bag324 = record(BAG_324_LINK, 324, "bag", 5)
+        build("Dungeon", "maxed", bag324)
+        local lines, answer = block(bag324.link)
+        assert.same({ "Lootpath · Head", "Wear this.", "+0.19% Upgrade", FINISH }, lines)
+        assert.equal(324, answer.crestTo.level)
+        assert.is_true(answer.crestTo.wear)
+        -- The crest road's levels, from the same document.
+        assert.same({ { level = 324, percent = 0.194 }, { level = 334, percent = 0.608 } }, answer.crestTo.rows)
+        assert.is_true(ns.Glow.Wants(bag324.key))
+        assert.equal("item: wins as it is at 324, and the map points at it", ns.UI.Bags.LinkLines(bag324.link)[4])
+    end)
+
+    -- PROVEN RED three ways: `AnswerText` not counting a wear piece (`You're
+    -- set - every slot is your best.`); `CrestText` counting it as a crest
+    -- (the crest sentence returned); `WearRow` out of `CrestRow` (no Equip
+    -- button, `crest to 324 - then wear`).
+    it("at 324 has Equip Now put it on, with the Equip button", function()
+        local bag324 = record(BAG_324_LINK, 324, "bag", 5)
+        build("Dungeon", "maxed", bag324)
+        local matched = match("Dungeon", bag324)
+        local head = headRow(matched)
+        assert.equal(ns.Match.STATUS.EQUIPPED_IS_BEST, head.status)
+        local crests = ns.UI.EquipPanel.PendingCrests()
+        assert.equal(1, #crests)
+        assert.is_true(crests[1].wear)
+        local only = { ok = true, rows = { head }, counts = { equipped_is_best = 1 } }
+        assert.equal(
+            "Put on the Dreamwatcher helm. Everything else is your best set.",
+            ns.UI.EquipPanel.AnswerText(only, nil, crests)
+        )
+        assert.is_nil(ns.UI.EquipPanel.CrestText(crests))
+        local described, drawn, wearRow = ns.UI.EquipPanel.CrestRow(crests[1], matched)
+        assert.equal("Head · in your bags · wear it", drawn.second)
+        assert.is_true(described.actionable)
+        assert.equal(321, described.worn.itemLevel)
+        assert.is_true(ns.Match.IsSwap(wearRow))
+        assert.equal(bag324, wearRow.best)
+        assert.equal(worn, wearRow.equipped)
+        assert.equal(1, wearRow.dstSlot)
+        -- The layout puts it after the rows that need something, before the
+        -- fold (R-2n's place).
+        local kinds = {}
+        for _, element in ipairs(ns.UI.EquipPanel.Layout(matched, false, crests)) do
+            if element.kind ~= ns.UI.EquipPanel.ELEMENT_ROW then
+                kinds[#kinds + 1] = element.kind
+            end
+        end
+        assert.same({ ns.UI.EquipPanel.ELEMENT_CREST, ns.UI.EquipPanel.ELEMENT_FOLD }, kinds)
+    end)
+
+    -- The same under the scenario Equip Now reads.
+    it("says the same under as offered", function()
+        build("Dungeon", "asOffered", record(BAG_321_LINK, 321, "bag", 5))
+        assert.same({ "Lootpath · Head", "Crest to 324", "+0.19% Upgrade" }, (block(BAG_321_LINK)))
+        build("Dungeon", "asOffered", record(BAG_324_LINK, 324, "bag", 5))
+        assert.same({ "Lootpath · Head", "Wear this.", "+0.19% Upgrade" }, (block(BAG_324_LINK)))
+    end)
+
+    -- A Catalyst copy at 321 is unchanged (R-2l decision 5): never answered
+    -- with the drop's rows, never marked for it. PROVEN RED (the
+    -- `CatalystSource` refusal out of `CrestToWin`): `Crest to 324`.
+    it("leaves a Catalyst copy at 321 as it was", function()
+        local converted = record((BAG_321_LINK:gsub("::::::|h", ":1:64:239033:::::|h", 1)), 321, "bag", 5)
+        local inputs = build("Dungeon", "maxed", converted)
+        assert.equal(239033, ns.Roads.CatalystSource(converted))
+        assert.is_nil(ns.Roads.CrestToWin(inputs, converted))
+        local lines, answer = block(converted.link)
+        assert.is_nil(answer.crestTo)
+        assert.equal(string.format(ns.Roads.ARRIVED_CREST_SENTENCE, "this", 334), lines[2])
+        assert.is_false(ns.Glow.Wants(converted.key))
+    end)
+
+    -- A worn copy is never a crest-to-win piece, and the worn copy keeps the
+    -- sentence it read on `main` after the crest - R-3e's `ARRIVED_CREST_SENTENCE`,
+    -- the accepted cost R-2k left once the rated key leaves the inventory
+    -- (§11 names it).
+    it("leaves the worn copy's sentence alone", function()
+        local inputs = build("Dungeon", "maxed", record(BAG_321_LINK, 321, "bag", 5))
+        assert.is_nil(ns.Roads.CrestToWin(inputs, worn))
+        local lines, answer = block(worn.link)
+        assert.is_nil(answer.crestTo)
+        assert.equal(string.format(ns.Roads.ARRIVED_CREST_SENTENCE, "this", 334), lines[2])
+        assert.is_false(ns.Glow.Wants(worn.key))
+    end)
+
+    -- A copy crested from one `as offered` already TAKES is not a crest-to-win
+    -- piece: Raid's `as offered` takes the 318, so its crested copy inherits
+    -- that. PROVEN RED (the inherited answer forced to `false`): a crest
+    -- answer under Raid over a piece the document already wears.
+    it("inherits the document's answer: under Raid the crested copy has no crest answer", function()
+        local bag321 = record(BAG_321_LINK, 321, "bag", 5)
+        local inputs = build("Raid", "maxed", bag321)
+        assert.is_true(ns.Roads.WinsAsOffered(inputs, record(BAG_318_LINK, 318, "bag")))
+        assert.is_nil(ns.Roads.CrestToWin(inputs, bag321))
+        assert.same({}, ns.UI.EquipPanel.PendingCrests())
+    end)
+
+    -- The identity, read off keys and the document's own levels. PROVEN RED
+    -- (`oneSwapped` accepting any count): a copy with an extra bonus ID reads
+    -- as the 318 crested.
+    it("knows the crested copy by one swapped bonus ID and a lower level, and nothing else", function()
+        local verdict = droptimizer("Dungeon", "asOffered")
+        local bag318Key = record(BAG_318_LINK, 318, "bag").key
+        assert.equal(bag318Key, ns.Roads.CrestedFrom(verdict, record(BAG_321_LINK, 321, "bag")).key)
+        assert.equal(318, ns.Roads.CrestedFrom(verdict, record(BAG_324_LINK, 324, "bag")).level)
+        -- Not lower: a copy at the 318's own level is not crested from it.
+        assert.is_nil(ns.Roads.CrestedFrom(verdict, record(BAG_321_LINK, 318, "bag")))
+        -- Another bonus list: the Champion 308's, at a higher level.
+        assert.is_nil(ns.Roads.CrestedFrom(verdict, record(BAG_308_LINK, 324, "bag")))
+        -- An extra bonus ID is not a crest.
+        local extra = record((BAG_321_LINK:gsub("::35:6:", "::35:7:1561:", 1)), 321, "bag")
+        assert.is_nil(ns.Roads.CrestedFrom(verdict, extra))
+    end)
+
+    -- The copy's own level counts only when asked: for a copy no document
+    -- rated as it is. A copy `as offered` rated and left out keeps that
+    -- document's word at its own level - R-2l's rule, unchanged.
+    it("reads the own-level row only when asked to", function()
+        local documents = upgradeFinder("Dungeon")
+        local at324 = record(BAG_324_LINK, 324, "bag")
+        assert.equal(334, ns.Roads.FirstWinningLevel(at324, documents, 334).level)
+        local first = ns.Roads.FirstWinningLevel(at324, documents, 334, true)
+        assert.equal(324, first.level)
+        assert.is_true(first.wear)
+        assert.is_nil(ns.Roads.FirstWinningLevel(record(BAG_318_LINK, 318, "bag"), documents, 334, true).wear)
+    end)
+end)
