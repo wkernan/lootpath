@@ -3214,6 +3214,18 @@ Panel.CRAFT_ART_ANCHOR = { x = 0.0, y = 0.5 }
 Panel.CRAFT_ART_PER_PROFESSION = true
 Panel.CRAFT_ART_FORMAT = "Professions-Specializations-Preview-Art-%s"
 
+-- The neutral backdrop of a road card with no instance art (UX-5j, WKE-702).
+-- The owner, 2026-10-09, of UX-5i's cropped item icon: "still very stretched -
+-- lets use a neutral card with item in corner." A 64-pixel icon behind the card
+-- is soft at any crop, so the card draws a picture of the character's own gear
+-- window instead - never a picture of somewhere else - and the item stays the
+-- corner icon at its native size. The name is the character sheet's own
+-- background, `atlas="character-panel-background"` in Blizzard's shipped
+-- CharacterFrame.xml:150 under .luals/. Its size is the client's to say
+-- (AtlasInfo, asked at draw); none is written here. A client without it, or
+-- one that gives no rect to crop inside, draws the card's plain dark back.
+Panel.CARD_ART_ATLAS = "character-panel-background"
+
 Panel.TILE_SEPARATOR = " · "
 Panel.TILE_COUNT_TEXT = "%d of %d"
 -- What a run with nothing rated says on its second line, in place of the
@@ -3377,6 +3389,26 @@ function Panel.InstanceArt(lore, image, kind, road)
         return nil
     end
     return name, Panel.AtlasBandTexCoord(info, Panel.TILE_ART_RATIO, anchor), true
+end
+
+-- What a road card with no instance art draws behind its shade (UX-5j,
+-- WKE-702): CARD_ART_ATLAS and its band at the card's own proportion - the
+-- size sizeCard gave it (UX-5i), never the frame's answer - centred, cropped
+-- inside the atlas's rect and never stretched (V-5a). Nil - the card's plain
+-- dark back, no picture at all - when the client lacks the atlas, gives no rect
+-- to crop inside, or the card has no size: an empty card is neutral too, and
+-- an uncropped atlas would be stretched across it.
+function Panel.CardBackdrop(width, height)
+    width, height = tonumber(width), tonumber(height)
+    if not width or not height or width <= 0 or height <= 0 then
+        return nil
+    end
+    local info = UI.ItemLine.AtlasInfo(Panel.CARD_ART_ATLAS)
+    local band = info and Panel.AtlasBandTexCoord(info, width / height) or nil
+    if not band then
+        return nil
+    end
+    return Panel.CARD_ART_ATLAS, band
 end
 
 -- Draws what InstanceArt chose on one texture: an atlas through SetAtlas at the
@@ -5251,7 +5283,7 @@ function Panel.InitCard(panel, tile, card)
     tile.card = card
     tile.run = nil
 
-    -- The item first, so the art can fall back to its icon.
+    -- The item first: the corner icon, at its native size.
     UI.ItemLine.SetIcon(tile.cardIcon, {
         itemID = row.itemID,
         link = row.link,
@@ -5265,7 +5297,7 @@ function Panel.InitCard(panel, tile, card)
     })
     local resolved = tile.cardIcon.resolved or {}
     -- A name the client has not sent yet: ask once, and re-draw the whole card
-    -- when it arrives, so its name and its icon art follow (the M3-12 pending
+    -- when it arrives, so its name and its corner icon follow (the M3-12 pending
     -- pattern the item line already uses). A card bound to another road since
     -- then is left alone.
     ns.ItemData.Cancel(tile.request)
@@ -5280,20 +5312,23 @@ function Panel.InitCard(panel, tile, card)
 
     -- The art: the instance's own picture, chosen and cropped as its run's
     -- tile chooses and crops it (UX-5d), when the walk recorded one; otherwise
-    -- the item's own icon behind the shade, cropped to the card's proportion
-    -- as the mosaic crops (UX-5b) and at the mosaic's alpha. Never a picture of
-    -- somewhere else. The proportion is the one sizeCard gave the card, never
-    -- the frame's answer at this moment: on the owner's screen that answer
-    -- kept the whole square icon, which the card then stretched (UX-5i).
+    -- the neutral backdrop, Panel.CardBackdrop (UX-5j), and never the item's
+    -- icon - that is the corner icon's, at its native size. Never a picture of
+    -- somewhere else.
     if card.art then
         drawArt(tile.art, card.art, card.artTexCoord, card.artAtlas)
         tile.art:SetAlpha(1)
+        tile.art:Show()
     else
-        tile.art:SetTexture(resolved.icon)
-        tile.art:SetTexCoord(unpack(Panel.MosaicTexCoord(tile.cardWidth, tile.cardHeight)))
-        tile.art:SetAlpha(Panel.MOSAIC_ALPHA)
+        local name, band = Panel.CardBackdrop(tile.cardWidth, tile.cardHeight)
+        if name then
+            drawArt(tile.art, name, band, true)
+            tile.art:SetAlpha(1)
+            tile.art:Show()
+        else
+            tile.art:Hide()
+        end
     end
-    tile.art:Show()
     for _, cell in ipairs(tile.mosaic) do
         cell:Hide()
     end
