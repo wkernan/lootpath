@@ -2239,7 +2239,9 @@ describe("The tooltip over a worn piece whose rated gem sits in another worn pie
             assert.is_nil(text:find("(missing)", 1, true), text)
             assert.is_nil(usesForbidden(text), text)
         end
-        -- The whole line in the note tone: nothing drawn in the mark's colour.
+        -- The whole line in the block's own tone (`NOTE_HEX`, the bag mark's
+        -- pink since R-2p): nothing drawn in the better tone a missing piece
+        -- takes.
         local _, answer = block(helm, { helm, neck })
         local _, parts = ns.UI.Tooltip.FinishText(answer)
         for _, part in ipairs(parts) do
@@ -2475,6 +2477,11 @@ end)
 -- Upgrade`, only when it is an upgrade; no `Better:` line; no `Rated ...`
 -- footer; the short sentence `Crest to 324 - then wear`.
 --
+-- R-2p (WKE-699), the owner, 2026-10-08: the percent line moves UNDER the
+-- sentence, the sentence loses " - then wear" and its period, and every grey
+-- line of the block takes the bag mark's pink. The expected blocks below are
+-- R-2p's; what they assert about the rows and levels is R-2l's, unchanged.
+--
 -- The documents are his, unedited (spec/fixtures/qe/README.md): the R-2k pair
 -- for Dungeon (the 23:19-23:21Z run's Dungeon `asOffered` and `maxed` differ
 -- from them only in `exportedAt` and `reportId`), and that later run's Dungeon
@@ -2506,7 +2513,7 @@ describe("A held piece that wins only once crested (R-2l)", function()
     local BAG_308_LINK = "|cnIQ4:|Hitem:271528:7960:::::::90:105::23:7:6652:13439:13696:12838:13692:13698:1561"
         .. ":1:64:251140:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
 
-    local worn, bag318, bag308
+    local world, worn, bag318, bag308
 
     local function record(link, level, location)
         local parsed = ns.ParseItemLink(link)
@@ -2576,7 +2583,7 @@ describe("A held piece that wins only once crested (R-2l)", function()
     end
 
     before_each(function()
-        ns = H.load()
+        ns, world = H.load()
         worn = record(WORN_LINK, 321, "equipped")
         bag318 = record(BAG_318_LINK, 318, "bag")
         bag308 = record(BAG_308_LINK, 308, "bag")
@@ -2594,8 +2601,8 @@ describe("A held piece that wins only once crested (R-2l)", function()
         local lines, answer = block(bag318.link)
         assert.same({
             "Lootpath · Head",
+            "Crest to 324",
             "+0.19% Upgrade",
-            "Crest to 324 - then wear.",
             "rated with: Empowered Hex of Leeching (missing)",
         }, lines)
         -- The rows, as his documents carry them, from one document.
@@ -2615,7 +2622,69 @@ describe("A held piece that wins only once crested (R-2l)", function()
     it("says the same under as offered, where the 318 is rated behind", function()
         build("Dungeon", "asOffered")
         local lines = block(bag318.link)
-        assert.same({ "Lootpath · Head", "+0.19% Upgrade", "Crest to 324 - then wear." }, lines)
+        assert.same({ "Lootpath · Head", "Crest to 324", "+0.19% Upgrade" }, lines)
+    end)
+
+    -- R-2p (WKE-699), the owner's three decisions of 2026-10-08, read off the
+    -- entries `Tooltip.Lines` returns AND off the text the real post-call hands
+    -- `AddLine` on the stub's GameTooltip. Every line that was the note grey
+    -- is the bag mark's pink; the header stays gold; the percent and the
+    -- missing enchant keep the badges' better tone, which was never grey.
+    -- PROVEN RED four ways: `NOTE_HEX` back to `ItemLine.GREY` (`909296`
+    -- where `FF1A8C` is expected, here and in the no-percent test below);
+    -- `Lines`' default tone grey with `NOTE_HEX` left pink (the entries'
+    -- hex, here and below); the percent added before the sentence again
+    -- (lines 2 and 3 swap, here and in R-2l's, R-2m's, R-2n's and R-2o's
+    -- blocks); `CREST_WEAR_SENTENCE` back to `Crest to %d - then wear.`.
+    it("draws the sentence, then the percent, in the mark's pink under a gold header", function()
+        build("Dungeon", "maxed")
+        local pink = ns.UI.BRAND_HEX
+        local gold = ns.UI.Tooltip.HEADER_HEX
+        local better = ns.UI.ItemLine.TONE.better.hex
+        assert.equal("FF1A8C", pink)
+        assert.equal("FFD100", gold)
+        assert.equal(pink, ns.UI.Tooltip.NOTE_HEX)
+        assert.equal("Crest to %d", ns.Roads.CREST_WEAR_SENTENCE)
+
+        local entries = ns.UI.Tooltip.Lines(ns.UI.Tooltip.Answer(bag318.link), {})
+        assert.equal(4, #entries)
+        assert.same({ text = "Lootpath · Head", hex = gold }, { text = entries[1].text, hex = entries[1].hex })
+        assert.same({ text = "Crest to 324", hex = pink }, { text = entries[2].text, hex = entries[2].hex })
+        assert.same({ text = "+0.19% Upgrade", hex = better }, { text = entries[3].text, hex = entries[3].hex })
+        assert.same({
+            { text = "rated with: ", hex = pink },
+            { text = "Empowered Hex of Leeching (missing)", hex = better },
+        }, entries[4].parts)
+
+        local shown = world.showItemTooltip({ hyperlink = bag318.link })
+        assert.same({
+            "|cff" .. gold .. "Lootpath · Head|r",
+            "|cff" .. pink .. "Crest to 324|r",
+            "|cff" .. better .. "+0.19% Upgrade|r",
+            "|cff" .. pink .. "rated with: |r|cff" .. better .. "Empowered Hex of Leeching (missing)|r",
+        }, shown.lines)
+        for _, text in ipairs(shown.lines) do
+            assert.is_nil(text:find(ns.UI.ItemLine.GREY, 1, true), text)
+            assert.is_nil(usesForbidden(text), text)
+        end
+    end)
+
+    -- R-2p: a block with no percent is the sentence then the finish line, both
+    -- pink; the order change moves nothing when there is no percent to move.
+    it("keeps the sentence then the finish line, in pink, where there is no percent", function()
+        build("Raid", "maxed")
+        local entries = ns.UI.Tooltip.Lines(ns.UI.Tooltip.Answer(bag318.link), {})
+        local texts = {}
+        for index, entry in ipairs(entries) do
+            texts[index] = entry.text
+        end
+        assert.same({
+            "Lootpath · Head",
+            "Wear this - crest it after.",
+            "rated with: Empowered Hex of Leeching (missing)",
+        }, texts)
+        assert.equal(ns.UI.BRAND_HEX, entries[2].hex)
+        assert.equal(ns.UI.BRAND_HEX, entries[3].parts[1].hex)
     end)
 
     -- PROVEN RED (the crest step out of `finishSetRoad`): the row's next step is
@@ -2679,7 +2748,8 @@ describe("A held piece that wins only once crested (R-2l)", function()
     end)
 
     -- PROVEN RED (`IsUpgrade` dropped from `FirstWinningLevel`): the 318 reads
-    -- `Crest to 324 - then wear.` over rows that are not upgrades.
+    -- `Crest to 324` (R-2l: `Crest to 324 - then wear.`) over rows that are
+    -- not upgrades.
     it("passes on a held copy with no positive row, and shows no percent", function()
         -- His Dungeon document with every row for this item set to a figure
         -- that is not an upgrade - the one hand-made case in this block.
@@ -2778,10 +2848,11 @@ describe("Switching the content setting rebuilds the roads (R-2m)", function()
         .. ":1:64:251140:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r"
     local WRITTEN_AT = "2026-10-07T23:22:02.000Z"
 
+    -- R-2p (WKE-699): the sentence first, then the percent; no "- then wear".
     local DUNGEON_BLOCK = {
         "Lootpath · Head",
+        "Crest to 324",
         "+0.19% Upgrade",
-        "Crest to 324 - then wear.",
         "rated with: Empowered Hex of Leeching (missing)",
     }
     local RAID_BLOCK = {
@@ -3140,15 +3211,10 @@ describe("Every piece that wants cresting is marked and named (R-2n)", function(
     it("reads both of his hovers under Dungeon", function()
         build("Dungeon")
         local helm = block(bag318.link)
-        assert.same(
-            { "Lootpath · Head", "+0.19% Upgrade", "Crest to 324 - then wear." },
-            { helm[1], helm[2], helm[3] }
-        )
+        -- R-2p (WKE-699): the sentence first, then the percent.
+        assert.same({ "Lootpath · Head", "Crest to 324", "+0.19% Upgrade" }, { helm[1], helm[2], helm[3] })
         local waist = block(belt.link)
-        assert.same(
-            { "Lootpath · Waist", "+0.07% Upgrade", "Crest to 305 - then wear." },
-            { waist[1], waist[2], waist[3] }
-        )
+        assert.same({ "Lootpath · Waist", "Crest to 305", "+0.07% Upgrade" }, { waist[1], waist[2], waist[3] })
     end)
 
     -- PROVEN RED (the R-2n loop out of `Cache.Build`): the belt answers false
@@ -3349,15 +3415,16 @@ describe("Changing the highlighted vault scenario rebuilds the roads (R-2o)", fu
     -- (its test "says the same under as offered, where the 318 is rated
     -- behind") and `everything upgraded` (its owner's-screen test). They
     -- differ by the finish line, which only the `maxed` pick carries.
+    -- R-2p (WKE-699): both in R-2p's order and words.
     local AS_OFFERED_BLOCK = {
         "Lootpath · Head",
+        "Crest to 324",
         "+0.19% Upgrade",
-        "Crest to 324 - then wear.",
     }
     local MAXED_BLOCK = {
         "Lootpath · Head",
+        "Crest to 324",
         "+0.19% Upgrade",
-        "Crest to 324 - then wear.",
         "rated with: Empowered Hex of Leeching (missing)",
     }
 

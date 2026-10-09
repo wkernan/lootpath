@@ -75,6 +75,21 @@ Rated 1h ago · /lootpath map
 - **Every surface follows the content setting.** Under Raid the owner's `as offered` takes the bag 318 as it is, so it is a win now: R-2k's `Wear this - crest it after.` stands and Equip Now offers the swap. **The issue asked for `Wear this, +0.37%.` there and that is not built:** +0.37% is the 324 row's figure, and no document rates the item at 318 - a figure on a copy at a level it is not at is R-2c's stretched figure. The Raid block carries no percent line until a row rates the copy at its own level.
 - **The slot's line and the row carry the crest.** The Head line reads `Crest the Dreamwatcher helm to 324, then put it on.` (a bag pick that already wins: `Put on the Dreamwatcher helm and crest it.`), and `no crests here` is never said over a pick with a crest pending. The bag pick's row gains one step before `put it on`, every rated level up to its cap from one document - `crest to 324 +0.19% · to 334 +0.61%` - and its `do:` reads `do: crest to 324 - then wear`.
 
+**Surface 1, amended 2026-10-08 (R-2p, WKE-699; ARCHITECTURE.md §7): the block's grey lines are the mark's pink, the percent sits under the sentence, and the crest line is `Crest to 324`.** The owner, after R-2m / R-2n / R-2o merged and synced: "Now let's update all text when hovering over an item from the gray we use now to the same pinkish hue we use for the arrow. Then swap the '+0.19% Upgrade' to be below the 'Crest to 324' - let's drop the ' - then wear.' Don't end it with a period."
+- **The colour.** Every line of the block that was the note grey (`909296`) is the bag mark's pink, `#FF1A8C` (`UI.BRAND_HEX`, R-2b / UX-4e): the sentence, the `rated with:` label and the names it repeats, R-2c's other-level line, the where-it-drops line. The header stays gold (`#FFD100`): it was never grey. **The percent line and a `(missing)` gem or enchant keep the badges' better tone (`#FFDF14`)**: neither was grey, the tone is how a positive figure and a missing piece are drawn on every surface, and the word carries it too (principle 14). The panels' asides keep their grey; only the tooltip moved.
+- **The order.** Header, the sentence, `+0.19% Upgrade`, then R-2c's other-level line or R-2d's `rated with:` line. A road to something you do not hold still has no sentence: header, its percent, where it drops.
+- **The crest line** is `Crest to 324` - no `- then wear`, no period. The block, under Dungeon, over the bag 318 helm:
+
+```
+Lootpath · Head            #FFD100
+Crest to 324               #FF1A8C
++0.19% Upgrade             #FFDF14
+rated with: Empowered Hex of Leeching (missing)
+                           #FF1A8C, then #FFDF14 from the name
+```
+
+  Every other tooltip sentence keeps its period, so the block now holds one line without one beside sentences that end in one; and the Upgrade Map's step (`do: crest to 324 - then wear`) and Equip Now's crest row (`crest to 324 - then wear`) are unchanged. Both are the owner's to rule on (brain §11).
+
 **Equip Now, amended 2026-10-07 (R-2l, WKE-695).** Equip Now stays the answer for right now (`as offered`) and names the pending step the way it names finishing: `You're set - the helm in your bags wants cresting.` (two or more: `You're set - 2 pieces in your bags want cresting.`; finishing follows it: ` 1 piece wants finishing.`). A held copy below its first winning level is never a swap there. The owner asked for `the Myth helm`; which upgrade track a copy is on is read only by the developer-only track table, so the copy is named by where it is. Under Raid, where `as offered` takes the bag 318, the tab offers the swap: M2-6's rule read the worn 321 as that pick crested since, and now refuses a worn copy the document itself rated and left out.
 
 **Equip Now, amended 2026-10-08 (R-2n, WKE-697; ARCHITECTURE.md §7): the line names how many, the rows name which.** The owner, over `You're set - 2 pieces in your bags want cresting.`: "it was difficult for me to determine what the other piece was I needed to crest." Under the answer, one row per piece the line counts, after any row that needs something and before the `already best` fold, in a swap row's shape with nothing to click:

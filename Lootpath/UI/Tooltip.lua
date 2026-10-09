@@ -5,8 +5,8 @@
 -- Guide and this block appends to the tooltip the client was already drawing:
 --
 --   Lootpath · Head
+--   Crest to 324
 --   +0.19% Upgrade
---   Crest to 324 - then wear.
 --
 -- and nothing else but, on a piece of the set, the rating's finish line, and,
 -- on a road to something you do not hold, where it comes from. That shape is
@@ -24,15 +24,21 @@
 -- What each line is:
 --
 --   1. `Lootpath · <slot>`, and nothing else.
---   2. `+0.19% Upgrade`, only when the hovered item's own Upgrade Finder row is
+--   2. the item's part of the plan as one warm plain sentence a friend would
+--      say - `ns.Roads.ItemSentence`, which is where every case is decided.
+--      A road to something you do not hold has no sentence: line 3 is its
+--      figure, and the next line says where it drops.
+--   3. `+0.19% Upgrade`, only when the hovered item's own Upgrade Finder row is
 --      above zero (`ns.Roads.UpgradePercent`): a drop's row at the level it
 --      arrives at, or the first level a piece you hold wins at once crested.
 --      Absent at zero or below; a Top Gear verdict is never a percent here.
---   3. the item's part of the plan as one warm plain sentence a friend would
---      say - `ns.Roads.ItemSentence`, which is where every case is decided.
---      A road to something you do not hold has no sentence: line 2 is its
---      figure, and the next line says where it drops.
+--      Under the sentence since R-2p (WKE-699; the owner, 2026-10-08: "swap
+--      the '+0.19% Upgrade' to be below the 'Crest to 324'").
 --   then R-2c's other-level line or R-2d's `rated with:` line when one applies.
+--
+-- Every line but the header and the percent is drawn in the bag mark's pink
+-- (`NOTE_HEX`, R-2p); the header stays gold and the percent, like a missing
+-- gem or enchant on the finish line, keeps the badges' better tone.
 --
 -- **What the rewrites CUT, rather than shortened.** UX-3: the four honesty
 -- phrases no longer take a line of their own (three of the four are not
@@ -90,9 +96,13 @@ local Tooltip = ns.UI.Tooltip
 -- ---------------------------------------------------------------------------
 -- The words.
 
--- The block's own colour: the note grey every Lootpath panel uses for an aside,
--- so the lines read as one addon's and not as Blizzard's own tooltip text.
-Tooltip.NOTE_HEX = ns.UI.ItemLine and ns.UI.ItemLine.GREY or "909296"
+-- The block's own colour, so the lines read as one addon's and not as
+-- Blizzard's own tooltip text. The bag mark's pink since R-2p (WKE-699; the
+-- owner, 2026-10-08: "update all text when hovering over an item from the gray
+-- we use now to the same pinkish hue we use for the arrow"); it was the note
+-- grey the panels use for an aside, and the panels keep that grey. Read from
+-- `ns.UI.BRAND_HEX`, so moving the brand moves the block with it.
+Tooltip.NOTE_HEX = ns.UI.BRAND_HEX or "FF1A8C"
 -- The header is the one line that is not an aside; it names the addon and the
 -- slot. The age it used to carry is on the last line (UX-3, WKE-599), which is
 -- where principle 2's "every verdict has a time" is met now.
@@ -373,18 +383,21 @@ function Tooltip.Lines(answer, opts)
     end
 
     add(Tooltip.HeaderText(answer), Tooltip.HEADER_HEX, true)
-    -- R-2l (WKE-695): the hovered item's own percent, on its own line above
-    -- the sentence, and only when it is an upgrade (the owner, 2026-10-07:
-    -- "only if it's an upgrade, never show it if it's a downgrade").
+    -- R-2l (WKE-695): the hovered item's own percent, on its own line, and
+    -- only when it is an upgrade (the owner, 2026-10-07: "only if it's an
+    -- upgrade, never show it if it's a downgrade").
     local upgrade = Tooltip.UpgradeText(answer)
-    add(upgrade, Tooltip.UpgradeHex())
     -- A road to something you do not hold has no sentence but its own figure
-    -- (`ns.Roads.WORTH_SENTENCE`), and the line above already says it.
+    -- (`ns.Roads.WORTH_SENTENCE`), and the percent line already says it.
     local own = type(answer.own) == "table" and answer.own or nil
     local figureOnly = upgrade ~= nil and answer.held ~= true and own ~= nil and own.group ~= ns.Roads.GROUP_SET
     if not figureOnly then
         add(answer.sentence)
     end
+    -- R-2p (WKE-699): the percent comes UNDER the sentence (the owner,
+    -- 2026-10-08: "swap the '+0.19% Upgrade' to be below the 'Crest to
+    -- 324'").
+    add(upgrade, Tooltip.UpgradeHex())
     -- A copy the documents rate at another level (R-2c, WKE-646): the rated
     -- figure and its level beside the copy's own, under the sentence. The
     -- held copy's level is the record's; a link's is the one the hover read.
