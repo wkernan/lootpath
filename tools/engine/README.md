@@ -47,7 +47,8 @@ Options: `--tier-sets 2057` and `--tier2 0.03 --tier4 0.055` (the tier rule;
 memo §1, and the committed Top Gear export's `bonusHPS` 0.085), `--finish
 '{"int":0,...}'` (the assumed finish, added to every set's totals - none by
 default, see "What is assumed"), `--effect-ids` (default the four below),
-`--resamples 200`, `--seed 1`, `--out <dir>`, `--derived-at <ISO>`.
+`--resamples 200`, `--seed 1`, `--out <dir>`, `--derived-at <ISO>`,
+`--compare <SavedVariables.lua>` and `--balance none|class` (E-0m, below).
 
 **The tier rule in the dev file is EngineScore's shape** (E-0i, WKE-680):
 `tiers = { [setID] = { [2] = { mult = 1 + tier2 }, [4] = { mult = 1 + tier4 } } }`
@@ -162,6 +163,42 @@ because the fit runs offline.
 file): every trinket, and the effect armour Gaze of the Coiled Watcher 271875,
 Jan'thrazet 271092, Aqirbane Reliquary 268265, Polished Lightwood Channeler
 273778.
+
+## The compare's stored vectors: `--compare` and `--balance` (E-0m, WKE-705)
+
+Since E-0m `/lootpath engine compare` keeps, on every Upgrade Finder row it
+stores, the stat vector it scored the row from
+(`db.global.engineCompare[week][char][ct][keyLevel].rows[i].stats`: int, haste,
+crit, mastery, vers, leech, sockets). `--compare <SavedVariables.lua>`
+(repeatable) reads every stored week in the file and files each vector as a
+client point (`clientSource: "compare rows"`) at `id@level`, the level the
+client read the link at - after every `--stats` file, never over a point a
+transcript holds. A row with no vector (every week before E-0m) adds nothing:
+over weeks one and two the weights are identical to a plain run. The output
+says `compare rows (<file>): N stored Upgrade Finder rows, V with a vector
+(weeks ...); P new client points, H already read by a transcript`.
+
+`--balance class` weighs each fitted row N / (C x n_c) - N rows, C slot classes,
+n_c rows in its class - so every class carries the same total weight and
+armour's many rows do not set the four secondaries alone. `--balance none` is
+the default and is E-0e's fit exactly. Each class line now prints `k` (the
+least-squares scale of predicted onto observed, the compare's own k) and how
+many of its fitted rows sit on the equal placeholder. A dev file written with
+either option says so in its header.
+
+After week three's compare (the owner pulls with `.\tools\sync.ps1 -Pull`):
+
+```powershell
+node fit-weights.js <the four --stats files above> --key-levels 1=2,2=4,4=6,6=8,7=10 `
+  --compare ..\..\spec\fixtures\captures\<the pulled file>.lua --balance class `
+  ..\..\spec\fixtures\qe
+```
+
+`test/compare-rows.test.js` holds the before (weeks one and two: no vector, no
+change) and an after on a fixture it builds from week one's stored rows with
+the vectors the client is known to have read (a committed transcript's read of
+the exact link, or E-0l's recovery from the stored raws); the figures are in
+ARCHITECTURE.md §9 (2026-10-09, E-0m).
 
 ## The model and the fit
 
@@ -326,7 +363,10 @@ snapshot; the effects fixture is the extraction of the committed transcript,
 byte for byte; the trinket probe reads the shipped effects table as the Lua
 module does and pins week one's before and after; the Top Gear compare's search
 over pass 1's pool reproduces week one's stored single-swap rows and pins its
-top-set agreement per band (E-1b). No npm dependency: Node's own runner and
+top-set agreement per band (E-1b); a stored compare vector is a client point
+and a stored row without one changes nothing, weeks one and two leave every
+weight as it was, the vectors raise jewellery rho on every document, and the
+class balance gives every class the same weight (E-0m). No npm dependency: Node's own runner and
 `tools/companion/lib/lua-savedvariables.js`.
 
 ## percent-scale.js - why k moved with the band (E-0j, WKE-681)

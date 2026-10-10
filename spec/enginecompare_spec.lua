@@ -2160,6 +2160,6 @@ describe("EngineCompare keeps each Upgrade Finder row's stat vector (E-0m)", fun
                 WEEK_BYTES_BOUND
             )
         )
-        assert.is_true(with <= WEEK_BYTES_BOUND, string.format("%d bytes over the bound %d", with, WEEK_BYTES_BOUND))
+        assert.is_true(with <= WEEK_BYTES_BOUND, string.format("%d bytes, over the bound %d", with, WEEK_BYTES_BOUND))
     end)
 end)
