@@ -10,6 +10,14 @@ snapshots arrive with every loop rather than by request.
 
 ## Committed
 
+- Lootpath-20261009-204729.lua - **week two of the engine compare (week 2026-10-06), on the Druid in
+  Restoration.** The owner refreshed at 20:43 local, ran `/lootpath engine compare dungeon 6`,
+  `compare dungeon 10` and `compare raid`, reloaded and pulled. `engineCompare` holds
+  `["2026-10-06"]` beside week one's `["2026-09-29"]`; every figure is in
+  `docs/ARCHITECTURE.md` §9 (2026-10-09, night). sha256 as pulled (CRLF)
+  `9c97d13bcf70377f6252122af668b742e2e3d7e16289e93bc12b7c7c77916d39`, 6,574,362 bytes; as
+  committed (`eol=lf`) `b24cc5986b9652429e67209ccbc135b53f8fa30494970947f6bd9c73df78d168`,
+  6,220,925 bytes. No `sawSecret = true` in the file. No secrets.
 - Lootpath-20261005-163103.lua - **E-3b's `capture effects` on the Druid
   (WKE-684, built in PR #317), committed unedited by E-3c (WKE-686).** The
   owner ran `/lootpath capture effects` and pulled (SavedVariables written
