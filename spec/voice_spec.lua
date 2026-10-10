@@ -655,6 +655,8 @@ describe("the source-free voice (V-1, WKE-569)", function()
         walkStrings(c.check, "EngineCompare", ns.EngineCompare)
         -- And the best-set search's report (E-1a, WKE-685), behind the same switch.
         walkStrings(c.check, "EngineSearch", ns.EngineSearch)
+        -- And the developer panel (E-1c, WKE-689), behind the same switch.
+        walkStrings(c.check, "EngineDevPanel", ns.EngineDevPanel)
         c.report(200)
     end)
 end)

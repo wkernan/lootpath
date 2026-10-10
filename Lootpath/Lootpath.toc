@@ -49,3 +49,4 @@ UI\Tooltip.lua
 UI\Bags.lua
 UI\Bags\Baganator.lua
 UI\Bags\Blizzard.lua
+UI\EngineDevPanel.lua

@@ -540,10 +540,13 @@ describe("/lootpath engine", function()
         assert.equal(ns.PREFIX .. "Out of combat only.", world.output())
     end)
 
-    it("is read by no UI file", function()
+    -- E-1c (WKE-689): the developer panel is the one UI file that reads it;
+    -- spec/enginedevpanel_spec.lua holds that the panel opens only behind the
+    -- switch and that no other UI file reads the panel.
+    it("is read by no UI file but the developer panel", function()
         local readers = {}
         for _, f in ipairs(H.tocFiles()) do
-            if f:match("^UI/") and f:match("%.lua$") then
+            if f:match("^UI/") and f:match("%.lua$") and f ~= "UI/EngineDevPanel.lua" then
                 if readAll("Lootpath/" .. f):find("EngineCompare", 1, true) then
                     readers[#readers + 1] = f
                 end
