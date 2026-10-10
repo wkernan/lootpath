@@ -48,23 +48,19 @@ const SEEDS = [1, 2, 3, 4, 5, 6];
 const TIER4 = [1.06, 1.12];
 const NO_EFFECTS = new Set();
 
-// Where EngineSearch (E-1a) misses the brute-force optimum on these seeds -
-// measured 2026-10-05 and pinned, so a change to the search shows here
-// (ARCHITECTURE.md section 11, E-1d). `slots`: the positions where the search's
-// set and the optimum differ; no single one of them improves alone.
-//   plain    seed 1: the trinket pair and the weapon must change together -
-//            the totals sit in the DR brackets, so the value is not separable
-//   category seeds 3 and 5: a limit category of one shared by a neck and a
-//            ring - the neck must leave the category before the ring can join
-//            it, two coordinates at once
-const KNOWN_MISSES = {
-    'plain/1/1.06': '2H Weapon,Trinket',
-    'plain/1/1.12': '2H Weapon,Trinket',
-    'category/3/1.06': 'Finger,Hands,Legs,Neck',
-    'category/3/1.12': 'Finger,Hands,Legs,Neck',
-    'category/5/1.06': 'Finger,Neck',
-    'category/5/1.12': 'Finger,Neck',
-};
+// Where EngineSearch misses the brute-force optimum on these seeds, pinned so a
+// change to the search shows here. E-1d (WKE-687, 2026-10-05) measured six
+// misses with E-1a's single-coordinate ascent - `slots`, the positions where
+// the search's set and the optimum differed, no single one improving alone:
+//   'plain/1/1.06' and 'plain/1/1.12'       '2H Weapon,Trinket' (the totals in
+//                                           the DR brackets: the trinket pair
+//                                           and the weapon must change together)
+//   'category/3/1.06' and 'category/3/1.12' 'Finger,Hands,Legs,Neck'
+//   'category/5/1.06' and 'category/5/1.12' 'Finger,Neck' (a limit category of
+//                                           one shared by a neck and a ring)
+// E-1e (WKE-703) added the coupled sweep (EngineSearch couplesOf): none is left.
+// Take the coupled pass out of ascendIn and all six come back.
+const KNOWN_MISSES = {};
 
 function bruteBoth(pieces, file, band) {
     const value = X.scorer(file, band);
@@ -128,7 +124,7 @@ test('synthetic: the kept pool keeps the optimum and drops what Candidates drops
     }
 });
 
-test('synthetic: the search equals brute force but where a two-coordinate move is needed (pinned)', (t) => {
+test('synthetic: the search equals brute force on every seed, the two-coordinate moves included (pinned)', (t) => {
     if (!needLua(t)) return;
     const misses = {};
     for (const run of synthetic()) {
@@ -195,7 +191,8 @@ test('the pieces are the owned set: 40 client reads, the same links as the commi
 let weightsOnce = null;
 const gameWeights = () => (weightsOnce = weightsOnce || X.gameWeights());
 
-// Figures read from `node exhaustive.js dungeon 10` and `raid`, 2026-10-05.
+// Figures read from `node exhaustive.js dungeon 10` and `raid`, 2026-10-05;
+// the search's set values from the same runs on 2026-10-09 (E-1e).
 const REAL = [
     { name: 'Dungeon +10', contentType: 'Dungeon', keyLevel: 10, band: '10', worn: 119.741846, best: 120.094083 },
     { name: 'Raid', contentType: 'Raid', keyLevel: null, band: 'raid-3', worn: 119.554584, best: 120.855172 },
@@ -215,9 +212,13 @@ for (const r of REAL) {
         assert.ok(Math.abs(res.worn - r.worn) < 5e-7, `worn ${res.worn}`);
         assert.ok(Math.abs(res.modes.all.best.value - r.best) < 5e-7, `best ${res.modes.all.best.value}`);
         assert.equal(res.modes.kept.best.value, res.modes.all.best.value, 'the outclass rule drops no optimum');
-        // The Lua: the game's own counts on the owner's screen, 2026-10-05
-        // (632 set values over 16 masks, 1 piece outclassed).
-        assert.equal(res.search.best.evaluations, 632);
+        // The Lua: the owner's screen of 2026-10-05 read 632 set values over 16
+        // masks, 1 piece outclassed (E-1a's ascent). E-1e's coupled sweep adds
+        // the trinket pair x the weapon choice in every mask - 14 new sets in
+        // each of the 16 (15 trinket pairs, 2 weapons, both changed) - so 856,
+        // 1.35x, inside the issue's 4x.
+        assert.equal(res.search.best.evaluations, 856);
+        assert.ok(res.search.best.evaluations <= 4 * 632, 'the coupled sweep costs at most 4x E-1a on the real pieces');
         assert.equal(res.search.best.masks, 16);
         assert.deepEqual(res.search.dropped, res.modes.kept.dropped);
         assert.ok(Math.abs(res.search.worn - res.worn) <= Math.abs(res.worn) * 1e-12, 'EngineScore and score.js value the worn set alike');
