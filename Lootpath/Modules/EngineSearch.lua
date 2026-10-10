@@ -34,7 +34,13 @@
 --      slots, the ring PAIR, the trinket PAIR and the weapon choice (one-hand
 --      plus off-hand against two-hand) - taking for each the option with the
 --      highest full SetValue, until a sweep changes nothing. A set that breaks
---      a constraint hook is never valued.
+--      a constraint hook is never valued. Then (E-1e, WKE-703) a COUPLED
+--      sweep: for each pair of coordinates that must be able to change
+--      together - two positions whose pieces share a limit category, and the
+--      trinket pair with the weapon choice - every combination of their
+--      options with the rest kept; when one is better it is taken and the
+--      single sweeps run again. Why, and what it still does not reach, is
+--      written above `couplesOf`.
 --   4. Best: the best of every mask, plus each position's runner-up: the
 --      value given up by the best OTHER piece there with the rest kept (E-1b,
 --      WKE-688: compared by the pieces an option holds, never by the option
@@ -72,7 +78,8 @@ EngineSearch.FUNCTION_NAMES = {
 EngineSearch.BUDGET_MS = 5
 -- BruteForce refuses an inventory with more sets than this.
 EngineSearch.BRUTE_FORCE_CAP = 100000
--- A sweep that keeps finding moves stops here (it never has; a guard).
+-- A sweep that keeps finding moves stops here (it never has; a guard). Every
+-- single sweep and every coupled pass counts.
 EngineSearch.MAX_SWEEPS = 64
 -- A move is taken only when it beats the current value by more than this
 -- share of it, so two equal sets never flip back and forth.
@@ -705,6 +712,84 @@ local function coordinatesFor(pools, mask)
     return coords
 end
 
+-- The limit categories any option of a coordinate carries.
+local function categoriesOf(coord)
+    local out = {}
+    for _, option in ipairs(coord.options) do
+        for _, c in ipairs(option) do
+            local u = c.item.uniqueness
+            if type(u) == "table" and u.category ~= nil then
+                out[u.category] = true
+            end
+        end
+    end
+    return out
+end
+
+-- couplesOf(coords) -> `{ { i, j } }`, i < j: the coordinate pairs the coupled
+-- sweep tries together (E-1e, WKE-703), in coordinate order.
+--
+-- Why these two kinds. E-1d (WKE-687) found coordinate ascent stopping where no
+-- SINGLE coordinate improves but two changed at once would (ARCHITECTURE.md
+-- section 11, two causes, measured on seeded synthetic inventories):
+--   1. a limit category shared ACROSS positions (a neck and a ring, max 1):
+--      while the category neck is worn the category ring is never feasible,
+--      and the neck alone never leaves it, because the ring cannot follow in
+--      the same move. Any two coordinates whose options carry one category are
+--      a couple. (Two copies of one unique itemID are always in one pool, and
+--      a pair option already keeps them apart.)
+--   2. totals inside the DR brackets: the value is not separable, so trading
+--      one coordinate's stats for another's can pay only when both move. The
+--      trinket pair and the weapon choice are the two coordinates that carry
+--      the most rating (two pieces; a two-hander's doubled stats), where E-1d
+--      saw it. Other couples that DR can make are not swept: on the owner's
+--      pieces only haste can reach a bracket at all (E-1d, section 9), and a
+--      sweep of every couple multiplies the cost (section 11 keeps it open).
+local function couplesOf(coords)
+    local out = {}
+    local cats = {}
+    local trinket, weapon
+    for i, coord in ipairs(coords) do
+        cats[i] = categoriesOf(coord)
+        if coord.name == "Trinket" then
+            trinket = i
+        elseif coord.kind == "weapon" then
+            weapon = i
+        end
+    end
+    local seen = {}
+    local function add(i, j)
+        if i > j then
+            i, j = j, i
+        end
+        local key = i .. ":" .. j
+        if i ~= j and not seen[key] then
+            seen[key] = true
+            out[#out + 1] = { i, j }
+        end
+    end
+    for i = 1, #coords - 1 do
+        for j = i + 1, #coords do
+            for category in pairs(cats[i]) do
+                if cats[j][category] then
+                    add(i, j)
+                    break
+                end
+            end
+        end
+    end
+    if trinket and weapon then
+        add(trinket, weapon)
+    end
+    table.sort(out, function(a, b)
+        if a[1] ~= b[1] then
+            return a[1] < b[1]
+        end
+        return a[2] < b[2]
+    end)
+    return out
+end
+
 -- The set as SetValue reads it, in coordinate order, and its cache key.
 local function flatten(coords, choice)
     local list, ids = {}, {}
@@ -777,26 +862,30 @@ local function ascendIn(ctx, coords)
     if not value then
         return nil, scored
     end
-    local sweeps = 0
-    local improved = true
-    while improved and sweeps < EngineSearch.MAX_SWEEPS do
-        improved = false
-        sweeps = sweeps + 1
+    -- One feasible candidate set: valued (or nil and why on a SetValue
+    -- refusal), or false when a hook rejects it.
+    local function try()
+        local list, key = flatten(coords, choice)
+        if not feasible(ctx.hooks, list) then
+            return false
+        end
+        return evaluate(ctx, coords, choice, list, key)
+    end
+    -- One single sweep: each coordinate's best option, the rest kept.
+    local function singleSweep()
+        local improved = false
         for i, coord in ipairs(coords) do
             local current = choice[i]
             local bestOption, bestValue, bestScored = current, value, scored
             for _, option in ipairs(coord.options) do
                 if option ~= current then
                     choice[i] = option
-                    local list, key = flatten(coords, choice)
-                    if feasible(ctx.hooks, list) then
-                        local v, s = evaluate(ctx, coords, choice, list, key)
-                        if not v then
-                            return nil, s
-                        end
-                        if better(v, bestValue) then
-                            bestOption, bestValue, bestScored = option, v, s
-                        end
+                    local v, s = try()
+                    if v == nil then
+                        return nil, s
+                    end
+                    if v and better(v, bestValue) then
+                        bestOption, bestValue, bestScored = option, v, s
                     end
                 end
             end
@@ -806,12 +895,77 @@ local function ascendIn(ctx, coords)
                 improved = true
             end
         end
+        return improved
     end
-    return { coords = coords, choice = choice, value = value, scored = scored, sweeps = sweeps }
+    -- One coupled pass (E-1e): for each couple, every combination of its two
+    -- coordinates' options in which BOTH change (a move of one alone is a
+    -- single move, already no better once the single sweeps stop); the best
+    -- such move of the first couple that has one is taken.
+    local couples = couplesOf(coords)
+    local function coupledPass()
+        for _, couple in ipairs(couples) do
+            local i, j = couple[1], couple[2]
+            local ci, cj = choice[i], choice[j]
+            local bestI, bestJ, bestValue, bestScored = ci, cj, value, scored
+            for _, oi in ipairs(coords[i].options) do
+                if oi ~= ci then
+                    for _, oj in ipairs(coords[j].options) do
+                        if oj ~= cj then
+                            choice[i], choice[j] = oi, oj
+                            local v, s = try()
+                            if v == nil then
+                                choice[i], choice[j] = ci, cj
+                                return nil, s
+                            end
+                            if v and better(v, bestValue) then
+                                bestI, bestJ, bestValue, bestScored = oi, oj, v, s
+                            end
+                        end
+                    end
+                end
+            end
+            choice[i], choice[j] = bestI, bestJ
+            if bestI ~= ci then
+                value, scored = bestValue, bestScored
+                return true
+            end
+        end
+        return false
+    end
+    local sweeps, coupledPasses, coupledMoves = 0, 0, 0
+    while sweeps + coupledPasses < EngineSearch.MAX_SWEEPS do
+        sweeps = sweeps + 1
+        local improved, failed = singleSweep()
+        if improved == nil then
+            return nil, failed
+        end
+        if not improved then
+            coupledPasses = coupledPasses + 1
+            local moved, refused = coupledPass()
+            if moved == nil then
+                return nil, refused
+            end
+            if not moved then
+                break
+            end
+            coupledMoves = coupledMoves + 1
+        end
+    end
+    return {
+        coords = coords,
+        choice = choice,
+        value = value,
+        scored = scored,
+        sweeps = sweeps,
+        coupledPasses = coupledPasses,
+        coupledMoves = coupledMoves,
+    }
 end
 
 -- Ascend(pools, mask, weights, constraints, opts) -> `{ value, scored, items,
--- choice, coords, sweeps, evaluations }` | nil, reason. `pools` is
+-- choice, coords, sweeps, coupledPasses, coupledMoves, evaluations }` | nil,
+-- reason. `sweeps` counts the single sweeps, `coupledPasses` the coupled
+-- passes tried, `coupledMoves` the ones that moved (E-1e). `pools` is
 -- Candidates' `pools`; `mask` one of Masks' (nil: no tier restriction);
 -- `constraints` hooks added to the built-in ones.
 function EngineSearch.Ascend(pools, mask, weights, constraints, opts)

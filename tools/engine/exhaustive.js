@@ -34,24 +34,24 @@
 //
 // The rules, ported from EngineSearch.lua and cited by line:
 //   positions   ten single slots, the ring pair, the trinket pair, the weapon
-//               choice (:78-84, coordinatesFor :649-698)
+//               choice (:88-94, coordinatesFor :664-713)
 //   pairs       every two pieces of a pool but two copies of one unique
-//               itemID (sameUnique :582-589, pairOptions :593-610)
+//               itemID (sameUnique :597-604, pairOptions :608-625)
 //   weapons     each one-hander with each off-hand (or alone when none), an
 //               off-hand alone when no one-hander, each two-hander
-//               (weaponOptions :612-636); Shield joins the off-hand pool (:87-90)
+//               (weaponOptions :627-651); Shield joins the off-hand pool (:97-100)
 //   unique      one copy per unique itemID, `max` (1) per limit category
-//               (UniqueOK :139-159); the other three hooks pass everything
-//               (:164-179)
-//   outclass    the kept pool (Candidates :429-504, outclasses :357-374,
-//               canOutclass :376-382, canBeDropped :384-386, wearableCount
-//               :390-404)
+//               (UniqueOK :154-174); the other three hooks pass everything
+//               (:179-194)
+//   outclass    the kept pool (Candidates :444-519, outclasses :372-389,
+//               canOutclass :391-397, canBeDropped :399-401, wearableCount
+//               :405-419)
 //   masks       a set's mask is the tier key of each tier slot's piece
-//               (Masks :537-573, tierKeyOf :332-338); the brute force keeps
+//               (Masks :552-588, tierKeyOf :347-353); the brute force keeps
 //               the optimum per mask so each Ascend can be held to it
 //   value       SetValue with the parity finish and WITHOUT forceTier
-//               (scoreOptsOf :222-235): each piece's sockets x the band's
-//               gemVector and its slot's enchant (effective :309-328), the
+//               (scoreOptsOf :237-250): each piece's sockets x the band's
+//               gemVector and its slot's enchant (effective :324-343), the
 //               band's assumedBuffs, the dr table, the tier counted
 'use strict';
 
@@ -76,7 +76,7 @@ const FIT_EXPORTS = path.join(REPO, 'spec', 'fixtures', 'qe');
 const GAME_DERIVED_AT = '2026-10-02T02:21:19.971Z';
 const EFFECTS_FILE = path.join(REPO, 'Lootpath', 'Data', 'EngineEffects.lua');
 
-// EngineSearch's vocabulary (EngineSearch.lua:76-84).
+// EngineSearch's vocabulary (EngineSearch.lua:83-94).
 const EPSILON = 1e-12;
 const SINGLES = ['Head', 'Neck', 'Shoulder', 'Back', 'Chest', 'Wrist', 'Hands', 'Waist', 'Legs', 'Feet'];
 const TIER_SLOTS = ['Head', 'Shoulder', 'Chest', 'Hands', 'Legs'];
@@ -237,7 +237,7 @@ function tierKeyOf(piece, tiers) {
 
 // --- the value -------------------------------------------------------------
 
-// What one piece adds to the totals in the parity mode (effective, :309-328).
+// What one piece adds to the totals in the parity mode (effective, :324-343).
 function effective(piece, band) {
     const v = {};
     for (const s of STATS) v[s] = piece[s] || 0;
@@ -377,7 +377,7 @@ function coordinates(p) {
     return coords;
 }
 
-// UniqueOK (EngineSearch.lua:139-159) over cands.
+// UniqueOK (EngineSearch.lua:154-174) over cands.
 function uniqueOK(list) {
     const byID = new Map();
     const byCategory = new Map();
@@ -399,7 +399,7 @@ function uniqueOK(list) {
 }
 
 // Every set over the coordinates, valued; the best overall, the best per
-// mask (the tier key each tier slot's piece carries, Masks :537-573) and the
+// mask (the tier key each tier slot's piece carries, Masks :552-588) and the
 // best few distinct values.
 function enumerate(coords, value, opts) {
     const o = opts || {};

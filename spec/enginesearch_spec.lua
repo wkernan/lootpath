@@ -12,6 +12,9 @@
 -- because no transcript reads that day's links) and PRINTS the evaluation
 -- count and the time it took.
 --
+-- E-1e (WKE-703) adds the smallest two-positions-at-once case: a neck and a
+-- ring sharing a limit category, which only the coupled sweep reaches.
+--
 -- No number in this file is a game value. The weights are
 -- spec/fixtures/engine/weights-synthetic.lua with its tier multipliers changed
 -- where a test says so.
@@ -340,6 +343,50 @@ describe("ns.EngineSearch against brute force on synthetic inventories", functio
             assert.is_true(close(best.value, brute.value), "seed " .. seed)
             assert.equal(keysOf(brute.items), keysOf(best.items))
         end
+    end)
+
+    -- E-1e (WKE-703): E-1d's defect in its smallest form. Neck A and ring R
+    -- share a limit category of one. The ascent starts on A (the best neck by
+    -- proxy), so every ring pair holding R is infeasible; A alone is worth more
+    -- than the plain neck B beside the plain rings, so no single move leaves A.
+    -- The optimum is B with R - two coordinates at once, which only the
+    -- coupled sweep tries.
+    it("leaves a limit-category neck for a better ring in the same category (two positions at once)", function()
+        local function crit(id, slot, rating, category)
+            return {
+                itemID = id,
+                key = "e1e:" .. id,
+                slot = slot,
+                level = 300,
+                int = 0,
+                haste = 0,
+                crit = rating,
+                mastery = 0,
+                vers = 0,
+                leech = 0,
+                sockets = 0,
+                gems = {},
+                ready = true,
+                uniqueness = category and { isUnique = false, category = category, max = 1 } or nil,
+            }
+        end
+        local items = {
+            crit(970001, "Neck", 400, 77), -- A
+            crit(970002, "Neck", 100), -- B
+            crit(970003, "Finger", 800, 77), -- R
+            crit(970004, "Finger", 50), -- P1
+            crit(970005, "Finger", 40), -- P2
+        }
+        local w = weights()
+        local best = assert(ns.EngineSearch.Best(items, w, OPTS))
+        local brute = assert(ns.EngineSearch.BruteForce(items, w, OPTS))
+        assert.equal("e1e:970002 e1e:970003 e1e:970004", keysOf(brute.items))
+        assert.equal(keysOf(brute.items), keysOf(best.items))
+        assert.is_true(close(best.value, brute.value))
+        local pools = ns.EngineSearch.Candidates(items, w, OPTS).pools
+        local ascent = assert(ns.EngineSearch.Ascend(pools, nil, w, nil, OPTS))
+        assert.equal(1, ascent.coupledMoves)
+        assert.is_true(ascent.coupledPasses >= 2)
     end)
 
     it("agrees with brute force when the rating is the client's conversion (the stub's)", function()
