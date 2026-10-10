@@ -115,7 +115,9 @@ rated with: Empowered Hex of Leeching (missing)
                       Head · in your bags · wear it
 ```
 
-Below the first winning level the crest row stands as R-2n drew it. `Equip all` does not take a wear row; its own button does.
+Below the first winning level the crest row stands as R-2n drew it. ~~`Equip all` does not take a wear row; its own button does.~~ **Amended 2026-10-09 (R-2r, WKE-704):** `Equip all` takes a wear row too, after the swaps, in the order the rows are drawn, each through the row's own checks; it shows for a wear row alone. A crest row below its level has nothing to take.
+
+**Surface 1 and surface 2, amended 2026-10-09 (R-2r, WKE-704; ARCHITECTURE.md §7): a crested copy is the pick, and the other copies are themselves again.** After the helm was crested to 321 the worn 321 and the bag 308 read the 318's `Crest this to 334 - then refresh.` and its `rated with:` line, and the Head line read `Put on the helm, no crests here.` R-2k's rule now covers a pick crested since the rating: while the copy it became is in your hands, no other copy is the pick - `Swap this - use your Dreamwatcher helm.` worn, `Pass - use your Dreamwatcher helm.` in the bags. The slot keeps the crest: `Crest the Dreamwatcher helm to 324, then put it on.`; at 324 `Put on the Dreamwatcher helm and crest it.`; crested and put on, `Crest the Dreamwatcher helm.` No new words.
 
 **Equip Now, amended 2026-10-07 (R-2l, WKE-695).** Equip Now stays the answer for right now (`as offered`) and names the pending step the way it names finishing: `You're set - the helm in your bags wants cresting.` (two or more: `You're set - 2 pieces in your bags want cresting.`; finishing follows it: ` 1 piece wants finishing.`). A held copy below its first winning level is never a swap there. The owner asked for `the Myth helm`; which upgrade track a copy is on is read only by the developer-only track table, so the copy is named by where it is. Under Raid, where `as offered` takes the bag 318, the tab offers the swap: M2-6's rule read the worn 321 as that pick crested since, and now refuses a worn copy the document itself rated and left out.
 

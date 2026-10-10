@@ -3639,7 +3639,7 @@ describe("A crested copy keeps the crest answer and the mark (R-2q)", function()
     local BAG_324_LINK = (BAG_318_LINK:gsub(":12849:", ":12851:"))
     local FINISH = "rated with: Empowered Hex of Leeching (missing)"
 
-    local worn, bag308
+    local worn, bag308, world
 
     local function record(link, level, location, slotIndex)
         local parsed = ns.ParseItemLink(link)
@@ -3716,7 +3716,7 @@ describe("A crested copy keeps the crest answer and the mark (R-2q)", function()
     end
 
     before_each(function()
-        ns = H.load()
+        ns, world = H.load()
         worn = record(WORN_LINK, 321, "equipped", 1)
         bag308 = record(BAG_308_LINK, 308, "bag", 4)
     end)
@@ -3852,16 +3852,15 @@ describe("A crested copy keeps the crest answer and the mark (R-2q)", function()
         assert.is_false(ns.Glow.Wants(converted.key))
     end)
 
-    -- A worn copy is never a crest-to-win piece, and the worn copy keeps the
-    -- sentence it read on `main` after the crest - R-3e's `ARRIVED_CREST_SENTENCE`,
-    -- the accepted cost R-2k left once the rated key leaves the inventory
-    -- (§11 names it).
+    -- A worn copy is never a crest-to-win piece. R-2q left it R-3e's
+    -- `ARRIVED_CREST_SENTENCE` after the crest; R-2r (WKE-704) gives it back
+    -- its own words - the guard for that is in R-2r's tests below.
     it("leaves the worn copy's sentence alone", function()
         local inputs = build("Dungeon", "maxed", record(BAG_321_LINK, 321, "bag", 5))
         assert.is_nil(ns.Roads.CrestToWin(inputs, worn))
         local lines, answer = block(worn.link)
         assert.is_nil(answer.crestTo)
-        assert.equal(string.format(ns.Roads.ARRIVED_CREST_SENTENCE, "this", 334), lines[2])
+        assert.equal("Swap this - use your Dreamwatcher helm.", lines[2])
         assert.is_false(ns.Glow.Wants(worn.key))
     end)
 
@@ -3905,5 +3904,134 @@ describe("A crested copy keeps the crest answer and the mark (R-2q)", function()
         assert.equal(324, first.level)
         assert.is_true(first.wear)
         assert.is_nil(ns.Roads.FirstWinningLevel(record(BAG_318_LINK, 318, "bag"), documents, 334, true).wear)
+    end)
+
+    -- ---- R-2r (WKE-704): three loose ends of the crest work ----
+    -- Read over the same documents and the same hand-built crested links as
+    -- R-2q's tests above. Before R-2r, on `main` abca9c0, a scratch replay of
+    -- exactly these inputs printed, at 321 and at 324 under `everything
+    -- upgraded`: the Head line `Put on the helm, no crests here.`, the pick's
+    -- row `now worn` / `do: refresh to rate it`, and the worn 321 and the bag
+    -- 308 both `Crest this to 334 - then refresh.` over the 318's
+    -- `rated with: Empowered Hex of Leeching`.
+
+    local function headPick()
+        local head = ns.RoadsCache.Map().bySlot.Head
+        return head, ns.Roads.PlanPick(head)
+    end
+
+    -- Item 1. PROVEN RED three ways: the successor branch out of the set road
+    -- in `Roads.ForSlot` (`Put on the helm, no crests here.`); `wear` out of
+    -- `SlotSentence`'s crest clause (`Crest ... to 324, then put it on.` over a
+    -- copy at 324); `wear` out of the row's crest step (`do: crest to 324 -
+    -- then wear` over a copy at 324).
+    it("R-2r: the Head line and the pick's row carry the crest after a crest step", function()
+        build("Dungeon", "maxed", record(BAG_321_LINK, 321, "bag", 5))
+        local head, pick = headPick()
+        assert.equal("Crest the Dreamwatcher helm to 324, then put it on.", head.plan)
+        assert.equal(324, pick.crestTo.level)
+        assert.equal(string.format(ns.Roads.TODO_CREST_THEN_WEAR, 324), pick.todo)
+        assert.is_nil(pick.claimed)
+
+        build("Dungeon", "maxed", record(BAG_324_LINK, 324, "bag", 5))
+        head, pick = headPick()
+        -- At its first winning level: R-2l's line for a bag pick that wins as
+        -- it is and that the rating still takes crested (to 334).
+        assert.equal("Put on the Dreamwatcher helm and crest it.", head.plan)
+        assert.is_true(pick.crestTo.wear)
+        assert.equal(ns.Roads.TODO_EQUIP, pick.todo)
+        assert.is_nil(pick.claimed)
+        for _, text in ipairs({ head.plan }) do
+            assert.is_nil(text:find("no crests here", 1, true))
+            assert.is_nil(usesForbidden(text), text)
+        end
+    end)
+
+    -- Item 3. PROVEN RED (the `successorKey` refusal out of `IsArrivedPick`):
+    -- both copies `Crest this to 334 - then refresh.` with the 318's line.
+    it("R-2r: the other copies read their own words after the crest, with no borrowed line", function()
+        for _, case in ipairs({ { BAG_321_LINK, 321 }, { BAG_324_LINK, 324 } }) do
+            local copy = record(case[1], case[2], "bag", 5)
+            build("Dungeon", "maxed", copy)
+            local _, pick = headPick()
+            assert.equal(copy.key, pick.successorKey)
+            assert.same({ "Lootpath · Head", "Swap this - use your Dreamwatcher helm." }, (block(WORN_LINK)))
+            assert.same({ "Lootpath · Head", "Pass - use your Dreamwatcher helm." }, (block(BAG_308_LINK)))
+            -- The crested copy keeps R-2q's block, finish line and all.
+            assert.equal(FINISH, block(copy.link)[4])
+        end
+    end)
+
+    -- Item 3, the copy crested and PUT ON: it is the pick, worn, and the Hero
+    -- 321 now in the bags is another item. PROVEN RED (the worn successor
+    -- out of `SlotSentence`'s arrived clause): `Put on the Dreamwatcher helm
+    -- and crest it.` over a helm already on.
+    it("R-2r: a crested copy put on is the pick, worn; the Head line says crest it", function()
+        local wornCopy = record(BAG_324_LINK, 324, "equipped", 1)
+        local hero = record(WORN_LINK, 321, "bag", 6)
+        worn = wornCopy
+        build("Dungeon", "maxed", hero)
+        local head, pick = headPick()
+        assert.equal(wornCopy.key, pick.successorKey)
+        assert.equal("Crest the Dreamwatcher helm.", head.plan)
+        assert.equal(ns.Roads.ARRIVED_NOW_WORN, pick.claimed)
+        assert.same({ "Lootpath · Head", "Pass - use your Dreamwatcher helm." }, (block(WORN_LINK)))
+        assert.same({ "Lootpath · Head", "Pass - use your Dreamwatcher helm." }, (block(BAG_308_LINK)))
+    end)
+
+    -- Item 2. PROVEN RED twice: the wear-row loop out of `EquipAll` (0
+    -- equipped, nothing picked up); `EquipAllCount` back to the match's swaps
+    -- (the button hidden over a wear row).
+    it("R-2r: Equip all puts the wear row on, through Equip, and skips a crest row and settled rows", function()
+        local bag324 = record(BAG_324_LINK, 324, "bag", 5)
+        build("Dungeon", "maxed", bag324)
+        world.bags[1] = world.bags[1] or { numSlots = 16, items = {} }
+        world.bags[1].items[5] = {
+            link = bag324.link,
+            id = bag324.itemID,
+            info = { hyperlink = bag324.link, itemID = bag324.itemID },
+        }
+        local matched = match("Dungeon", bag324)
+        assert.equal(0, matched.counts.swap or 0)
+        local crests = ns.UI.EquipPanel.PendingCrests()
+        assert.equal(1, ns.UI.EquipPanel.EquipAllCount(matched, crests))
+        local result = ns.UI.EquipPanel.EquipAll(matched, crests)
+        assert.is_true(result.ok)
+        assert.equal(1, result.equipped)
+        assert.same({}, result.refusals)
+        assert.same({ { 1, 5, bag324.link } }, world.pickupCalls)
+        assert.equal(1, #world.equipCursorCalls)
+        assert.equal(1, world.equipCursorCalls[1].slot)
+        assert.equal(bag324.link, world.equipCursorCalls[1].link)
+
+        -- Below its first winning level the row is a crest row: nothing to take.
+        local bag321 = record(BAG_321_LINK, 321, "bag", 5)
+        build("Dungeon", "maxed", bag321)
+        matched = match("Dungeon", bag321)
+        crests = ns.UI.EquipPanel.PendingCrests()
+        assert.equal(0, ns.UI.EquipPanel.EquipAllCount(matched, crests))
+        assert.equal(0, ns.UI.EquipPanel.EquipAll(matched, crests).equipped)
+        assert.equal(1, #world.pickupCalls)
+    end)
+
+    -- Item 2, on the drawn panel: the button shows for a wear row alone and
+    -- its click walks the rows the panel drew. PROVEN RED (`panel.crests` not
+    -- passed by the click): the click equips nothing.
+    it("R-2r: the Equip all button shows for a wear row and its click puts it on", function()
+        local bag324 = record(BAG_324_LINK, 324, "bag", 5)
+        build("Dungeon", "maxed", bag324)
+        world.bags[1] = world.bags[1] or { numSlots = 16, items = {} }
+        world.bags[1].items[5] = {
+            link = bag324.link,
+            id = bag324.itemID,
+            info = { hyperlink = bag324.link, itemID = bag324.itemID },
+        }
+        local panel = ns.UI.EquipPanel.Create(UIParent)
+        ns.UI.EquipPanel.Refresh(panel, match("Dungeon", bag324))
+        assert.is_true(panel.equipAll:IsShown())
+        assert.is_true(panel.equipAll:IsEnabled())
+        panel.equipAll:Click()
+        assert.equal(1, #world.equipCursorCalls)
+        assert.equal(bag324.link, world.equipCursorCalls[1].link)
     end)
 end)

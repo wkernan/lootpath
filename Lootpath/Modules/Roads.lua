@@ -806,6 +806,8 @@ end
 ---@field verdictItem table|nil  the document's own item behind a set road (R-2d)
 ---@field wornIsPick boolean|nil  a worn copy can be this vault or Catalyst pick (R-2f)
 ---@field crestTo table|nil      the first level a bag piece wins at once crested (R-2l)
+---@field successor table|nil    the held copy a bag pick became by cresting (R-2r)
+---@field successorKey string|nil the key of the held copy the pick was crested into (R-2r)
 ---@field openNow string|nil     "open now", for a vault road
 ---@field resetSeconds number|nil the client's own countdown to the reset
 ---@field rankedAtAnotherLevel table|nil the levels it IS rated at, when not this one
@@ -1523,6 +1525,58 @@ function Roads.CrestToWin(inputs, record)
     return crestTo
 end
 
+-- The copy you hold that one of `keys` became by cresting since the rating
+-- (R-2r, WKE-704): the record, or nil.
+--
+-- R-2q taught `CrestToWin` to ask a crested copy as the copy it was crested
+-- from, and left two things reading the rated key alone: the slot's pick, whose
+-- own copy is no longer held once it is crested, so its row lost R-2l's crest
+-- step and the Head line said `no crests here`; and R-3c's item-ID identity,
+-- which then read every OTHER copy of the item as the pick arrived. This is the
+-- one question both ask: which held copy is the rated one, crested. The same
+-- identity and the same document as `CrestToWin` - `CrestedFrom` over the
+-- `as offered` document, for a copy that document does not know by its own key
+-- - and the same refusal of a Catalyst copy (R-2l decision 5). Worn or carried
+-- alike: a crested copy put on is still that copy. Of several, the one on the
+-- character, then the highest level, then the lowest key.
+function Roads.CrestedSuccessor(inputs, keys)
+    if type(inputs) ~= "table" or type(keys) ~= "table" then
+        return nil
+    end
+    local verdict = scenarioVerdict(inputs, Roads.SCENARIO_AS_OFFERED)
+    if not verdict then
+        return nil
+    end
+    local own = {}
+    for _, key in ipairs(keys) do
+        own[key] = true
+    end
+    local best
+    for _, record in ipairs(records(inputs.inventory)) do
+        if
+            record.key ~= nil
+            and not own[record.key]
+            and not Roads.CatalystSource(record)
+            and Roads.WinsAsOffered(inputs, record) == nil
+        then
+            local from = Roads.CrestedFrom(verdict, record)
+            if from and own[from.key] then
+                local level = tonumber(record.itemLevel or record.level) or 0
+                local bestLevel = best and (tonumber(best.itemLevel or best.level) or 0) or nil
+                local worn, bestWorn = record.location == "equipped", best and best.location == "equipped"
+                if
+                    not best
+                    or (worn and not bestWorn)
+                    or (worn == bestWorn and (level > bestLevel or (level == bestLevel and record.key < best.key)))
+                then
+                    best = record
+                end
+            end
+        end
+    end
+    return best
+end
+
 -- The crest step's words on the road, with every rated level up to the cap:
 -- `crest to 324 +0.19% · to 334 +0.61%`. Each figure is a row's own, signed.
 Roads.CREST_TO_FIRST = "crest to %d %+.2f%%"
@@ -1835,7 +1889,10 @@ local function finishSetRoad(road, entry, inputs, planVault, charge)
         road.steps[#road.steps + 1] = step("it is in your bags", Roads.DONE_CLIENT)
         -- R-2l (WKE-695): the crest comes first when the piece wins only once
         -- crested, and the step names every level a row rates up to its cap.
-        local crestText = Roads.CrestToText(road.crestTo)
+        -- A copy crested since the rating that is already AT that level (R-2q's
+        -- `wear`) has no crest left before it: the step is putting it on.
+        local crestText = not (type(road.crestTo) == "table" and road.crestTo.wear) and Roads.CrestToText(road.crestTo)
+            or nil
         if crestText then
             road.steps[#road.steps + 1] = step(crestText)
         end
@@ -1962,6 +2019,17 @@ function Roads.ForSlot(slot, inputs)
             -- line and the hover all read one answer.
             if kind == Roads.KIND_SET and ownedRecord then
                 road.crestTo = Roads.CrestToWin(inputs, ownedRecord)
+            elseif kind == Roads.KIND_SET and item.key then
+                -- R-2r (WKE-704): the rated copy is no longer held because it
+                -- has been crested since. The copy it became carries the crest
+                -- step forward (R-2q's answer for it), and names the road when
+                -- the document could not.
+                local successor = Roads.CrestedSuccessor(inputs, { item.key })
+                if successor then
+                    road.successor = successor
+                    road.crestTo = Roads.CrestToWin(inputs, successor)
+                    road.item.name = road.item.name or successor.name or ns.LinkName(successor.link)
+                end
             end
             if facts.key then
                 road.keys[#road.keys + 1] = facts.key
@@ -2419,6 +2487,12 @@ function Roads.IsArrivedPick(held, pick)
     if pick.ownHeld == true then
         return false
     end
+    -- R-2r (WKE-704): the same, once the rated copy has been CRESTED rather
+    -- than taken away - the copy it became (`Roads.CrestedSuccessor`, stored by
+    -- `MarkArrived`) is the pick, and every other copy is another item.
+    if pick.successorKey ~= nil and held.key ~= pick.successorKey then
+        return false
+    end
     local becomes = type(pick.becomes) == "table" and tonumber(pick.becomes.itemID) or nil
     local wanted = type(pick.item) == "table" and tonumber(pick.item.itemID) or nil
     local matches = becomes ~= nil and becomes == itemID
@@ -2690,6 +2764,15 @@ function Roads.MarkArrived(slotRoads, inputs)
     -- WKE-694), recorded for the same reason: `IsArrivedPick` refuses every
     -- other copy then, on the hover as here.
     pick.ownHeld = Roads.HoldsOwnKey(pick, inputs) or nil
+    -- And whether a held copy is the pick CRESTED since the rating (R-2r,
+    -- WKE-704): R-2k's refusal, extended to the rated copy's crested successor.
+    -- Not for a Catalyst pick, whose own keys are what goes IN to the Catalyst
+    -- and whose arrival is the tier clone, never a crest of the source.
+    local successor = not pick.ownHeld
+            and pick.kind ~= Roads.KIND_CATALYST
+            and Roads.CrestedSuccessor(inputs, pick.keys)
+        or nil
+    pick.successorKey = successor and successor.key or nil
     -- Every key the set group already speaks for, not just the pick's own
     -- (R-3c). Two worn rings of one item ID are two rated roads on this screen,
     -- and the second of them has not "arrived" anywhere: the document knows it
@@ -3894,14 +3977,26 @@ function Roads.SlotSentence(slotRoads)
     -- copy the inventory holds, and the clause is what is left to do with it,
     -- in the Grab clause's own shape: put it on, and crest it when it is under
     -- the level the pick arrives at.
-    local arrived = pick.kind == Roads.KIND_VAULT and type(pick.arrived) == "table" and pick.arrived or nil
+    --
+    -- R-2r (WKE-704): and a bag pick crested since the rating and already PUT
+    -- ON says the same two clauses: `Crest <name>` or `Keep what you've got on`.
+    local successor = type(pick.successor) == "table" and pick.successor or nil
+    local landed = type(pick.arrived) == "table" and pick.arrived or nil
+    local wornSuccessor = landed ~= nil
+        and pick.kind == Roads.KIND_SET
+        and landed.location == "equipped"
+        and landed.key == pick.successorKey
+    local arrived = landed and (pick.kind == Roads.KIND_VAULT or wornSuccessor) and landed or nil
     -- A bag pick (`KIND_SET`) the rating took above the level it is at has a
     -- crest pending too (R-2l, WKE-695): R-2k's `no crests here` said otherwise.
+    -- R-2r: the level it is at is the crested copy's, once the rated copy has
+    -- become it.
+    local heldAt = tonumber(successor and (successor.itemLevel or successor.level) or nil) or tonumber(pick.arrivesAt)
     local pickAbove = pick.kind == Roads.KIND_SET
         and type(pick.rating) == "table"
         and tonumber(pick.rating.level) ~= nil
-        and tonumber(pick.arrivesAt) ~= nil
-        and tonumber(pick.rating.level) > tonumber(pick.arrivesAt)
+        and heldAt ~= nil
+        and tonumber(pick.rating.level) > heldAt
     local arrivedShort = arrived ~= nil and Roads.ArrivedShort(arrived, pick)
     if arrived then
         -- The copy in hand names itself off its own link; the road may not,
@@ -3923,8 +4018,10 @@ function Roads.SlotSentence(slotRoads)
         clauses[#clauses + 1] = string.format("Catalyst your %s", (name or "item"):gsub("^the ", ""))
     elseif pick.kind == Roads.KIND_KEEP then
         clauses[#clauses + 1] = capitalised(Roads.TODO_KEEP_WORN)
-    elseif type(pick.crestTo) == "table" then
+    elseif type(pick.crestTo) == "table" and not pick.crestTo.wear then
         -- R-2l (WKE-695): a bag pick that wins only once crested, crest first.
+        -- A copy crested since the rating that is already at that level
+        -- (R-2q's `wear`) is past this clause and reads the next one.
         clauses[#clauses + 1] = string.format("Crest %s to %d, then put it on", name or "it", pick.crestTo.level)
     elseif pickAbove then
         -- R-2l: a bag pick the rating took crested, that already wins as it is.
@@ -3943,7 +4040,7 @@ function Roads.SlotSentence(slotRoads)
 
     local crested = arrivedShort
         or pickAbove
-        or type(pick.crestTo) == "table"
+        or (type(pick.crestTo) == "table" and not pick.crestTo.wear)
         or not arrived
             and pick.kind == Roads.KIND_VAULT
             and pick.rating

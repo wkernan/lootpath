@@ -1457,23 +1457,54 @@ end
 -- STOPS at the first refusal (E-1): a row that refuses because the bags moved
 -- is a scan that no longer matches the bags, so every row after it is just as
 -- suspect. The refusal is left on that row, where the panel draws it.
-function EquipPanel.EquipAll(match)
+--
+-- R-2r (WKE-704): and then the wear rows (R-2q's `WearRow`), in the order the
+-- panel draws them - after every match row, as `Layout` puts the crest rows
+-- after the rows that need something - each one the swap its own Equip button
+-- acts on, through the same `Equip` and the same stop. `crests` is the
+-- `PendingCrests` list the panel drew; a crest row still short of its level
+-- has no swap and is skipped, as a settled row is.
+function EquipPanel.EquipAll(match, crests)
     if InCombatLockdown() then
         return { ok = false, reason = "combat" }
     end
     local equipped, refusals = 0, {}
+    local function take(row)
+        local result = EquipPanel.Equip(row)
+        if result.ok then
+            equipped = equipped + 1
+            return true
+        end
+        refusals[#refusals + 1] = result.reason
+        return false
+    end
     for _, row in ipairs((type(match) == "table" and match.rows) or {}) do
-        if ns.Match.IsSwap(row) then
-            local result = EquipPanel.Equip(row)
-            if result.ok then
-                equipped = equipped + 1
-            else
-                refusals[#refusals + 1] = result.reason
-                return { ok = true, equipped = equipped, refusals = refusals, stoppedAt = row }
-            end
+        if ns.Match.IsSwap(row) and not take(row) then
+            return { ok = true, equipped = equipped, refusals = refusals, stoppedAt = row }
+        end
+    end
+    for _, crest in ipairs(type(crests) == "table" and crests or {}) do
+        local row = EquipPanel.WearRow(crest, match)
+        if row and ns.Match.IsSwap(row) and not take(row) then
+            return { ok = true, equipped = equipped, refusals = refusals, stoppedAt = row }
         end
     end
     return { ok = true, equipped = equipped, refusals = refusals }
+end
+
+-- How many rows `Equip all` would take: the match's swaps and the wear rows.
+function EquipPanel.EquipAllCount(match, crests)
+    if not (type(match) == "table" and match.ok) then
+        return 0
+    end
+    local count = (type(match.counts) == "table" and match.counts.swap) or 0
+    for _, crest in ipairs(type(crests) == "table" and crests or {}) do
+        local row = EquipPanel.WearRow(crest, match)
+        if row and ns.Match.IsSwap(row) then
+            count = count + 1
+        end
+    end
+    return count
 end
 
 -- The five counts, in words and in their status colours, as the chips above
@@ -1948,7 +1979,7 @@ function EquipPanel.Create(parent)
     panel.equipAll:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, 2)
     panel.equipAll:SetText("Equip all")
     panel.equipAll:SetScript("OnClick", function()
-        local result = EquipPanel.EquipAll(panel.match)
+        local result = EquipPanel.EquipAll(panel.match, panel.crests)
         if not result.ok then
             ns.Log("%s", EquipPanel.COMBAT_TOOLTIP)
             return
@@ -2048,6 +2079,8 @@ function EquipPanel.Refresh(panel, match)
     local unrated = EquipPanel.UnratedState(match, ns.companionStatus)
     -- R-2n (WKE-697): read once, for the line and for the rows under it.
     local crests = EquipPanel.PendingCrests()
+    -- R-2r (WKE-704): kept, so `Equip all` walks the wear rows drawn here.
+    panel.crests = crests
     panel.answer:SetText(EquipPanel.AnswerText(match, unrated, crests))
     local second = EquipPanel.SecondText(unrated)
     panel.second:SetText(second or "")
@@ -2253,7 +2286,8 @@ function EquipPanel.Refresh(panel, match)
         EquipPanel.ScrollToTop(panel)
     end
 
-    local swaps = (type(match) == "table" and match.ok and match.counts.swap) or 0
+    -- R-2r (WKE-704): a wear row is one more thing `Equip all` takes.
+    local swaps = EquipPanel.EquipAllCount(match, crests)
     panel.equipAll:SetEnabled(swaps > 0 and not inCombat)
     panel.equipAllReason = inCombat and EquipPanel.COMBAT_TOOLTIP or "There is nothing to swap."
     panel.equipAll:SetShown(swaps > 0)
