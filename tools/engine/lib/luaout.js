@@ -128,6 +128,8 @@ function render(table, meta) {
         '--',
         '-- Fitted to:',
         docs,
+        // E-0m (WKE-705): said only when used, so a plain run's file is unchanged.
+        ...(meta.compareVectors || (meta.balance && meta.balance !== 'none') ? ['--', `-- Stored compare vectors read (--compare): ${meta.compareVectors || 0}; balance: ${meta.balance || 'none'}.`] : []),
         '',
         'local _, ns = ...',
         '',

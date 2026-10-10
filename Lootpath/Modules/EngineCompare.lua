@@ -100,6 +100,12 @@
 --     so a stored run can be explained later without a recapture. With the
 --     same verbose switch (`/lootpath engine verbose`) each block also lists
 --     `key · link level · ours · theirs` per scored row.
+--   * The row's stat vector (E-0m, WKE-705): every Upgrade Finder row also
+--     keeps `stats` - int, haste, crit, mastery, vers, leech and sockets, the
+--     ns.EngineStats read the row was scored from (EngineCompare.RowVector),
+--     so the offline fit can fit a jewellery row on its own split instead of
+--     the equal placeholder. No new client call: the read already happened.
+--     Top Gear rows keep none (owned items; `capture itemstats` reads them).
 
 local _, ns = ...
 
@@ -639,6 +645,26 @@ local function vectorFor(reads, link, slot)
     return v
 end
 
+-- E-0m (WKE-705): the fields of a candidate's read an Upgrade Finder row
+-- keeps as `stats` - what the offline fit (tools/engine/fit-weights.js
+-- `--compare`) needs to fit the row on its own split. Nothing else of the read
+-- is kept: the gems, the uniqueness and the rest stay in ns.EngineStats.
+EngineCompare.ROW_VECTOR = { "int", "haste", "crit", "mastery", "vers", "leech", "sockets" }
+
+-- The stored vector of a ready read, every ROW_VECTOR field a number (0 when
+-- the item carries none), or nil when there is no read. It copies the read the
+-- row was scored from; it asks the client nothing.
+function EngineCompare.RowVector(read)
+    if type(read) ~= "table" or read.ready ~= true or read.secret then
+        return nil
+    end
+    local out = {}
+    for _, k in ipairs(EngineCompare.ROW_VECTOR) do
+        out[k] = tonumber(read[k]) or 0
+    end
+    return out
+end
+
 local function scoreOpts(contentType, file, keyLevel)
     return { assumedFinish = true, forceTier = true, contentType = contentType, file = file, keyLevel = keyLevel }
 end
@@ -834,6 +860,8 @@ function EngineCompare.CompareUF(inputs, worn)
                     -- REBUILD_AT_LEVEL, the walk's own otherwise.
                     link = link,
                     level = candidate and candidate.level or nil,
+                    -- E-0m (WKE-705): the read the row was scored from, kept.
+                    stats = EngineCompare.RowVector(candidate),
                 }
             else
                 block.notCompared = block.notCompared + 1
