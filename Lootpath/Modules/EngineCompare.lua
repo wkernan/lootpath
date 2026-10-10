@@ -5,11 +5,13 @@
 -- class and stored per week. DEVELOPER-ONLY and scoped by
 -- docs/ARCHITECTURE.md section 7 (2026-09-30, E-0 and E-0d) and CLAUDE.md's
 -- scoped exception: behind `db.global.developer.engine`, out of combat, printed
--- to the chat frame of the developer who typed it and to no surface; no UI file
--- reads this module (spec/enginecompare_spec.lua reads every UI file to hold
--- that). It never writes `qeImports`, `ufImports` or any other rating store,
--- and it never writes the journal cache either (the walk is aggregated with
--- `db = false`). The bar it prints is a report: nothing is promoted here.
+-- to the chat frame of the developer who typed it and to no player surface; no
+-- UI file reads this module but the developer panel, UI/EngineDevPanel.lua
+-- (E-1c, WKE-689), which opens only behind the same switch
+-- (spec/enginecompare_spec.lua reads every UI file to hold that). It never
+-- writes `qeImports`, `ufImports` or any other rating store, and it never
+-- writes the journal cache either (the walk is aggregated with `db = false`).
+-- The bar it prints is a report: nothing is promoted here.
 --
 -- What is measured:
 --   * Upgrade Finder: one stored document (content type, key level). A row is
@@ -169,7 +171,7 @@ EngineCompare.TEXT = {
     notOn = "not on",
     off = "engine off",
     combat = "Out of combat only.",
-    usage = "usage: /lootpath engine compare [dungeon|raid] [keylevel] | compare weeks"
+    usage = "usage: /lootpath engine [panel] | compare [dungeon|raid] [keylevel] | compare weeks"
         .. " | best [dungeon|raid] [keylevel] | verbose | off",
     verboseOn = "engine verbose on: each compare lists the items it could not rate and every row it scored.",
     verboseOff = "engine verbose off.",
@@ -1788,10 +1790,23 @@ function EngineCompare.WeeksLines(charKey)
     return lines
 end
 
--- `/lootpath engine <rest>`: compare [dungeon|raid] [keylevel] | compare
--- weeks | best [dungeon|raid] [keylevel] (E-1a, ns.EngineSearch) | verbose |
--- off. Every word but `off` needs the switch; with it off the answer is one
--- line.
+-- The developer panel (E-1c, WKE-689), redrawn when a compare or a search
+-- finishes - and only when it is already open: nothing here builds it.
+local function refreshPanel()
+    if ns.EngineDevPanel then
+        ns.EngineDevPanel.Refresh()
+    end
+end
+
+-- The session's last `/lootpath engine best` (E-1c): the run's table and the
+-- lines it printed, in memory only and gone on reload. EngineSearch still
+-- writes nothing to the database; the panel reads this.
+EngineCompare.lastBest = nil
+
+-- `/lootpath engine <rest>`: (nothing) | panel (E-1c, the developer panel) |
+-- compare [dungeon|raid] [keylevel] | compare weeks | best [dungeon|raid]
+-- [keylevel] (E-1a, ns.EngineSearch) | verbose | off. Every word but `off`
+-- needs the switch; with it off the answer is one line.
 function EngineCompare.Command(rest, onDone)
     local words = {}
     for word in (rest or ""):gmatch("%S+") do
@@ -1804,11 +1819,22 @@ function EngineCompare.Command(rest, onDone)
     if words[1] == "off" then
         developer().engine = nil
         ns.Log("%s", EngineCompare.TEXT.off)
+        refreshPanel() -- an open panel hides with the switch
+        return
+    end
+    if words[1] == nil or words[1] == "panel" then
+        ns.EngineDevPanel.Toggle()
         return
     end
     if words[1] == "best" then
         -- E-1a (WKE-685): the best-set search over owned items.
-        ns.EngineSearch.Command(words, onDone)
+        ns.EngineSearch.Command(words, function(run)
+            EngineCompare.lastBest = { run = run, lines = ns.EngineSearch.Lines(run) }
+            refreshPanel()
+            if onDone then
+                onDone(run)
+            end
+        end)
         return
     end
     if words[1] == "verbose" then
@@ -1846,5 +1872,10 @@ function EngineCompare.Command(rest, onDone)
             contentType = "Dungeon"
         end
     end
-    EngineCompare.Run(contentType, keyLevel, onDone)
+    EngineCompare.Run(contentType, keyLevel, function(run)
+        refreshPanel()
+        if onDone then
+            onDone(run)
+        end
+    end)
 end
