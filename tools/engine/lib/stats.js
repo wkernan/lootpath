@@ -53,6 +53,19 @@
 //                      `capture itemstats` already names the `id@level`, that
 //                      read is kept.
 //
+//   compare rows       (E-0m, WKE-705) - the stat vector `/lootpath engine
+//                      compare` stores beside every Upgrade Finder row it
+//                      scores (`db.global.engineCompare[week][char][ct]
+//                      [keyLevel].rows[i].stats`: int, haste, crit, mastery,
+//                      vers, leech, sockets - the `ns.EngineStats` read the
+//                      row was scored from, kept). Filed under `id@level`, the
+//                      level the client read the link at (the row's `level`);
+//                      read through `--compare`, after every `--stats` file,
+//                      and never over a point a transcript already holds. A
+//                      stored row with no `stats` (every week before E-0m)
+//                      adds nothing, so its `id@level` keeps whatever the
+//                      transcripts and the budget give it.
+//
 // A plain JSON table
 // (`{ items: [{ id, level, slot, stats: { int, haste, crit, mastery, vers, leech } }] }`)
 // is accepted for tests and for hand-checked tables. Every point carries the
@@ -79,6 +92,10 @@ const ITEMSTATS_KEYS = {
 const SOURCE_ITEMSTATS = 'capture itemstats';
 const SOURCE_UPGRADE = 'capture upgrade';
 const SOURCE_LINKLEVEL = 'capture linklevel';
+const SOURCE_COMPARE = 'compare rows';
+
+// The fields a stored compare row's `stats` carries (EngineCompare.ROW_VECTOR).
+const ROW_VECTOR = ['int', 'haste', 'crit', 'mastery', 'vers', 'leech', 'sockets'];
 
 const CLIENT_STAT_NAMES = {
     Intellect: 'int',
@@ -337,6 +354,70 @@ function readSavedVariablesInto(table, text, label) {
     return table;
 }
 
+// A stored row's `stats`, or null when it carries none or one missing any of
+// the six stats the model reads (`sockets` is kept by the compare and read by
+// nothing here: the fit's finish is per set, not per socket).
+function rowVector(row) {
+    const s = row && row.stats;
+    if (!s || typeof s !== 'object') return null;
+    for (const k of STATS) if (typeof s[k] !== 'number' || !Number.isFinite(s[k])) return null;
+    return s;
+}
+
+// Every Upgrade Finder row a compare stored, newest week first: `{ week, char,
+// contentType, docKey, key, id, level, slot, vector }` (`vector` null on a row
+// stored without one). Top Gear blocks (`pass1`) are skipped: their rows are
+// owned items, which `capture itemstats` reads.
+function compareRowRecords(sv) {
+    const store = sv && sv.LootpathDB && sv.LootpathDB.global && sv.LootpathDB.global.engineCompare;
+    const out = [];
+    if (!store || typeof store !== 'object') return out;
+    for (const week of Object.keys(store).sort().reverse()) {
+        const chars = store[week] || {};
+        for (const char of Object.keys(chars).sort()) {
+            const cts = chars[char] || {};
+            for (const ct of Object.keys(cts).sort()) {
+                const docs = cts[ct] || {};
+                for (const docKey of Object.keys(docs).sort()) {
+                    if (docKey === 'pass1') continue;
+                    for (const row of luaArray((docs[docKey] && docs[docKey].rows) || {})) {
+                        const m = String(row.key || '').match(/^(\d+)@(\d+)$/);
+                        if (!m) continue;
+                        out.push({ week, char, contentType: ct, docKey, key: row.key, id: Number(m[1]), level: typeof row.level === 'number' ? row.level : Number(m[2]), slot: row.slot || null, vector: rowVector(row) });
+                    }
+                }
+            }
+        }
+    }
+    return out;
+}
+
+// The compare's stored vectors into the table, each under `id@level` at the
+// level the client read it; a point a transcript already holds is kept.
+function readCompareInto(table, text, label) {
+    const records = compareRowRecords(parseSavedVariables(text));
+    const counts = { rows: records.length, vectors: 0, points: 0, held: 0, weeks: [] };
+    const weeks = new Set();
+    for (const rec of records) {
+        if (!rec.vector) continue;
+        counts.vectors += 1;
+        weeks.add(rec.week);
+        const key = `${rec.id}@${rec.level}`;
+        const held = table.points.get(key);
+        if (held) {
+            if (held.source !== SOURCE_COMPARE) counts.held += 1;
+            continue;
+        }
+        const stats = zeroStats();
+        for (const k of STATS) stats[k] = rec.vector[k];
+        addPoint(table, rec.id, rec.level, stats, rec.slot, SOURCE_COMPARE);
+        counts.points += 1;
+    }
+    counts.weeks = [...weeks].sort();
+    table.sources.push({ file: label, kind: 'compare rows (the stored EngineStats read)', ...counts });
+    return counts;
+}
+
 function readJsonInto(table, obj, label) {
     let points = 0;
     for (const it of obj.items || []) {
@@ -470,13 +551,16 @@ function itemStats(table, budget, item, opts) {
     };
 }
 
-function loadTable(files, fs) {
+// `compareFiles` (E-0m) are read after every stats file, so a transcript's
+// point is never replaced by a stored row's.
+function loadTable(files, fs, compareFiles) {
     const table = newTable();
     for (const f of files) {
         const text = fs.readFileSync(f, 'utf8');
         if (/\.json$/i.test(f)) readJsonInto(table, JSON.parse(text), f);
         else readSavedVariablesInto(table, text, f);
     }
+    for (const f of compareFiles || []) readCompareInto(table, fs.readFileSync(f, 'utf8'), f);
     return table;
 }
 
@@ -486,6 +570,11 @@ module.exports = {
     SOURCE_ITEMSTATS,
     SOURCE_UPGRADE,
     SOURCE_LINKLEVEL,
+    SOURCE_COMPARE,
+    ROW_VECTOR,
+    rowVector,
+    compareRowRecords,
+    readCompareInto,
     linkLevelRecords,
     readLinkLevelInto,
     strippedKey,

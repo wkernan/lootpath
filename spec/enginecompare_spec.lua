@@ -1936,3 +1936,230 @@ describe("/lootpath engine compare searches pass 1's pool over the 2026-10-01 tr
         end)
     end
 end)
+
+-- E-0m (WKE-705): every Upgrade Finder row keeps the stat vector it was scored
+-- from, so the offline fit (tools/engine/fit-weights.js `--compare`) can fit a
+-- jewellery row on its own split instead of the equal placeholder. The read
+-- already happens; the row keeps it - no new client call. Re-run headlessly
+-- over the owner's committed week-two file (its documents, walk and dressed
+-- inventory) with the synthetic stats rule and the fitted-shape weights, so
+-- the row counts are the week's and the vectors are the stub's.
+local WEEK_TWO = "spec/fixtures/captures/Lootpath-20261009-204729.lua"
+local WEEK_TWO_INVENTORY = 4 -- the newest snapshot of the file
+-- 2026-10-10T01:47:29Z (that snapshot's capture), and the US reset after it,
+-- 2026-10-13T15:00:00Z.
+local WEEK_TWO_NOW = 1791596849
+local WEEK_TWO_RESET = 1791903600
+-- The bound on the stored week (one character, the three Upgrade Finder
+-- documents and both Top Gear blocks), serialised the way the committed
+-- SavedVariables files read.
+local WEEK_BYTES_BOUND = 64 * 1024
+
+-- The committed files' form: `["key"] = value,` per line, an array's entries
+-- as `value,`, no indentation, numbers as the client writes them (`%.16g` for
+-- a fraction, integers bare).
+local function svSize(value)
+    local t = type(value)
+    if t == "string" then
+        return #string.format("%q", value)
+    elseif t == "boolean" then
+        return #tostring(value)
+    elseif t == "number" then
+        if value == math.floor(value) and math.abs(value) < 2 ^ 53 then
+            return #string.format("%d", value)
+        end
+        return #string.format("%.16g", value)
+    end
+    local n = #"{\n" + #"}"
+    local count = #value
+    for i = 1, count do
+        n = n + svSize(value[i]) + #",\n"
+    end
+    for k, v in pairs(value) do
+        local inArray = type(k) == "number" and k >= 1 and k <= count and k == math.floor(k)
+        if not inArray then
+            local keyText = type(k) == "string" and string.format("[%q]", k) or ("[" .. tostring(k) .. "]")
+            n = n + #keyText + #" = " + svSize(v) + #",\n"
+        end
+    end
+    return n
+end
+
+local function withoutVectors(t)
+    if type(t) ~= "table" then
+        return t
+    end
+    local out = {}
+    for k, v in pairs(t) do
+        if k ~= "stats" then
+            out[k] = withoutVectors(v)
+        end
+    end
+    return out
+end
+
+local function weekTwoWorld()
+    local ns, world = H.load()
+    H.chicagoClock(world, WEEK_TWO_NOW)
+    world.secondsUntilReset = WEEK_TWO_RESET - WEEK_TWO_NOW
+    local db = R.load(WEEK_TWO)
+    ns.db.char = deepcopy(db.char[CHAR])
+    ns.db.global = deepcopy(db.global)
+    -- The weeks the owner stored are not this run's: start from none.
+    ns.db.global.engineCompare = nil
+    ns.db.global.developer = { engine = true }
+    R.inventory(world, R.snapshot("inventory", WEEK_TWO_INVENTORY, WEEK_TWO))
+    ns.engineWeights = dofile(FITTED)
+    assert(ns.EngineScore.Load())
+    local entries = {}
+    for _, record in ipairs(ns.Inventory.Scan().records) do
+        entries[#entries + 1] = { link = record.link, level = record.itemLevel }
+    end
+    local sources = ns.Journal:Build({ snapshot = ns.Companion.NewestSnapshot("journal"), db = false })
+    for _, list in pairs(sources) do
+        for _, row in ipairs(list) do
+            if row.link then
+                entries[#entries + 1] = { link = row.link, level = row.itemLevel }
+            end
+        end
+    end
+    Stats.install(world, entries)
+    Stats.installTrack(world)
+    return ns, world
+end
+
+describe("EngineCompare keeps each Upgrade Finder row's stat vector (E-0m)", function()
+    after_each(function()
+        H.unload()
+    end)
+
+    it("copies the seven fields of a ready read, 0 where the item carries none, and nothing else", function()
+        local ns = H.load()
+        local v = ns.EngineCompare.RowVector({
+            ready = true,
+            int = 120,
+            haste = 61,
+            crit = 312,
+            mastery = 0,
+            sockets = 1,
+            stamina = 900,
+            level = 324,
+            gems = {},
+        })
+        assert.same({ int = 120, haste = 61, crit = 312, mastery = 0, vers = 0, leech = 0, sockets = 1 }, v)
+        assert.is_nil(ns.EngineCompare.RowVector(nil))
+        assert.is_nil(ns.EngineCompare.RowVector({ ready = false }))
+        assert.is_nil(ns.EngineCompare.RowVector({ ready = true, secret = true }))
+    end)
+
+    local cached
+    local function weekTwoRun()
+        if cached then
+            return cached
+        end
+        local ns, world = weekTwoWorld()
+        local runs = {}
+        for _, words in ipairs({ "compare dungeon 6", "compare dungeon 10", "compare raid" }) do
+            local run
+            ns.EngineCompare.Command(words, function(r)
+                run = r
+            end)
+            world.runTimers(10)
+            assert.is_table(run, words)
+            runs[#runs + 1] = run
+        end
+        local week = runs[1].weekKey
+        assert.equal("2026-10-06", week)
+        local stored = ns.db.global.engineCompare[week][runs[1].charKey]
+        -- The reads each row's link answers, taken while the world is up.
+        local reads = {}
+        for _, docs in pairs(stored) do
+            for docKey, entry in pairs(docs) do
+                if docKey ~= ns.EngineCompare.TOP_GEAR_KEY then
+                    for _, row in ipairs(entry.rows) do
+                        reads[row.link] = ns.EngineStats.ForLink(row.link)
+                    end
+                end
+            end
+        end
+        cached = { stored = deepcopy(stored), reads = reads, top = ns.EngineCompare.TOP_GEAR_KEY }
+        return cached
+    end
+
+    it("stores every Upgrade Finder row's vector, equal to the read it was scored from", function()
+        local r = weekTwoRun()
+        local rows, jewellery = 0, 0
+        for ct, docs in pairs(r.stored) do
+            for docKey, entry in pairs(docs) do
+                if docKey ~= r.top then
+                    assert.is_true(#entry.rows > 0, ct .. " " .. tostring(docKey))
+                    for _, row in ipairs(entry.rows) do
+                        local read = r.reads[row.link]
+                        assert.is_table(row.stats, row.key)
+                        for _, k in ipairs({ "int", "haste", "crit", "mastery", "vers", "leech", "sockets" }) do
+                            assert.equal(tonumber(read[k]) or 0, row.stats[k], row.key .. " " .. k)
+                        end
+                        local fields = 0
+                        for _ in pairs(row.stats) do
+                            fields = fields + 1
+                        end
+                        assert.equal(7, fields, row.key)
+                        rows = rows + 1
+                        if row.class == "jewellery" then
+                            jewellery = jewellery + 1
+                        end
+                    end
+                end
+            end
+        end
+        assert.is_true(jewellery > 0)
+        io.write(
+            string.format(
+                "\n[E-0m week-two re-run] %d Upgrade Finder rows stored with a vector, %d jewellery\n",
+                rows,
+                jewellery
+            )
+        )
+    end)
+
+    it("keeps no vector on a Top Gear row", function()
+        local r = weekTwoRun()
+        local seen = 0
+        for _, docs in pairs(r.stored) do
+            local tg = docs[r.top]
+            if tg then
+                for _, row in ipairs(tg.rows) do
+                    assert.is_nil(row.stats, row.key)
+                    seen = seen + 1
+                end
+            end
+        end
+        assert.is_true(seen > 0)
+    end)
+
+    it("keeps the stored week under its bound", function()
+        local r = weekTwoRun()
+        local with, without = svSize(r.stored), svSize(withoutVectors(r.stored))
+        local vectors = 0
+        for _, docs in pairs(r.stored) do
+            for docKey, entry in pairs(docs) do
+                if docKey ~= r.top then
+                    vectors = vectors + #entry.rows
+                end
+            end
+        end
+        io.write(
+            string.format(
+                "[E-0m week-two re-run] the week serialises to %d bytes with the vectors, %d without:"
+                    .. " %d bytes for %d vectors (%.1f each); bound %d\n",
+                with,
+                without,
+                with - without,
+                vectors,
+                (with - without) / vectors,
+                WEEK_BYTES_BOUND
+            )
+        )
+        assert.is_true(with <= WEEK_BYTES_BOUND, string.format("%d bytes, over the bound %d", with, WEEK_BYTES_BOUND))
+    end)
+end)
