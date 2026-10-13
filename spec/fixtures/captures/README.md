@@ -10,6 +10,26 @@ snapshots arrive with every loop rather than by request.
 
 ## Committed
 
+- Lootpath-20261013-183853.lua - **reset day 2026-10-13 on the 12.1.5 client: the owner's
+  `capture itemstats` for E-0n (WKE-706).** Every `/lootpath engine` command that evening
+  refused with `Update Lootpath - its ratings are for 12.1.0, you're on 12.1.5.`; the refit
+  the owner chose needs a stat read on the new client, so he ran `/lootpath capture itemstats`,
+  reloaded and pulled. `captures.itemstats` now holds two snapshots in stored order: index 1
+  captured 2026-10-01T14:26:25Z on `12.1.0` / `69933`, index 2 captured 2026-10-13T23:38:46Z on
+  `12.1.5` / `70391` (`Oct 13 2026`), `sawSecret = false`. `linklevel` (2026-10-02, 12.1.0) and
+  `upgrade` (2026-09-15/16, 12.1.0) are unchanged. sha256 as pulled (CRLF)
+  `ba1e333898a91df8206eb52590f7fd507181413e87889469d5ff3ec0e8cd2a9f`, 6,724,847 bytes; as
+  committed (`eol=lf`) `d27f46faaa2b9ffcdac66a5a99c09cde3209a31dceccb69b6fd38c3941b32ba4`,
+  6,362,829 bytes. No `sawSecret = true` in the file. No secrets.
+- Lootpath-20261013-180632.lua - **reset day 2026-10-13, the pull after the refused compares.**
+  The owner refreshed (the companion's verdict written 2026-10-13T23:10:18Z), claimed the
+  vault's Vile Vial of Volatile Venom 318, ran the three compares (each refused on 12.1.5, so
+  `engineCompare` gains no week), reloaded and pulled. Every patch-bearing capture in it is
+  12.1.0 (itemstats 2026-10-01, linklevel 2026-10-02, upgrade 2026-09-15/16) - the reason the
+  183853 pull above exists. sha256 as pulled (CRLF)
+  `dc423976a0e0eaae6d874e4ad639645d5acd642a8c94fe6ccef8dbfbfe350bf2`, 6,602,501 bytes; as
+  committed (`eol=lf`) `3e5b54af0d573f4c80b7a52ccb9188577e07be0bc2ccb7df65a29f9fcc57f9ad`,
+  6,247,146 bytes. No `sawSecret = true`. No secrets.
 - Lootpath-20261009-204729.lua - **week two of the engine compare (week 2026-10-06), on the Druid in
   Restoration.** The owner refreshed at 20:43 local, ran `/lootpath engine compare dungeon 6`,
   `compare dungeon 10` and `compare raid`, reloaded and pulled. `engineCompare` holds

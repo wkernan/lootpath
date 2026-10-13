@@ -423,3 +423,48 @@ exercised in both directions.
 
 Files here are excluded from luacheck and StyLua (raw third-party payloads,
 never linted or formatted).
+
+## The 12.1.5 reset-day run (E-0n, WKE-706)
+
+All 28 documents **written by the companion** on 2026-10-13 23:06:45-23:10:18 UTC, the owner's
+reset-day Refresh on the 12.1.5 client, extracted unedited from the `Data/QEVerdict.lua` it wrote
+into his addon folder (written 2026-10-13T23:10:18Z, 1,276,068 bytes, sha256
+`50a86c05453f52b0ec47347a978f3e6351e15685245336c9cb23bdadcc96bbff`; profile captured
+2026-10-13T18:06:31 local). Each file is that export's `json` string byte for byte - the Lua
+escapes of `tools/companion/lib/luawriter.js` undone and every length checked against the
+`bytes` the companion wrote beside it - named by its own `reportId`, and kept in `e0n/` because
+`tools/engine` reads every `qe-upgradefinder-*` file at this folder's top level and its tests
+hold the eight it was fitted on. The QE Live web app is not the WoW client: what makes these the
+12.1.5 run is the day and the profile they rate, which the companion built from the 12.1.5
+client's own inventory snapshot.
+
+| File | Kind | Content type | Scenario / key | Exported | Bytes | sha256 |
+|---|---|---|---|---|---|---|
+| `e0n/qe-droptimizer-Hotornot-quridapswmyb.json` | Top Gear | Dungeon | asOffered pass 1 | 23:06:45.879Z | 19607 | `fc92e50586525c163fab33c4fa22a52491cc442bcbfccf396811e48276a76830` |
+| `e0n/qe-droptimizer-Hotornot-vtjwsyfsklbv.json` | Top Gear | Dungeon | asOffered pass 2 | 23:06:57.092Z | 17524 | `29c15c1704edcfd0392b90e8da1f5dc799f87b5f4b23b27d641a7909da6ff45b` |
+| `e0n/qe-upgradefinder-Hotornot-yzpttpqbdisx.json` | Upgrade Finder | Dungeon | +2 pass 1 | 23:06:59.696Z | 117009 | `7c73dad8d1cda8dfd5a8a35b9fe1969a424c921375a9a743dc3790cebdea7b3f` |
+| `e0n/qe-upgradefinder-Hotornot-jqdtqmtxqqsl.json` | Upgrade Finder | Dungeon | +4 pass 1 | 23:07:02.391Z | 117063 | `11a096f2f0fa405f1c6fb962fd9ec6e92244f4312bebdaa6f7a6ec008f06deb5` |
+| `e0n/qe-upgradefinder-Hotornot-rxcfhfjxqsvw.json` | Upgrade Finder | Dungeon | +6 pass 1 | 23:07:04.977Z | 96629 | `982581889ae72649c2ef5e1b57a8fb7628a6671d8e2a29a08d146047bdb3f2c7` |
+| `e0n/qe-upgradefinder-Hotornot-omkhyvpxbmdd.json` | Upgrade Finder | Dungeon | +8 pass 1 | 23:07:07.327Z | 96682 | `dca96bab65b4c7d3cdf85189897aabe78f5b4eadaf4405e0faaec38fa61639cd` |
+| `e0n/qe-upgradefinder-Hotornot-ehokzbsiacjm.json` | Upgrade Finder | Dungeon | +10 pass 1 | 23:07:09.877Z | 118063 | `7471cc239348935267155b1f81f61e3b9ad16fe0e8e0fe90726fb866175191c6` |
+| `e0n/qe-droptimizer-Hotornot-ytpkiitzzeyq.json` | Top Gear | Raid | asOffered pass 1 | 23:07:23.046Z | 18761 | `592cbb6bd55edfa84a4b5ae50ad0e6031e9b01deeb490c0262ad34a41294313c` |
+| `e0n/qe-droptimizer-Hotornot-hrtrlxqnxqik.json` | Top Gear | Raid | asOffered pass 2 | 23:07:33.276Z | 17539 | `aa03a79a4a4e2555c3b8b0f1a77ad39998759b15bde5b53b4892534d7656840e` |
+| `e0n/qe-upgradefinder-Hotornot-ajavabkbyoyo.json` | Upgrade Finder | Raid | +10 pass 1 | 23:07:35.258Z | 117683 | `dc9d0ee69a1481057d54d3aac8ef905629723e0c30ce07e767ab53fa50e5ea2b` |
+| `e0n/qe-droptimizer-Hotornot-uadbwruosccw.json` | Top Gear | Dungeon | catalyzed pass 1 | 23:07:45.126Z | 17530 | `888d9019764dc46671f29cdeba792c58cf824b24398669f9e8e458ac7ca76848` |
+| `e0n/qe-droptimizer-Hotornot-bcizulbcjchl.json` | Top Gear | Dungeon | catalyzed pass 2 | 23:07:55.607Z | 17948 | `910931c3e37c52d40cc437b37a0889b7bdece854c14dfc214a9a5931c4812c39` |
+| `e0n/qe-droptimizer-Hotornot-cjqkahuhasec.json` | Top Gear | Dungeon | catalyzed pass 3 | 23:08:02.371Z | 11473 | `67d3955d6b35eeae3daf88338e3ff55ddcf70920efd9822b34de729274200256` |
+| `e0n/qe-droptimizer-Hotornot-ohcmftusqqqm.json` | Top Gear | Raid | catalyzed pass 1 | 23:08:10.974Z | 17403 | `d4a83735c0bc8ae8b4b4f592ced3cf4c97e8f9f716686874a995a697fe4a18d2` |
+| `e0n/qe-droptimizer-Hotornot-cnnvikjskuom.json` | Top Gear | Raid | catalyzed pass 2 | 23:08:22.357Z | 18476 | `00ef6d00d324d57924acfa0bac675e92f68ed6baa6cebf5530f4bf3c99632334` |
+| `e0n/qe-droptimizer-Hotornot-dckfaceiopyi.json` | Top Gear | Raid | catalyzed pass 3 | 23:08:29.339Z | 11488 | `2f4e999afda001cdd133574e8ccee9abbef6d13cffd13a0e40e2e1a5a06a2e03` |
+| `e0n/qe-droptimizer-Hotornot-xianmquqozff.json` | Top Gear | Dungeon | thisWeek pass 1 | 23:08:38.304Z | 17530 | `e098dd3eb6d51971630ae5111ecd7dd1218fd5dc883fa476efdd073a4094f6ad` |
+| `e0n/qe-droptimizer-Hotornot-mzckrwcphvzi.json` | Top Gear | Dungeon | thisWeek pass 2 | 23:08:50.620Z | 17948 | `b15a7fe7049b46d08af87c370917ea0ab83d34d1728dd1bbbc99c5d7fb4929a3` |
+| `e0n/qe-droptimizer-Hotornot-jseokwvwfbss.json` | Top Gear | Dungeon | thisWeek pass 3 | 23:08:57.504Z | 11473 | `3ad8655a705a08139a60fd38f3752f25c4997d19ea3d26d199bd81fdfabfa6e6` |
+| `e0n/qe-droptimizer-Hotornot-vcuhcmnnmvux.json` | Top Gear | Raid | thisWeek pass 1 | 23:09:06.269Z | 17403 | `2c2323131f087261888c10d2733a7c3cf026caae4a8b42f849e268e73421b277` |
+| `e0n/qe-droptimizer-Hotornot-drusaefcqnxf.json` | Top Gear | Raid | thisWeek pass 2 | 23:09:17.685Z | 18476 | `a47703b0f769409b2e258977f445c2d50b9a695f40335a0e17be896c9fdd948b` |
+| `e0n/qe-droptimizer-Hotornot-wmhzmwhknvpm.json` | Top Gear | Raid | thisWeek pass 3 | 23:09:24.702Z | 11488 | `aab744f6eb2d3cf02c4d0c136decf5d5e604ad038075925bad64b6492d76028e` |
+| `e0n/qe-droptimizer-Hotornot-navpfnteyosy.json` | Top Gear | Dungeon | maxed pass 1 | 23:09:33.536Z | 16911 | `86d3a4d9f63c6c4df282b8bd0201b4a0e35a47b2b967ded903276922bd2914f0` |
+| `e0n/qe-droptimizer-Hotornot-rxudkxjpsbfc.json` | Top Gear | Dungeon | maxed pass 2 | 23:09:45.369Z | 16238 | `8b1a59ddd277c8e4820f111e8478f7bee8df1c384b735256956644f52a70f79d` |
+| `e0n/qe-droptimizer-Hotornot-pjeiwblqphel.json` | Top Gear | Dungeon | maxed pass 3 | 23:09:51.969Z | 11482 | `2d571d6902c63e63e10feaecc906117a245f5e059d5d4785671f75ff9e217f1a` |
+| `e0n/qe-droptimizer-Hotornot-tskmulqeplbk.json` | Top Gear | Raid | maxed pass 1 | 23:10:00.584Z | 18086 | `8b9b63162e8d3eb365aad2545836490759f812d8582076a175302df813ca34d3` |
+| `e0n/qe-droptimizer-Hotornot-vbiybxevltmq.json` | Top Gear | Raid | maxed pass 2 | 23:10:11.549Z | 17031 | `f696fedba00276b8f386e03b616702e6132ec3f2f3474d75ff3139efc53ea2ae` |
+| `e0n/qe-droptimizer-Hotornot-nmawdnwywmrd.json` | Top Gear | Raid | maxed pass 3 | 23:10:18.267Z | 11497 | `f5f6de8900ee4df2d63c0ae74e2a7039c72a87d9e9b037409f764d2dd6c519b7` |
