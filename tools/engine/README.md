@@ -200,6 +200,37 @@ the vectors the client is known to have read (a committed transcript's read of
 the exact link, or E-0l's recovery from the stored raws); the figures are in
 ARCHITECTURE.md §9 (2026-10-09, E-0m).
 
+## The emitted `patch`: the NEWEST capture wins, not the first `--stats` file (E-0n, WKE-706)
+
+The dev file's `patch` is read from the client, never typed: a `--stats`
+capture's own `GetBuildInfo()` build, from whichever of its `itemstats`,
+`linklevel` or `upgrade` snapshots was captured most recently (`capturedAt`).
+Every `--stats` file is read in full and every patch-bearing snapshot in it is
+considered, so **the result does not depend on argument order** - the file
+naming the newest capture wins whichever position it is given, and a file
+with no dated snapshot never displaces one that has one.
+
+This matters because `Core.lua` keeps each capture kind's snapshots
+OLDEST-first (`list[#list + 1] = snapshot`, trimmed from the front at
+`ns.CAPTURE_HISTORY = 4`), so a transcript can hold a stale build at index 1
+for a long time after the client patches - and `/lootpath refresh`'s own
+captures (`env`, `inventory`, `vault`, `currencies`) carry no build at all.
+When the client patches, the dev file's `patch` only moves once a capture that
+DOES carry a build runs again - `capture itemstats`, `capture linklevel` or
+`capture upgrade` - which a plain Refresh does not do (E-0n, WKE-706: the
+owner's reset-day Refresh on 12.1.5 left every patch-bearing capture at
+12.1.0 until he ran `capture itemstats`).
+
+**Mixing an old client's captures with a new one is not automatically
+dishonest** - if nothing the fit reads actually changed, the old points are
+still true - but check it before trusting a mixed run: on E-0n's two builds,
+47 of 47 shared `id@level` points read identically. It can also cost the fit
+its RANK: feeding both the four 2026-10-01-and-earlier transcripts and the
+2026-10-13 one over `spec/fixtures/qe/e0n` pinned `w_leech` to exactly zero on
+four of six documents, a collinearity the single newest capture alone did not
+have. When a patch moved and nothing says it changed nothing, fit on the
+capture that carries the new patch ALONE.
+
 ## The model and the fit
 
 `lib/score.js` is E-0c's contract: totals over the worn set with the row's item
