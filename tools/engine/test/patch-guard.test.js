@@ -64,6 +64,12 @@ function loadResult(scriptDir, clientPatch, luaPath) {
     return { status, line, stderr: res.stderr };
 }
 
+// CI sets LOOTPATH_REQUIRE_LUA=1 (as for cli.test.js), so these never skip there.
+function noLua(t) {
+    if (process.env.LOOTPATH_REQUIRE_LUA === '1') assert.fail('no Lua 5.1 on PATH and no lootpath-lua image, and LOOTPATH_REQUIRE_LUA=1');
+    t.skip('no Lua 5.1 on PATH and no lootpath-lua Docker image');
+}
+
 test('the fit over the owner\'s fresh 12.1.5 itemstats capture emits patch = "12.1.5"', () => {
     const r = fitOnce();
     assert.match(r.lua, /patch = "12\.1\.5",/);
@@ -74,7 +80,7 @@ test('EngineScore.Load ACCEPTS the refit file on a 12.1.5 client', (t) => {
     const r = fitOnce();
     const res = loadResult(r.out, '12.1.5', r.luaPath);
     if (!res) {
-        t.skip('no Lua 5.1 on PATH and no lootpath-lua Docker image');
+        noLua(t);
         return;
     }
     assert.equal(res.status, 'ok', `EngineScore refused the refit on 12.1.5: ${res.line}`);
@@ -84,7 +90,7 @@ test('EngineScore.Load REFUSES the SAME refit file on a 12.1.0 client - the guar
     const r = fitOnce();
     const res = loadResult(r.out, '12.1.0', r.luaPath);
     if (!res) {
-        t.skip('no Lua 5.1 on PATH and no lootpath-lua Docker image');
+        noLua(t);
         return;
     }
     assert.equal(res.status, 'refused');
@@ -97,7 +103,7 @@ test('a weights file still tagged 12.1.0 is refused on a 12.1.5 client (the owne
     const placeholder = path.join(REPO, 'Lootpath', 'Data', 'EngineWeights.lua');
     const res = loadResult(fs.mkdtempSync(path.join(os.tmpdir(), 'lootpath-e0n-ph-')), '12.1.5', placeholder);
     if (!res) {
-        t.skip('no Lua 5.1 on PATH and no lootpath-lua Docker image');
+        noLua(t);
         return;
     }
     assert.equal(res.status, 'refused');
