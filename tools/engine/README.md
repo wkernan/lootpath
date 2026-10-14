@@ -231,6 +231,31 @@ four of six documents, a collinearity the single newest capture alone did not
 have. When a patch moved and nothing says it changed nothing, fit on the
 capture that carries the new patch ALONE.
 
+## Carrying weights across a patch: `cross-score.js` (E-0n, 2026-10-14)
+
+`node cross-score.js` fits every committed Upgrade Finder document - the eight in
+`spec/fixtures/qe` and the six in `spec/fixtures/qe/e0n` - over ONE item-stats
+table (the owner's 12.1.5 capture), then scores each band's rows with the other
+set's weights for that band and prints rho / k / MAE per class. It writes nothing.
+It answers whether weights fitted to one run of QE Live still describe another
+once item stats are held equal. On E-0n it decided the carry-forward below
+(ARCHITECTURE.md §7 and §9, 2026-10-14).
+
+The weights the game runs from 2026-10-14 are the structure run's eight documents
+over all five transcripts, the 12.1.5 capture among them, so the tool labels the file
+`12.1.5` from that capture:
+
+```powershell
+node fit-weights.js `
+  --stats ..\..\spec\fixtures\captures\Lootpath-20260915-162015.lua `
+  --stats ..\..\spec\fixtures\captures\Lootpath-20260916-152428.lua `
+  --stats ..\..\spec\fixtures\captures\Lootpath-20261001-092631.lua `
+  --stats ..\..\spec\fixtures\captures\Lootpath-20261001-200927.lua `
+  --stats ..\..\spec\fixtures\captures\Lootpath-20261013-183853.lua `
+  --key-levels 1=2,2=4,4=6,6=8,7=10 --balance none --resamples 0 `
+  ..\..\spec\fixtures\qe
+```
+
 ## The model and the fit
 
 `lib/score.js` is E-0c's contract: totals over the worn set with the row's item
