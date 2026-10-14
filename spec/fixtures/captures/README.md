@@ -10,6 +10,15 @@ snapshots arrive with every loop rather than by request.
 
 ## Committed
 
+- Lootpath-20261014-165427.lua - **week three rerun on the carried weights (E-0n carry-forward, PR #350).**
+  The coordinator copied the carried file into the game's `Data\EngineWeights.lua` (`patch 12.1.5`,
+  derivedAt 2026-10-14T19:34:31.408Z); the owner ran `/reload`, the three `/lootpath engine compare`
+  commands, `/reload` and pulled. Week `2026-10-13` is REPLACED: bands `6`, `10`, `raid-3`, 86 `["stats"]`
+  vectors, every row derived 2026-10-14T19:34:31.408Z. Weeks `2026-09-29` and `2026-10-06` unchanged.
+  sha256 as pulled (CRLF) `191a0660fc7295993d23e97d0ca3b1a74cd5f1112272ac9c203924241555328c`,
+  6,760,622 bytes; as committed (`eol=lf`)
+  `7a765158ed8a4dfad625b986629e53fe9cab03d99f895ef5e2fadc37ab0d7cc1`, 6,397,283 bytes. No
+  `sawSecret = true`. No secrets.
 - Lootpath-20261014-124538.lua - **week three of the developer engine's compare, the first on the
   12.1.5 refit (E-0n, WKE-706, PR #348) and the first whose stored rows carry E-0m's stat vectors.**
   After the coordinator copied the refit into the game's `Data\EngineWeights.lua` (`patch 12.1.5`,
