@@ -148,7 +148,25 @@ const BUDGET_GROUP = {
 };
 
 function newTable() {
-    return { points: new Map(), byLink: new Map(), byBonus: new Map(), slotOf: new Map(), sources: [], patch: null };
+    return { points: new Map(), byLink: new Map(), byBonus: new Map(), slotOf: new Map(), sources: [], patch: null, patchAt: -Infinity };
+}
+
+// A capture snapshot's own build, kept only when it is the NEWEST patch-bearing
+// snapshot seen so far, by `capturedAt` (E-0n, WKE-706). Before this, the first
+// `--stats` file with a build won and argument order decided the emitted
+// patch; `Core.lua` stores capture snapshots oldest-first and trims from the
+// front, so the first one a loop reaches is also the stalest one it still
+// holds, and a Refresh (`env`/`inventory`/`vault`/`currencies`) carries no
+// build at all - ordering the 12.1.5 transcript first could not make a refit
+// honestly emit `patch = "12.1.5"`. A snapshot with no `capturedAt` is treated
+// as the oldest possible, so it never displaces a dated one.
+function notePatch(table, build, capturedAt) {
+    if (!build) return;
+    const at = typeof capturedAt === 'number' ? capturedAt : -Infinity;
+    if (!table.patch || at > table.patchAt) {
+        table.patch = build;
+        table.patchAt = at;
+    }
 }
 
 // `override` lets a later, more direct read replace a point already held.
@@ -253,8 +271,7 @@ function readItemStatsInto(table, caps, label) {
         if (sk) table.byLink.set(sk, point);
         const bk = bonusKey(rec.itemID, linkBonusIDs(rec.link));
         if (bk) table.byBonus.set(bk, point);
-        const build = rec.snapshot.build && rec.snapshot.build[1];
-        if (build && !table.patch) table.patch = build;
+        notePatch(table, rec.snapshot.build && rec.snapshot.build[1], rec.snapshot.capturedAt);
     }
     if (read) table.sources.push({ file: label, kind: 'capture itemstats (GetItemStats)', items: read, newPoints: points });
     return read;
@@ -292,8 +309,7 @@ function readLinkLevelInto(table, caps, label) {
         if (table.points.size > before) points += 1;
         const sk = strippedKey(rec.link);
         if (sk && !table.byLink.has(sk)) table.byLink.set(sk, point);
-        const build = rec.snapshot.build && rec.snapshot.build[1];
-        if (build && !table.patch) table.patch = build;
+        notePatch(table, rec.snapshot.build && rec.snapshot.build[1], rec.snapshot.capturedAt);
     }
     if (read) table.sources.push({ file: label, kind: 'capture linklevel (GetItemStats on the rebuilt link)', items: read, newPoints: points });
     return read;
@@ -329,7 +345,7 @@ function readSavedVariablesInto(table, text, label) {
     }
     for (const k of Object.keys(caps.upgrade || {})) {
         const cap = caps.upgrade[k];
-        if (cap && cap.build && cap.build[1] && !table.patch) table.patch = cap.build[1];
+        notePatch(table, cap && cap.build && cap.build[1], cap && cap.capturedAt);
         const items = cap && cap.data && cap.data.items;
         if (!items) continue;
         for (const it of luaArray(items)) {
@@ -587,6 +603,7 @@ module.exports = {
     BUDGET_GROUP,
     INVTYPE_SLOT,
     newTable,
+    notePatch,
     addPoint,
     parseLevelStat,
     readSavedVariablesInto,
