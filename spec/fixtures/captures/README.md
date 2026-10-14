@@ -10,6 +10,16 @@ snapshots arrive with every loop rather than by request.
 
 ## Committed
 
+- Lootpath-20261014-124538.lua - **week three of the developer engine's compare, the first on the
+  12.1.5 refit (E-0n, WKE-706, PR #348) and the first whose stored rows carry E-0m's stat vectors.**
+  After the coordinator copied the refit into the game's `Data\EngineWeights.lua` (`patch 12.1.5`,
+  derivedAt 2026-10-14T01:47:56.929Z), the owner ran `/reload`, `/lootpath engine compare dungeon 6`,
+  `compare dungeon 10`, `compare raid`, `/reload` and pulled. `engineCompare` now holds weeks
+  `2026-09-29`, `2026-10-06` and `2026-10-13`; week `2026-10-13` stores bands `6`, `10` and `raid-3`
+  and 86 `["stats"]` vectors. sha256 as pulled (CRLF)
+  `737d4a269d9ba294b71ea88d0e940dc2368a091ade1cb26c9148aeb287239488`, 6,760,924 bytes; as committed
+  (`eol=lf`) `cb45fdf7b4b76d6b1c4fd11a34666c497dfcc8dbb3424a335b0c7773d04e940e`, 6,397,576 bytes.
+  No `sawSecret = true`. No secrets.
 - Lootpath-20261013-183853.lua - **reset day 2026-10-13 on the 12.1.5 client: the owner's
   `capture itemstats` for E-0n (WKE-706).** Every `/lootpath engine` command that evening
   refused with `Update Lootpath - its ratings are for 12.1.0, you're on 12.1.5.`; the refit
