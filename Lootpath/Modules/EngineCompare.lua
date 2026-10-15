@@ -122,6 +122,10 @@ EngineCompare.FUNCTION_NAMES = {
     "GetRealmName",
     "time",
     "date",
+    -- A-1 (WKE-709): the frame an arrival read in combat waits on, and the
+    -- clock its rating's cost is measured with.
+    "CreateFrame",
+    "debugprofilestop",
 }
 
 -- The metrics' fixed numbers (docs/OWN-ENGINE.md section 6).
@@ -1831,6 +1835,326 @@ end
 -- writes nothing to the database; the panel reads this.
 EngineCompare.lastBest = nil
 
+-- ---------------------------------------------------------------------------
+-- Rate on arrival (A-1, WKE-709). A piece of gear that lands in the bags is
+-- rated by the developer engine against the worn set the moment Drift reads
+-- it - out of combat, after Drift's own debounce, and after combat ends when
+-- it landed in one (Drift defers its read to PLAYER_REGEN_ENABLED, and a read
+-- that finishes in combat waits for the same event here). DEVELOPER-ONLY:
+-- nothing happens unless `db.global.developer.engine` is on, and the result is
+-- one chat line and the developer panel's `Arrivals this session` block -
+-- never the bag mark, the tooltip, Equip Now or the map.
+--
+-- The detector is Drift's (`ns.Drift.Arrivals`, pure); the read is Drift's
+-- own scan, handed over through `ns.Drift.Observe` - no second scan. The
+-- rating is the Upgrade Finder's: `ns.EngineScore.UpgradePercent(worn, item,
+-- { assumedFinish = true, forceTier = true, contentType, keyLevel, spec })`,
+-- the compare's own Upgrade Finder options, UNFLOORED (a piece below the worn
+-- set reads negative). The band (`ArrivalBand`) is the last `/lootpath engine
+-- compare` or `best` of this session; with none, the content setting and the
+-- key level of the stored Upgrade Finder document `ChooseDocument` picks, so
+-- QE Live's figure beside ours is that same document's. QE Live's figure is
+-- its stored row for the item's `id@level`, read and shown in its own cell,
+-- never combined with ours and never sorted with it.
+
+EngineCompare.ARRIVALS_KEPT = 10
+
+EngineCompare.ARRIVAL_TEXT = {
+    rated = "engine: %s arrived - %s over your worn set (band %s)",
+    notRated = "engine: %s arrived - not rated (%s)",
+    noWeights = "no weights for spec %s",
+    noBand = "no band",
+    notReady = "not ready",
+    effect = "effect not modelled",
+    unknown = "trinket not in the effects table",
+}
+
+-- Newest first, in memory only, gone on reload; the panel reads it.
+EngineCompare.arrivals = {}
+-- The session's last `compare` or `best`: `{ contentType, keyLevel }`.
+EngineCompare.lastAsked = nil
+
+local arrival = { known = nil, pending = {}, refusalSaid = false, listener = nil }
+
+-- The detector's carried state and the pending batches, dropped: the switch
+-- went off, or a test starts over.
+function EngineCompare.ResetArrivals()
+    arrival.known = nil
+    arrival.pending = {}
+    arrival.refusalSaid = false
+    EngineCompare.arrivals = {}
+    EngineCompare.arrivalRefusal = nil
+end
+
+local function settingContent()
+    local profile = ns.db and ns.db.profile
+    local settings = type(profile) == "table" and profile.settings or nil
+    local ct = type(settings) == "table" and settings.contentType or "Dungeon"
+    return ct == "Raid" and "Raid" or "Dungeon"
+end
+
+-- ArrivalBand() -> contentType, keyLevel. The last `compare` / `best` asked
+-- this session; else the content setting and the key level of the Upgrade
+-- Finder document ChooseDocument picks for it (the highest stored); else that
+-- content with no level (BandFor's one-band rule).
+function EngineCompare.ArrivalBand()
+    local asked = EngineCompare.lastAsked
+    if type(asked) == "table" and asked.contentType then
+        return asked.contentType, asked.keyLevel
+    end
+    local ct = settingContent()
+    local document = ns.UFImport and EngineCompare.ChooseDocument(ct, nil) or nil
+    return ct, document and document.keyLevel or nil
+end
+
+-- TheirsFor(contentType, keyLevel, itemID, level) -> QE Live's stored Upgrade
+-- Finder percent for `id@level` in the document ChooseDocument picks (in the
+-- compare's direction, UPGRADE_BETTER_PERCENT_SIGN), or nil. Read, never
+-- derived.
+function EngineCompare.TheirsFor(contentType, keyLevel, itemID, level)
+    if not (ns.UFImport and itemID and level) then
+        return nil
+    end
+    local document = EngineCompare.ChooseDocument(contentType, keyLevel)
+    local verdict = document and document.verdict
+    local items = type(verdict) == "table" and verdict.items
+    local entry = type(items) == "table" and items[ns.UFImport.Key(itemID, level)] or nil
+    if type(entry) ~= "table" or type(entry.upgradePercent) ~= "number" then
+        return nil
+    end
+    return entry.upgradePercent * ns.UFImport.UPGRADE_BETTER_PERCENT_SIGN
+end
+
+local function arrivalSpec()
+    local id = ns.Companion and ns.Companion.CurrentSpecID and ns.Companion.CurrentSpecID() or nil
+    return id or ns.EngineScore.DEFAULT_SPEC
+end
+
+-- RateArrival(item, worn, band) -> the arrival's entry: `{ key, link, name,
+-- slot, level, contentType, keyLevel, band, ours, theirs, why, generic, ms }`.
+-- `item` and `worn` are ready vectors (with `slot`); `band` = `{ contentType,
+-- keyLevel, spec, file }`. `ms` is the rating's own cost by debugprofilestop.
+-- `ours` is nil and `why` says why when nothing is drawn.
+function EngineCompare.RateArrival(item, worn, band)
+    local T = EngineCompare.ARRIVAL_TEXT
+    local entry = {
+        key = item.recordKey or item.key,
+        link = item.link,
+        name = item.name,
+        slot = item.slot,
+        level = item.level,
+        contentType = band.contentType,
+        keyLevel = band.keyLevel,
+    }
+    entry.theirs = EngineCompare.TheirsFor(band.contentType, band.keyLevel, item.itemID, item.level)
+    local specs = type(band.file) == "table" and band.file.specs
+    if type(specs) ~= "table" or specs[band.spec] == nil then
+        entry.why = string.format(T.noWeights, tostring(band.spec))
+        return entry
+    end
+    local found, key = ns.EngineScore.BandFor(band.file, band.spec, band.contentType, band.keyLevel)
+    if not found then
+        entry.why = key or T.noBand
+        return entry
+    end
+    entry.band = key
+    local opts = scoreOpts(band.contentType, band.file, band.keyLevel)
+    opts.spec = band.spec
+    local t0 = debugprofilestop()
+    local percent, detail = ns.EngineScore.UpgradePercent(worn, item, opts)
+    entry.ms = debugprofilestop() - t0
+    if not percent then
+        entry.why = tostring(detail)
+    elseif type(detail) == "table" and detail.effectUnmodelled then
+        entry.why = T.effect
+    elseif type(detail) == "table" and detail.effectUnknown then
+        entry.why = T.unknown
+    else
+        entry.ours = percent
+        entry.generic = type(detail) == "table" and detail.generic or nil
+    end
+    return entry
+end
+
+-- The chat line for one entry, verb-free of `plan` and short.
+function EngineCompare.ArrivalLine(entry)
+    local T = EngineCompare.ARRIVAL_TEXT
+    local name = entry.link or entry.name or tostring(entry.key)
+    if entry.ours then
+        return string.format(T.rated, name, string.format("%+.2f%%", entry.ours), tostring(entry.band))
+    end
+    return string.format(T.notRated, name, tostring(entry.why))
+end
+
+local function keep(entry)
+    table.insert(EngineCompare.arrivals, 1, entry)
+    for i = #EngineCompare.arrivals, EngineCompare.ARRIVALS_KEPT + 1, -1 do
+        EngineCompare.arrivals[i] = nil
+    end
+end
+
+local function waitForCombatEnd()
+    if not arrival.listener then
+        arrival.listener = CreateFrame("Frame")
+        arrival.listener:SetScript("OnEvent", function(frame, event)
+            if event == "PLAYER_REGEN_ENABLED" then
+                frame:UnregisterEvent("PLAYER_REGEN_ENABLED")
+                EngineCompare.RateArrivals()
+            end
+        end)
+    end
+    arrival.listener:RegisterEvent("PLAYER_REGEN_ENABLED")
+end
+
+-- The weights, loaded once; a refused file says its line ONCE a session and
+-- rates nothing.
+local function weights()
+    if ns.EngineScore.file then
+        return ns.EngineScore.file
+    end
+    local ok, line, detail = ns.EngineScore.Load()
+    if ok then
+        EngineCompare.arrivalRefusal = nil
+        return ns.EngineScore.file
+    end
+    if not arrival.refusalSaid then
+        arrival.refusalSaid = true
+        ns.Log("%s", line)
+        if detail then
+            ns.Log("%s", detail)
+        end
+    end
+    EngineCompare.arrivalRefusal = line
+    return nil
+end
+
+-- RateArrivals(onDone) rates every pending batch: reads the worn set's and the
+-- arrivals' links (Resolve, bounded), scores each arrival, keeps it, prints
+-- its line and redraws an open panel. In combat it waits for
+-- PLAYER_REGEN_ENABLED, and so does a read that finished in combat.
+function EngineCompare.RateArrivals(onDone)
+    if not EngineCompare.Enabled() then
+        EngineCompare.ResetArrivals()
+        return
+    end
+    if #arrival.pending == 0 then
+        return
+    end
+    if InCombatLockdown() then
+        waitForCombatEnd()
+        return
+    end
+    local file = weights()
+    if not file then
+        arrival.pending = {}
+        return
+    end
+    local batches = arrival.pending
+    arrival.pending = {}
+    local links, seen = {}, {}
+    local function want(link)
+        if type(link) == "string" and not seen[link] then
+            seen[link] = true
+            links[#links + 1] = link
+        end
+    end
+    for _, batch in ipairs(batches) do
+        for _, record in ipairs(batch.worn) do
+            want(record.link)
+        end
+        for _, record in ipairs(batch.arrivals) do
+            want(record.link)
+        end
+    end
+    EngineCompare.Resolve(links, function(reads)
+        if InCombatLockdown() then
+            for _, batch in ipairs(batches) do
+                arrival.pending[#arrival.pending + 1] = batch
+            end
+            waitForCombatEnd()
+            return
+        end
+        if not EngineCompare.Enabled() then
+            EngineCompare.ResetArrivals()
+            return
+        end
+        local contentType, keyLevel = EngineCompare.ArrivalBand()
+        local band = { contentType = contentType, keyLevel = keyLevel, spec = arrivalSpec(), file = file }
+        local rated = {}
+        for _, batch in ipairs(batches) do
+            local worn = ns.EngineSearch.Vectors(batch.worn, reads)
+            for _, record in ipairs(batch.arrivals) do
+                local vectors = ns.EngineSearch.Vectors({ record }, reads)
+                local entry
+                if vectors[1] then
+                    entry = EngineCompare.RateArrival(vectors[1], worn, band)
+                else
+                    entry = {
+                        key = record.key,
+                        link = record.link,
+                        name = record.name,
+                        slot = record.slot,
+                        level = record.itemLevel,
+                        contentType = contentType,
+                        keyLevel = keyLevel,
+                        why = EngineCompare.ARRIVAL_TEXT.notReady,
+                    }
+                end
+                keep(entry)
+                rated[#rated + 1] = entry
+                ns.Log("%s", EngineCompare.ArrivalLine(entry))
+            end
+        end
+        refreshPanel()
+        if onDone then
+            onDone(rated)
+        end
+    end)
+end
+
+-- ObserveRead(read): Drift's observer. With the switch off it forgets
+-- everything and does nothing else. Otherwise it runs the detector over the
+-- read, drops what is not gear for the current spec (`ns.ItemData.SpecFit`
+-- false: the wrong armour class or weapon for the spec; no answer keeps the
+-- piece, as EngineSearch.Gather does), and rates what is left.
+function EngineCompare.ObserveRead(read)
+    if not EngineCompare.Enabled() then
+        if arrival.known or #EngineCompare.arrivals > 0 or #arrival.pending > 0 then
+            EngineCompare.ResetArrivals()
+        end
+        return
+    end
+    local found
+    found, arrival.known = ns.Drift.Arrivals(arrival.known, read)
+    if #found == 0 then
+        return
+    end
+    local spec = arrivalSpec()
+    local kept = {}
+    for _, record in ipairs(found) do
+        if ns.ItemData.SpecFit(record.link, spec) ~= false then
+            kept[#kept + 1] = record
+        end
+    end
+    if #kept == 0 then
+        return
+    end
+    local worn = {}
+    for _, record in ipairs(read.records) do
+        if record.location == "equipped" then
+            worn[#worn + 1] = record
+        end
+    end
+    arrival.pending[#arrival.pending + 1] = { arrivals = kept, worn = worn }
+    EngineCompare.RateArrivals()
+end
+
+if ns.Drift and ns.Drift.Observe then
+    ns.Drift.Observe(function(read)
+        EngineCompare.ObserveRead(read)
+    end)
+end
+
 -- `/lootpath engine <rest>`: (nothing) | panel (E-1c, the developer panel) |
 -- compare [dungeon|raid] [keylevel] | compare weeks | best [dungeon|raid]
 -- [keylevel] (E-1a, ns.EngineSearch) | verbose | off. Every word but `off`
@@ -1846,6 +2170,7 @@ function EngineCompare.Command(rest, onDone)
     end
     if words[1] == "off" then
         developer().engine = nil
+        EngineCompare.ResetArrivals()
         ns.Log("%s", EngineCompare.TEXT.off)
         refreshPanel() -- an open panel hides with the switch
         return
@@ -1858,6 +2183,9 @@ function EngineCompare.Command(rest, onDone)
         -- E-1a (WKE-685): the best-set search over owned items.
         ns.EngineSearch.Command(words, function(run)
             EngineCompare.lastBest = { run = run, lines = ns.EngineSearch.Lines(run) }
+            if run.contentType then
+                EngineCompare.lastAsked = { contentType = run.contentType, keyLevel = run.keyLevel }
+            end
             refreshPanel()
             if onDone then
                 onDone(run)
@@ -1901,6 +2229,10 @@ function EngineCompare.Command(rest, onDone)
         end
     end
     EngineCompare.Run(contentType, keyLevel, function(run)
+        -- A-1: the band an arrival is rated in - the document's level when
+        -- the compare chose one.
+        local uf = run.result and run.result.uf
+        EngineCompare.lastAsked = { contentType = contentType, keyLevel = uf and uf.keyLevel or keyLevel }
         refreshPanel()
         if onDone then
             onDone(run)
