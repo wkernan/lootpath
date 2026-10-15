@@ -11,7 +11,8 @@
 //   tier     = forced on (the Upgrade Finder's `forceTier`), so 1 + 2pc + 4pc
 //   percent  = 100 * (V(with) - V(worn)) / V(worn), V(with) the best set over
 //              the worn set with the item swapped in: either ring, either
-//              trinket, a two-hander for both hands
+//              trinket (only the worn copy's place when the pair holds the
+//              same item), a two-hander for both hands
 //
 // SIGN: a positive percent means the item is BETTER, the Upgrade Finder's own
 // convention (`upgradePercent`, ARCHITECTURE.md §7 2026-09-08). The Upgrade
@@ -68,6 +69,13 @@ function setValue(items, model) {
     return linearValue(x, model) * tierMultiplier(items, model.tiers);
 }
 
+// A paired slot never holds two copies of one item (E-0l, WKE-683): QE Live's
+// Top Gear drops every set whose ring pair or trinket pair shares an item ID
+// (fork TopGearEngine.ts:415-420 for rings, :428 for trinkets), so a drop
+// whose ID a worn ring or trinket already carries can only take that copy's
+// place. EngineScore.Placements holds the same rule.
+const PAIRED_SLOTS = new Set(['Finger', 'Trinket']);
+
 const WEAPON_2H = '2H Weapon';
 const WEAPON_1H = '1H Weapon';
 const OFFHAND = 'Offhand';
@@ -97,7 +105,9 @@ function candidates(worn, item) {
         return out;
     }
     const same = idx(item.slot);
-    if (same.length) for (const i of same) swap([i]);
+    const twins = PAIRED_SLOTS.has(item.slot) && item.id !== undefined && item.id !== null ? same.filter((i) => worn[i].id === item.id) : [];
+    if (twins.length) for (const i of twins) swap([i]);
+    else if (same.length) for (const i of same) swap([i]);
     else swap([]);
     return out;
 }

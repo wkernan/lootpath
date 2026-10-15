@@ -4675,3 +4675,198 @@ describe("UpgradeMapPanel.RoadInputs and the items no pass was shown", function(
         )
     end)
 end)
+
+-- UX-5i (WKE-701) cropped a road card's item icon to the size the card is
+-- given; UX-5j (WKE-702) replaces that icon as the backdrop. The owner,
+-- 2026-10-09, of UX-5i's band on his screen: "still very stretched - lets use
+-- a neutral card with item in corner." A card with no instance art now draws
+-- the neutral atlas `Panel.CARD_ART_ATLAS`, cropped at the card's kept size
+-- and never stretched (V-5a), or the card's plain dark back where the client
+-- cannot give it - never the item's icon, which is the corner's alone. UX-5i's
+-- icon-crop assertions (the icon's centred band at MOSAIC_ALPHA, the square
+-- card keeping the whole icon) are removed: they described a backdrop the card
+-- no longer draws. What UX-5i proved still stands and is kept: every crop comes
+-- from the size sizeCard gave the card, so each guard makes the frame answer
+-- 0 x 0 - the rect the client had not resolved - and a crop read back from the
+-- frame fails it.
+describe("UpgradeMapPanel road card art (UX-5i, UX-5j)", function()
+    local ns, world, Panel
+
+    before_each(function()
+        ns, world = H.load()
+        Panel = ns.UpgradeMapPanel
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    -- A frame whose rect is not resolved yet: nothing it answers about its own
+    -- size can be used, and an explicit size set on it changes none of that.
+    local function unresolved(tile)
+        tile.GetWidth = function()
+            return 0
+        end
+        tile.GetHeight = function()
+            return 0
+        end
+    end
+
+    local function cardRow(panel, width, height, cards, element)
+        element = element or CreateFrame("Frame", nil, panel)
+        local data = {
+            kind = Panel.ELEMENT_CARD_ROW,
+            height = height + Panel.TILE_ROW_PADDING,
+            tileWidth = width,
+            tileHeight = height,
+            cards = cards,
+        }
+        if element.cards then
+            for _, tile in ipairs(element.cards) do
+                unresolved(tile)
+            end
+        end
+        Panel.InitElement(panel, element, data)
+        return element
+    end
+
+    -- The card's own row, with the frames made unresolved BEFORE the card is
+    -- drawn: the first bind builds the frames, so it is bound twice.
+    local function drawn(panel, width, height, card)
+        local element = cardRow(panel, width, height, { card })
+        return cardRow(panel, width, height, { card }, element).cards[1]
+    end
+
+    local OWNED = { row = { itemID = 250000, icon = 4242, name = "Placeholder Stare", itemLevel = 334, quality = 4 } }
+
+    -- The neutral atlas on the stub client: a size and a rect in its file, in
+    -- GetAtlasInfo's shape. Stub-shaped values, never the real art's: nobody
+    -- has read this atlas's size on a client yet (the brain's section 11).
+    local NEUTRAL = {
+        width = 600,
+        height = 500,
+        leftTexCoord = 0.0009765625,
+        rightTexCoord = 0.5869140625,
+        topTexCoord = 0.001953125,
+        bottomTexCoord = 0.978515625,
+    }
+
+    -- The band a centred crop of NEUTRAL keeps at `width` x `height`, worked
+    -- here by hand rather than through AtlasBandTexCoord, so a wrong ratio
+    -- handed to that function cannot also be the expected answer.
+    local function neutralBand(width, height)
+        local own, ratio = NEUTRAL.width / NEUTRAL.height, width / height
+        if own > ratio then
+            local cut = ratio / own
+            return { (1 - cut) / 2, (1 + cut) / 2, 0, 1 }
+        end
+        local cut = own / ratio
+        return { 0, 1, (1 - cut) / 2, (1 + cut) / 2 }
+    end
+
+    local function sameBand(expected, actual)
+        assert.is_table(actual)
+        for index = 1, 4 do
+            assert.is_true(
+                math.abs(expected[index] - actual[index]) < 1e-9,
+                ("coord %d: expected %s, drew %s"):format(index, tostring(expected[index]), tostring(actual[index]))
+            )
+        end
+    end
+
+    it("names the character sheet's own background, read from Blizzard's CharacterFrame.xml", function()
+        assert.equal("character-panel-background", Panel.CARD_ART_ATLAS)
+    end)
+
+    it("draws the neutral atlas at the card's own proportion, never the item's icon", function()
+        world.atlases[Panel.CARD_ART_ATLAS] = NEUTRAL
+        local panel = Panel.Create()
+        local width, height = Panel.CardSize(nil)
+        assert.is_true(width > height, "the card is wider than tall, or this guard proves nothing")
+        local tile = drawn(panel, width, height, OWNED)
+        assert.equal(0, tile:GetWidth())
+        assert.equal(0, tile:GetHeight())
+        assert.is_true(tile.art:IsShown())
+        assert.equal(Panel.CARD_ART_ATLAS, tile.art:GetAtlas())
+        assert.is_false(tile.art.atlasUsedSize)
+        assert.is_nil(tile.art:GetTexture())
+        sameBand(neutralBand(width, height), tile.art.texCoord)
+        assert.is_not.same({ 0, 1, 0, 1 }, tile.art.texCoord)
+        assert.equal(1, tile.art:GetAlpha())
+    end)
+
+    it("keeps the item's own icon in the corner at its native size", function()
+        world.atlases[Panel.CARD_ART_ATLAS] = NEUTRAL
+        local panel = Panel.Create()
+        local width, height = Panel.CardSize(nil)
+        local tile = drawn(panel, width, height, OWNED)
+        assert.equal(4242, tile.cardIcon.resolved.icon)
+        assert.equal(Panel.CARD_ICON_SIZE, tile.cardIcon:GetWidth())
+        assert.equal(Panel.CARD_ICON_SIZE, tile.cardIcon:GetHeight())
+        assert.equal("BOTTOMLEFT", tile.cardIcon.points[1][1])
+    end)
+
+    it("keeps the band when the card is drawn again for a name that arrives later", function()
+        world.atlases[Panel.CARD_ART_ATLAS] = NEUTRAL
+        local panel = Panel.Create()
+        local width, height = Panel.CardSize(nil)
+        local pending = { row = { itemID = 250001, icon = 4243, itemLevel = 334 } }
+        local tile = drawn(panel, width, height, pending)
+        assert.is_not_nil(tile.request, "the card never asked for the name, so the re-draw is not exercised")
+        world.items[250001] = {
+            instant = { 250001, "Armor", "Leather", "INVTYPE_HEAD", 4243, 4, 2 },
+            info = { "Placeholder Hood", "|Hitem:250001|h[Placeholder Hood]|h", 4, n = 3 },
+            level = 334,
+        }
+        tile.art.texCoord = nil
+        world.fireEvent("ITEM_DATA_LOAD_RESULT", 250001, true)
+        assert.is_truthy(tile.name:GetText():find("Placeholder Hood", 1, true))
+        assert.equal(Panel.CARD_ART_ATLAS, tile.art:GetAtlas())
+        sameBand(neutralBand(width, height), tile.art.texCoord)
+    end)
+
+    it("follows a pooled card to its new size", function()
+        world.atlases[Panel.CARD_ART_ATLAS] = NEUTRAL
+        local panel = Panel.Create()
+        local width, height = Panel.CardSize(nil)
+        local element = cardRow(panel, width, height, { OWNED })
+        cardRow(panel, width, height, { OWNED }, element)
+        local wider = width + 40
+        cardRow(panel, wider, height, { OWNED }, element)
+        sameBand(neutralBand(wider, height), element.cards[1].art.texCoord)
+    end)
+
+    it("draws the plain dark back, never the icon, where the client cannot give the atlas", function()
+        local panel = Panel.Create()
+        local width, height = Panel.CardSize(nil)
+        -- A client without the atlas.
+        world.atlases[Panel.CARD_ART_ATLAS] = nil
+        local tile = drawn(panel, width, height, OWNED)
+        assert.is_false(tile.art:IsShown())
+        assert.is_not.equal(4242, tile.art:GetTexture())
+        assert.is_true(tile.back:IsShown())
+        -- A client that names it but gives no rect to crop inside: an uncropped
+        -- atlas would be stretched across the card, so no picture at all.
+        world.atlases[Panel.CARD_ART_ATLAS] = { width = NEUTRAL.width, height = NEUTRAL.height }
+        tile = drawn(panel, width, height, OWNED)
+        assert.is_false(tile.art:IsShown())
+        assert.is_not.equal(4242, tile.art:GetTexture())
+    end)
+
+    it("leaves a card with instance art on the art's own crop (UX-5d)", function()
+        world.atlases[Panel.CARD_ART_ATLAS] = NEUTRAL
+        local panel = Panel.Create()
+        local width, height = Panel.CardSize(nil)
+        local withArt = {
+            row = OWNED.row,
+            art = 1234567,
+            artTexCoord = Panel.TILE_LORE_TEX_COORD,
+        }
+        local tile = drawn(panel, width, height, withArt)
+        assert.is_true(tile.art:IsShown())
+        assert.equal(1234567, tile.art:GetTexture())
+        assert.is_nil(tile.art:GetAtlas())
+        assert.same(Panel.TILE_LORE_TEX_COORD, tile.art.texCoord)
+        assert.equal(1, tile.art:GetAlpha())
+    end)
+end)

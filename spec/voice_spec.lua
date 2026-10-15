@@ -648,6 +648,15 @@ describe("the source-free voice (V-1, WKE-569)", function()
         -- because a load line is said once, after a refresh, on the reload.
         walkStrings(c.check, "Drift", ns.Drift)
         walkStrings(c.check, "Companion", ns.Companion)
+        -- The developer engine's loader lines (E-0c, WKE-672): printed only
+        -- behind `db.global.developer.engine`, held to the same voice anyway.
+        walkStrings(c.check, "EngineScore", ns.EngineScore)
+        -- And the compare's report (E-0d, WKE-673), behind the same switch.
+        walkStrings(c.check, "EngineCompare", ns.EngineCompare)
+        -- And the best-set search's report (E-1a, WKE-685), behind the same switch.
+        walkStrings(c.check, "EngineSearch", ns.EngineSearch)
+        -- And the developer panel (E-1c, WKE-689), behind the same switch.
+        walkStrings(c.check, "EngineDevPanel", ns.EngineDevPanel)
         c.report(200)
     end)
 end)

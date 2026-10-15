@@ -303,6 +303,15 @@ EquipPanel.ANSWER_TAIL = " Everything else is your best set."
 -- Digits, as the panel counts everywhere else.
 EquipPanel.ANSWER_FINISH_ONE = "You're set - 1 piece wants finishing."
 EquipPanel.ANSWER_FINISH_MANY = "You're set - %d pieces want finishing."
+-- R-2l (WKE-695): every slot settled as you own it now, and a piece in your
+-- bags wins once it is crested - the pending step, said the way finishing is.
+-- The owner asked for `the Myth helm`; which track a copy is on is read only by
+-- the developer-only track table (Data/TrackBonusIDs.lua), never by a player
+-- surface, so the copy is named by where it is instead.
+EquipPanel.ANSWER_CREST_ONE = "You're set - the %s in your bags %s cresting."
+EquipPanel.ANSWER_CREST_MANY = "You're set - %d pieces in your bags want cresting."
+EquipPanel.ANSWER_ALSO_FINISH_ONE = " 1 piece wants finishing."
+EquipPanel.ANSWER_ALSO_FINISH_MANY = " %d pieces want finishing."
 
 -- C-14b (WKE-627). **The empty tab, when the reason it is empty is known.**
 --
@@ -515,6 +524,161 @@ function EquipPanel.FinishWords(row)
         return nil
     end
     return table.concat(words, EquipPanel.FINISH_SEPARATOR)
+end
+
+-- The pieces you carry that win only once crested (R-2l, WKE-695), read off
+-- the hover's own map so the tab and the tooltip cannot disagree: one entry
+-- per key, `{ key, slot, level, record }`, in slot order. The map is built over
+-- the content on screen, as this tab is. `record` is the scanned copy (R-2n,
+-- WKE-697), which is what the row under the answer names.
+function EquipPanel.PendingCrests(map)
+    map = map or (ns.RoadsCache and ns.RoadsCache.Map and ns.RoadsCache.Map()) or nil
+    local out = {}
+    if type(map) ~= "table" or type(map.byKey) ~= "table" then
+        return out
+    end
+    for key, answer in pairs(map.byKey) do
+        if ns.RoadsCache.CrestPending(answer) then
+            local held = type(answer.heldItem) == "table" and answer.heldItem or {}
+            out[#out + 1] = {
+                key = key,
+                slot = held.slot or answer.slot,
+                level = answer.crestTo.level,
+                record = answer.heldItem,
+                -- R-2q (WKE-700): a copy crested since the rating that is
+                -- already AT its first winning level - nothing left to
+                -- crest, a piece to put on.
+                wear = answer.crestTo.wear == true or nil,
+            }
+        end
+    end
+    table.sort(out, function(left, right)
+        if (left.slot or "") ~= (right.slot or "") then
+            return (left.slot or "") < (right.slot or "")
+        end
+        return left.key < right.key
+    end)
+    return out
+end
+
+-- The answer line's pending-crest sentence, or nil. A piece already at its
+-- first winning level (R-2q) is a piece to put on, counted by `AnswerText`'s
+-- put-on clause, never here.
+function EquipPanel.CrestText(crests)
+    if type(crests) ~= "table" then
+        return nil
+    end
+    local pending = {}
+    for _, crest in ipairs(crests) do
+        if not crest.wear then
+            pending[#pending + 1] = crest
+        end
+    end
+    crests = pending
+    if #crests == 0 then
+        return nil
+    end
+    if #crests > 1 then
+        return string.format(EquipPanel.ANSWER_CREST_MANY, #crests)
+    end
+    local slot = crests[1].slot
+    local word = ns.Roads.SlotWord(slot) or "piece"
+    return string.format(EquipPanel.ANSWER_CREST_ONE, word, ns.Roads.SlotIsPlural(slot) and "want" or "wants")
+end
+
+-- R-2n (WKE-697): one row under the answer for each piece the line counts.
+-- The owner, 2026-10-07, over `You're set - 2 pieces in your bags want
+-- cresting.`: "it was difficult for me to determine what the other piece was
+-- I needed to crest." The row is a swap row's shape - icon, name, second line -
+-- with no worn icon, no arrow and no button, because there is nothing to put on
+-- yet. Its words are the crest road's own `do:` clause without the `do: `
+-- (`ns.Roads.TODO_CREST_THEN_WEAR`), so the Upgrade Map and this row cannot say
+-- the step two ways.
+EquipPanel.ELEMENT_CREST = "crest"
+
+function EquipPanel.CrestRowWords(level)
+    level = tonumber(level)
+    if not level then
+        return nil
+    end
+    local clause = (ns.Roads.TODO_CREST_THEN_WEAR:gsub("^do: ", ""))
+    return string.format(clause, level)
+end
+
+-- R-2q (WKE-700): a piece crested since the rating that is already at its
+-- first winning level is no longer a crest row: it is a piece to put on. The
+-- row keeps R-2n's shape with `wear it` where the crest clause was, and gains
+-- what a swap row has - the worn icon, the arrow and the Equip button - built
+-- as a swap row of its own (`WearRow`), because `Match.Build` reads the
+-- `as offered` document, which never rated this copy, and a row it did not
+-- build cannot be made one of its rows without saying the document did. The
+-- evidence is the same QE Live row the hover's percent is: that item at that
+-- level, a positive percent over what you wear.
+EquipPanel.WEAR_ROW_WORDS = "wear it"
+
+-- The worn record a wear row replaces: the one the match put in that slot.
+local function wornFor(match, slot)
+    for _, row in ipairs(type(match) == "table" and type(match.rows) == "table" and match.rows or {}) do
+        if row.slot == slot then
+            local worn = row.equipped
+            if worn == nil and row.status == "equipped_is_best" then
+                worn = row.best
+            end
+            if type(worn) == "table" and worn.location == "equipped" then
+                return worn
+            end
+        end
+    end
+    return nil
+end
+
+-- The swap a wear row's Equip button acts on, in `Match.Build`'s own row shape
+-- so `Equip` takes it through the same checks: the scanned copy as `best`, the
+-- worn record of that slot as `equipped` and its slot as `dstSlot`. nil for a
+-- crest row.
+function EquipPanel.WearRow(crest, match)
+    if type(crest) ~= "table" or not crest.wear or type(crest.record) ~= "table" then
+        return nil
+    end
+    local worn = wornFor(match, crest.slot)
+    return {
+        slot = crest.slot,
+        status = "swap",
+        best = crest.record,
+        equipped = worn,
+        dstSlot = worn and worn.slotIndex or nil,
+        wear = true,
+    }
+end
+
+-- The row as the two shapes a drawn row binds, `Describe`'s and `Drawn`'s, so
+-- `DrawRow` draws it exactly as it draws a swap: { described, drawn }, and for
+-- a wear row (R-2q) the swap its button acts on as the third.
+function EquipPanel.CrestRow(crest, match)
+    local record = type(crest) == "table" and crest.record or nil
+    local slot = type(crest) == "table" and type(crest.slot) == "string" and crest.slot or ""
+    local where = type(record) == "table" and whereText(record) or "in your bags"
+    local wearRow = EquipPanel.WearRow(crest, match)
+    local words = wearRow and EquipPanel.WEAR_ROW_WORDS
+        or EquipPanel.CrestRowWords(type(crest) == "table" and crest.level or nil)
+    local second = words and (where .. EquipPanel.SECOND_SEPARATOR .. words) or where
+    if slot ~= "" then
+        second = slot .. EquipPanel.SECOND_SEPARATOR .. second
+    end
+    local item = EquipPanel.ItemFromRecord(record)
+    local described = {
+        slot = slot,
+        text = string.format("%s - %s", EquipPanel.RecordText(record), second),
+        status = EquipPanel.ELEMENT_CREST,
+        actionable = wearRow ~= nil and ns.Match.IsSwap(wearRow),
+        name = item and item.name or nil,
+        second = second,
+        tags = {},
+        item = item,
+        worn = wearRow and EquipPanel.ItemFromRecord(wearRow.equipped) or nil,
+    }
+    local drawn = { status = EquipPanel.ELEMENT_CREST, dim = false, second = second }
+    return described, drawn, wearRow
 end
 
 -- How many settled rows want finishing.
@@ -806,7 +970,7 @@ function EquipPanel.SecondText(unrated)
     return EquipPanel.UNRATED_SECOND
 end
 
-function EquipPanel.AnswerText(match, unrated)
+function EquipPanel.AnswerText(match, unrated, crests)
     if type(match) ~= "table" then
         if unrated then
             return EquipPanel.UNRATED_HEADER
@@ -821,6 +985,14 @@ function EquipPanel.AnswerText(match, unrated)
     -- silently shorten the list rather than the sentence.
     local swaps, vaults = 0, 0
     local swapName, vaultName
+    -- R-2q (WKE-700): a piece at its first winning level is one to put on, the
+    -- same clause a swap gets.
+    for _, crest in ipairs(type(crests) == "table" and crests or {}) do
+        if crest.wear then
+            swaps = swaps + 1
+            swapName = swapName or shortName(EquipPanel.RecordName(crest.record), crest.slot)
+        end
+    end
     for _, row in ipairs(match.rows or {}) do
         if row.status == "swap" then
             swaps = swaps + 1
@@ -854,6 +1026,17 @@ function EquipPanel.AnswerText(match, unrated)
             -- or enchant. With a swap or a vault clause on screen the sentence
             -- above is unchanged - a finish mark never moves it.
             local finishing = EquipPanel.FinishCount(match)
+            -- R-2l (WKE-695): a piece in your bags that wins once crested is
+            -- the pending step, never a swap; finishing follows it.
+            local crest = EquipPanel.CrestText(crests)
+            if crest then
+                if finishing == 1 then
+                    crest = crest .. EquipPanel.ANSWER_ALSO_FINISH_ONE
+                elseif finishing > 1 then
+                    crest = crest .. string.format(EquipPanel.ANSWER_ALSO_FINISH_MANY, finishing)
+                end
+                return crest
+            end
             if finishing == 1 then
                 return EquipPanel.ANSWER_FINISH_ONE
             elseif finishing > 1 then
@@ -1001,7 +1184,11 @@ end
 EquipPanel.ELEMENT_ROW = "row"
 EquipPanel.ELEMENT_FOLD = "fold"
 
-function EquipPanel.Layout(match, open)
+-- R-2n (WKE-697): `crests` is `PendingCrests`' list. Each piece is one
+-- `{ kind = "crest", crest = ... }` element after the rows that need something
+-- and before the fold, so the pieces the answer line counts sit right under it
+-- when every slot is set, and never behind the fold.
+function EquipPanel.Layout(match, open, crests)
     if not (type(match) == "table" and match.ok and type(match.rows) == "table") then
         return {}
     end
@@ -1016,6 +1203,9 @@ function EquipPanel.Layout(match, open)
     local elements = {}
     for _, row in ipairs(open_) do
         elements[#elements + 1] = { kind = EquipPanel.ELEMENT_ROW, row = row }
+    end
+    for _, crest in ipairs(type(crests) == "table" and crests or {}) do
+        elements[#elements + 1] = { kind = EquipPanel.ELEMENT_CREST, crest = crest }
     end
     if #folded > 0 then
         elements[#elements + 1] = {
@@ -1267,23 +1457,54 @@ end
 -- STOPS at the first refusal (E-1): a row that refuses because the bags moved
 -- is a scan that no longer matches the bags, so every row after it is just as
 -- suspect. The refusal is left on that row, where the panel draws it.
-function EquipPanel.EquipAll(match)
+--
+-- R-2r (WKE-704): and then the wear rows (R-2q's `WearRow`), in the order the
+-- panel draws them - after every match row, as `Layout` puts the crest rows
+-- after the rows that need something - each one the swap its own Equip button
+-- acts on, through the same `Equip` and the same stop. `crests` is the
+-- `PendingCrests` list the panel drew; a crest row still short of its level
+-- has no swap and is skipped, as a settled row is.
+function EquipPanel.EquipAll(match, crests)
     if InCombatLockdown() then
         return { ok = false, reason = "combat" }
     end
     local equipped, refusals = 0, {}
+    local function take(row)
+        local result = EquipPanel.Equip(row)
+        if result.ok then
+            equipped = equipped + 1
+            return true
+        end
+        refusals[#refusals + 1] = result.reason
+        return false
+    end
     for _, row in ipairs((type(match) == "table" and match.rows) or {}) do
-        if ns.Match.IsSwap(row) then
-            local result = EquipPanel.Equip(row)
-            if result.ok then
-                equipped = equipped + 1
-            else
-                refusals[#refusals + 1] = result.reason
-                return { ok = true, equipped = equipped, refusals = refusals, stoppedAt = row }
-            end
+        if ns.Match.IsSwap(row) and not take(row) then
+            return { ok = true, equipped = equipped, refusals = refusals, stoppedAt = row }
+        end
+    end
+    for _, crest in ipairs(type(crests) == "table" and crests or {}) do
+        local row = EquipPanel.WearRow(crest, match)
+        if row and ns.Match.IsSwap(row) and not take(row) then
+            return { ok = true, equipped = equipped, refusals = refusals, stoppedAt = row }
         end
     end
     return { ok = true, equipped = equipped, refusals = refusals }
+end
+
+-- How many rows `Equip all` would take: the match's swaps and the wear rows.
+function EquipPanel.EquipAllCount(match, crests)
+    if not (type(match) == "table" and match.ok) then
+        return 0
+    end
+    local count = (type(match.counts) == "table" and match.counts.swap) or 0
+    for _, crest in ipairs(type(crests) == "table" and crests or {}) do
+        local row = EquipPanel.WearRow(crest, match)
+        if row and ns.Match.IsSwap(row) then
+            count = count + 1
+        end
+    end
+    return count
 end
 
 -- The five counts, in words and in their status colours, as the chips above
@@ -1758,7 +1979,7 @@ function EquipPanel.Create(parent)
     panel.equipAll:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, 2)
     panel.equipAll:SetText("Equip all")
     panel.equipAll:SetScript("OnClick", function()
-        local result = EquipPanel.EquipAll(panel.match)
+        local result = EquipPanel.EquipAll(panel.match, panel.crests)
         if not result.ok then
             ns.Log("%s", EquipPanel.COMBAT_TOOLTIP)
             return
@@ -1856,7 +2077,11 @@ function EquipPanel.Refresh(panel, match)
     -- from the one answer, so the header, the line under it and the hint cannot
     -- disagree about which state the tab is in.
     local unrated = EquipPanel.UnratedState(match, ns.companionStatus)
-    panel.answer:SetText(EquipPanel.AnswerText(match, unrated))
+    -- R-2n (WKE-697): read once, for the line and for the rows under it.
+    local crests = EquipPanel.PendingCrests()
+    -- R-2r (WKE-704): kept, so `Equip all` walks the wear rows drawn here.
+    panel.crests = crests
+    panel.answer:SetText(EquipPanel.AnswerText(match, unrated, crests))
     local second = EquipPanel.SecondText(unrated)
     panel.second:SetText(second or "")
     panel.second:SetShown(second ~= nil)
@@ -1891,7 +2116,7 @@ function EquipPanel.Refresh(panel, match)
     -- The header block is set: the list's top can be placed now.
     EquipPanel.AnchorScroll(panel)
 
-    local elements = EquipPanel.Columns(EquipPanel.Layout(match, EquipPanel.FoldOpen(panel.db)))
+    local elements = EquipPanel.Columns(EquipPanel.Layout(match, EquipPanel.FoldOpen(panel.db), crests))
     local rows = (type(match) == "table" and match.ok and match.rows) or {}
     local inCombat = InCombatLockdown() and true or false
     local used = 0
@@ -1906,6 +2131,9 @@ function EquipPanel.Refresh(panel, match)
     -- counter a list whose full rows fell while cells were drawn (an equip, a
     -- bag change) left its old top row shown over the fold.
     local drawn, folded = 0, 0
+    -- The crest rows (R-2n) count against MAX_ROWS like any drawn row, and
+    -- are not match rows, so the overflow line leaves them out.
+    local crestsDrawn = 0
     local rowsDrawn = 0
     local pairsDrawn = 0
     local column = EquipPanel.ColumnWidth(panel.rowWidth)
@@ -1969,6 +2197,27 @@ function EquipPanel.Refresh(panel, match)
                 place(pair, height)
                 pair:Show()
             end
+        elseif element.kind == EquipPanel.ELEMENT_CREST then
+            if drawn < EquipPanel.MAX_ROWS then
+                drawn = drawn + 1
+                crestsDrawn = crestsDrawn + 1
+                rowsDrawn = rowsDrawn + 1
+                local frameRow = panel.rows[rowsDrawn]
+                if not frameRow then
+                    frameRow = createRow(panel, rowsDrawn)
+                    panel.rows[rowsDrawn] = frameRow
+                end
+                local described, shownRow, wearRow = EquipPanel.CrestRow(element.crest, match)
+                -- Not a match row. A crest row has nothing to equip; a wear
+                -- row (R-2q) carries its own swap for the Equip button.
+                frameRow.matchRow = wearRow
+                frameRow.crest = element.crest
+                frameRow.described = described
+                frameRow.drawn = shownRow
+                EquipPanel.DrawRow(frameRow, described, shownRow, inCombat)
+                place(frameRow, frameRow:GetHeight())
+                frameRow:Show()
+            end
         elseif drawn < EquipPanel.MAX_ROWS then
             drawn = drawn + 1
             rowsDrawn = rowsDrawn + 1
@@ -1982,6 +2231,7 @@ function EquipPanel.Refresh(panel, match)
             local described = EquipPanel.Describe(matchRow)
             local shownRow = EquipPanel.Drawn(matchRow, match)
             frameRow.matchRow = matchRow
+            frameRow.crest = nil
             frameRow.described = described
             frameRow.drawn = shownRow
             EquipPanel.DrawRow(frameRow, described, shownRow, inCombat)
@@ -1994,7 +2244,7 @@ function EquipPanel.Refresh(panel, match)
         panel.fold.text:SetText("")
     end
 
-    local shown = drawn
+    local shown = drawn - crestsDrawn
     for i = rowsDrawn + 1, #panel.rows do
         panel.rows[i]:Hide()
         -- A hidden row waits for nothing: its request is cancelled, so a late
@@ -2036,7 +2286,8 @@ function EquipPanel.Refresh(panel, match)
         EquipPanel.ScrollToTop(panel)
     end
 
-    local swaps = (type(match) == "table" and match.ok and match.counts.swap) or 0
+    -- R-2r (WKE-704): a wear row is one more thing `Equip all` takes.
+    local swaps = EquipPanel.EquipAllCount(match, crests)
     panel.equipAll:SetEnabled(swaps > 0 and not inCombat)
     panel.equipAllReason = inCombat and EquipPanel.COMBAT_TOOLTIP or "There is nothing to swap."
     panel.equipAll:SetShown(swaps > 0)

@@ -78,7 +78,7 @@ function prepare(doc, table, budget, opts) {
 
     const worn = doc.equipped.map((e) => {
         const s = itemStats(table, budget, e);
-        return { id: e.id, level: e.level, slot: e.slot, setId: e.setId, stats: s.stats, statsSource: s.statsSource, splitSource: s.splitSource };
+        return { id: e.id, level: e.level, slot: e.slot, setId: e.setId, stats: s.stats, statsSource: s.statsSource, splitSource: s.splitSource, clientSource: s.clientSource || null };
     });
     const wornMissing = worn.filter((w) => !w.stats);
     const wornUsable = worn.map((w) => (w.stats ? w : { ...w, stats: {} }));
@@ -99,6 +99,7 @@ function prepare(doc, table, budget, opts) {
         const s = itemStats(table, budget, r, { craftedPair: r.dropLoc === 'Crafted' ? pair : null });
         row.statsSource = s.statsSource;
         row.splitSource = s.splitSource;
+        row.clientSource = s.clientSource || null;
         if (r.slot === 'Trinket' || effectIds.has(r.id)) row.excluded = 'effect';
         else if (seen.has(key)) row.excluded = 'duplicate';
         seen.add(key);
@@ -122,7 +123,32 @@ function prepare(doc, table, budget, opts) {
     return { worn, wornMissing: wornMissing.length, xWorn, rows };
 }
 
-function chooseAndFit(fitRows, w0) {
+// Row weights for the least squares (E-0m, WKE-705). 'none': every fitted row
+// counts once, as before. 'class': every slot class present among the fitted
+// rows carries the same total weight - a row of class c weighs N / (C x n_c),
+// N fitted rows, C classes - so the many armour and tier rows do not set the
+// four secondary weights alone and jewellery's few rows count as much as
+// armour's many. The weights sum to N either way.
+const BALANCES = ['none', 'class'];
+
+function rowWeights(fitRows, balance) {
+    const mode = balance || 'none';
+    if (!BALANCES.includes(mode)) throw new Error(`unknown balance ${mode}: ${BALANCES.join(' or ')}`);
+    if (mode === 'none') return fitRows.map(() => 1);
+    const n = {};
+    for (const r of fitRows) n[r.slotClass] = (n[r.slotClass] || 0) + 1;
+    const classes = Object.keys(n).length;
+    return fitRows.map((r) => fitRows.length / (classes * n[r.slotClass]));
+}
+
+// Weighted least squares through the unweighted solver: each row and its
+// observation scaled by the square root of its weight.
+function weightedLeastSquares(X, y, w) {
+    const s = w.map(Math.sqrt);
+    return leastSquares(X.map((row, i) => row.map((v) => v * s[i])), y.map((v, i) => v * s[i]));
+}
+
+function chooseAndFit(fitRows, w0, weights) {
     let w = w0;
     let choice = fitRows.map(() => 0);
     let result = null;
@@ -130,7 +156,7 @@ function chooseAndFit(fitRows, w0) {
         if (w) choice = fitRows.map((r) => argmax(r.diffs.map((c) => dot(c.d, w))));
         const X = fitRows.map((r, i) => r.diffs[choice[i]].d);
         const y = fitRows.map((r) => r.observed);
-        result = leastSquares(X, y);
+        result = weightedLeastSquares(X, y, weights);
         const next = fitRows.map((r) => argmax(r.diffs.map((c) => dot(c.d, result.beta))));
         w = result.beta;
         if (next.every((c, i) => c === choice[i])) break;
@@ -178,9 +204,18 @@ function spearman(a, b) {
     return pearson(ranks(a), ranks(b));
 }
 
+// k (E-0m): the least-squares scale of predicted onto observed, the compare's
+// own k (EngineCompare.Scale, ours = predicted, theirs = observed): 1 when the
+// class sits on the fit's scale, below 1 when the fit overstates it.
 function metrics(obs, pred) {
     const n = obs.length;
-    if (!n) return { n: 0, r2: null, mae: null, spearman: null };
+    if (!n) return { n: 0, r2: null, mae: null, spearman: null, k: null };
+    let sot = 0;
+    let soo = 0;
+    for (let i = 0; i < n; i++) {
+        sot += pred[i] * obs[i];
+        soo += pred[i] * pred[i];
+    }
     const mean = obs.reduce((s, v) => s + v, 0) / n;
     let ssRes = 0;
     let ssTot = 0;
@@ -190,7 +225,7 @@ function metrics(obs, pred) {
         ssTot += (obs[i] - mean) ** 2;
         abs += Math.abs(obs[i] - pred[i]);
     }
-    return { n, r2: ssTot > 0 ? 1 - ssRes / ssTot : null, mae: abs / n, spearman: spearman(obs, pred) };
+    return { n, r2: ssTot > 0 ? 1 - ssRes / ssTot : null, mae: abs / n, spearman: spearman(obs, pred), k: soo > 0 ? sot / soo : null };
 }
 
 function percentile(sorted, q) {
@@ -208,7 +243,9 @@ function fitDocument(doc, table, budget, opts) {
     const fitRows = prep.rows.filter((r) => !r.excluded);
     if (fitRows.length < STATS.length) throw new Error(`${doc.reportId}: only ${fitRows.length} rows to fit`);
 
-    const main = chooseAndFit(fitRows, null);
+    const balance = options.balance || 'none';
+    const rowW = rowWeights(fitRows, balance);
+    const main = chooseAndFit(fitRows, null, rowW);
     const w = main.beta;
     const base = 100 - dot(w, prep.xWorn);
 
@@ -219,12 +256,14 @@ function fitDocument(doc, table, budget, opts) {
     for (let b = 0; b < resamples; b++) {
         const X = [];
         const y = [];
+        const wts = [];
         for (let i = 0; i < fitRows.length; i++) {
             const k = Math.floor(rand() * fitRows.length);
             X.push(fitRows[k].diffs[main.choice[k]].d);
             y.push(fitRows[k].observed);
+            wts.push(rowW[k]);
         }
-        const r = leastSquares(X, y);
+        const r = weightedLeastSquares(X, y, wts);
         r.beta.forEach((v, j) => draws[j].push(v));
         baseDraws.push(100 - dot(r.beta, prep.xWorn));
     }
@@ -250,6 +289,9 @@ function fitDocument(doc, table, budget, opts) {
     const byClass = {};
     for (const r of fitRows) (byClass[r.slotClass] = byClass[r.slotClass] || []).push(r);
     const classMetrics = {};
+    // Fitted rows per class whose split is the equal placeholder (E-0m).
+    const placeholderByClass = {};
+    for (const [c, rs] of Object.entries(byClass)) placeholderByClass[c] = rs.filter((r) => r.splitSource === 'equal-placeholder').length;
     for (const [c, rs] of Object.entries(byClass)) classMetrics[c] = metrics(rs.map((r) => r.observed), rs.map((r) => r.predicted));
 
     const count = (pred) => prep.rows.filter(pred).length;
@@ -258,6 +300,12 @@ function fitDocument(doc, table, budget, opts) {
     const sourceCounts = (rows) => {
         const out = {};
         for (const r of rows) out[r.statsSource] = (out[r.statsSource] || 0) + 1;
+        return out;
+    };
+    // Which transcript a `client` / `client-scaled` row's stats were read from.
+    const clientCounts = (rows) => {
+        const out = {};
+        for (const r of rows) if (r.clientSource) out[`${r.statsSource} <- ${r.clientSource}`] = (out[`${r.statsSource} <- ${r.clientSource}`] || 0) + 1;
         return out;
     };
 
@@ -274,6 +322,7 @@ function fitDocument(doc, table, budget, opts) {
         settings: doc.settings,
         exportedAt: doc.exportedAt,
         normalisation: 'baseValue + weights . x(worn) = 100; tier forced on cancels from the percent',
+        balance,
         baseValue: base,
         baseInterval: interval(baseDraws),
         weights,
@@ -284,6 +333,7 @@ function fitDocument(doc, table, budget, opts) {
         seed: options.seed === undefined ? 1 : options.seed,
         overall: metrics(fitRows.map((r) => r.observed), fitRows.map((r) => r.predicted)),
         byClass: classMetrics,
+        placeholderByClass,
         counts: {
             rows: prep.rows.length,
             fitted: fitRows.length,
@@ -294,6 +344,7 @@ function fitDocument(doc, table, budget, opts) {
             noStats: count((r) => r.excluded === 'no-stats'),
         },
         statsSources: { fitted: sourceCounts(fitRows), all: sourceCounts(prep.rows), worn: sourceCounts(prep.worn) },
+        clientSources: { fitted: clientCounts(fitRows), all: clientCounts(prep.rows), worn: clientCounts(prep.worn) },
         censoredCheck: {
             n: censored.length,
             predictedAtOrBelowZero: censored.filter((r) => r.predicted <= 0).length,
@@ -309,7 +360,7 @@ function fitDocument(doc, table, budget, opts) {
             .sort((a, b) => Math.abs(b.residual) - Math.abs(a.residual))
             .slice(0, 10)
             .map(rowOut),
-        worn: prep.worn.map((x) => ({ id: x.id, level: x.level, slot: x.slot, statsSource: x.statsSource, splitSource: x.splitSource, stats: x.stats })),
+        worn: prep.worn.map((x) => ({ id: x.id, level: x.level, slot: x.slot, statsSource: x.statsSource, splitSource: x.splitSource, clientSource: x.clientSource, stats: x.stats })),
         rows: prep.rows.map(rowOut),
     };
 }
@@ -327,8 +378,9 @@ function rowOut(r) {
         excluded: r.excluded,
         statsSource: r.statsSource,
         splitSource: r.splitSource,
+        clientSource: r.clientSource || null,
         replaced: r.replaced || null,
     };
 }
 
-module.exports = { DEFAULT_EFFECT_IDS, SLOT_CLASS, prepare, fitDocument, metrics, spearman, ranks, mulberry32 };
+module.exports = { DEFAULT_EFFECT_IDS, SLOT_CLASS, BALANCES, rowWeights, prepare, fitDocument, metrics, spearman, ranks, mulberry32 };

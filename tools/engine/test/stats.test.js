@@ -79,3 +79,149 @@ test('the level curve is measured within items', () => {
     assert.ok(Math.abs(budget.intSlope - Math.log(148 / 140) / 6) < 1e-3, `${budget.intSlope}`);
     assert.equal(budget.intItems, 2);
 });
+
+// E-0f (WKE-676): the owner's `capture itemstats` transcript, read.
+const ITEMSTATS = path.join(__dirname, '..', '..', '..', 'spec', 'fixtures', 'captures', 'Lootpath-20261001-092631.lua');
+const { readItemStatsInto, statsForLink, strippedKey, bonusKey, linkBonusIDs, ITEMSTATS_KEYS, SOURCE_ITEMSTATS, SOURCE_UPGRADE } = require('../lib/stats');
+
+let itemstatsTable = null;
+function itemstats() {
+    if (!itemstatsTable) itemstatsTable = readSavedVariablesInto(newTable(), fs.readFileSync(ITEMSTATS, 'utf8'), 'itemstats');
+    return itemstatsTable;
+}
+
+const HELM_LINK = "|cnIQ4:|Hitem:271528:7961:240892::::::90:105::35:6:6652:13440:13695:13692:13698:12845:1:64:239033:::::|h[Enigmatic Dreamwatcher's Somnolent Stare]|h|r";
+
+test('the itemstats transcript: 80 items read, indexed by id@level, by link and by bonus IDs', () => {
+    const table = itemstats();
+    const src = table.sources.find((s) => s.kind.startsWith('capture itemstats'));
+    assert.equal(src.items, 80);
+    assert.equal(table.byLink.size, 80);
+    // The worn helm at 318: "ITEM_MOD_INTELLECT_SHORT" 162, haste 78, crit 110.
+    const p = table.points.get('271528@318');
+    assert.equal(p.source, SOURCE_ITEMSTATS);
+    assert.deepEqual(p.stats, { int: 162, haste: 78, crit: 110, mastery: 0, vers: 0, leech: 0 });
+    assert.deepEqual(statsForLink(table, HELM_LINK), p.stats);
+    // The enchant and gem do not change the key: the base is the item's own.
+    assert.equal(strippedKey(HELM_LINK), 'item:271528::::::::90:105::35:6:6652:13440:13695:13692:13698:12845:1:64:239033:::::');
+    assert.deepEqual(linkBonusIDs(HELM_LINK), [6652, 13440, 13695, 13692, 13698, 12845]);
+    assert.equal(table.byBonus.get(bonusKey(271528, [12845, 6652, 13440, 13692, 13695, 13698])), p);
+    assert.equal(table.slotOf.get(271528), 'Head');
+    assert.equal(table.patch, '12.1.0');
+});
+
+test('versatility is ITEM_MOD_VERSATILITY, no _SHORT, and leech is read', () => {
+    assert.equal(ITEMSTATS_KEYS.ITEM_MOD_VERSATILITY, 'vers');
+    assert.equal(ITEMSTATS_KEYS.ITEM_MOD_VERSATILITY_SHORT, undefined);
+    const table = itemstats();
+    // The worn neck at 321: mastery 220, versatility 156.
+    assert.equal(table.points.get('272228@321').stats.vers, 156);
+    assert.equal(table.points.get('272228@321').stats.mastery, 220);
+    // The worn ring at 292 carries 53 leech.
+    assert.equal(table.points.get('279010@292').stats.leech, 53);
+});
+
+test('a covered row is `client` from the itemstats transcript; budget stays the fallback', () => {
+    const table = itemstats();
+    const budget = buildBudget(table);
+    const hit = itemStats(table, budget, { id: 271528, level: 318, slot: 'Head' });
+    assert.equal(hit.statsSource, 'client');
+    assert.equal(hit.clientSource, SOURCE_ITEMSTATS);
+    assert.equal(hit.matchedBy, 'level');
+    // An export's worn entry, matched by its bonus IDs (order free).
+    const worn = itemStats(table, budget, { id: 271528, level: 999, slot: 'Head', bonusIDs: [13698, 12845, 6652, 13440, 13695, 13692] });
+    assert.equal(worn.statsSource, 'client');
+    assert.equal(worn.matchedBy, 'link');
+    assert.equal(worn.stats.int, 162);
+    const miss = itemStats(table, budget, { id: 99999999, level: 318, slot: 'Head' });
+    assert.equal(miss.statsSource, 'budget');
+    assert.equal(miss.clientSource, undefined);
+});
+
+test('where both transcripts name an id@level, the GetItemStats read is kept, and they agree', () => {
+    const table = itemstats();
+    const upgrade = readSavedVariablesInto(newTable(), fs.readFileSync(CAPTURE, 'utf8'), 'capture');
+    let shared = 0;
+    for (const [key, p] of table.points) {
+        if (p.source !== SOURCE_ITEMSTATS) continue;
+        const q = upgrade.points.get(key);
+        if (!q || q.source !== SOURCE_UPGRADE) continue;
+        shared += 1;
+        assert.deepEqual(p.stats, q.stats, key);
+    }
+    assert.ok(shared > 0, 'the two client sources overlap');
+});
+
+// E-0g step 2 (WKE-677): the owner's `capture linklevel` transcript, read.
+// Each candidate a track step draws gives one `client` point at the WALK's
+// level - GetItemStats on the journal link rebuilt with that step appended,
+// which the client drew at the walk's level in all three reads.
+const LINKLEVEL = path.join(__dirname, '..', '..', '..', 'spec', 'fixtures', 'captures', 'Lootpath-20261001-200927.lua');
+const { SOURCE_LINKLEVEL, readLinkLevelInto } = require('../lib/stats');
+const { parseSavedVariables } = require('../../companion/lib/lua-savedvariables');
+
+test('the linklevel transcript: each rebuilt-link read is a client point at the walk level', () => {
+    const caps = parseSavedVariables(fs.readFileSync(LINKLEVEL, 'utf8')).LootpathDB.global.captures;
+    const table = newTable();
+    assert.equal(readLinkLevelInto(table, caps, 'linklevel'), 8);
+    const src = table.sources.find((s) => s.kind.startsWith('capture linklevel'));
+    assert.equal(src.items, 8);
+    assert.equal(src.newPoints, 8);
+    // Seed of Radiant Hope at 305 (Champion 5/6 appended): 137 Intellect, where
+    // the kept link read 121 at 292 before the walk.
+    const seed = table.points.get('250254@305');
+    assert.equal(seed.source, SOURCE_LINKLEVEL);
+    assert.equal(seed.stats.int, 137);
+    // The raid gloves at 324 (Myth 3/6): 129 Intellect, crit 46, mastery 98.
+    assert.deepEqual(table.points.get('268234@324').stats, { int: 129, haste: 0, crit: 46, mastery: 98, vers: 0, leech: 0 });
+    assert.equal(table.slotOf.get(268234), 'Hands');
+    // The world rows at 44 give nothing: no track step draws 44.
+    for (const key of table.points.keys()) assert.ok(!key.endsWith('@44'), key);
+    // A row it covers is `client` from it, at exactly the walk's level.
+    const budget = buildBudget(table);
+    const hit = itemStats(table, budget, { id: 268252, level: 311, slot: 'Finger' });
+    assert.equal(hit.statsSource, 'client');
+    assert.equal(hit.clientSource, SOURCE_LINKLEVEL);
+    assert.equal(hit.stats.crit, 295);
+});
+
+test('a --stats file carrying a linklevel snapshot is read for it beside its itemstats', () => {
+    const table = readSavedVariablesInto(newTable(), fs.readFileSync(LINKLEVEL, 'utf8'), 'linklevel');
+    assert.ok(table.sources.some((s) => s.kind.startsWith('capture linklevel') && s.items === 8));
+    assert.equal(table.points.get('251123@305').source, SOURCE_LINKLEVEL);
+    assert.equal(table.points.get('251123@305').stats.int, 640);
+});
+
+// E-0n (WKE-706): the client moved to 12.1.5 and a reset-day Refresh takes no
+// patch-bearing capture, so the owner ran a fresh `capture itemstats` on
+// 12.1.5 - stored, not replacing, the 2026-10-01 itemstats snapshot already
+// in the file. The patch must come from THAT one, not whichever snapshot a
+// loop reaches first.
+const { loadTable, notePatch } = require('../lib/stats');
+const RESET_1215 = path.join(__dirname, '..', '..', '..', 'spec', 'fixtures', 'captures', 'Lootpath-20261013-183853.lua');
+
+test('the patch comes from the NEWEST patch-bearing snapshot, by capturedAt - not the first one read', () => {
+    // This file's own itemstats holds two snapshots: index 1 (2026-10-01,
+    // 12.1.0) and index 2 (2026-10-13, 12.1.5) - the later capture, kept
+    // without displacing the first's points.
+    const table = readSavedVariablesInto(newTable(), fs.readFileSync(RESET_1215, 'utf8'), 'reset-day');
+    assert.equal(table.patch, '12.1.5');
+});
+
+test('loadTable picks the newest patch regardless of --stats argument order', () => {
+    const files = [CAPTURE, ITEMSTATS, LINKLEVEL, RESET_1215];
+    assert.equal(loadTable(files, fs).patch, '12.1.5', 'newest file last');
+    assert.equal(loadTable([...files].reverse(), fs).patch, '12.1.5', 'newest file first');
+    // Every file here but RESET_1215 is 12.1.0 only: without it the patch is
+    // still the one the files agree on.
+    assert.equal(loadTable([CAPTURE, ITEMSTATS, LINKLEVEL], fs).patch, '12.1.0');
+});
+
+test('a snapshot with no capturedAt never displaces a dated one', () => {
+    const table = newTable();
+    notePatch(table, '12.1.0', 1000);
+    notePatch(table, '12.1.5', undefined);
+    assert.equal(table.patch, '12.1.0', 'the dated snapshot stands over an undated one, whichever order they arrive');
+    notePatch(table, '12.1.5', 2000);
+    assert.equal(table.patch, '12.1.5', 'a later dated snapshot still wins');
+});

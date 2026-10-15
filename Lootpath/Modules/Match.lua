@@ -295,6 +295,17 @@ function Match.Build(inventory, verdict)
         local record = found[row]
         if record and record.location ~= "equipped" then
             local worn = wornCopyOf(item, byID, row.slot, claimed)
+            -- R-2l (WKE-695): a worn copy the document itself rated - in its
+            -- top set or swapped in as an alternative - and did not take is
+            -- not the rated item crested since; it is the other copy, and the
+            -- rating chose the one in the bags. The owner's Raid `as offered`
+            -- takes the bag 318 helm and rates the worn 321 swapped in as
+            -- 0.18% behind; M2-6's rule read the 321 as that pick and the tab
+            -- said `You're set`. M2-6's own case - a worn copy crested or
+            -- converted AFTER the rating - is a key no document carries.
+            if worn and ns.QEImport.Coverage(verdict, worn.key) ~= nil then
+                worn = nil
+            end
             if worn then
                 claimed[record] = nil
                 claimed[worn] = true

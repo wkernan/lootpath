@@ -2,15 +2,25 @@
 // The structure run (E-0e, WKE-674). DEV ONLY - nothing here ships.
 //
 //   node fit-weights.js --stats <capture.lua|table.json> [--stats ...]
+//        (a capture.lua is read for its `itemstats` and `upgrade` snapshots)
 //        [--key-levels 1=2,2=4,4=6,6=8,7=10] [--tier-sets 2057]
 //        [--tier2 0.03] [--tier4 0.055] [--finish '{"int":0}']
 //        [--effect-ids 271875,271092,268265,273778]
+//        [--compare <SavedVariables.lua>] [--balance none|class]
 //        [--resamples 200] [--seed 1] [--out out] <export.json|dir> ...
 //
 // Fits E-0c's weights to each QE Live Upgrade Finder export, writes
 // out/<document>-fit.json per document and out/EngineWeights.dev.lua, and
 // prints the metrics. A directory argument means every
 // `qe-upgradefinder-*.json` in it. See README.md.
+//
+// E-0m (WKE-705): `--compare` reads the stat vector `/lootpath engine compare`
+// stores beside each Upgrade Finder row (every stored week in the file) as a
+// client point at that `id@level`, so the row is fitted on its own split
+// instead of the equal placeholder; a stored row with no vector changes
+// nothing. `--balance class` gives every slot class the same total weight in
+// the least squares (lib/fit.js rowWeights), so jewellery's rows count as much
+// as armour's. Neither is on by default: without them the run is E-0e's.
 'use strict';
 
 const fs = require('fs');
@@ -22,7 +32,7 @@ const { DEFAULT_DR } = require('./lib/dr');
 const { buildTable, render } = require('./lib/luaout');
 
 function parseArgs(argv) {
-    const opts = { stats: [], exports: [], keyLevels: {}, tierSets: [2057], tier2: 0.03, tier4: 0.055, finish: {}, effectIds: DEFAULT_EFFECT_IDS, resamples: 200, seed: 1, out: path.join(__dirname, 'out') };
+    const opts = { stats: [], compare: [], balance: 'none', exports: [], keyLevels: {}, tierSets: [2057], tier2: 0.03, tier4: 0.055, finish: {}, effectIds: DEFAULT_EFFECT_IDS, resamples: 200, seed: 1, out: path.join(__dirname, 'out') };
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i];
         const next = () => {
@@ -31,6 +41,8 @@ function parseArgs(argv) {
             return argv[i];
         };
         if (a === '--stats') opts.stats.push(next());
+        else if (a === '--compare') opts.compare.push(next());
+        else if (a === '--balance') opts.balance = next();
         else if (a === '--key-levels') {
             for (const pair of next().split(',')) {
                 const [k, v] = pair.split('=');
@@ -78,7 +90,7 @@ function run(argv, log) {
     const files = expandExports(opts.exports);
     if (!files.length) throw new Error('no Upgrade Finder export given');
 
-    const table = loadTable(opts.stats, fs);
+    const table = loadTable(opts.stats, fs, opts.compare);
     const docs = files.map((f) => {
         const raw = fs.readFileSync(f);
         const doc = JSON.parse(raw.toString('utf8'));
@@ -91,13 +103,19 @@ function run(argv, log) {
     const tiers = { setIDs: opts.tierSets, twoPiece: opts.tier2, fourPiece: opts.tier4, forceTier: true };
 
     fs.mkdirSync(opts.out, { recursive: true });
-    say(`item-stats table: ${table.points.size} client points (${table.sources.map((s) => path.basename(s.file)).join(', ')}), patch ${table.patch || 'unknown'}`);
+    const bySource = {};
+    for (const p of table.points.values()) bySource[p.source] = (bySource[p.source] || 0) + 1;
+    say(`item-stats table: ${table.points.size} client points ${JSON.stringify(bySource)} (${[...new Set(table.sources.map((s) => path.basename(s.file)))].join(', ')}), patch ${table.patch || 'unknown'}`);
+    for (const src of table.sources.filter((x) => x.kind.startsWith('compare rows'))) {
+        say(`compare rows (${path.basename(src.file)}): ${src.rows} stored Upgrade Finder rows, ${src.vectors} with a vector (weeks ${src.weeks.join(', ') || 'none'}); ${src.points} new client points, ${src.held} already read by a transcript`);
+    }
+    say(`balance: ${opts.balance}`);
     say(`level curve: Intellect ${fmt(budget.intSlope * 100, 3)}%/level over ${budget.intItems} items, secondaries ${fmt(budget.secSlope * 100, 3)}%/level over ${budget.secItems} items`);
     say(`budget groups: ${Object.entries(budget.groups).map(([g, v]) => `${g} (${v.slots.join('/')}, ${v.points})`).join('; ')}`);
 
     const fits = [];
     for (const { file, doc, sha256 } of docs) {
-        const fit = fitDocument(doc, table, budget, { effectIds: opts.effectIds, assumedFinish: opts.finish, dr: DEFAULT_DR, resamples: opts.resamples, seed: opts.seed });
+        const fit = fitDocument(doc, table, budget, { effectIds: opts.effectIds, assumedFinish: opts.finish, dr: DEFAULT_DR, resamples: opts.resamples, seed: opts.seed, balance: opts.balance });
         fit.file = path.basename(file);
         fit.sha256 = sha256;
         fit.band = bandKey(doc, opts.keyLevels);
@@ -112,11 +130,12 @@ function run(argv, log) {
         say(`== ${fit.file} (${doc.contentType}, band ${fit.band}) ==`);
         say(`rows ${fit.counts.rows}: fitted ${fit.counts.fitted}, effect ${fit.counts.effect}, censored ${fit.counts.censored}, duplicate ${fit.counts.duplicate}, pair ${fit.counts.pair}, no-stats ${fit.counts.noStats}`);
         say(`stats sources (fitted): ${JSON.stringify(fit.statsSources.fitted)}; worn: ${JSON.stringify(fit.statsSources.worn)}`);
+        say(`client reads (all rows): ${JSON.stringify(fit.clientSources.all)}; fitted: ${JSON.stringify(fit.clientSources.fitted)}; worn: ${JSON.stringify(fit.clientSources.worn)}`);
         say(`rank ${fit.rank}/6, condition ${fmt(fit.condition, 1)}`);
         say(`baseValue ${fmt(fit.baseValue, 2)} [${fmt(fit.baseInterval[0], 2)}, ${fmt(fit.baseInterval[1], 2)}]`);
         for (const k of Object.keys(fit.weights)) say(`  w_${k.padEnd(8)} ${fmt(fit.weights[k], 5)} [${fmt(fit.intervals[k][0], 5)}, ${fmt(fit.intervals[k][1], 5)}]`);
         say(`overall: n ${fit.overall.n}, R2 ${fmt(fit.overall.r2)}, MAE ${fmt(fit.overall.mae)}, rho ${fmt(fit.overall.spearman)}`);
-        for (const [c, m] of Object.entries(fit.byClass)) say(`  ${c.padEnd(10)} n ${String(m.n).padStart(3)}, R2 ${fmt(m.r2)}, MAE ${fmt(m.mae)}, rho ${fmt(m.spearman)}`);
+        for (const [c, m] of Object.entries(fit.byClass)) say(`  ${c.padEnd(10)} n ${String(m.n).padStart(3)}, R2 ${fmt(m.r2)}, MAE ${fmt(m.mae)}, rho ${fmt(m.spearman)}, k ${fmt(m.k)}, on the equal placeholder ${fit.placeholderByClass[c] || 0}`);
         say(`censored (observed 0): ${fit.censoredCheck.n}, predicted <= 0: ${fit.censoredCheck.predictedAtOrBelowZero}, predicted > 0.1: ${fit.censoredCheck.predictedAbove0_1}`);
         say('largest residuals (observed - predicted):');
         for (const r of fit.largestResiduals.slice(0, 5)) say(`  ${r.id}@${r.level} ${r.slot} ${r.dropLoc}: observed ${fmt(r.observed)}, predicted ${fmt(r.predicted)}, residual ${fmt(r.residual)} [${r.statsSource}/${r.splitSource}]`);
@@ -130,6 +149,8 @@ function run(argv, log) {
         assumedBuffs: {},
         dr: DEFAULT_DR,
         tiers,
+        balance: opts.balance,
+        compareVectors: table.sources.filter((x) => x.kind.startsWith('compare rows')).reduce((n, x) => n + x.vectors, 0),
     };
     const lua = render(buildTable(fits, meta), meta);
     const luaPath = path.join(opts.out, 'EngineWeights.dev.lua');

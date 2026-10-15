@@ -95,7 +95,9 @@ end
 -- The glow's one question, answered off a road rather than off an item: the
 -- plan rated this, or something it can become, as in your best set or a
 -- positive percent (principle 12). A rated-but-worse road does not glow, a
--- phrase does not glow, and a zero is not a direction.
+-- phrase does not glow, and a zero is not a direction. The one mark this
+-- test does not decide is R-2n's (WKE-697): a piece you carry that wins only
+-- once crested, marked at the end of `Build` by `Cache.CrestPending`.
 --
 -- It is `ns.Roads.IsForward`, not a second copy of it. R-3a (WKE-570) made that
 -- test one function precisely so the glow and the rows' "do:" lines cannot come
@@ -233,7 +235,29 @@ function Cache.Build(model)
             end
         end
     end
+
+    -- R-2n (WKE-697): every piece you carry that wins only once crested is
+    -- marked too. Its own road is not forward under `as offered` - the
+    -- document rated it as it is and left it out - and the highlighted
+    -- scenario may keep another copy, so the road rule above can leave it dark
+    -- while the hover over it says `Crest to 305 - then wear.` The owner, 2026-10-07:
+    -- "only 1 of my pieces in the bag has the lootpath arrow, it was difficult
+    -- for me to determine what the other piece was I needed to crest."
+    for key, answer in pairs(map.byKey) do
+        if Cache.CrestPending(answer) and not map.glow[key] then
+            map.glow[key] = true
+            map.counts.glowing = map.counts.glowing + 1
+        end
+    end
     return map
+end
+
+-- Whether an answer is a piece you carry that wins only once crested (R-2l's
+-- `crestTo`, which `ns.Roads.ForItemIn` already refuses to the vault pick in
+-- your hands). One question, asked by the glow above, by Equip Now's rows and
+-- by `/lootpath glow`, so the three cannot name different pieces.
+function Cache.CrestPending(answer)
+    return type(answer) == "table" and answer.held == true and type(answer.crestTo) == "table"
 end
 
 -- ---------------------------------------------------------------------------

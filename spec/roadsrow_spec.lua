@@ -695,8 +695,11 @@ describe("Roads as the Upgrade Map slot's row, over the owner's week of 2026-09-
         }
         world.fireEvent("ITEM_DATA_LOAD_RESULT", craft.itemID, true)
         assert.is_truthy(card.name:GetText():find("Placeholder Valediction", 1, true))
-        -- ...and its icon art followed: the card is re-drawn, not only its icon.
-        assert.equal(card.cardIcon.resolved.icon, card.art:GetTexture())
+        -- ...and its corner icon followed: the card is re-drawn, not only its
+        -- name. Since UX-5j (WKE-702) the icon is the corner's alone, never
+        -- the card's backdrop.
+        assert.equal(4242, card.cardIcon.resolved.icon)
+        assert.is_false(card.art:IsShown())
     end)
 
     it("says nothing under a shut section", function()
@@ -2406,13 +2409,14 @@ describe("Roads on the window, over the owner's week of 2026-09-08", function()
         world.atlases[Panel.DELVE_ART_ATLAS] = nil
         assert.is_nil(Panel.CardArt(delveRow, {}))
 
-        -- The craft card on a client with no backdrop: its own icon, as before.
+        -- The craft card on a client with no backdrop: the card's plain dark
+        -- back (UX-5j, WKE-702; until then its own icon, upscaled), never its
+        -- icon - the stub client has no CARD_ART_ATLAS either.
         world.atlases[Panel.CRAFT_ART_ATLAS] = nil
         local plain, plainData = boundCardRow(panel, modelWithArt(), "Head", 1)
         assert.is_nil(plainData.cards[2].art)
-        assert.is_nil(plain.cards[2].art:GetAtlas())
-        assert.equal(plain.cards[2].cardIcon.resolved.icon, plain.cards[2].art:GetTexture())
-        assert.equal(Panel.MOSAIC_ALPHA, plain.cards[2].art:GetAlpha())
+        assert.is_false(plain.cards[2].art:IsShown())
+        assert.is_not.equal(plain.cards[2].cardIcon.resolved.icon, plain.cards[2].art:GetTexture())
     end)
 
     it("draws a card over the instance's own art, and over the item's icon when the walk has none (UX-6)", function()
@@ -2430,11 +2434,13 @@ describe("Roads on the window, over the owner's week of 2026-09-08", function()
         assert.equal(4000 + source.instanceID, drop.art:GetTexture())
         assert.same(Panel.TILE_ART_TEX_COORD, drop.art.texCoord)
         assert.equal(1, drop.art:GetAlpha())
-        -- The craft has no instance: its own icon, cropped to the card.
+        -- The craft has no instance: since UX-5j (WKE-702) the neutral
+        -- backdrop, and on this stub client, which lacks it, the plain dark
+        -- back - never its own icon (UX-5b and UX-5i cropped that icon here;
+        -- the owner read it as stretched either way).
         assert.is_nil(data.cards[2].art)
-        assert.equal(craft.cardIcon.resolved.icon, craft.art:GetTexture())
-        assert.same(Panel.MosaicTexCoord(data.tileWidth, data.tileHeight), craft.art.texCoord)
-        assert.equal(Panel.MOSAIC_ALPHA, craft.art:GetAlpha())
+        assert.is_false(craft.art:IsShown())
+        assert.is_not.equal(craft.cardIcon.resolved.icon, craft.art:GetTexture())
         -- The card's own strings, the badge on its plate, the icon at 28.
         local row = data.cards[1].row
         assert.equal(Panel.CardSecond(row), drop.second:GetText())
@@ -2448,11 +2454,11 @@ describe("Roads on the window, over the owner's week of 2026-09-08", function()
         assert.equal(Panel.CARD_INDENT, drop.points[1][4])
         assert.equal(Panel.CARD_INDENT + data.tileWidth + Panel.TILE_GAP, craft.points[1][4])
 
-        -- The committed walk predates the art: every drop card then draws its
-        -- item's own icon, and nothing is borrowed from another instance.
+        -- The committed walk predates the art: every drop card then draws the
+        -- card's plain back (UX-5j; the neutral atlas on a client with it), and
+        -- nothing is borrowed from another instance.
         local plain = boundCardRow(panel, Panel.Model(Panel.Gather({ db = ns.db })), "Head", 1)
-        assert.equal(plain.cards[1].cardIcon.resolved.icon, plain.cards[1].art:GetTexture())
-        assert.equal(Panel.MOSAIC_ALPHA, plain.cards[1].art:GetAlpha())
+        assert.is_false(plain.cards[1].art:IsShown())
     end)
 
     -- UX-5d: a card draws the instance the way its run's tile does - the lore
@@ -2469,9 +2475,10 @@ describe("Roads on the window, over the owner's week of 2026-09-08", function()
         assert.equal(5000 + source.instanceID, drop.art:GetTexture())
         assert.same(Panel.TILE_LORE_TEX_COORD, drop.art.texCoord)
         assert.equal(1, drop.art:GetAlpha())
-        -- The craft beside it still has no instance and keeps its own icon.
+        -- The craft beside it still has no instance: no picture on this stub
+        -- client, which lacks the neutral atlas (UX-5j).
         assert.is_nil(data.cards[2].art)
-        assert.equal(Panel.MOSAIC_ALPHA, element.cards[2].art:GetAlpha())
+        assert.is_false(element.cards[2].art:IsShown())
         -- Without the lore painting, the button art with the button's crop.
         local _, plain = boundCardRow(panel, modelWithArt(false), "Head", 1)
         assert.equal(4000 + source.instanceID, plain.cards[1].art)

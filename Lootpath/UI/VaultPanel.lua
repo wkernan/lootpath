@@ -2320,6 +2320,12 @@ end
 -- (Blizzard_Fonts_Shared/Shared/FontStyles.xml).
 Panel.THRESHOLD_FONT = "GameFontNormalSmall2"
 Panel.THRESHOLD_FONT_FALLBACK = "GameFontNormalSmall"
+-- V-9 (WKE-690): the most lines the words take before the client ends them
+-- with its own ellipsis. Blizzard's Threshold (Blizzard_WeeklyRewards.xml:92-97)
+-- sets no `maxLines` and a height of 0; the one wrapping string in the same
+-- file that does cap itself, the reward's Name (:24-25), is `maxLines="3"` at a
+-- height of 0 - so the cap is that one, and no height is set.
+Panel.THRESHOLD_MAX_LINES = 3
 -- Blizzard's Refresh colours the words `DISABLED_FONT_COLOR` (grey) on a
 -- locked cell and `NORMAL_FONT_COLOR` (gold) once it is unlocked
 -- (WeeklyRewardsActivityMixin:Refresh, Blizzard_WeeklyRewards.lua). The
@@ -2817,6 +2823,25 @@ end
 -- drew a band it also returns the band and the size it was drawn at, so the
 -- banner's lift (UX-5h) can draw the very same piece; after a fit it returns
 -- true alone.
+-- The size `drawAtlas` draws an atlas at when it fits one (V-5a's rule, one
+-- factor for both sides), without drawing it: width, height and whether it was
+-- scaled down. Nil sizes when the client gave the atlas no usable size - it is
+-- then drawn at its own size, which this file cannot know (V-9, WKE-690).
+local function atlasFitSize(info, boxWidth, boxHeight, margin)
+    local inset = margin or 0
+    local roomWidth = math.max(1, (boxWidth or 0) - inset * 2)
+    local roomHeight = math.max(1, (boxHeight or 0) - inset * 2)
+    local width, height = info.width, info.height
+    if not width or not height then
+        return nil, nil, false
+    end
+    if width <= roomWidth and height <= roomHeight then
+        return width, height, false
+    end
+    local scale = math.min(roomWidth / width, roomHeight / height)
+    return math.max(1, math.floor(width * scale)), math.max(1, math.floor(height * scale)), true
+end
+
 local function drawAtlas(texture, name, boxWidth, boxHeight, margin, crop)
     local info = ns.UI.ItemLine.AtlasInfo(name)
     if not info then
@@ -2836,20 +2861,85 @@ local function drawAtlas(texture, name, boxWidth, boxHeight, margin, crop)
             return true, info.name, coords, sizeWidth, sizeHeight
         end
     end
-    local inset = margin or 0
-    local roomWidth = math.max(1, (boxWidth or 0) - inset * 2)
-    local roomHeight = math.max(1, (boxHeight or 0) - inset * 2)
-    local width, height = info.width, info.height
-    if not width or not height or (width <= roomWidth and height <= roomHeight) then
+    local width, height, scaled = atlasFitSize(info, boxWidth, boxHeight, margin)
+    if not scaled then
         -- It fits as it is - or the client will not say how big it is, and its
         -- own size is still the only size this addon may draw it at.
         texture:SetAtlas(info.name, true)
         return true
     end
-    local scale = math.min(roomWidth / width, roomHeight / height)
     texture:SetAtlas(info.name)
-    texture:SetSize(math.max(1, math.floor(width * scale)), math.max(1, math.floor(height * scale)))
+    texture:SetSize(width, height)
     return true
+end
+
+-- V-9 (WKE-690): how wide the cell's badge is DRAWN - the box the words, the
+-- tick and the progress are anchored to. The badge is Blizzard's cell art at
+-- its own proportions, centred (V-5a): `drawAtlas` with the cell as its box.
+-- On the 760 window it fills the cell's width, but the cell grows with the
+-- window (M5-2c, M5-5) and the badge, held to the cell's 110 points of height
+-- by one factor, does not - so a place scaled to the CELL ran the words past
+-- the badge on a stretched window (the owner's screenshot, 2026-10-05). The
+-- same `atlasFitSize` decides both, so the art and the words cannot disagree.
+-- The cell's own width when there is no atlas (the flat fill covers the cell)
+-- or when the client gave the atlas no size (V-7's rule, unchanged); never
+-- wider than the cell. Nil for a cell with no width.
+--
+-- V-9b (WKE-692): `Panel.BadgeSize` answers the height beside it, by the same
+-- rule - the cell's own height where the width is the cell's, never taller
+-- than the cell - because a reward cell's item, tags, label and tick hang off
+-- the badge too, and where it is SHORTER than the cell (the 760 window) they
+-- are held to the rows of the cell they have always been drawn on.
+function Panel.BadgeSize(cellWidth, cellHeight, atlas)
+    cellWidth = tonumber(cellWidth)
+    if not cellWidth or cellWidth <= 0 then
+        return nil, nil
+    end
+    cellHeight = tonumber(cellHeight)
+    local info = atlas and ns.UI.ItemLine.AtlasInfo(atlas) or nil
+    if not info then
+        return cellWidth, cellHeight
+    end
+    local width, height = atlasFitSize(info, cellWidth, cellHeight, 0)
+    if not width then
+        return cellWidth, cellHeight
+    end
+    return math.min(cellWidth, width), cellHeight and math.min(cellHeight, height) or height
+end
+
+function Panel.BadgeWidth(cellWidth, cellHeight, atlas)
+    return (Panel.BadgeSize(cellWidth, cellHeight, atlas))
+end
+
+-- V-9b (WKE-692): where a cell's top band, item line, tags and extras sit -
+-- on the BADGE, as Blizzard's own reward cell carries its ItemFrame inside the
+-- frame its art is drawn on (WeeklyRewardActivityTemplate, whose Background is
+-- `useAtlasSize`, Blizzard_WeeklyRewards.xml). V-5 anchored them to the cell,
+-- and on a stretched window the cell grows while the badge does not, so the
+-- icon started left of the art and the tick sat in the gap past its right
+-- edge (the owner's screenshot, 2026-10-06). The insets are V-5's own points,
+-- measured from the badge's edges instead of the cell's: on the 760 window the
+-- badge is the cell's width, so nothing moves sideways. `top` is how far the
+-- badge's top edge sits below the cell's (it is centred): every offset down
+-- from the top adds it back, so a badge shorter than the cell leaves each row
+-- where it was drawn before, and a badge the cell's height (every width where
+-- the badge is narrower than the cell) gives 0. The RIGHT anchors are the
+-- badge's middle, which is the cell's - the badge is centred on it.
+local function placeContent(cell, top)
+    local badge = cell.background
+    top = top or 0
+    cell.label:ClearAllPoints()
+    cell.label:SetPoint("TOPLEFT", badge, "TOPLEFT", 4, -2 + top)
+    cell.label:SetPoint("TOPRIGHT", badge, "TOPRIGHT", -(4 + CELL_TICK_SIZE + 2), -2 + top)
+    cell.line:ClearAllPoints()
+    cell.line:SetPoint("TOPLEFT", badge, "TOPLEFT", 6, -(LABEL_BAND + 6) + top)
+    cell.line:SetPoint("RIGHT", badge, "RIGHT", -6, 0)
+    cell.tags:ClearAllPoints()
+    cell.tags:SetPoint("TOPLEFT", cell.line, "BOTTOMLEFT", 0, -2)
+    cell.tags:SetPoint("RIGHT", badge, "RIGHT", -6, 0)
+    cell.extras:ClearAllPoints()
+    cell.extras:SetPoint("TOPLEFT", cell.tags, "BOTTOMLEFT", 0, -2)
+    cell.extras:SetPoint("RIGHT", badge, "RIGHT", -6, 0)
 end
 
 -- Sets a font object by name when the client has it, else the fallback when
@@ -2907,7 +2997,7 @@ local function createCell(parent)
     -- `paintCell` moves it to Blizzard's own place, beside the words (V-7).
     cell.tick = cell:CreateTexture(nil, "OVERLAY")
     cell.tick:SetSize(CELL_TICK_SIZE, CELL_TICK_SIZE)
-    cell.tick:SetPoint("TOPRIGHT", cell, "TOPRIGHT", -4, -2)
+    cell.tick:SetPoint("TOPRIGHT", cell.background, "TOPRIGHT", -4, -2)
     cell.tick:Hide()
 
     -- Where Blizzard puts the progress: the cell's own corner. The fraction
@@ -2964,9 +3054,12 @@ local function createCell(parent)
 
     -- Inside the cell's own top edge, in the band reserved above the item
     -- line. Anchored TOPLEFT to TOPLEFT so that nothing about this label can
-    -- reach a pixel above the cell it belongs to.
+    -- reach a pixel above the cell it belongs to. Its right edge (V-9,
+    -- WKE-690) stops short of the reward cell's tick, which sits in the same
+    -- band at TOPRIGHT -4, -2 and CELL_TICK_SIZE wide: a label longer than the
+    -- room is cut there, never drawn on past the cell's edge. Both are on the
+    -- badge since V-9b (`placeContent`), as the tick is.
     cell.label = cell:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    cell.label:SetPoint("TOPLEFT", cell, "TOPLEFT", 4, -2)
     cell.label:SetHeight(LABEL_BAND - 2)
     cell.label:SetJustifyH("LEFT")
     cell.label:SetWordWrap(false)
@@ -2976,12 +3069,8 @@ local function createCell(parent)
     -- badge beside the name, so the verdict is its own line underneath, which
     -- is also where Blizzard's own vault cell puts its progress.
     cell.line = ns.UI.ItemLine.Create(cell, { size = CELL_ICON_SIZE, badgeWidth = 0 })
-    cell.line:SetPoint("TOPLEFT", cell, "TOPLEFT", 6, -(LABEL_BAND + 6))
-    cell.line:SetPoint("RIGHT", cell, "RIGHT", -6, 0)
 
     cell.tags = cell:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-    cell.tags:SetPoint("TOPLEFT", cell.line, "BOTTOMLEFT", 0, -2)
-    cell.tags:SetPoint("RIGHT", cell, "RIGHT", -6, 0)
     cell.tags:SetJustifyH("LEFT")
     cell.tags:SetWordWrap(false)
 
@@ -3003,10 +3092,11 @@ local function createCell(parent)
     -- it (the owner's answer 4, "badge only"); its hover and the printed lines
     -- still say it.
     cell.extras = cell:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-    cell.extras:SetPoint("TOPLEFT", cell.tags, "BOTTOMLEFT", 0, -2)
-    cell.extras:SetPoint("RIGHT", cell, "RIGHT", -6, 0)
     cell.extras:SetJustifyH("LEFT")
     cell.extras:SetWordWrap(false)
+    -- The label, the item line, the tags and the extras, on the badge
+    -- (V-9b); `paintCell` places them again once it knows the badge's size.
+    placeContent(cell, 0)
 
     -- The cell's own words - what unlocks it - where Blizzard writes its
     -- Threshold (V-7, WKE-658): top-left, left-justified, wrapping, in
@@ -3021,6 +3111,7 @@ local function createCell(parent)
     cell.locked:SetJustifyH("LEFT")
     cell.locked:SetJustifyV("TOP")
     cell.locked:SetWordWrap(true)
+    cell.locked:SetMaxLines(Panel.THRESHOLD_MAX_LINES)
     cell.locked:Hide()
 
     cell:SetScript("OnEnter", function(self)
@@ -3225,10 +3316,15 @@ local function paintCell(cell, data)
     cell.background:ClearAllPoints()
     cell.background:SetPoint("CENTER", cell, "CENTER", 0, 0)
     local atlas = drawAtlas(cell.background, data.atlas, cell:GetWidth() or 0, CELL_HEIGHT, 0)
+    -- How far the badge's top sits below the cell's (V-9b): it is centred, so
+    -- half of what it is short of the cell's height; 0 when there is no art.
+    local top = 0
     if atlas then
         -- An atlas carries its own colour; the tint the flat fill needed would
         -- darken it to nothing.
         cell.background:SetVertexColor(1, 1, 1, 1)
+        local _, badgeHeight = Panel.BadgeSize(cell:GetWidth() or 0, CELL_HEIGHT, data.atlas)
+        top = badgeHeight and (CELL_HEIGHT - badgeHeight) / 2 or 0
     else
         cell.background:ClearAllPoints()
         cell.background:SetAllPoints()
@@ -3239,18 +3335,26 @@ local function paintCell(cell, data)
     -- CompletedIcon: top-left of the badge at Blizzard's 9, -12 scaled to the
     -- cell, beside the words, at the atlas's own size when that fits in the
     -- room left of the words and fitted at its own aspect when it does not. A
-    -- reward cell keeps V-5's corner band, where it never sits on the item.
-    local place = Panel.CellPlace(cell:GetWidth() or 0, CELL_HEIGHT)
+    -- reward cell keeps V-5's corner band, where it never sits on the item -
+    -- the BADGE's top-right corner since V-9b (WKE-692), at V-5's -4, -2 from
+    -- it, so on a stretched window it is inside the art and not in the gap.
+    --
+    -- V-9 (WKE-690): the place is scaled to the badge as DRAWN, not to the
+    -- cell, because every one of them is anchored to the badge
+    -- (`Panel.BadgeWidth`). On the 760 window the two are the same width.
+    local place = Panel.CellPlace(Panel.BadgeWidth(cell:GetWidth() or 0, CELL_HEIGHT, data.atlas), CELL_HEIGHT)
+    cell.place = place
     cell.tick:ClearAllPoints()
     local tick
     if data.kind == "locked" and place then
         cell.tick:SetPoint("TOPLEFT", cell.background, "TOPLEFT", place.tickX, -place.tickY)
         tick = data.tick and drawAtlas(cell.tick, Panel.COMPLETED_ATLAS, place.tickRoom, place.tickRoom, 0)
     else
-        cell.tick:SetPoint("TOPRIGHT", cell, "TOPRIGHT", -4, -2)
+        cell.tick:SetPoint("TOPRIGHT", cell.background, "TOPRIGHT", -4, -2 + top)
         tick = data.tick and drawAtlas(cell.tick, Panel.COMPLETED_ATLAS, CELL_TICK_SIZE, CELL_TICK_SIZE, 0)
     end
     cell.tick:SetShown(tick and true or false)
+    placeContent(cell, top)
     -- A locked cell puts the fraction bottom-right inside the badge, as
     -- Blizzard does; a cell with a reward keeps it in the top band, where its
     -- footer and extras are not (V-5a, WKE-607). Along the bottom it is
@@ -3290,8 +3394,12 @@ local function bindCell(cell, data, cellWidth)
         cell.badge:Hide()
         ns.UI.ItemLine.Clear(cell.line)
         cell.tags:SetText("")
-        -- Blizzard's Threshold, placed and coloured as its Refresh does (V-7).
-        local place = Panel.CellPlace(cellWidth, CELL_HEIGHT)
+        -- Blizzard's Threshold, placed and coloured as its Refresh does (V-7):
+        -- one anchor and a width, as its template sizes it (Size x=172 y=0,
+        -- Blizzard_WeeklyRewards.xml:92-97). The place is `paintCell`'s, scaled
+        -- to the badge it is anchored to (V-9, WKE-690), so the width ends
+        -- inside the badge's right edge at any width the window takes.
+        local place = cell.place
         cell.locked:ClearAllPoints()
         if place then
             cell.locked:SetPoint("TOPLEFT", cell.background, "TOPLEFT", place.x, -place.y)

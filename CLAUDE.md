@@ -12,10 +12,14 @@ QE Live's `qe-live-droptimizer` v1 export, transported unchanged. Lootpath
 scans, walks the journal, matches, and displays. If a gap tempts you to
 estimate, stop. **One scoped exception, decided 2026-09-30 (ARCHITECTURE.md
 §7, E-0; `docs/OWN-ENGINE.md`):** the developer-only engine modules
-(`EngineStats`, `EngineScore`, `EngineCompare`, `Data/EngineWeights.lua`)
+(`EngineStats`, `EngineScore`, `EngineCompare`, `EngineEffects`, `EngineSearch`,
+`Data/EngineWeights.lua`, `Data/EngineEffects.lua`, and the developer panel
+`UI/EngineDevPanel.lua` that shows them)
 may compute a value BESIDE QE Live's, behind `db.global.developer.engine`,
 on no player surface and never in a list with QE Live's numbers, to measure
-parity. The rule above still governs every surface a player sees.
+parity. "Never in a list" means never sorted or combined with them: the
+developer panel's separate `theirs` and `ours` columns, in stored order, are
+allowed (the owner, 2026-10-11). The rule above still governs every surface a player sees.
 
 ## Before you start building: your own worktree
 
@@ -87,7 +91,11 @@ already edited the shared checkout, move the work to a worktree first
 - Captures (`/lootpath capture <name>`) only read, with three recorded
   exceptions:
   `capture journal` sets the Adventure Guide's view state because the API has
-  no other way to ask for loot, and restores what it can (ARCHITECTURE.md §7);
+  no other way to ask for loot, and restores what it can (ARCHITECTURE.md §7) -
+  and since 2026-10-02 (E-0g, WKE-677, the owner's "merge") `capture linklevel`
+  does the same through the same walk and the same restore, because a
+  context-scaled journal link reads at a level the Guide's view may decide and
+  the only way to learn which is to read it while the Guide previews the row;
   `capture vault` **and once at login** call `C_WeeklyRewards.OnUIInteract()`,
   read on every `WEEKLY_REWARDS_UPDATE` for a bounded few seconds - settling on
   the read that carries rewards - and then call `CloseInteraction()` - always,

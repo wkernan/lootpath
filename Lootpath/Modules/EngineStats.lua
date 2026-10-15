@@ -15,7 +15,11 @@
 --     itemID are different keys.
 --   * each gem through `C_Item.GetItemGem(link, i)` -> gem link ->
 --     `C_Item.GetItemStats(gemLink)`, listed under `gems` and never folded
---     into the base vector: the scorer decides what a gem is worth.
+--     into the base vector: the scorer decides what a gem is worth. On 12.1.0
+--     the client answers every gem link with an EMPTY table (all 7 socketed
+--     gems in the 2026-10-01 transcript, E-0f), so an empty answer is read as
+--     "stats unknown" (`unknown = true`, `stats = {}`), never as a gem worth
+--     nothing.
 --   * `C_Item.GetItemNumSockets` for the socket count, which is the one part
 --     of a finish that moves a score at parity: QE Live scores every set with
 --     an ASSUMED best finish per slot (fork `TopGearEngine.ts:565-634`), so
@@ -25,8 +29,8 @@
 --     sixteenth return (setID), `C_Item.GetItemUniquenessByID` (uniqueness).
 --   * the client's own rating conversion, `GetCombatRatingBonusForCombatRatingValue`,
 --     and the five current ratings plus `GetMasteryEffect()`'s pair. No
---     diminishing-returns table of our own: E-0a's probe says whether the
---     client applies them.
+--     diminishing-returns table of our own: the client applies them itself
+--     (the 2026-10-01 transcript: haste 1320 -> 30.0, 2640 -> 54.0; E-0f).
 --
 -- Every value passes ns.Safe / ns.CopyRaw. A read that answers a secret makes
 -- the result `{ secret = true, ready = true }` with no vector, never cached.
@@ -58,27 +62,48 @@ EngineStats.FUNCTION_NAMES = {
     "CreateFrame",
 }
 
--- The key-name map. PLACEHOLDER: read from the Warcraft Wiki's
--- API_C_Item.GetItemStats example, grade (ii), because E-0a's `capture
--- itemstats` transcript (WKE-675) is not committed yet. When it lands, the
--- transcript line each key was read from replaces this comment, and a key the
--- client names differently is changed here and nowhere else. A key not in this
--- table is kept under `other[key]`, never dropped.
+-- The key-name map, READ from the owner's `capture itemstats` transcript
+-- (spec/fixtures/captures/Lootpath-20261001-092631.lua, E-0f, WKE-676): every
+-- key the client named on 80 items - 15 worn, 25 bag, 40 journal - with how
+-- many of them carried it. Versatility has no `_SHORT`; the socket key is a
+-- COUNT of prismatic sockets, filled or not (it equals GetItemNumSockets on
+-- all 12 socketed items); `ITEM_MOD_MODIFIED_CRAFTING_STAT_1` is on the one
+-- world trinket whose tooltip reads "+102 Random Stat 1". Avoidance is the
+-- only key here the transcript did not show (no item carried it): it stays at
+-- the wiki's name, grade (ii). A key not in this table is kept under
+-- `other[key]`, never dropped.
 EngineStats.STAT_KEYS = {
-    ITEM_MOD_INTELLECT_SHORT = "int",
-    ITEM_MOD_STAMINA_SHORT = "stamina",
-    ITEM_MOD_CRIT_RATING_SHORT = "crit",
-    ITEM_MOD_HASTE_RATING_SHORT = "haste",
-    ITEM_MOD_MASTERY_RATING_SHORT = "mastery",
-    ITEM_MOD_VERSATILITY = "vers",
-    ITEM_MOD_CR_LIFESTEAL_SHORT = "leech",
-    ITEM_MOD_CR_AVOIDANCE_SHORT = "avoidance",
-    ITEM_MOD_CR_SPEED_SHORT = "speed",
-    RESISTANCE0_NAME = "armor",
+    ITEM_MOD_INTELLECT_SHORT = "int", -- 69 items
+    ITEM_MOD_STAMINA_SHORT = "stamina", -- 61
+    RESISTANCE0_NAME = "armor", -- 41
+    ITEM_MOD_HASTE_RATING_SHORT = "haste", -- 39
+    ITEM_MOD_CRIT_RATING_SHORT = "crit", -- 35
+    ITEM_MOD_MASTERY_RATING_SHORT = "mastery", -- 28
+    ITEM_MOD_VERSATILITY = "vers", -- 20, no _SHORT
+    EMPTY_SOCKET_PRISMATIC = "prismaticSockets", -- 12, a count
+    ITEM_MOD_DAMAGE_PER_SECOND_SHORT = "dps", -- 7, fractional
+    ITEM_MOD_CR_LIFESTEAL_SHORT = "leech", -- 2
+    ITEM_MOD_CR_SPEED_SHORT = "speed", -- 1
+    ITEM_MOD_MODIFIED_CRAFTING_STAT_1 = "randomStat1", -- 1
+    ITEM_MOD_CR_AVOIDANCE_SHORT = "avoidance", -- not seen; the wiki's name
 }
 
 -- The vector's fields, in one order, each 0 when the item carries none.
-EngineStats.VECTOR = { "int", "stamina", "crit", "haste", "mastery", "vers", "leech", "avoidance", "speed", "armor" }
+EngineStats.VECTOR = {
+    "int",
+    "stamina",
+    "crit",
+    "haste",
+    "mastery",
+    "vers",
+    "leech",
+    "avoidance",
+    "speed",
+    "armor",
+    "prismaticSockets",
+    "dps",
+    "randomStat1",
+}
 
 -- The rating indices, read from Blizzard's own constants in
 -- PaperDollFrame.lua (under .luals/, Blizzard_UIPanels_Game/Mainline:14, 17,
@@ -98,7 +123,8 @@ EngineStats.MAX_ENTRIES = 2000
 
 EngineStats.EVENTS = { "ITEM_DATA_LOAD_RESULT", "PLAYER_ENTERING_WORLD" }
 
--- [key] = result; byItem[itemID] = { [key] = true }; gems[gemID] = vector.
+-- [key] = result; byItem[itemID] = { [key] = true };
+-- gems[gemID] = { stats = <vector or {}>, unknown = true | nil }.
 local cache, byItem, gemCache = {}, {}, {}
 local order, orderHead, count, seq = {}, 1, 0, 0
 local listener
@@ -147,7 +173,8 @@ end
 
 -- A table the client handed over, through ns.CopyRaw, into a vector: every
 -- mapped key into its field, every other key into `other`. Answers nil and
--- true for a secret anywhere in it.
+-- true for a secret anywhere in it; the third return is true when the table
+-- held no key at all, so a caller can tell "the client named nothing" from zeros.
 local function toVector(raw)
     local copy, secret = ns.CopyRaw(raw)
     if secret then
@@ -169,7 +196,7 @@ local function toVector(raw)
             vector.other[key] = value
         end
     end
-    return vector, false
+    return vector, false, next(copy) == nil
 end
 
 local function call(fn, ...)
@@ -294,7 +321,9 @@ local function request(itemID)
 end
 
 -- The stats of the gem in socket `index` of `link`, cached by gem ID.
--- Answers (vector, secret, pending).
+-- Answers (entry, secret, pending), entry = { stats, unknown }. An empty table
+-- from the client is `unknown`: on 12.1.0 every gem link answers one (E-0f),
+-- and a gem the client says nothing about is not a gem worth nothing.
 local function gemVector(link, index, gemID)
     if gemCache[gemID] then
         return gemCache[gemID], false, false
@@ -313,15 +342,16 @@ local function gemVector(link, index, gemID)
         request(gemID)
         return nil, false, true
     end
-    local vector, statsSecret = toVector(raw)
+    local vector, statsSecret, empty = toVector(raw)
     if statsSecret then
         return nil, true, false
     end
     if not vector then
         return nil, false, true
     end
-    gemCache[gemID] = vector
-    return vector, false, false
+    local entry = empty and { stats = {}, unknown = true } or { stats = vector }
+    gemCache[gemID] = entry
+    return entry, false, false
 end
 
 -- A fresh table each time: a caller that writes on one never changes another's.
@@ -332,8 +362,9 @@ end
 -- ForLink(link) -> the item's read, or nil.
 --
 -- `{ itemID, key, int, stamina, crit, haste, mastery, vers, leech, avoidance,
---    speed, armor, other = { [key] = value } | nil, sockets,
---    gems = { { id, stats = <vector> }, ... }, level, setID,
+--    speed, armor, prismaticSockets, dps, randomStat1,
+--    other = { [key] = value } | nil, sockets,
+--    gems = { { id, stats = <vector>, unknown = true | nil }, ... }, level, setID,
 --    uniqueness = { category, max, name, isUnique } | nil, ready = true }`
 -- `{ ready = false }` while the client fetches the item or a gem (one
 -- request made); `{ secret = true, ready = true }` when any read was secret;
@@ -416,14 +447,14 @@ function EngineStats.ForLink(link)
     local gems = {}
     for index, gemID in ipairs(gemIDs) do
         if gemID > 0 then
-            local stats, secret, pending = gemVector(safeLink, index, gemID)
+            local gem, secret, pending = gemVector(safeLink, index, gemID)
             if secret then
                 return secretResult()
             end
-            if pending then
+            if pending or not gem then
                 return { ready = false }
             end
-            gems[#gems + 1] = { id = gemID, stats = stats }
+            gems[#gems + 1] = { id = gemID, stats = gem.stats, unknown = gem.unknown }
         end
     end
 
@@ -436,6 +467,276 @@ function EngineStats.ForLink(link)
     result.gems = gems
     result.ready = true
     return result
+end
+
+-- ---------------------------------------------------------------------------
+-- A link at a level (E-0g, WKE-677).
+--
+-- The journal walk keeps each drop's link and the level the Adventure Guide
+-- PREVIEWED while it read it; the link does not carry that preview. Read later,
+-- `GetDetailedItemLevelInfo` and `GetItemStats` answer at the link's OWN level:
+-- 17 of the 40 journal rows of the 2026-10-01 transcript (7 keystone rows
+-- listed at 305 read 292, 6 raid rows read the difficulty's base level, 4 world
+-- rows listed at 44 read 263 / 276; ARCHITECTURE.md section 7, E-0f point 5).
+-- So a row is scored at its level only through a link REBUILT for that level,
+-- and this is the one place one is made: `RebuildLink` is the only function in
+-- the addon that writes a bonus-ID list into a link, `LinkAtLevel` the only one
+-- that decides which list, and it decides by a RULE handed in or installed in
+-- `EngineStats.linkLevelRule`.
+--
+-- Which rule makes the client draw the previewed level is what `/lootpath
+-- capture linklevel` asked it (Captures.lua); the owner's transcript
+-- (spec/fixtures/captures/Lootpath-20261001-200927.lua, 2026-10-01 20:09) is
+-- what the rule below stands on - ARCHITECTURE.md section 7, E-0g step 2.
+--
+-- A rule is `rule(link, level, parsed) -> bonusIDs | nil, reason`: given the
+-- link, the level wanted and the link's own fields (`LinkFields`), the list of
+-- bonus IDs the rebuilt link carries, in order. It never builds a string.
+
+EngineStats.NO_RULE = "no rule yet"
+
+-- The installed rule's name, printed on the compare's `at level` line.
+EngineStats.TRACK_RULE_NAME = "track-append"
+
+-- Every bonus ID Data/TrackBonusIDs.lua names, as a set.
+local function trackBonusSet()
+    local set = {}
+    local data = ns.trackBonusIDs
+    for _, track in ipairs(type(data) == "table" and data.tracks or {}) do
+        for _, entry in ipairs(track.steps or {}) do
+            set[entry.bonusID] = true
+        end
+    end
+    return set
+end
+
+-- TrackRule(link, level, parsed) -> the link's own bonus IDs with the track
+-- step that draws `level` added at the end | nil, "no track step draws <level>".
+--
+-- What the transcript proves (every figure read with
+-- tools/companion/lib/lua-savedvariables.js; ARCHITECTURE.md section 9):
+--   * on all 8 of its 12 candidates whose walk level a track step draws, the
+--     journal link with that step's bonus ID ADDED (`track-append`) read the
+--     walk's level in all three reads - before the walk, while the Adventure
+--     Guide previewed the row, after the view was put back - through
+--     `GetDetailedItemLevelInfo` and the tooltip's Item Level line: the 4
+--     keystone rows at 305 (159317, 193763, 251123, 250254; context 16) with
+--     Champion 5/6 12837 and with Hero 1/6 12841, the raid rows 268234 and
+--     268252 at 311 with Hero 3/6 12843 and at 324 with Myth 3/6 12851;
+--   * the same link with its bonus list REPLACED by the one ID
+--     (`track-replace`) read the same level everywhere and the same stats
+--     everywhere but one: the raid ring 268252 at 311 and at 324 lost its
+--     prismatic socket (`EMPTY_SOCKET_PRISMATIC` 1 on the kept link and on
+--     `track-append`, absent on `track-replace`). So `track-append` is the
+--     variant that keeps everything the Guide's own link carries, and it is
+--     the one installed;
+--   * where two tracks draw the level (305 is Champion 5/6 and Hero 1/6) both
+--     read 305 with the same stats on every keystone candidate; the drop's own
+--     track is not in the journal link, so the LOWER track is taken -
+--     TrackBonusesAt answers in the file's track order, lowest first, and the
+--     first step is the one used;
+--   * where no step draws the level (the world rows the walk lists at 44,
+--     250461 and 250447) there is nothing to add: nil and the reason, and the
+--     compare leaves the row out.
+-- A track bonus ID the link already carries is dropped before the step is
+-- added, so a rebuilt link never names two steps. AtLevel still checks that
+-- the client draws the level asked for; a rule is a proposal, the read is the
+-- proof.
+function EngineStats.TrackRule(_, level, parsed)
+    local steps = EngineStats.TrackBonusesAt(level)
+    if #steps == 0 then
+        return nil, "no track step draws " .. tostring(level)
+    end
+    local isTrack = trackBonusSet()
+    local list = {}
+    for _, id in ipairs(parsed and parsed.bonusIDs or {}) do
+        if not isTrack[id] then
+            list[#list + 1] = id
+        end
+    end
+    list[#list + 1] = steps[1].bonusID
+    return list
+end
+
+EngineStats.linkLevelRule = EngineStats.TrackRule
+
+-- LinkLevelRuleName() -> what the compare prints for the rule in use: the
+-- installed rule's name, `no rule` with none, `another rule` for a rule a
+-- caller put in its place.
+function EngineStats.LinkLevelRuleName()
+    local rule = EngineStats.linkLevelRule
+    if rule == nil then
+        return "no rule"
+    elseif rule == EngineStats.TrackRule then
+        return EngineStats.TRACK_RULE_NAME
+    end
+    return "another rule"
+end
+
+-- The item string's fields, raw and in order, or nil: the same layout as
+-- Core.lua's ParseItemLink - numBonusIDs at field 13, the IDs after it, then
+-- the modifiers - but the bonus IDs UNSORTED, because a rebuilt link must keep
+-- every other field exactly where the client put it.
+local function itemFields(link)
+    if type(link) ~= "string" then
+        return nil
+    end
+    local body = link:match("|Hitem:([^|]+)|h") or link:match("^item:([^|]+)$")
+    if not body then
+        return nil
+    end
+    local fields = {}
+    for field in (body .. ":"):gmatch("([^:]*):") do
+        fields[#fields + 1] = field
+    end
+    local itemID = tonumber(fields[1])
+    if not itemID or itemID <= 0 then
+        return nil
+    end
+    return fields, body, itemID
+end
+
+-- LinkFields(link) -> `{ itemID, context, bonusIDs = { <raw order> } }` or nil.
+-- A parse of the string in hand; asks the client nothing.
+function EngineStats.LinkFields(link)
+    local fields, _, itemID = itemFields(link)
+    if not fields then
+        return nil
+    end
+    local numBonus = tonumber(fields[13]) or 0
+    local bonusIDs = {}
+    for i = 1, numBonus do
+        local id = tonumber(fields[13 + i])
+        if not id then
+            return nil
+        end
+        bonusIDs[i] = id
+    end
+    return { itemID = itemID, context = tonumber(fields[12]), bonusIDs = bonusIDs }
+end
+
+-- RebuildLink(link, bonusIDs) -> the same link with its bonus-ID list replaced
+-- by `bonusIDs` and nothing else touched (the colour, the name, the context,
+-- the modifiers after the list), or nil for anything that is not an item link
+-- or a list that is not all whole positive numbers.
+function EngineStats.RebuildLink(link, bonusIDs)
+    local fields, body = itemFields(link)
+    if not fields or type(bonusIDs) ~= "table" then
+        return nil
+    end
+    for _, id in ipairs(bonusIDs) do
+        if type(id) ~= "number" or id <= 0 or id % 1 ~= 0 then
+            return nil
+        end
+    end
+    local numBonus = tonumber(fields[13]) or 0
+    local out = {}
+    for i = 1, 12 do
+        out[i] = fields[i] or ""
+    end
+    out[13] = #bonusIDs > 0 and tostring(#bonusIDs) or ""
+    for _, id in ipairs(bonusIDs) do
+        out[#out + 1] = tostring(id)
+    end
+    for i = 13 + numBonus + 1, #fields do
+        out[#out + 1] = fields[i]
+    end
+    local rebuilt = table.concat(out, ":")
+    if link:match("^item:") then
+        return "item:" .. rebuilt
+    end
+    -- Plain find/replace: the body is literal text, never a pattern.
+    local s, e = link:find("|Hitem:" .. body .. "|h", 1, true)
+    return link:sub(1, s - 1) .. "|Hitem:" .. rebuilt .. "|h" .. link:sub(e + 1)
+end
+
+-- TrackBonusesAt(level) -> every step of Data/TrackBonusIDs.lua that draws
+-- `level`, as `{ bonusID, track, step, itemLevel, client }`, in the file's
+-- track order. Two tracks overlap at most levels (305 is Champion 5/6 and
+-- Hero 1/6), so the answer is a list; an empty one when no step draws it.
+function EngineStats.TrackBonusesAt(level)
+    local out = {}
+    local data = ns.trackBonusIDs
+    level = tonumber(level)
+    if type(data) ~= "table" or type(data.tracks) ~= "table" or not level then
+        return out
+    end
+    for _, track in ipairs(data.tracks) do
+        for step, entry in ipairs(track.steps or {}) do
+            if entry.itemLevel == level then
+                out[#out + 1] = {
+                    bonusID = entry.bonusID,
+                    track = track.name,
+                    step = step,
+                    itemLevel = entry.itemLevel,
+                    client = entry.client == true,
+                }
+            end
+        end
+    end
+    return out
+end
+
+-- LinkAtLevel(link, level, rule) -> the link rebuilt for `level` | nil, why.
+-- `rule` defaults to EngineStats.linkLevelRule; with neither, NO_RULE.
+function EngineStats.LinkAtLevel(link, level, rule)
+    rule = rule or EngineStats.linkLevelRule
+    if type(rule) ~= "function" then
+        return nil, EngineStats.NO_RULE
+    end
+    level = tonumber(level)
+    local parsed = EngineStats.LinkFields(link)
+    if not parsed or not level then
+        return nil, "not an item link at a level"
+    end
+    local ok, bonusIDs, why = pcall(rule, link, level, parsed)
+    if not ok then
+        return nil, "the rule failed"
+    end
+    if type(bonusIDs) ~= "table" then
+        return nil, why or ("no rule for " .. level)
+    end
+    local rebuilt = EngineStats.RebuildLink(link, bonusIDs)
+    if not rebuilt then
+        return nil, "the rule's bonus IDs are not a list"
+    end
+    return rebuilt
+end
+
+-- AtLevel(read, level) -> read | nil, why: a ready read is kept only when the
+-- client drew it at `level`. A rebuilt link the client draws at another level
+-- is never scored as if it were the row's.
+function EngineStats.AtLevel(read, level)
+    if type(read) ~= "table" or read.ready ~= true or read.secret then
+        return nil, "not ready"
+    end
+    if read.level ~= tonumber(level) then
+        return nil, string.format("read at %s, not %s", tostring(read.level), tostring(level))
+    end
+    return read
+end
+
+-- ForLinkAtLevel(link, level, rule) -> read, rebuiltLink | nil, why.
+-- LinkAtLevel, then ForLink on the rebuilt link, then AtLevel. `{ ready =
+-- false }` and the rebuilt link while the client fetches it; nil in combat,
+-- like ForLink.
+function EngineStats.ForLinkAtLevel(link, level, rule)
+    if inCombat() then
+        return nil
+    end
+    local rebuilt, why = EngineStats.LinkAtLevel(link, level, rule)
+    if not rebuilt then
+        return nil, why
+    end
+    local read = EngineStats.ForLink(rebuilt)
+    if type(read) == "table" and read.ready == false then
+        return read, rebuilt
+    end
+    local kept, notAt = EngineStats.AtLevel(read, level)
+    if not kept then
+        return nil, notAt
+    end
+    return kept, rebuilt
 end
 
 -- Rating(index, value) -> the client's percent for `value` rating of rating

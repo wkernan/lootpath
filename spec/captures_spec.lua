@@ -18,13 +18,26 @@ describe("captures", function()
         H.unload()
     end)
 
-    it("registers env, inventory, vault, currencies, glow, upgrade and journal in that order", function()
+    it("registers env to linklevel, then effects, then journal, in that order", function()
         -- `journal` registers in Modules/Journal.lua, which the .toc loads
         -- after this file, so it comes last. R-0's `spike` was the sixth and
         -- went away with R-2 (WKE-563), which is the surface it measured;
         -- `glow` is R-2a's (WKE-571) and `upgrade` M3-17's (WKE-574), and both
-        -- register here, at the end of this file.
-        assert.same({ "env", "inventory", "vault", "currencies", "glow", "upgrade", "journal" }, ns.captureOrder)
+        -- register here, at the end of this file; `itemstats` is E-0a's
+        -- (WKE-675) and registers after them; `linklevel` is E-0g's (WKE-677)
+        -- and registers after it; `effects` is E-3b's (WKE-684), after that.
+        assert.same({
+            "env",
+            "inventory",
+            "vault",
+            "currencies",
+            "glow",
+            "upgrade",
+            "itemstats",
+            "linklevel",
+            "effects",
+            "journal",
+        }, ns.captureOrder)
     end)
 
     describe("env", function()
@@ -1100,5 +1113,1551 @@ describe("captures", function()
             assert.is_nil(_G.C_ItemUpgrade.CloseItemUpgrade)
             assert.is_nil(_G.C_ItemUpgrade.SetItemUpgradeFromCursorItem)
         end)
+    end)
+
+    -- E-0a (WKE-675). `capture itemstats` reads; it computes nothing. Since
+    -- E-0f (WKE-676) every shape below is the client's, read from the owner's
+    -- transcript (spec/fixtures/captures/Lootpath-20261001-092631.lua): the
+    -- helm's stat table is the worn helm's at 318, its gem link answers an
+    -- empty table, armour answers GetItemUniqueness with nothing and
+    -- GetItemUniquenessByID with `false` and three nils, and the rating
+    -- conversion applies diminishing returns. The links and IDs are the
+    -- tests' own. What these tests hold is the capture's own behaviour: which
+    -- links it walks, what it records about each, the bounds, combat, and
+    -- secrets.
+    describe("itemstats", function()
+        -- The worn helm carries a gem in field 3; blanking fields 2-6 gives
+        -- back exactly HELM, which is the "stripped" link.
+        local GEMMED_HELM = "|cffa335ee|Hitem:210001::240892::::::80:105::13:2:1:2::::::|h[Test Helm]|h|r"
+        local GEM_LINK = "|cff0070dd|Hitem:240892::::::::80:105::::::::|h[Test Gem]|h|r"
+        local JUNK = "|cffffffff|Hitem:210009::::::::80:105::::::::|h[Test Junk]|h|r"
+
+        local function journalLink(itemID)
+            return string.format("|cffa335ee|Hitem:%d::::::::80:105::13:1:5::::::|h[Drop %d]|h|r", itemID, itemID)
+        end
+
+        -- A cached walk across four instances: per instance three trinkets
+        -- and twelve armour rows, sixty rows with a link and one pending row
+        -- (no link) that the sample must skip.
+        local function journalCache(opts)
+            opts = opts or {}
+            local sources = {}
+            local nextID = 300000
+            for instance = 1, (opts.instances or 4) do
+                for n = 1, (opts.perInstance or 15) do
+                    nextID = nextID + 1
+                    local trinket = n <= (opts.trinketsPerInstance or 3)
+                    sources[nextID] = {
+                        {
+                            instanceID = 1000 + instance,
+                            instanceName = "Instance " .. instance,
+                            encounterID = 2000 + n,
+                            difficultyID = 8,
+                            itemLevel = 272,
+                            slot = trinket and "Trinket" or "Chest",
+                            isRaid = false,
+                            link = journalLink(nextID),
+                        },
+                    }
+                end
+            end
+            sources[399999] = { { instanceID = 1001, encounterID = 2001, difficultyID = 8, pending = true } }
+            return { ["69587|1|105|8"] = { build = 69587, walkAt = 1, shape = 2, sources = sources } }
+        end
+
+        local function cacheAllJournalItems(cache)
+            for _, entry in pairs(cache) do
+                for itemID in pairs(entry.sources) do
+                    world.itemDataCached[itemID] = true
+                end
+            end
+        end
+
+        local function itemsFrom(data, source)
+            local out = {}
+            for _, item in ipairs(data.items) do
+                if item.source == source then
+                    out[#out + 1] = item
+                end
+            end
+            return out
+        end
+
+        before_each(function()
+            world.equipped[1] = { link = GEMMED_HELM, id = 210001 }
+            world.items[GEMMED_HELM] = {
+                level = 610,
+                -- GetItemInfo's 12.1.0 order; 16 is setID (1234 here).
+                info = {
+                    "Test Helm",
+                    GEMMED_HELM,
+                    4,
+                    610,
+                    80,
+                    "Armor",
+                    "Leather",
+                    1,
+                    "INVTYPE_HEAD",
+                    1,
+                    0,
+                    4,
+                    2,
+                    1,
+                    11,
+                    1234,
+                    false,
+                    n = 17,
+                },
+                instant = { 210001, "Armor", "Leather", "INVTYPE_HEAD", 1, 4, 2 },
+            }
+            world.itemDataCached[210001] = true
+            -- The worn helm's table at 318, as the client answered it for the
+            -- worn link and for the stripped one alike.
+            local helmStats = {
+                ITEM_MOD_INTELLECT_SHORT = 162,
+                ITEM_MOD_HASTE_RATING_SHORT = 78,
+                ITEM_MOD_CRIT_RATING_SHORT = 110,
+                EMPTY_SOCKET_PRISMATIC = 1,
+                ITEM_MOD_STAMINA_SHORT = 3254,
+                RESISTANCE0_NAME = 132,
+            }
+            world.itemStats[GEMMED_HELM] = helmStats
+            world.itemStats[HELM] = helmStats
+            world.itemSockets[GEMMED_HELM] = 1
+            -- The gem link is not registered in itemStats: the stub answers
+            -- it with an empty table, as the client did for every gem.
+            world.itemGems[GEMMED_HELM] = { { name = "Test Gem", link = GEM_LINK, id = 240892 } }
+
+            -- Bags: a ring (gear, kept) and a junk item (no slot, skipped).
+            world.bags[0] = {
+                numSlots = 4,
+                items = {
+                    [2] = { link = JUNK, id = 210009 },
+                    [3] = { link = RING, id = 210002 },
+                },
+            }
+            world.items[RING] =
+                { level = 600, instant = { 210002, "Armor", "Miscellaneous", "INVTYPE_FINGER", 1, 4, 0 } }
+            world.items[JUNK] =
+                { level = 1, instant = { 210009, "Junk", "Junk", "INVTYPE_NON_EQUIP_IGNORE", 1, 15, 0 } }
+            world.itemDataCached[210002] = true
+            world.itemDataCached[210009] = true
+
+            -- Vault: one option carrying one item reward.
+            world.vault.activities = {
+                {
+                    type = 1,
+                    index = 1,
+                    threshold = 1,
+                    progress = 4,
+                    id = 11,
+                    level = 10,
+                    rewards = { { type = 1, id = 210003, quantity = 1, itemDBID = "9001" } },
+                },
+            }
+            world.vault.links["9001"] = VAULT_ITEM
+            world.items[VAULT_ITEM] =
+                { level = 623, instant = { 210003, "Armor", "Leather", "INVTYPE_CHEST", 1, 4, 2 } }
+            world.itemDataCached[210003] = true
+
+            local cache = journalCache()
+            cacheAllJournalItems(cache)
+            ns.db.global.journalCache = cache
+        end)
+
+        it("registers after upgrade and before journal", function()
+            assert.same({
+                "env",
+                "inventory",
+                "vault",
+                "currencies",
+                "glow",
+                "upgrade",
+                "itemstats",
+                "linklevel",
+                "effects",
+                "journal",
+            }, ns.captureOrder)
+        end)
+
+        it("refuses when no journal walk is cached, and reads nothing", function()
+            ns.db.global.journalCache = {}
+            local result = ns.RunCapture("itemstats")
+            assert.is_false(result.ok)
+            assert.equal("capture 'itemstats' " .. ns.ITEMSTATS_NO_JOURNAL, result.reason)
+            assert.is_nil(ns.db.global.captures.itemstats)
+            assert.same({}, world.itemStatsCalls)
+            assert.same({}, world.ratingBonusCalls)
+        end)
+
+        it("refuses in combat, and reads nothing", function()
+            world.inCombat = true
+            local result = ns.RunCapture("itemstats")
+            assert.is_false(result.ok)
+            assert.equal("combat", result.reason)
+            assert.is_nil(ns.db.global.captures.itemstats)
+            assert.same({}, world.itemStatsCalls)
+        end)
+
+        it("records what the client says about a worn item, raw", function()
+            local result = ns.RunCapture("itemstats")
+            assert.is_true(result.ok)
+            assert.is_false(result.snapshot.sawSecret)
+            local worn = itemsFrom(result.snapshot.data, "worn")
+            assert.equal(1, #worn)
+            local helm = worn[1]
+            assert.equal(1, helm.invSlot)
+            assert.equal(GEMMED_HELM, helm.link)
+            assert.equal(210001, helm.itemID)
+            assert.same({ 240892 }, helm.linkFinish.gems)
+            assert.is_true(helm.cachedBefore[1])
+            assert.is_true(helm.cachedAtRead[1])
+            assert.is_nil(helm.waited)
+            assert.equal(162, helm.stats[1].ITEM_MOD_INTELLECT_SHORT)
+            assert.equal(78, helm.stats[1].ITEM_MOD_HASTE_RATING_SHORT)
+            assert.equal(1, helm.stats[1].EMPTY_SOCKET_PRISMATIC)
+            assert.equal(132, helm.stats[1].RESISTANCE0_NAME)
+            -- The enchant and gem fields blanked, and the answer for that link.
+            assert.equal(HELM, helm.strippedLink)
+            assert.equal(162, helm.strippedStats[1].ITEM_MOD_INTELLECT_SHORT)
+            assert.is_true(helm.strippedEqual)
+            assert.equal(1, helm.numSockets[1])
+            assert.equal(1, #helm.gems)
+            assert.equal("Test Gem", helm.gems[1].gem[1])
+            assert.equal(GEM_LINK, helm.gems[1].gem[2])
+            assert.equal(240892, helm.gems[1].gemID[1])
+            -- The gem link answers an empty table, as all 7 did on 2026-10-01.
+            assert.same({}, helm.gems[1].gemStats[1])
+            assert.equal(610, helm.detailedLevel[1])
+            assert.equal(1234, helm.info.setID)
+            assert.equal(4, helm.info.classID)
+            assert.equal(2, helm.info.subclassID)
+            assert.equal("INVTYPE_HEAD", helm.info.itemEquipLoc)
+            -- Armour: no answer by link, `false` and three nils by ID.
+            assert.equal(0, helm.uniqueness.n)
+            assert.equal(4, helm.uniquenessByID.n)
+            assert.is_false(helm.uniquenessByID[1])
+        end)
+
+        -- Fields 2-6 of the item string - the enchant and all four gems -
+        -- and nothing else: the bonus IDs after them are what make the link
+        -- the same item at the same level.
+        it("blanks the enchant and all four gem fields of a link, and nothing else", function()
+            local link = "|cffa335ee|Hitem:210001:7000:240892:240893:240894:240895:::80:105::13:2:1:2::::::|h[X]|h|r"
+            assert.equal(
+                "|cffa335ee|Hitem:210001::::::::80:105::13:2:1:2::::::|h[X]|h|r",
+                ns.ItemStatsStrippedLink(link)
+            )
+            assert.equal(HELM, ns.ItemStatsStrippedLink(GEMMED_HELM))
+            assert.is_nil(ns.ItemStatsStrippedLink("not a link"))
+            assert.is_nil(ns.ItemStatsStrippedLink(nil))
+        end)
+
+        it("says so when the stripped link's stats differ", function()
+            world.itemStats[HELM] = { ITEM_MOD_INTELLECT_SHORT = 162, ITEM_MOD_STAMINA_SHORT = 3254 }
+            local data = ns.RunCapture("itemstats").snapshot.data
+            assert.is_false(itemsFrom(data, "worn")[1].strippedEqual)
+        end)
+
+        it("takes bag items with a slot in QE Live's vocabulary and skips the rest", function()
+            local data = ns.RunCapture("itemstats").snapshot.data
+            local bag = itemsFrom(data, "bag")
+            assert.equal(1, #bag)
+            assert.equal(RING, bag[1].link)
+            assert.equal("Finger", bag[1].slot)
+            assert.equal(0, bag[1].bag)
+            assert.equal(3, bag[1].slotIndex)
+            for _, item in ipairs(data.items) do
+                assert.not_equal(JUNK, item.link)
+            end
+        end)
+
+        it("takes every vault option that carries a link", function()
+            local data = ns.RunCapture("itemstats").snapshot.data
+            local vault = itemsFrom(data, "vault")
+            assert.equal(1, #vault)
+            assert.equal(VAULT_ITEM, vault[1].link)
+            assert.equal(11, vault[1].activityID)
+            assert.equal(623, vault[1].detailedLevel[1])
+            assert.is_nil(data.vaultNote)
+        end)
+
+        it("bounds the journal sample, spans the instances and carries trinkets and armour", function()
+            local data = ns.RunCapture("itemstats").snapshot.data
+            local journal = itemsFrom(data, "journal")
+            assert.equal(ns.ITEMSTATS_JOURNAL_MAX, #journal)
+            assert.equal(40, #journal)
+            assert.equal(60, data.journal.rowsWithLink)
+            assert.equal(40, data.journal.taken)
+            assert.equal(4, data.journal.instances)
+            -- Six trinkets are taken first (the tooltip bound); the round-robin
+            -- after them takes the other six with everything else.
+            assert.equal(12, data.journal.bySlot.Trinket)
+            assert.equal(28, data.journal.bySlot.Chest)
+            -- The first four are trinkets from four different instances.
+            local seen = {}
+            for i = 1, 4 do
+                assert.equal("Trinket", journal[i].slot)
+                seen[journal[i].instanceID] = true
+            end
+            assert.same({ [1001] = true, [1002] = true, [1003] = true, [1004] = true }, seen)
+            assert.equal(8, journal[1].difficultyID)
+            assert.equal(272, journal[1].journalItemLevel)
+        end)
+
+        it("takes fewer than the bound when the cache holds fewer, and never a row without a link", function()
+            local cache = journalCache({ instances = 3, perInstance = 4, trinketsPerInstance = 1 })
+            cacheAllJournalItems(cache)
+            ns.db.global.journalCache = cache
+            local data = ns.RunCapture("itemstats").snapshot.data
+            assert.equal(12, #itemsFrom(data, "journal"))
+            assert.equal(3, data.journal.instances)
+            assert.equal(3, data.journal.bySlot.Trinket)
+            for _, item in ipairs(data.items) do
+                assert.is_string(item.link)
+            end
+        end)
+
+        it("reads each rating, its conversion, and the conversion at the six fixed values", function()
+            local rating = ns.RunCapture("itemstats").snapshot.data.rating
+            local haste = rating.ratings.haste
+            assert.equal(20, haste.index)
+            assert.equal("CR_HASTE_SPELL", haste.constant)
+            assert.is_false(haste.fromGlobal)
+            assert.equal(921, haste.rating[1])
+            assert.is_true(math.abs(haste.bonus[1] - 20.93181800842285) < 1e-5)
+            assert.equal(haste.bonus[1], haste.bonusForCurrent[1])
+            local values, bonuses = {}, {}
+            for i, entry in ipairs(haste.at) do
+                values[i] = entry.value
+                bonuses[i] = entry.bonus[1]
+            end
+            assert.same({ 660, 1320, 1760, 2200, 2640, 3080 }, values)
+            -- Diminishing returns applied, as the client answered on
+            -- 2026-10-01: 1320 -> 30 and 2640 -> 54, not 60.
+            assert.same({ 15, 30, 39, 47, 54, 60 }, bonuses)
+            assert.equal(11, rating.ratings.crit.index)
+            assert.equal(26, rating.ratings.mastery.index)
+            assert.equal(29, rating.ratings.versatility.index)
+            assert.equal(17, rating.ratings.leech.index)
+            assert.equal(38.56050109863281, rating.masteryEffect[1])
+            assert.equal(1.310999989509583, rating.masteryEffect[2])
+            assert.equal(3400, rating.spellBonusHealing[1])
+            assert.equal(3029, rating.intellect[1])
+            assert.equal(2412, rating.intellect[3])
+            assert.is_true(rating.hasSecretRestrictions[1])
+            assert.is_false(rating.shouldUnitStatsBeSecret[1])
+            assert.is_true(rating.combatLogRestricted[1])
+        end)
+
+        it("uses the client's own rating constant when it defines one", function()
+            _G.CR_MASTERY = 26
+            local mastery = ns.RunCapture("itemstats").snapshot.data.rating.ratings.mastery
+            _G.CR_MASTERY = nil
+            assert.is_true(mastery.fromGlobal)
+            assert.equal(26, mastery.index)
+        end)
+
+        it("masks a secret stat table, says it saw one, and does not compare it", function()
+            world.itemStats[GEMMED_HELM] = world.secretTable("stats")
+            local result = ns.RunCapture("itemstats")
+            assert.is_true(result.ok)
+            assert.is_true(result.snapshot.sawSecret)
+            local helm = itemsFrom(result.snapshot.data, "worn")[1]
+            assert.equal(ns.MARKERS.secretTable, helm.stats[1])
+            assert.is_nil(helm.strippedEqual)
+        end)
+
+        it("masks a secret rating and asks no conversion of it", function()
+            world.combatRatings[20] = world.secret("haste")
+            local result = ns.RunCapture("itemstats")
+            assert.is_true(result.snapshot.sawSecret)
+            local haste = result.snapshot.data.rating.ratings.haste
+            assert.equal(ns.MARKERS.secret, haste.rating[1])
+            assert.equal("the current rating was not a number", haste.bonusForCurrent.skipped)
+        end)
+
+        it("reads up to six trinket tooltips from the journal sample, line type and left text", function()
+            local cache = ns.db.global.journalCache
+            local trinketLink
+            for _, list in pairs(cache["69587|1|105|8"].sources) do
+                if list[1].slot == "Trinket" and list[1].instanceID == 1001 and list[1].encounterID == 2001 then
+                    trinketLink = list[1].link
+                end
+            end
+            world.tooltipData[trinketLink] = {
+                lines = {
+                    { type = 0, leftText = "Drop" },
+                    { type = 1, leftText = world.markSecret("Use: heals for 12,345") },
+                },
+            }
+            local result = ns.RunCapture("itemstats")
+            local tooltips = result.snapshot.data.tooltips
+            assert.equal(ns.ITEMSTATS_TOOLTIP_MAX, #tooltips)
+            assert.equal(6, #world.tooltipCalls)
+            assert.equal(trinketLink, tooltips[1].link)
+            assert.same({ type = 0, leftText = "Drop" }, tooltips[1].lines[1])
+            assert.equal(ns.MARKERS.secret, tooltips[1].lines[2].leftText)
+            assert.is_true(result.snapshot.sawSecret)
+            -- A trinket the client answers nothing for is recorded as that.
+            assert.is_nil(tooltips[2].lines)
+            assert.equal(1, tooltips[2].data.n)
+        end)
+
+        describe("an item whose data is not cached", function()
+            local COLD_ID = 300001
+
+            before_each(function()
+                world.itemDataCached[COLD_ID] = nil
+            end)
+
+            it("asks for it, waits, and reads it once the client answers", function()
+                local result = ns.RunCapture("itemstats")
+                assert.is_true(result.pending)
+                assert.is_nil(ns.db.global.captures.itemstats)
+                assert.same({ COLD_ID }, world.itemDataRequests)
+                assert.same({}, world.itemStatsCalls)
+
+                world.itemDataCached[COLD_ID] = true
+                world.fireEvent("ITEM_DATA_LOAD_RESULT", COLD_ID, true)
+
+                local data = ns.db.global.captures.itemstats[1].data
+                assert.equal(1, data.requested)
+                assert.is_false(data.waitTimedOut)
+                local cold
+                for _, item in ipairs(data.items) do
+                    if item.itemID == COLD_ID then
+                        cold = item
+                    end
+                end
+                assert.is_false(cold.cachedBefore[1])
+                assert.is_true(cold.waited)
+                assert.is_false(cold.gaveUp)
+                assert.is_true(cold.cachedAtRead[1])
+            end)
+
+            it("gives up inside the bound and records the row as still uncached", function()
+                assert.is_true(ns.RunCapture("itemstats").pending)
+                world.runTimers(ns.ITEMSTATS_WAIT_SECONDS)
+                local snapshot = ns.db.global.captures.itemstats[1]
+                assert.is_number(ns.ITEMSTATS_WAIT_SECONDS)
+                assert.is_true(ns.ITEMSTATS_WAIT_SECONDS <= 5)
+                local cold
+                for _, item in ipairs(snapshot.data.items) do
+                    if item.itemID == COLD_ID then
+                        cold = item
+                    end
+                end
+                assert.is_true(cold.waited)
+                assert.is_true(cold.gaveUp)
+                assert.is_false(cold.cachedAtRead[1])
+                -- Read anyway: the client's answer for an uncached link is a finding.
+                assert.is_table(cold.stats)
+            end)
+
+            it("stores nothing when combat starts during the wait", function()
+                local final
+                ns.RunCapture("itemstats", function(r)
+                    final = r
+                end)
+                world.inCombat = true
+                world.runTimers(ns.ITEMSTATS_WAIT_SECONDS + 1)
+                assert.is_false(final.ok)
+                assert.equal(
+                    "capture 'itemstats' stopped: combat started while it waited for item data; nothing stored",
+                    final.reason
+                )
+                assert.is_nil(ns.db.global.captures.itemstats)
+                assert.same({}, world.itemStatsCalls)
+            end)
+        end)
+
+        it("names every client function it may call", function()
+            local data = ns.RunCapture("itemstats").snapshot.data
+            assert.same(ns.ITEMSTATS_FUNCTION_NAMES, data.functionNames)
+            assert.same({
+                "ns.Companion.CurrentSpecID",
+                "ns.ItemData.Instant",
+                "ns.ItemData.SpecFit",
+                "ns.ItemData.Watch",
+                "ns.Vault.Options",
+            }, data.moduleReads)
+        end)
+
+        -- The source half: every `C_Namespace.Function` the capture's own code
+        -- mentions is on its list, and nothing that changes a window or the
+        -- journal's view is in it at all. Comments are left out of the scan.
+        it("calls nothing in its source that its list does not name, and nothing that acts", function()
+            local source = assert(io.open("Lootpath/Captures.lua")):read("*a")
+            local start = assert(source:find("-- itemstats (E-0a, WKE-675)", 1, true))
+            -- Up to the next capture's own section (E-0g's `linklevel`, which
+            -- holds itself to its own list in its own test).
+            local stop = assert(source:find("-- linklevel (E-0g, WKE-677)", start, true))
+            local section = source:sub(start, stop - 1)
+            local named = {}
+            for _, name in ipairs(ns.ITEMSTATS_FUNCTION_NAMES) do
+                named[name] = true
+            end
+            local code = {}
+            for line in section:gmatch("[^\n]*") do
+                code[#code + 1] = (line:gsub("%-%-.*$", ""))
+            end
+            local body = table.concat(code, "\n")
+            -- The bound's timer schedules; it reads nothing about the client.
+            named["C_Timer.After"] = true
+            local found = 0
+            for name in body:gmatch("C_[%w_]+%.[%w_]+") do
+                found = found + 1
+                assert.is_true(named[name] == true, name .. " is called but not named")
+            end
+            -- The capture reaches C_Item through `local I = C_Item` and
+            -- C_Container through `local C = C_Container`; both are resolved
+            -- back to their namespaces, so an aliased call is held to the
+            -- list as well.
+            for alias, namespace in pairs({ I = "C_Item", C = "C_Container" }) do
+                for fn in body:gmatch("[^%w_.]" .. alias .. "%.([%w_]+)") do
+                    found = found + 1
+                    local name = namespace .. "." .. fn
+                    assert.is_true(named[name] == true, name .. " is called but not named")
+                end
+            end
+            assert.is_true(found > 0)
+            for _, forbidden in ipairs({
+                "SetItemUpgradeFromLocation",
+                "ClearItemUpgrade",
+                "OnUIInteract",
+                "EJ_",
+                "RequestLoadItemDataByID",
+                "EquipItemByName",
+                "PickupContainerItem",
+            }) do
+                assert.is_nil(body:find(forbidden, 1, true), forbidden)
+            end
+        end)
+    end)
+end)
+
+-- E-0g (WKE-677). `capture linklevel` asks the client which link draws a
+-- journal row at the level the walk listed it at, and decides nothing. The
+-- links are the client's own (spec/fixtures/captures/Lootpath-20261001-092631.lua:
+-- the keystone, raid and world rows the issue names); the stub's answers are
+-- the tests' own. The keystone link answers by the journal's VIEW here - 305
+-- while the Adventure Guide previews its target, 292 otherwise - which is a
+-- HYPOTHESIS (M5-3a's measurement suggests it) that this capture exists to
+-- test on the client; what these tests hold is that the capture records each
+-- read beside the others, three ways, and puts the journal's view back.
+describe("captures linklevel", function()
+    local ns, world
+
+    local KEYSTONE = "|cnIQ4:|Hitem:250254::::::::90:105::16:1:3524:1:28:1279:::::|h[Seed of Radiant Hope]|h|r"
+    local HEROIC = "|cnIQ3:|Hitem:250254::::::::90:105::2:1:3524:1:28:3024:::::|h[Seed of Radiant Hope]|h|r"
+    local RAID = "|cnIQ4:|Hitem:268247::::::::90:105::5:1:3524:1:28:5850:::::|h[Breakwater Boots]|h|r"
+    -- What the journal hands out for the raid row now: another modifier value.
+    -- Placeholder; the transcript says whether the live link ever differs.
+    local RAID_LIVE = "|cnIQ4:|Hitem:268247::::::::90:105::5:1:3524:1:28:5851:::::|h[Breakwater Boots]|h|r"
+    local WORLD = "|cnIQ4:|Hitem:250462::::::::90:105::5:1:3524::::::|h[Forgotten Farstrider's Insignia]|h|r"
+
+    local DUNGEON, RAID_INSTANCE, MIDNIGHT = 1309, 1400, 1312
+
+    local function cacheRow(instanceID, name, encounterID, difficultyID, level, link, slot, isRaid)
+        return {
+            instanceID = instanceID,
+            instanceName = name,
+            encounterID = encounterID,
+            difficultyID = difficultyID,
+            itemLevel = level,
+            slot = slot,
+            isRaid = isRaid,
+            link = link,
+        }
+    end
+
+    local function seedCache()
+        ns.db.global.journalCache = {
+            ["69933|18|105|2:8:15:16:23"] = {
+                build = "69933",
+                walkAt = 1,
+                shape = 2,
+                summary = { previewMythicPlusLevel = 10 },
+                sources = {
+                    [250254] = {
+                        cacheRow(DUNGEON, "The Blinding Vale", 2769, 2, 276, HEROIC, "Trinket", false),
+                        cacheRow(DUNGEON, "The Blinding Vale", 2769, 8, 305, KEYSTONE, "Trinket", false),
+                    },
+                    [268247] = { cacheRow(RAID_INSTANCE, "The Tidebound Grotto", 2849, 15, 305, RAID, "Feet", true) },
+                    [250462] = { cacheRow(MIDNIGHT, "Midnight", 2827, 15, 44, WORLD, "Neck", true) },
+                },
+            },
+        }
+    end
+
+    local function previewing(J, instanceID, difficultyID)
+        return J.selectedInstance == instanceID and J.difficulty == difficultyID
+    end
+
+    local function lines(level, upgrade)
+        return {
+            lines = {
+                { type = 22, leftText = "Item" },
+                { type = 31, leftText = "Item Level " .. level },
+                { type = 32, leftText = upgrade },
+            },
+        }
+    end
+
+    local function item(link, level)
+        world.items[link] = { level = level, detailed = { level, false, 108, n = 3 } }
+        world.itemStats[link] = { ITEM_MOD_INTELLECT_SHORT = level }
+    end
+
+    local function seedClient()
+        item(HEROIC, 276)
+        item(RAID, 308)
+        item(RAID_LIVE, 305)
+        item(WORLD, 263)
+        -- The keystone link answers by the view (the hypothesis, above).
+        world.items[KEYSTONE] = {
+            detailed = function(J)
+                local level = (previewing(J, DUNGEON, 8) and J.previewLevel == 10) and 305 or 292
+                return { level, false, 108, n = 3 }
+            end,
+        }
+        world.itemStats[KEYSTONE] = function(J)
+            return { ITEM_MOD_INTELLECT_SHORT = previewing(J, DUNGEON, 8) and 600 or 567 }
+        end
+        world.tooltipData[KEYSTONE] = function(J)
+            return previewing(J, DUNGEON, 8) and lines(305, "Upgrade Level: Champion 5/6")
+                or lines(292, "Upgrade Level: Champion 1/6")
+        end
+        -- The two track rewrites at 305 the client draws at 305 (the tests' own).
+        for _, link in ipairs({
+            ns.EngineStats.RebuildLink(KEYSTONE, { 12837 }),
+            ns.EngineStats.RebuildLink(KEYSTONE, { 3524, 12837 }),
+        }) do
+            item(link, 305)
+        end
+
+        local J = world.journal
+        J.instances.dungeons = { { instanceID = DUNGEON, name = "The Blinding Vale" } }
+        J.instances.raids = {
+            { instanceID = MIDNIGHT, name = "Midnight" },
+            { instanceID = RAID_INSTANCE, name = "The Tidebound Grotto" },
+        }
+        local function lootRow(itemID, encounterID, link)
+            return { itemID = itemID, encounterID = encounterID, name = "Drop " .. itemID, link = link }
+        end
+        J.loot[DUNGEON] = { [8] = { lootRow(250254, 2769, KEYSTONE) } }
+        J.loot[RAID_INSTANCE] = { [15] = { lootRow(268247, 2849, RAID_LIVE) } }
+        J.loot[MIDNIGHT] = { [15] = { lootRow(250462, 2827, WORLD) } }
+        J.currentTier = 2
+        J.difficulty = 23
+        J.lootFilter = { 7, 262 }
+    end
+
+    local function candidateFor(data, link)
+        for _, candidate in ipairs(data.candidates) do
+            if candidate.link == link then
+                return candidate
+            end
+        end
+    end
+
+    local function variant(candidate, rule, bonusID)
+        for _, v in ipairs(candidate.variants) do
+            if v.rule == rule and v.bonusID == bonusID then
+                return v
+            end
+        end
+    end
+
+    local function run()
+        local final
+        local first = ns.RunCapture("linklevel", function(r)
+            final = r
+        end)
+        world.runTimers(120)
+        return final, first
+    end
+
+    before_each(function()
+        ns, world = H.load()
+        seedCache()
+        seedClient()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("refuses when no journal walk is cached, and touches nothing", function()
+        ns.db.global.journalCache = {}
+        local result = ns.RunCapture("linklevel")
+        assert.is_false(result.ok)
+        assert.equal("capture 'linklevel' " .. ns.LINKLEVEL_NO_JOURNAL, result.reason)
+        assert.is_nil(ns.db.global.captures.linklevel)
+        assert.same({}, world.journal.selectCalls)
+        assert.same({}, world.itemStatsCalls)
+    end)
+
+    it("refuses when every cached row reads at the walk's level, and touches nothing", function()
+        item(KEYSTONE, 305)
+        item(RAID, 305)
+        item(WORLD, 44)
+        world.itemStatsCalls = {}
+        local result = ns.RunCapture("linklevel")
+        assert.is_false(result.ok)
+        assert.equal("capture 'linklevel' " .. ns.LINKLEVEL_NONE, result.reason)
+        assert.is_nil(ns.db.global.captures.linklevel)
+        assert.same({}, world.journal.selectCalls)
+        assert.same({}, world.itemStatsCalls)
+    end)
+
+    it("refuses in combat, and touches nothing", function()
+        world.inCombat = true
+        local result = ns.RunCapture("linklevel")
+        assert.is_false(result.ok)
+        assert.equal("combat", result.reason)
+        assert.same({}, world.journal.selectCalls)
+        assert.same({}, world.itemStatsCalls)
+    end)
+
+    it("takes the rows the client reads at another level, by difficulty in turn, to the bound", function()
+        local rows, summary = ns.LinkLevelCandidates(ns.db.global.journalCache, 12)
+        assert.equal(4, summary.rowsWithLink)
+        assert.equal(3, summary.differing)
+        assert.same({ [8] = 1, [15] = 2 }, summary.differingByDifficulty)
+        assert.equal(12, summary.max)
+        -- Difficulty 8 first, then 15; within 15 one instance after the other.
+        assert.equal(KEYSTONE, rows[1].link)
+        assert.equal(292, rows[1].ownLevel)
+        assert.equal(10, rows[1].previewMythicPlusLevel)
+        local rest = { [rows[2].link] = true, [rows[3].link] = true }
+        assert.same({ [RAID] = true, [WORLD] = true }, rest)
+        local two = ns.LinkLevelCandidates(ns.db.global.journalCache, 2)
+        assert.equal(2, #two)
+        assert.equal(KEYSTONE, two[1].link)
+        assert.equal(15, two[2].difficultyID)
+        assert.equal(12, ns.LINKLEVEL_MAX)
+    end)
+
+    it("reads every candidate link three ways, side by side, and stores it", function()
+        local final, first = run()
+        assert.is_true(first.pending)
+        assert.is_true(final.ok)
+        assert.is_false(final.snapshot.sawSecret)
+        local data = ns.db.global.captures.linklevel[1].data
+        assert.equal(3, #data.candidates)
+        assert.equal("12.1.0.69933", data.trackTable.build)
+        assert.same({ itemLevel = 31, upgradeLevel = 32 }, data.lineTypes)
+
+        local k = candidateFor(data, KEYSTONE)
+        assert.equal(305, k.walkLevel)
+        assert.equal(292, k.ownLevel)
+        assert.same({ 3524 }, k.bonusIDs)
+        assert.equal(16, k.context)
+        assert.equal(2, k.trackSteps)
+        local rules = {}
+        for i, v in ipairs(k.variants) do
+            rules[i] = v.rule .. (v.bonusID and (":" .. v.bonusID) or "")
+        end
+        assert.same({
+            "kept",
+            "track-replace:12837",
+            "track-append:12837",
+            "track-replace:12841",
+            "track-append:12841",
+        }, rules)
+
+        -- The kept link: 292 before and after, 305 while the journal previews it.
+        local kept = k.variants[1]
+        assert.equal(292, kept.before.detailedLevel[1])
+        assert.equal(305, kept.journal.detailedLevel[1])
+        assert.equal(292, kept.after.detailedLevel[1])
+        assert.equal(567, kept.before.stats[1].ITEM_MOD_INTELLECT_SHORT)
+        assert.equal(600, kept.journal.stats[1].ITEM_MOD_INTELLECT_SHORT)
+        assert.equal("Item Level 292", kept.before.itemLevelLine)
+        assert.equal("Item Level 305", kept.journal.itemLevelLine)
+        assert.equal("Upgrade Level: Champion 5/6", kept.journal.upgradeLevelLine)
+        assert.equal(3, #kept.before.tooltipLines)
+
+        -- The Champion 5/6 rewrite draws 305 every way; the Hero 1/6 one the
+        -- stub does not know, and the capture records that as it is.
+        local champion = variant(k, "track-replace", 12837)
+        assert.equal("Champion", champion.track)
+        assert.equal(5, champion.step)
+        -- Confirmed since E-0g step 2 by the owner's linklevel transcript.
+        assert.is_true(champion.clientConfirmedLevel)
+        assert.equal(
+            "|cnIQ4:|Hitem:250254::::::::90:105::16:1:12837:1:28:1279:::::|h[Seed of Radiant Hope]|h|r",
+            champion.link
+        )
+        for _, view in ipairs({ "before", "journal", "after" }) do
+            assert.equal(305, champion[view].detailedLevel[1], view)
+        end
+        local hero = variant(k, "track-append", 12841)
+        assert.equal("Hero", hero.track)
+        assert.is_nil(hero.before.detailedLevel[1])
+
+        -- The live journal link equals the kept one: no extra variant.
+        assert.is_true(k.live.found)
+        assert.is_true(k.live.sameAsKept)
+        assert.equal(10, k.live.previewLevel)
+        assert.equal(305, k.live.walkDetailedLevel[1])
+    end)
+
+    it("adds the live journal link when it differs, read under the view and after", function()
+        run()
+        local data = ns.db.global.captures.linklevel[1].data
+        local r = candidateFor(data, RAID)
+        assert.equal(RAID_LIVE, r.live.link)
+        assert.is_false(r.live.sameAsKept)
+        local live = variant(r, "journal-live", nil)
+        assert.equal(RAID_LIVE, live.link)
+        assert.is_nil(live.before)
+        assert.equal(305, live.journal.detailedLevel[1])
+        assert.equal(305, live.after.detailedLevel[1])
+    end)
+
+    it("says so when no track step draws the walk's level, and still reads the kept link", function()
+        run()
+        local w = candidateFor(ns.db.global.captures.linklevel[1].data, WORLD)
+        assert.equal(44, w.walkLevel)
+        assert.equal(0, w.trackSteps)
+        assert.equal("no track step draws 44", w.trackNote)
+        assert.equal(1, #w.variants)
+        assert.equal("kept", w.variants[1].rule)
+        assert.equal(263, w.variants[1].journal.detailedLevel[1])
+    end)
+
+    it("walks only the candidates' targets, previews the keystone level, and puts the view back", function()
+        run()
+        local J = world.journal
+        local selected = {}
+        for _, call in ipairs(J.selectCalls) do
+            if call.instance then
+                selected[#selected + 1] = call.instance
+            end
+        end
+        assert.same({ DUNGEON, MIDNIGHT, RAID_INSTANCE }, selected)
+        assert.same({ 10 }, J.previewLevelCalls)
+        assert.equal(2, J.currentTier)
+        assert.equal(23, J.difficulty)
+        assert.same({ 7, 262 }, J.lootFilter)
+        local data = ns.db.global.captures.linklevel[1].data
+        assert.equal(3, data.selectedTier)
+        assert.equal(3, data.walk.targets)
+        assert.is_table(data.walk.restored)
+        assert.is_nil(data.walk.errors)
+    end)
+
+    it("stores nothing when combat starts during the walk, and still puts the view back", function()
+        world.journal.lootDelaySeconds = 0.5
+        local final
+        ns.RunCapture("linklevel", function(r)
+            final = r
+        end)
+        world.inCombat = true
+        world.runTimers(120)
+        assert.is_false(final.ok)
+        assert.equal("capture 'linklevel' " .. ns.LINKLEVEL_COMBAT, final.reason)
+        assert.is_nil(ns.db.global.captures.linklevel)
+        assert.equal(2, world.journal.currentTier)
+        assert.equal(23, world.journal.difficulty)
+        assert.same({ 7, 262 }, world.journal.lootFilter)
+    end)
+
+    it("masks a secret answer and says it saw one", function()
+        world.itemStats[WORLD] = world.secretTable("stats")
+        local final = run()
+        assert.is_true(final.ok)
+        assert.is_true(final.snapshot.sawSecret)
+        local w = candidateFor(final.snapshot.data, WORLD)
+        assert.equal(ns.MARKERS.secretTable, w.variants[1].before.stats[1])
+    end)
+
+    it("names every client function and every module read it makes", function()
+        run()
+        local data = ns.db.global.captures.linklevel[1].data
+        assert.same(ns.LINKLEVEL_FUNCTION_NAMES, data.functionNames)
+        assert.same({
+            "C_Item.GetDetailedItemLevelInfo",
+            "C_Item.GetItemStats",
+            "C_TooltipInfo.GetHyperlink",
+        }, data.functionNames)
+        assert.same(ns.LINKLEVEL_MODULE_READS, data.moduleReads)
+    end)
+
+    -- The source half: every `C_Namespace.Function` the section mentions is on
+    -- its list, every module function it reaches is on the other, and nothing
+    -- that acts - nor any journal call made around the adapter - is in it.
+    -- Comments are left out of the scan.
+    it("calls nothing in its source that its lists do not name, and nothing that acts", function()
+        local source = assert(io.open("Lootpath/Captures.lua")):read("*a")
+        local start = assert(source:find("-- linklevel (E-0g, WKE-677)", 1, true))
+        -- Up to the next capture's own section (E-3b's `effects`, which holds
+        -- itself to its own lists in its own test).
+        local stop = assert(source:find("-- effects (E-3b, WKE-684)", start, true))
+        local code = {}
+        for line in source:sub(start, stop - 1):gmatch("[^\n]*") do
+            code[#code + 1] = (line:gsub("%-%-.*$", ""))
+        end
+        local body = table.concat(code, "\n")
+        local named = {}
+        for _, name in ipairs(ns.LINKLEVEL_FUNCTION_NAMES) do
+            named[name] = true
+        end
+        local found = 0
+        for name in body:gmatch("C_[%w_]+%.[%w_]+") do
+            found = found + 1
+            assert.is_true(named[name] == true, name .. " is called but not named")
+        end
+        for fn in body:gmatch("[^%w_.]I%.([%w_]+)") do
+            found = found + 1
+            assert.is_true(named["C_Item." .. fn] == true, "C_Item." .. fn .. " is called but not named")
+        end
+        assert.is_true(found > 0)
+        local reads = {}
+        for _, name in ipairs(ns.LINKLEVEL_MODULE_READS) do
+            reads[name] = true
+        end
+        local modules = 0
+        for module, fn in body:gmatch("ns%.([%w_]+)%.([%w_]+)%(") do
+            modules = modules + 1
+            assert.is_true(reads["ns." .. module .. "." .. fn] == true, module .. "." .. fn .. " is not named")
+        end
+        for fn in body:gmatch("Adapter%.([%w_]+)%(") do
+            modules = modules + 1
+            assert.is_true(reads["ns.JournalAdapter." .. fn] == true, "JournalAdapter." .. fn .. " is not named")
+        end
+        assert.is_true(modules > 0)
+        for _, forbidden in ipairs({
+            "EJ_",
+            "SetPreviewMythicPlusLevel",
+            "GetLootInfoByIndex",
+            "SetItemUpgradeFromLocation",
+            "UpgradeItem",
+            "OnUIInteract",
+            "RequestLoadItemDataByID",
+            "EquipItemByName",
+            "PickupContainerItem",
+        }) do
+            assert.is_nil(body:find(forbidden, 1, true), forbidden)
+        end
+    end)
+end)
+
+-- E-3b (WKE-684). `capture effects` reads the tooltip of every item in the
+-- effects table, for every cached journal row and owned copy that carries
+-- it, at the walk's level (the link rebuilt through EngineStats.LinkAtLevel),
+-- at the link as kept, and at one more track step - and decides nothing.
+-- The tooltip SHAPE is the client's, read from the six-tooltip transcript
+-- (spec/fixtures/captures/Lootpath-20261001-092631.lua, `capture itemstats`):
+-- typed lines 22 name, 0 the difficulty, 31 "Item Level N", 32 "Upgrade
+-- Level: ...", 20 binding, 0 "Unique-Equipped", 21 "Trinket", 0 "+N
+-- Intellect", 42 the other primaries, 1 " ", 44 the "Use:" text, 11 "". The
+-- Freightrunner's Flask lines at 276 and its link are that transcript's,
+-- verbatim; every other level, number and link is the tests' own. The
+-- `rightText` on the slot line is the tests' own too: the annotations name
+-- the field (Type/Structure.lua:52) and no committed line carries one.
+describe("captures effects", function()
+    local ns, world
+
+    local FLASK = 250215
+    local INSIGNIA = 250462
+    local FLASK_HEROIC = "|cnIQ3:|Hitem:250215::::::::90:105::2:1:3524:1:28:3024:::::|h[Freightrunner's Flask]|h|r"
+    local FLASK_KEYSTONE = "|cnIQ4:|Hitem:250215::::::::90:105::16:1:3524:1:28:1279:::::|h[Freightrunner's Flask]|h|r"
+    local INSIGNIA_WORLD = "|cnIQ4:|Hitem:250462::::::::90:105::5:1:3524::::::|h[Forgotten Farstrider's Insignia]|h|r"
+    -- Not in the effects table: a walk row the capture must not read.
+    local BOOTS = "|cnIQ4:|Hitem:268247::::::::90:105::5:1:3524:1:28:5850:::::|h[Breakwater Boots]|h|r"
+    -- An owned Flask on Hero 2/6 (12842, 308).
+    local FLASK_OWNED =
+        "|cnIQ4:|Hitem:250215::::::::90:105::16:2:12842:6652:1:28:1279:::::|h[Freightrunner's Flask]|h|r"
+
+    local DUNGEON, RAID_INSTANCE, MIDNIGHT = 1309, 1400, 1312
+
+    local function cacheRow(instanceID, name, encounterID, difficultyID, level, link, slot, isRaid)
+        return {
+            instanceID = instanceID,
+            instanceName = name,
+            encounterID = encounterID,
+            difficultyID = difficultyID,
+            itemLevel = level,
+            slot = slot,
+            isRaid = isRaid,
+            link = link,
+        }
+    end
+
+    local function seedCache()
+        ns.db.global.journalCache = {
+            ["69933|18|105|2:8:15:16:23"] = {
+                build = "69933",
+                walkAt = 2,
+                shape = 2,
+                summary = { previewMythicPlusLevel = 10 },
+                sources = {
+                    [FLASK] = {
+                        cacheRow(DUNGEON, "Vale", 2769, 2, 276, FLASK_HEROIC, "Trinket", false),
+                        cacheRow(DUNGEON, "Vale", 2769, 8, 305, FLASK_KEYSTONE, "Trinket", false),
+                    },
+                    [268247] = { cacheRow(RAID_INSTANCE, "Grotto", 2849, 15, 305, BOOTS, "Feet", true) },
+                    [INSIGNIA] = { cacheRow(MIDNIGHT, "Midnight", 2827, 15, 44, INSIGNIA_WORLD, "Trinket", true) },
+                    -- A pending row (no link): skipped.
+                    [270171] = { { instanceID = DUNGEON, encounterID = 2770, difficultyID = 8, pending = true } },
+                },
+            },
+            -- An older walk carrying the same Flask row at the same level:
+            -- read once, not twice.
+            ["69587|18|105|2:8:15:16:23"] = {
+                build = "69587",
+                walkAt = 1,
+                shape = 2,
+                sources = { [FLASK] = { cacheRow(DUNGEON, "Vale", 2769, 2, 276, FLASK_HEROIC, "Trinket", false) } },
+            },
+        }
+    end
+
+    -- The transcript's Freightrunner's Flask tooltip, with its two level
+    -- lines and the "Use:" text's number put in by the caller.
+    local function flaskLines(level, upgrade, amount)
+        return {
+            lines = {
+                { type = 22, leftText = "Freightrunner's Flask" },
+                { type = 0, leftText = "|cFF 0FF 0Heroic|r" },
+                { type = 31, leftText = "Item Level " .. level },
+                { type = 32, leftText = upgrade },
+                { type = 20, leftText = "Binds when picked up" },
+                { type = 0, leftText = "Unique-Equipped" },
+                { type = 21, leftText = "Trinket", rightText = "Test Right" },
+                { type = 0, leftText = "+104 Intellect" },
+                { type = 42, leftText = "+104 Agility" },
+                { type = 1, leftText = " " },
+                {
+                    type = 44,
+                    leftText = "Use: Take a sip of the drink you swiped from the freight, "
+                        .. "increasing your Critical Strike by "
+                        .. amount
+                        .. " for 15 sec. (1 |4Min:Min; 30 |4Sec:Sec; Cooldown)",
+                },
+                { type = 11, leftText = "" },
+            },
+        }
+    end
+
+    local function item(link, level, tooltip)
+        world.items[link] = { level = level, detailed = { level, false, level, n = 3 } }
+        world.tooltipData[link] = tooltip
+    end
+
+    local function at(link, level)
+        return assert(ns.EngineStats.LinkAtLevel(link, level))
+    end
+
+    local function seedClient()
+        -- The kept heroic link answers at whatever the Guide's view implies;
+        -- 219 here (the tests' own; E-0g step 2 read a raid link at 219).
+        item(FLASK_HEROIC, 219, flaskLines(219, "Upgrade Level: Adventurer 1/6", 400))
+        item(at(FLASK_HEROIC, 276), 276, flaskLines(276, "Upgrade Level: Adventurer 4/6", 528))
+        item(at(FLASK_HEROIC, 279), 279, flaskLines(279, "Upgrade Level: Adventurer 5/6", 540))
+        item(FLASK_KEYSTONE, 292, flaskLines(292, "Upgrade Level: Champion 1/6", 600))
+        item(at(FLASK_KEYSTONE, 305), 305, flaskLines(305, "Upgrade Level: Champion 5/6", 660))
+        item(at(FLASK_KEYSTONE, 308), 308, flaskLines(308, "Upgrade Level: Champion 6/6", 672))
+        item(INSIGNIA_WORLD, 263, { lines = { { type = 22, leftText = "Forgotten Farstrider's Insignia" } } })
+        item(BOOTS, 308, { lines = { { type = 22, leftText = "Breakwater Boots" } } })
+        for _, id in ipairs({ FLASK, INSIGNIA, 268247 }) do
+            world.itemDataCached[id] = true
+        end
+    end
+
+    local function wearFlask()
+        world.equipped[13] = { link = FLASK_OWNED, id = FLASK }
+        world.items[FLASK_OWNED] = {
+            level = 308,
+            detailed = { 308, false, 308, n = 3 },
+            instant = { FLASK, "Armor", "Miscellaneous", "INVTYPE_TRINKET", 1, 4, 0 },
+        }
+        world.tooltipData[FLASK_OWNED] = flaskLines(308, "Upgrade Level: Hero 2/6", 672)
+        item(at(FLASK_OWNED, 311), 311, flaskLines(311, "Upgrade Level: Hero 3/6", 684))
+    end
+
+    -- Every Encounter Journal function the stub defines, wrapped so a call to
+    -- any of them is counted - the capture must make none.
+    local function countJournalCalls()
+        local calls = {}
+        for name, fn in pairs(_G) do
+            if type(name) == "string" and name:match("^EJ_") and type(fn) == "function" then
+                _G[name] = function(...)
+                    calls[#calls + 1] = name
+                    return fn(...)
+                end
+            end
+        end
+        local CEJ = rawget(_G, "C_EncounterJournal")
+        if type(CEJ) == "table" then
+            for name, fn in pairs(CEJ) do
+                if type(fn) == "function" then
+                    CEJ[name] = function(...)
+                        calls[#calls + 1] = "C_EncounterJournal." .. name
+                        return fn(...)
+                    end
+                end
+            end
+        end
+        return calls
+    end
+
+    local function run()
+        local final
+        local first = ns.RunCapture("effects", function(r)
+            final = r
+        end)
+        world.runTimers(ns.EFFECTS_WAIT_SECONDS + ns.EFFECTS_REREAD_SECONDS + 1)
+        return final, first
+    end
+
+    local function itemFor(data, itemID)
+        for _, entry in ipairs(data.items) do
+            if entry.itemID == itemID then
+                return entry
+            end
+        end
+    end
+
+    local function targetFor(entry, source, link, level)
+        for _, target in ipairs(entry.targets) do
+            if target.source == source and target.link == link and (level == nil or target.walkLevel == level) then
+                return target
+            end
+        end
+    end
+
+    local function readOf(target, rule)
+        for _, read in ipairs(target.reads) do
+            if read.rule == rule then
+                return read
+            end
+        end
+    end
+
+    before_each(function()
+        ns, world = H.load()
+        seedCache()
+        seedClient()
+    end)
+
+    after_each(function()
+        H.unload()
+    end)
+
+    it("refuses when no journal walk is cached, and reads nothing", function()
+        ns.db.global.journalCache = {}
+        local result = ns.RunCapture("effects")
+        assert.is_false(result.ok)
+        assert.equal("capture 'effects' " .. ns.EFFECTS_NO_JOURNAL, result.reason)
+        assert.is_nil(ns.db.global.captures.effects)
+        assert.same({}, world.tooltipCalls)
+    end)
+
+    it("refuses when the effects table did not load, and reads nothing", function()
+        ns.engineEffects = nil
+        local result = ns.RunCapture("effects")
+        assert.is_false(result.ok)
+        assert.equal("capture 'effects' " .. ns.EFFECTS_NO_TABLE, result.reason)
+        assert.is_nil(ns.db.global.captures.effects)
+        assert.same({}, world.tooltipCalls)
+    end)
+
+    it("refuses when no table item is in the walk or owned, and reads nothing", function()
+        ns.db.global.journalCache = {
+            ["k"] = {
+                build = "69933",
+                sources = { [268247] = { cacheRow(RAID_INSTANCE, "Grotto", 2849, 15, 305, BOOTS, "Feet", true) } },
+            },
+        }
+        local result = ns.RunCapture("effects")
+        assert.is_false(result.ok)
+        assert.equal("capture 'effects' " .. ns.EFFECTS_NONE, result.reason)
+        assert.is_nil(ns.db.global.captures.effects)
+        assert.same({}, world.tooltipCalls)
+    end)
+
+    it("refuses in combat, and reads nothing", function()
+        world.inCombat = true
+        local result = ns.RunCapture("effects")
+        assert.is_false(result.ok)
+        assert.equal("combat", result.reason)
+        assert.is_nil(ns.db.global.captures.effects)
+        assert.same({}, world.tooltipCalls)
+    end)
+
+    it("reads a journal row at the walk's level through the rebuilt link, the kept link and one step up", function()
+        local final, first = run()
+        assert.is_true(first.ok)
+        assert.is_true(final.ok)
+        local snapshot = final.snapshot
+        assert.is_false(snapshot.sawSecret)
+        assert.is_number(snapshot.durationMs)
+        assert.is_number(snapshot.capturedAt)
+        assert.is_table(snapshot.build)
+        local data = snapshot.data
+        assert.equal("track-append", data.linkLevelRule)
+        assert.equal("12.1.0.69933", data.trackTable.build)
+        assert.equal("lootpath-engine-effects", data.effectsTable.schema)
+        assert.same({ itemLevel = 31, upgradeLevel = 32 }, data.lineTypes)
+
+        local flask = itemFor(data, FLASK)
+        assert.equal("Freightrunner's Flask", flask.name)
+        assert.equal("stat_on_use", flask.kind)
+        local row = targetFor(flask, "journal", FLASK_HEROIC, 276)
+        assert.equal(2, row.difficultyID)
+        assert.same({ "walk", "kept", "next" }, { row.reads[1].rule, row.reads[2].rule, row.reads[3].rule })
+
+        -- The walk's level: the track step that draws 276 (Adventurer 4/6,
+        -- 12820) APPENDED to the journal link's own bonus list.
+        local walk = readOf(row, "walk")
+        assert.equal(276, walk.level)
+        assert.equal(
+            "|cnIQ3:|Hitem:250215::::::::90:105::2:2:3524:12820:1:28:3024:::::|h[Freightrunner's Flask]|h|r",
+            walk.link
+        )
+        assert.equal(276, walk.detailedLevel[1])
+        assert.equal("Item Level 276", walk.itemLevelLine)
+        assert.equal("Upgrade Level: Adventurer 4/6", walk.upgradeLevelLine)
+        -- Every line, unchanged and in order: the transcript's twelve.
+        assert.same(flaskLines(276, "Upgrade Level: Adventurer 4/6", 528).lines, walk.tooltipLines)
+        assert.equal(44, walk.tooltipLines[11].type)
+        assert.equal("Test Right", walk.tooltipLines[7].rightText)
+
+        -- The kept link: whatever the client answers now, beside it.
+        local kept = readOf(row, "kept")
+        assert.equal(FLASK_HEROIC, kept.link)
+        assert.equal(219, kept.detailedLevel[1])
+        assert.equal("Item Level 219", kept.itemLevelLine)
+
+        -- One step up the same track: Adventurer 5/6 at 279.
+        local nextRead = readOf(row, "next")
+        assert.equal(279, nextRead.level)
+        assert.equal(276, nextRead.fromLevel)
+        assert.equal("Adventurer", nextRead.track)
+        assert.equal(4, nextRead.fromStep)
+        assert.equal(5, nextRead.toStep)
+        assert.equal("up", nextRead.direction)
+        assert.equal(at(FLASK_HEROIC, 279), nextRead.link)
+        assert.equal("Item Level 279", nextRead.itemLevelLine)
+        assert.truthy(nextRead.tooltipLines[11].leftText:find("by 540 for", 1, true))
+    end)
+
+    it("reads every row that carries the item, at every listed level, once per link and level", function()
+        run()
+        local flask = itemFor(ns.db.global.captures.effects[1].data, FLASK)
+        local journal = 0
+        for _, target in ipairs(flask.targets) do
+            if target.source == "journal" then
+                journal = journal + 1
+            end
+        end
+        -- The heroic row (in both walks, read once) and the keystone row.
+        assert.equal(2, journal)
+        local keystone = targetFor(flask, "journal", FLASK_KEYSTONE, 305)
+        assert.equal(305, readOf(keystone, "walk").detailedLevel[1])
+        assert.equal(292, readOf(keystone, "kept").detailedLevel[1])
+        local nextRead = readOf(keystone, "next")
+        assert.equal(308, nextRead.level)
+        assert.equal("Champion", nextRead.track)
+        assert.equal("Item Level 308", nextRead.itemLevelLine)
+    end)
+
+    it("says why when no track step draws the walk's level, and still reads the kept link", function()
+        run()
+        local insignia = itemFor(ns.db.global.captures.effects[1].data, INSIGNIA)
+        local row = targetFor(insignia, "journal", INSIGNIA_WORLD, 44)
+        local walk = readOf(row, "walk")
+        assert.is_nil(walk.link)
+        assert.equal("no track step draws 44", walk.why)
+        assert.is_nil(walk.tooltipLines)
+        assert.equal(263, readOf(row, "kept").detailedLevel[1])
+        local nextRead = readOf(row, "next")
+        assert.is_nil(nextRead.link)
+        assert.equal("no track step draws 44", nextRead.why)
+    end)
+
+    it("reads an owned copy at its own level and one step up its own track", function()
+        wearFlask()
+        run()
+        local flask = itemFor(ns.db.global.captures.effects[1].data, FLASK)
+        local owned = targetFor(flask, "owned", FLASK_OWNED)
+        assert.equal("equipped", owned.location)
+        assert.equal(13, owned.slotIndex)
+        assert.equal(308, owned.ownedLevel)
+        assert.is_nil(readOf(owned, "walk"))
+        assert.equal("Item Level 308", readOf(owned, "kept").itemLevelLine)
+        local nextRead = readOf(owned, "next")
+        -- Hero 2/6 -> Hero 3/6: the link's own track step (12842) is dropped
+        -- and the one that draws 311 (12843) appended.
+        assert.equal(311, nextRead.level)
+        assert.equal("Hero", nextRead.track)
+        assert.equal(2, nextRead.fromStep)
+        assert.equal(
+            "|cnIQ4:|Hitem:250215::::::::90:105::16:2:6652:12843:1:28:1279:::::|h[Freightrunner's Flask]|h|r",
+            nextRead.link
+        )
+        assert.equal("Upgrade Level: Hero 3/6", nextRead.upgradeLevelLine)
+    end)
+
+    it("steps down at a track's top", function()
+        -- The keystone row's next step is Champion 6/6 (the top); read from
+        -- 308 the Champion track has no step above, so it steps down.
+        ns.db.global.journalCache["69933|18|105|2:8:15:16:23"].sources[FLASK][2].itemLevel = 308
+        run()
+        local flask = itemFor(ns.db.global.captures.effects[1].data, FLASK)
+        local nextRead = readOf(targetFor(flask, "journal", FLASK_KEYSTONE, 308), "next")
+        assert.equal("down", nextRead.direction)
+        assert.equal(305, nextRead.level)
+        assert.equal(6, nextRead.fromStep)
+        assert.equal(5, nextRead.toStep)
+    end)
+
+    -- The itemstats transcript's first reads of four effect trinkets carried
+    -- no "Use:" line; whether a later read does is what the second read is
+    -- for. Here the client answers the walk link's first ask without the
+    -- effect line and every later ask with it (the tests' own model).
+    it("reads every tooltip a second time, after the pause, beside the first", function()
+        local walkLink = at(FLASK_HEROIC, 276)
+        local full = flaskLines(276, "Upgrade Level: Adventurer 4/6", 528)
+        local asked = 0
+        world.tooltipData[walkLink] = function()
+            asked = asked + 1
+            if asked == 1 then
+                local short = { lines = {} }
+                for i = 1, 10 do
+                    short.lines[i] = full.lines[i]
+                end
+                return short
+            end
+            return full
+        end
+        local first = ns.RunCapture("effects")
+        assert.is_true(first.pending)
+        assert.is_nil(ns.db.global.captures.effects)
+        world.runTimers(ns.EFFECTS_REREAD_SECONDS)
+        local data = ns.db.global.captures.effects[1].data
+        assert.equal(2, data.rereadSeconds)
+        local flask = itemFor(data, FLASK)
+        local walk = readOf(targetFor(flask, "journal", FLASK_HEROIC, 276), "walk")
+        assert.equal(10, #walk.tooltipLines)
+        assert.equal(12, #walk.again.tooltipLines)
+        assert.equal(44, walk.again.tooltipLines[11].type)
+        assert.equal("Item Level 276", walk.again.itemLevelLine)
+        assert.equal(2, asked)
+        -- A read with no link has no second read either.
+        local insignia = itemFor(data, INSIGNIA)
+        assert.is_nil(readOf(targetFor(insignia, "journal", INSIGNIA_WORLD, 44), "walk").again)
+    end)
+
+    it("stores nothing when combat starts before the second read", function()
+        local final
+        ns.RunCapture("effects", function(r)
+            final = r
+        end)
+        world.inCombat = true
+        world.runTimers(ns.EFFECTS_REREAD_SECONDS + 1)
+        assert.is_false(final.ok)
+        assert.equal("capture 'effects' " .. ns.EFFECTS_COMBAT_REREAD, final.reason)
+        assert.is_nil(ns.db.global.captures.effects)
+    end)
+
+    it("never reads an item the table does not carry, and lists the table items it found nowhere", function()
+        run()
+        local data = ns.db.global.captures.effects[1].data
+        for _, call in ipairs(world.tooltipCalls) do
+            assert.is_nil(call:find("268247", 1, true), "read a link outside the table")
+        end
+        assert.equal(2, #data.items)
+        local tableSize = 0
+        for _ in pairs(ns.engineEffects.items) do
+            tableSize = tableSize + 1
+        end
+        assert.equal(tableSize - 2, #data.missing)
+        for _, entry in ipairs(data.missing) do
+            assert.is_string(entry.name)
+            assert.is_not_equal(FLASK, entry.itemID)
+        end
+        assert.equal(2, data.journal.cacheEntries and #data.journal.cacheEntries)
+        assert.equal(3, data.journal.rowsTaken)
+    end)
+
+    it("never touches the Adventure Guide", function()
+        local calls = countJournalCalls()
+        local J = world.journal
+        local before = { J.currentTier, J.difficulty, J.selectedInstance, J.previewLevel }
+        local final = run()
+        assert.is_true(final.ok)
+        assert.same({}, calls)
+        assert.same({}, J.selectCalls)
+        assert.same({}, J.lootFilterCalls)
+        assert.same({}, J.previewLevelCalls)
+        assert.same(before, { J.currentTier, J.difficulty, J.selectedInstance, J.previewLevel })
+    end)
+
+    it("writes nothing but its own captures.effects entry", function()
+        local function copy(t, seen)
+            if type(t) ~= "table" then
+                return t
+            end
+            seen = seen or {}
+            if seen[t] then
+                return seen[t]
+            end
+            local out = {}
+            seen[t] = out
+            for k, v in pairs(t) do
+                out[k] = copy(v, seen)
+            end
+            return out
+        end
+        local global = copy(ns.db.global)
+        local char = copy(ns.db.char)
+        local profile = copy(ns.db.profile)
+        run()
+        local captures = ns.db.global.captures
+        assert.equal(1, #captures.effects)
+        local after = copy(ns.db.global)
+        after.captures.effects = nil
+        assert.same(global, after)
+        assert.same(char, copy(ns.db.char))
+        assert.same(profile, copy(ns.db.profile))
+    end)
+
+    it("masks a secret answer and says it saw one", function()
+        world.tooltipData[at(FLASK_HEROIC, 276)] = world.secretTable("tooltip")
+        local final = run()
+        assert.is_true(final.ok)
+        assert.is_true(final.snapshot.sawSecret)
+        local flask = itemFor(final.snapshot.data, FLASK)
+        local walk = readOf(targetFor(flask, "journal", FLASK_HEROIC, 276), "walk")
+        assert.equal(ns.MARKERS.secretTable, walk.tooltipData[1])
+    end)
+
+    describe("an item whose data is not cached", function()
+        before_each(function()
+            world.itemDataCached[INSIGNIA] = nil
+        end)
+
+        it("asks for it, waits, and reads it once the client answers", function()
+            local first = ns.RunCapture("effects")
+            assert.is_true(first.pending)
+            assert.is_nil(ns.db.global.captures.effects)
+            assert.same({ INSIGNIA }, world.itemDataRequests)
+            assert.same({}, world.tooltipCalls)
+
+            world.itemDataCached[INSIGNIA] = true
+            world.fireEvent("ITEM_DATA_LOAD_RESULT", INSIGNIA, true)
+            assert.same({}, ns.db.global.captures.effects or {})
+            world.runTimers(ns.EFFECTS_REREAD_SECONDS)
+
+            local data = ns.db.global.captures.effects[1].data
+            assert.equal(1, data.requested)
+            assert.is_false(data.waitTimedOut)
+            local insignia = itemFor(data, INSIGNIA)
+            assert.is_false(insignia.cachedBefore[1])
+            assert.is_true(insignia.waited)
+            assert.is_false(insignia.gaveUp)
+            assert.is_true(insignia.cachedAtRead[1])
+        end)
+
+        it("gives up inside the bound and reads it anyway", function()
+            assert.is_true(ns.RunCapture("effects").pending)
+            world.runTimers(ns.EFFECTS_WAIT_SECONDS + ns.EFFECTS_REREAD_SECONDS)
+            assert.is_true(ns.EFFECTS_WAIT_SECONDS <= 5)
+            local data = ns.db.global.captures.effects[1].data
+            -- ItemData's own per-item bound (8 x 0.25 s) gives up first and
+            -- settles the wait; the capture's bound is the backstop.
+            assert.equal(0, data.stillWaiting)
+            local insignia = itemFor(data, INSIGNIA)
+            assert.is_true(insignia.gaveUp)
+            assert.is_false(insignia.cachedAtRead[1])
+            assert.is_table(readOf(insignia.targets[1], "kept").tooltipLines)
+        end)
+
+        it("stores nothing when combat starts during the wait", function()
+            local final
+            ns.RunCapture("effects", function(r)
+                final = r
+            end)
+            world.inCombat = true
+            world.runTimers(ns.EFFECTS_WAIT_SECONDS + 1)
+            assert.is_false(final.ok)
+            assert.equal("capture 'effects' " .. ns.EFFECTS_COMBAT, final.reason)
+            assert.is_nil(ns.db.global.captures.effects)
+            assert.same({}, world.tooltipCalls)
+        end)
+    end)
+
+    it("names every client function and every module read it makes", function()
+        run()
+        local data = ns.db.global.captures.effects[1].data
+        assert.same(ns.EFFECTS_FUNCTION_NAMES, data.functionNames)
+        assert.same({
+            "C_Item.GetDetailedItemLevelInfo",
+            "C_Item.IsItemDataCachedByID",
+            "C_TooltipInfo.GetHyperlink",
+        }, data.functionNames)
+        assert.same(ns.EFFECTS_MODULE_READS, data.moduleReads)
+    end)
+
+    -- The source half: every `C_Namespace.Function` the section mentions is on
+    -- its list, every module function it reaches is on the other, and nothing
+    -- that acts - nor anything that touches the Adventure Guide - is in it.
+    -- Comments are left out of the scan.
+    it("calls nothing in its source that its lists do not name, and nothing that acts", function()
+        local source = assert(io.open("Lootpath/Captures.lua")):read("*a")
+        local start = assert(source:find("-- effects (E-3b, WKE-684)", 1, true))
+        local code = {}
+        for line in source:sub(start):gmatch("[^\n]*") do
+            code[#code + 1] = (line:gsub("%-%-.*$", ""))
+        end
+        local body = table.concat(code, "\n")
+        local named = {}
+        for _, name in ipairs(ns.EFFECTS_FUNCTION_NAMES) do
+            named[name] = true
+        end
+        -- The bound's timer schedules; it reads nothing about the client.
+        named["C_Timer.After"] = true
+        local found = 0
+        for name in body:gmatch("C_[%w_]+%.[%w_]+") do
+            found = found + 1
+            assert.is_true(named[name] == true, name .. " is called but not named")
+        end
+        for fn in body:gmatch("[^%w_.]I%.([%w_]+)") do
+            found = found + 1
+            assert.is_true(named["C_Item." .. fn] == true, "C_Item." .. fn .. " is called but not named")
+        end
+        assert.is_true(found > 0)
+        local reads = {}
+        for _, name in ipairs(ns.EFFECTS_MODULE_READS) do
+            reads[name] = true
+        end
+        local modules = 0
+        for module, fn in body:gmatch("ns%.([%w_]+)%.([%w_]+)%(") do
+            modules = modules + 1
+            assert.is_true(reads["ns." .. module .. "." .. fn] == true, module .. "." .. fn .. " is not named")
+        end
+        assert.is_true(modules > 0)
+        for _, forbidden in ipairs({
+            "EJ_",
+            "C_EncounterJournal",
+            "JournalAdapter",
+            "Adapter.",
+            "SetPreviewMythicPlusLevel",
+            "GetLootInfoByIndex",
+            "SetItemUpgradeFromLocation",
+            "UpgradeItem",
+            "OnUIInteract",
+            "RequestLoadItemDataByID",
+            "EquipItemByName",
+            "PickupContainerItem",
+        }) do
+            assert.is_nil(body:find(forbidden, 1, true), forbidden)
+        end
     end)
 end)

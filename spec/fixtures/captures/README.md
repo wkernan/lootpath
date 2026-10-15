@@ -3,11 +3,152 @@
 
 ## Still to capture
 
-Nothing scheduled. Every capture the MVP needed is committed; `/lootpath refresh`
-now takes `env`, `inventory` and `vault` itself (C-3), so new snapshots arrive
-with every loop rather than by request.
+Nothing is waiting on a capture.
+
+`/lootpath refresh` takes `env`, `inventory` and `vault` itself (C-3), so those
+snapshots arrive with every loop rather than by request.
 
 ## Committed
+
+- Lootpath-20261014-165427.lua - **week three rerun on the carried weights (E-0n carry-forward, PR #350).**
+  The coordinator copied the carried file into the game's `Data\EngineWeights.lua` (`patch 12.1.5`,
+  derivedAt 2026-10-14T19:34:31.408Z); the owner ran `/reload`, the three `/lootpath engine compare`
+  commands, `/reload` and pulled. Week `2026-10-13` is REPLACED: bands `6`, `10`, `raid-3`, 86 `["stats"]`
+  vectors, every row derived 2026-10-14T19:34:31.408Z. Weeks `2026-09-29` and `2026-10-06` unchanged.
+  sha256 as pulled (CRLF) `191a0660fc7295993d23e97d0ca3b1a74cd5f1112272ac9c203924241555328c`,
+  6,760,622 bytes; as committed (`eol=lf`)
+  `7a765158ed8a4dfad625b986629e53fe9cab03d99f895ef5e2fadc37ab0d7cc1`, 6,397,283 bytes. No
+  `sawSecret = true`. No secrets.
+- Lootpath-20261014-124538.lua - **week three of the developer engine's compare, the first on the
+  12.1.5 refit (E-0n, WKE-706, PR #348) and the first whose stored rows carry E-0m's stat vectors.**
+  After the coordinator copied the refit into the game's `Data\EngineWeights.lua` (`patch 12.1.5`,
+  derivedAt 2026-10-14T01:47:56.929Z), the owner ran `/reload`, `/lootpath engine compare dungeon 6`,
+  `compare dungeon 10`, `compare raid`, `/reload` and pulled. `engineCompare` now holds weeks
+  `2026-09-29`, `2026-10-06` and `2026-10-13`; week `2026-10-13` stores bands `6`, `10` and `raid-3`
+  and 86 `["stats"]` vectors. sha256 as pulled (CRLF)
+  `737d4a269d9ba294b71ea88d0e940dc2368a091ade1cb26c9148aeb287239488`, 6,760,924 bytes; as committed
+  (`eol=lf`) `cb45fdf7b4b76d6b1c4fd11a34666c497dfcc8dbb3424a335b0c7773d04e940e`, 6,397,576 bytes.
+  No `sawSecret = true`. No secrets.
+- Lootpath-20261013-183853.lua - **reset day 2026-10-13 on the 12.1.5 client: the owner's
+  `capture itemstats` for E-0n (WKE-706).** Every `/lootpath engine` command that evening
+  refused with `Update Lootpath - its ratings are for 12.1.0, you're on 12.1.5.`; the refit
+  the owner chose needs a stat read on the new client, so he ran `/lootpath capture itemstats`,
+  reloaded and pulled. `captures.itemstats` now holds two snapshots in stored order: index 1
+  captured 2026-10-01T14:26:25Z on `12.1.0` / `69933`, index 2 captured 2026-10-13T23:38:46Z on
+  `12.1.5` / `70391` (`Oct 13 2026`), `sawSecret = false`. `linklevel` (2026-10-02, 12.1.0) and
+  `upgrade` (2026-09-15/16, 12.1.0) are unchanged. sha256 as pulled (CRLF)
+  `ba1e333898a91df8206eb52590f7fd507181413e87889469d5ff3ec0e8cd2a9f`, 6,724,847 bytes; as
+  committed (`eol=lf`) `d27f46faaa2b9ffcdac66a5a99c09cde3209a31dceccb69b6fd38c3941b32ba4`,
+  6,362,829 bytes. No `sawSecret = true` in the file. No secrets.
+- Lootpath-20261013-180632.lua - **reset day 2026-10-13, the pull after the refused compares.**
+  The owner refreshed (the companion's verdict written 2026-10-13T23:10:18Z), claimed the
+  vault's Vile Vial of Volatile Venom 318, ran the three compares (each refused on 12.1.5, so
+  `engineCompare` gains no week), reloaded and pulled. Every patch-bearing capture in it is
+  12.1.0 (itemstats 2026-10-01, linklevel 2026-10-02, upgrade 2026-09-15/16) - the reason the
+  183853 pull above exists. sha256 as pulled (CRLF)
+  `dc423976a0e0eaae6d874e4ad639645d5acd642a8c94fe6ccef8dbfbfe350bf2`, 6,602,501 bytes; as
+  committed (`eol=lf`) `3e5b54af0d573f4c80b7a52ccb9188577e07be0bc2ccb7df65a29f9fcc57f9ad`,
+  6,247,146 bytes. No `sawSecret = true`. No secrets.
+- Lootpath-20261009-204729.lua - **week two of the engine compare (week 2026-10-06), on the Druid in
+  Restoration.** The owner refreshed at 20:43 local, ran `/lootpath engine compare dungeon 6`,
+  `compare dungeon 10` and `compare raid`, reloaded and pulled. `engineCompare` holds
+  `["2026-10-06"]` beside week one's `["2026-09-29"]`; every figure is in
+  `docs/ARCHITECTURE.md` §9 (2026-10-09, night). sha256 as pulled (CRLF)
+  `9c97d13bcf70377f6252122af668b742e2e3d7e16289e93bc12b7c7c77916d39`, 6,574,362 bytes; as
+  committed (`eol=lf`) `b24cc5986b9652429e67209ccbc135b53f8fa30494970947f6bd9c73df78d168`,
+  6,220,925 bytes. No `sawSecret = true` in the file. No secrets.
+- Lootpath-20261005-163103.lua - **E-3b's `capture effects` on the Druid
+  (WKE-684, built in PR #317), committed unedited by E-3c (WKE-686).** The
+  owner ran `/lootpath capture effects` and pulled (SavedVariables written
+  16:31:03 local, 2026-10-05). As pulled (CRLF): sha256
+  `e31cf6eae378df33ab620957ef269b91a2138bb3ceaf570c8e30aba72cfbdacb`,
+  6,473,520 bytes, read in the owner's checkout and again in this worktree
+  after the copy; as committed, after `.gitattributes`' `eol=lf` turned each
+  of its 347,889 CRLFs into LF and touched nothing else (the pulled bytes with
+  CRLF -> LF are byte-identical to the staged blob): sha256
+  `fae3e4228f92d8e8707b2400100f1eb7d1252d36517d4fd85dbfc3c72b8e04c2`,
+  6,125,631 bytes, read from the staged blob after `git add` and from the
+  checked-out file.
+  One `effects` snapshot (16:30:34 local, `capturedAt` 1791235834, `trigger`
+  `command`), client 12.1.0 build 69933 (Sep 18 2026), `durationMs` 2084.72,
+  `sawSecret` false (no `sawSecret = true` anywhere in the file).
+  `journal.rowsTaken` 47 of 475 cached rows with a link (the walk of
+  1790903344, key `69933|18|105|2:8:15:16:23`); 21 of the table's 29 items
+  found (journal or bags), 8 in `missing` (248583, 251788, 251792, 252957,
+  264701, 274493, 274494, 280091); 13 items waited for item data
+  (`requested` 13), `gaveUp` false on all 13, `waitTimedOut` false,
+  `stillWaiting` 0. 52 targets, 151 reads (`walk` 47, `kept` 52, `next` 52;
+  141 journal, 10 owned). What it settles - the effect text arrives on
+  the second read (45 reads carried it on the first ask, 137 on the second,
+  none on the first only), the numbers follow the item level, an "Equip:"
+  line is type 45 beside "Use:" type 44, the rebuilt link reads the walk's
+  level on all 41 `walk` reads that have one - is in ARCHITECTURE.md §7, §9
+  and §11 (E-3c); `spec/fixtures/engine/effects-real.lua` is extracted from
+  it by `tools/engine/extract-effects.js`, and `Lootpath/Data/EngineEffects.lua`'s
+  params are read from that. The file also carries the rest of the owner's
+  SavedVariables as written that afternoon; `engineCompare` holds only week
+  `2026-09-29` (already committed as Lootpath-20261002-112757.lua), so no new
+  compare week is in it. No secrets.
+- Lootpath-20261002-112757.lua - **week one of the engine compare's stored
+  rows (E-0; WKE-670), on the Druid, pulled after the owner's closing
+  `/reload` of 2026-10-02 (SavedVariables written 11:27:57 local).** As pulled
+  (CRLF): sha256
+  `6fdcec324690bc66d14eb0c1aa753dac08e7bfd6296b7ff7b3d53d4c5f50157f`,
+  6,144,478 bytes; as committed, after `.gitattributes`' `eol=lf` turned each
+  of its 330,019 CRLFs into LF and touched nothing else: sha256
+  `dd02a0c2ee2b58f6e90c57d1ce54dbde3769b834ff05076c26f3dd78dca214b7`,
+  5,814,459 bytes. `global.developer.engineCompare["2026-09-29"]["Hotornot -
+  Arthas"]` holds the five documents the screen showed that morning
+  (ARCHITECTURE.md §9, 2026-10-02 week one's FINAL compare), each with its
+  metrics and every scored row's `link`, `level`, `key`, `slot`, `class`,
+  `theirs`, `ours` (floored at 0) and `raw` (unfloored): Dungeon `[6]` 55 rows
+  (band 6, `notRated` 12, rebuilt 77, leftOut 7), Dungeon `[10]` 15 rows (band
+  10), Raid `[10]` 15 rows (band raid-3), and the two Top Gear `pass1` blocks
+  (3 and 2 rows). Weights `fit-to-qe-exports`, patch 12.1.0, derived
+  2026-10-02T02:21:19.971Z; QE exports of 2026-10-01T13:59. The armour block
+  under `[6]` reads ρ 0.9473, k 0.9583, MAE@k 0.0165, n 15 - the screen's
+  0.947 / 0.958 / 0.016. This is the file the §11 probes (tier k by band,
+  jewellery) run against headlessly; the earlier runs of 2026-10-01 were never
+  flushed and are not in it.
+- Lootpath-20261001-200927.lua - **E-0g's `capture linklevel` on the Druid
+  (WKE-677, step 1 built in PR #307), committed unedited by E-0g step 2.** As
+  pulled (CRLF): sha256
+  `701727cef895af0e99618ccb716cf20cb579b92d6d69ddd067a76f766b8335e6`,
+  6,019,179 bytes; as committed, after `.gitattributes`' `eol=lf` turned each
+  of its 325,865 CRLFs into LF and touched nothing else: sha256
+  `455e02d9e17a9014bfc978e8da57ab6b34b502ffbbb4821a17d68af092f3ec42`,
+  5,693,314 bytes. One `linklevel` snapshot (20:09:18 local, 2026-10-01,
+  `capturedAt` 1790903358), `durationMs` 156.65, `sawSecret` false, client
+  12.1.0 build 69933. 12 candidates of 101 cached journal rows the client read
+  at another level than the walk listed (difficulty 8: 54, 15: 27, 16: 20; the
+  walk of 1790381953, key `69933|18|105|2:8:15:16:23`); the walk re-read 8
+  targets in 130.8 ms, 0 timeouts, and put tier, difficulty and loot filter
+  back (`viewStateBefore` difficulty 14, tier 13, loot filter 11/0). What it
+  settles - a track bonus ID appended to the journal link draws the walk's
+  level on every candidate that has a track step, and a context-scaled link's
+  answer follows the Adventure Guide's view - is in ARCHITECTURE.md §7 and §9
+  (E-0g step 2); `spec/fixtures/engine/linklevel-real.lua` is extracted from
+  it by `tools/engine/extract-linklevel.js`.
+- Lootpath-20261001-092631.lua - **E-0a's `capture itemstats` on the Druid
+  (WKE-675), committed unedited by E-0f (WKE-676).** As pulled (CRLF):
+  sha256 `3c36f48d9e770a934b7234ecae41a644d5ee31f3f3a2e4dfd7ca258512f41cc6`,
+  5,852,199 bytes; as committed, after `.gitattributes`' `eol=lf` turned each
+  of its 316,326 CRLFs into LF and touched nothing else, like every transcript
+  here: sha256
+  `ecb69e7e15345b4ae576a80b2ff5ef23fca1ad9f182135af7965f4e27659cac8`,
+  5,535,873 bytes. The owner pulled `main`, ran `tools\sync.ps1`, then
+  `/lootpath capture itemstats` (09:26:25 local, 2026-10-01), `/reload` and
+  `tools\sync.ps1 -Pull`. Restoration (105), client 12.1.0 build 69933. One
+  `itemstats` snapshot, `trigger = "command"`, `durationMs` 26.9; 15 items
+  asked for and all 15 loaded inside the bound (`waitTimedOut` false,
+  `stillWaiting` 0). 80 items read - 15 worn, 25 bag, 0 vault, 40 journal (a
+  new walk at build 69933, 266 rows with a link, 40 taken across 11
+  instances) - every one with stats and every one `strippedEqual`. Gem links
+  answer `GetItemStats` with an empty table. The rating conversion answers
+  with diminishing returns applied. What it settles is in ARCHITECTURE.md §9
+  (E-0f) and `docs/OWN-ENGINE.md` §3; `spec/fixtures/engine/itemstats-real.lua`
+  is extracted from it by `tools/engine/extract-itemstats.js`. No secrets
+  seen (`sawSecret` false).
 
 - Lootpath-20260916-162655.lua - WKE-603 C-14 (this PR). Raw pull, copied out of
   the owner's game folder unchanged at 17:10 on 2026-09-16; the file's own last

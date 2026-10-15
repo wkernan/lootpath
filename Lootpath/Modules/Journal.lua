@@ -591,6 +591,21 @@ function Adapter.Walk(opts, onDone)
         local itemDataStartedAt
         local settleItemData, waitForItemData
 
+        -- The target's final read is in and the journal still sits at it.
+        -- `opts.onTargetRead(record, read)` is how a caller reads something
+        -- WHILE the Adventure Guide previews this target (E-0g's `capture
+        -- linklevel`); it is pcalled, so a caller that errors costs its own
+        -- answer, never the walk or the restore at the end.
+        local function settled(read)
+            if type(opts.onTargetRead) == "function" then
+                local ok, err = pcall(opts.onTargetRead, record, read)
+                if not ok then
+                    record.onTargetReadError = tostring(err)
+                end
+            end
+            after(0, nextTarget)
+        end
+
         -- Stage two: the list is in, but some rows have no name and no link.
         -- Wait for EJ_LOOT_DATA_RECIEVED (or the bound), then re-read the
         -- whole list the way EncounterJournal_LootUpdate does.
@@ -610,7 +625,7 @@ function Adapter.Walk(opts, onDone)
             result.pendingRowsFinalRead = result.pendingRowsFinalRead + record.rereadPendingRows
             result.rowsFilledByReread = result.rowsFilledByReread + (record.pendingRows - record.rereadPendingRows)
             record.encounterNames = Adapter.EncounterNames(reread)
-            after(0, nextTarget)
+            settled(reread)
         end
 
         function waitForItemData()
@@ -680,7 +695,7 @@ function Adapter.Walk(opts, onDone)
             end
             result.pendingRowsFinalRead = result.pendingRowsFinalRead + record.pendingRows
             record.encounterNames = Adapter.EncounterNames(loot)
-            after(0, nextTarget)
+            settled(loot)
         end
         read()
     end

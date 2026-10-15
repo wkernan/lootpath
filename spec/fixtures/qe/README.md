@@ -318,6 +318,98 @@ gemmed worn pieces carry. The links in `spec/roads_spec.lua`'s,
 `spec/tooltip_spec.lua`'s and `spec/ui_spec.lua`'s R-2i blocks are his
 inventory capture of 2026-09-30 22:20:53 UTC.
 
+## Three copies of the worn top-set helm (R-2k, WKE-694)
+
+Two documents **written by the companion** on 2026-10-07 02:43-02:46 UTC (the
+owner's reset-day evening, 2026-10-06 local), extracted unedited from the
+`Data/QEVerdict.lua` it wrote into his addon folder (written 02:46:35Z,
+1,180,108 bytes; the `json` string of exports 1 and 19 of 22 - the pass-1
+Dungeon document of `asOffered` and of `maxed`). Each file is that string byte
+for byte (read with `sha256sum` on 2026-10-06):
+
+| File | Scenario | Exported | Bytes | Top-set score | Head in the top set | sha256 |
+|---|---|---|---|---|---|---|
+| `qe-droptimizer-Hotornot-abqtlwlwsnms.json` | `asOffered` | 02:43:42.412Z | 18221 | 6317.104 | 271528 @321, the worn copy's key, `[240983]`, Empowered Hex of Leeching | `e931ec1b83e2131c192c941b8a941720f2b847d9d21ee2b32e63c7c8504b616a` |
+| `qe-droptimizer-Hotornot-zdgtaqcigomq.json` | `maxed` | 02:46:02.923Z | 19470 | 6390.67 | 271528 @334, the bag 318 copy's key, no gem, Empowered Hex of Leeching | `3eb41440de401c9deec7ebe99edaf15e330b593913298c68e51faa0f61f7526c` |
+
+His three copies of 271528, by his inventory capture of 02:46:39 UTC: worn 321
+(bonus IDs `6652, 13440, 13695, 13692, 13698, 12846`), bag 318 from the vault
+(`13692, 12849, 13440, 6652, 13696, 13698`) and bag 308. `asOffered` keeps the
+worn 321; `maxed` takes the bag 318 crested to 334, by that copy's own key. The
+links in `spec/tooltip_spec.lua`'s R-2k block are that capture's.
+
+## A held piece that wins only once crested (R-2l, WKE-695)
+
+Four documents **written by the companion** on 2026-10-07 23:19-23:21 UTC,
+extracted unedited from the `Data/QEVerdict.lua` it wrote into his addon folder
+(written 23:22:02Z, 1,180,108 bytes, sha256
+`423d80df8eb398d7754e43a8ed0b767ab71df08186e918b7646ee3600e73fdff`; the `json`
+strings of exports 7, 8, 10 and 21 of 22). Each file is that string byte for
+byte, named by its own `reportId`, and kept in `r2l/` because `tools/engine`
+reads every `qe-upgradefinder-*` file at this folder's top level and its tests
+hold the eight it was fitted on:
+
+| File | Kind | Content type | Scenario / key | Exported | Bytes | sha256 |
+|---|---|---|---|---|---|---|
+| `r2l/qe-upgradefinder-Hotornot-pxfjkvtjslxy.json` | Upgrade Finder | Dungeon | +10 | 23:19:38.566Z | 118141 | `6e05a8b8fb5cdcaeaffc240ee6e6dbf396000243378e058aaf184eab17599e8f` |
+| `r2l/qe-droptimizer-Hotornot-hfuvwbktjxbn.json` | Top Gear, pass 1 | Raid | `asOffered` | 23:19:50.513Z | 20166 | `b9a3b97c53ce33a2464cba5d6050cb3004a2598b3ed7587814ecfb42060dce8a` |
+| `r2l/qe-upgradefinder-Hotornot-vpbzaajcevxr.json` | Upgrade Finder | Raid | +10 | 23:20:01.895Z | 117966 | `ff8303d36162020be728b551d0a0f9d20eb9c4a6c3a8c8b25f2df56720e3236a` |
+| `r2l/qe-droptimizer-Hotornot-yomfpzeabcrr.json` | Top Gear, pass 1 | Raid | `maxed` | 23:21:52.560Z | 20973 | `efe2ba85a36fefe67241ba30698b12563fee830e535440aef6ef43d6a696a6e4` |
+
+Item 271528 (the tier helm) in them: the Upgrade Finder rows of the raid drop
+(`source` 1320 / 2887, `dropDifficulty` 3) at **324** `drop` **+0.194** and
+**334** `max`/`bonus` **+0.608** (Dungeon), **+0.372** and **+0.783** (Raid),
+and no row at any other level; the Raid `asOffered` top set (6529.623) holds the
+bag 318 copy's key at 318 and rates the worn 321 swapped in as differential 3,
+`scorePercent 0.18377783832236563`; the Raid `maxed` top set (6607.39) holds the
+bag 318 copy at 334. The same run's Dungeon pass-1 `asOffered` and `maxed`
+differ from the R-2k pair above in `exportedAt` and `reportId` only (`diff`,
+2026-10-07), so the R-2k pair stands for them: its `asOffered` rates the bag
+318 swapped in as differential 2, `scorePercent 0.071235173585871`.
+`spec/tooltip_spec.lua`'s R-2l block reads all six.
+
+## The second piece that wants cresting (R-2n, WKE-697)
+
+The same run's other four Dungeon Upgrade Finder documents, extracted on
+2026-10-08 the same way from the same `Data/QEVerdict.lua` (read only, copied
+out of the addon folder first; sha256 still
+`423d80df8eb398d7754e43a8ed0b767ab71df08186e918b7646ee3600e73fdff`): the
+`json` strings of exports 3, 4, 5 and 6 of 22, each byte for byte, in `r2n/`
+for the same reason `r2l/` exists.
+
+| File | Kind | Content type | Key | Exported | Bytes | sha256 |
+|---|---|---|---|---|---|---|
+| `r2n/qe-upgradefinder-Hotornot-jokmciwyrjaz.json` | Upgrade Finder | Dungeon | +2 | 23:19:27.867Z | 117067 | `e808280732d9913767c3d4376cd0592db86f0c3de06b7e72af1aa083db59eefd` |
+| `r2n/qe-upgradefinder-Hotornot-xwazpanlfczn.json` | Upgrade Finder | Dungeon | +4 | 23:19:30.665Z | 117118 | `d93ef7a6721ad76d7af6c690afbe12acaaaaf9205766840a3cf91738871789b2` |
+| `r2n/qe-upgradefinder-Hotornot-sskmrrjyvenk.json` | Upgrade Finder | Dungeon | +6 | 23:19:33.316Z | 96686 | `4a5c0ed60d59dd77cb164aab7e2db572bbfa03aafd8ba3649f2df0ac5f0969d7` |
+| `r2n/qe-upgradefinder-Hotornot-qomjnkokpvlb.json` | Upgrade Finder | Dungeon | +8 | 23:19:35.980Z | 96738 | `4b35bcd38cab41f16794746cb906eced88e95ef775b9898a636cf1e4d1b425c1` |
+
+Item 159301 (Primal Dinomancer's Belt, the bag 302 the owner hovered on
+2026-10-07) in the five Dungeon documents: +2 rows at 321 **+0.486**, 308
+**+0.145**, 295 **0**; +4 at 321 **+0.486**, 308 **+0.145**, 298 **0**; +6 at
+321 **+0.486** and **305 +0.068**; +8 at 321 **+0.486** and 308 **+0.145**;
++10 at 334 **+0.87**, 321 **+0.486**, 311 **+0.222**. The Dungeon `maxed`
+document projects the bag copy to **308**, so 305 is the first winning level
+and only the +6 document carries it: his hover's `+0.07% Upgrade` / `Crest to
+305 - then wear.` needs all five, and R-2l's +10 alone leaves the belt with no
+row in (302, 308]. `spec/tooltip_spec.lua`'s R-2n block reads all five with
+R-2l's Dungeon and Raid pairs.
+
+## The two exports the compare joins (E-0d, WKE-673)
+
+`spec/enginecompare_spec.lua` parses the +10 pair of the 2026-09-08 companion run
+and joins each to the newest journal walk of
+`spec/fixtures/captures/Lootpath-20260916-162655.lua`, asserting the byte length
+beside these hashes (read with `sha256sum` on 2026-09-30):
+
+| File | Content type | Bytes | sha256 |
+|---|---|---|---|
+| `qe-upgradefinder-Hotornot-wyharestkdyr.json` | Dungeon +10 | 120017 | `922062cf859efc52847a3876bc2b7a0a17627aa3d147f1b5a2814e7e3c609170` |
+| `qe-upgradefinder-Hotornot-ynfzbppepnzw.json` | Raid | 119677 | `de5e4537528c0a65e1f28022fb5e13254f90f9648afe9afe0a5b64d9c68ae122` |
+
+Both join 30 drop rows (all raid drops), leave 72 drop rows with no link at
+their level and 213 other listings out.
+
 ## `sample-upgradefinder-v1.json` - hand-built, not from QE Live
 
 Written for M3-6 (WKE-535) by mirroring the fork's exporter field for field.
@@ -331,3 +423,48 @@ exercised in both directions.
 
 Files here are excluded from luacheck and StyLua (raw third-party payloads,
 never linted or formatted).
+
+## The 12.1.5 reset-day run (E-0n, WKE-706)
+
+All 28 documents **written by the companion** on 2026-10-13 23:06:45-23:10:18 UTC, the owner's
+reset-day Refresh on the 12.1.5 client, extracted unedited from the `Data/QEVerdict.lua` it wrote
+into his addon folder (written 2026-10-13T23:10:18Z, 1,276,068 bytes, sha256
+`50a86c05453f52b0ec47347a978f3e6351e15685245336c9cb23bdadcc96bbff`; profile captured
+2026-10-13T18:06:31 local). Each file is that export's `json` string byte for byte - the Lua
+escapes of `tools/companion/lib/luawriter.js` undone and every length checked against the
+`bytes` the companion wrote beside it - named by its own `reportId`, and kept in `e0n/` because
+`tools/engine` reads every `qe-upgradefinder-*` file at this folder's top level and its tests
+hold the eight it was fitted on. The QE Live web app is not the WoW client: what makes these the
+12.1.5 run is the day and the profile they rate, which the companion built from the 12.1.5
+client's own inventory snapshot.
+
+| File | Kind | Content type | Scenario / key | Exported | Bytes | sha256 |
+|---|---|---|---|---|---|---|
+| `e0n/qe-droptimizer-Hotornot-quridapswmyb.json` | Top Gear | Dungeon | asOffered pass 1 | 23:06:45.879Z | 19607 | `fc92e50586525c163fab33c4fa22a52491cc442bcbfccf396811e48276a76830` |
+| `e0n/qe-droptimizer-Hotornot-vtjwsyfsklbv.json` | Top Gear | Dungeon | asOffered pass 2 | 23:06:57.092Z | 17524 | `29c15c1704edcfd0392b90e8da1f5dc799f87b5f4b23b27d641a7909da6ff45b` |
+| `e0n/qe-upgradefinder-Hotornot-yzpttpqbdisx.json` | Upgrade Finder | Dungeon | +2 pass 1 | 23:06:59.696Z | 117009 | `7c73dad8d1cda8dfd5a8a35b9fe1969a424c921375a9a743dc3790cebdea7b3f` |
+| `e0n/qe-upgradefinder-Hotornot-jqdtqmtxqqsl.json` | Upgrade Finder | Dungeon | +4 pass 1 | 23:07:02.391Z | 117063 | `11a096f2f0fa405f1c6fb962fd9ec6e92244f4312bebdaa6f7a6ec008f06deb5` |
+| `e0n/qe-upgradefinder-Hotornot-rxcfhfjxqsvw.json` | Upgrade Finder | Dungeon | +6 pass 1 | 23:07:04.977Z | 96629 | `982581889ae72649c2ef5e1b57a8fb7628a6671d8e2a29a08d146047bdb3f2c7` |
+| `e0n/qe-upgradefinder-Hotornot-omkhyvpxbmdd.json` | Upgrade Finder | Dungeon | +8 pass 1 | 23:07:07.327Z | 96682 | `dca96bab65b4c7d3cdf85189897aabe78f5b4eadaf4405e0faaec38fa61639cd` |
+| `e0n/qe-upgradefinder-Hotornot-ehokzbsiacjm.json` | Upgrade Finder | Dungeon | +10 pass 1 | 23:07:09.877Z | 118063 | `7471cc239348935267155b1f81f61e3b9ad16fe0e8e0fe90726fb866175191c6` |
+| `e0n/qe-droptimizer-Hotornot-ytpkiitzzeyq.json` | Top Gear | Raid | asOffered pass 1 | 23:07:23.046Z | 18761 | `592cbb6bd55edfa84a4b5ae50ad0e6031e9b01deeb490c0262ad34a41294313c` |
+| `e0n/qe-droptimizer-Hotornot-hrtrlxqnxqik.json` | Top Gear | Raid | asOffered pass 2 | 23:07:33.276Z | 17539 | `aa03a79a4a4e2555c3b8b0f1a77ad39998759b15bde5b53b4892534d7656840e` |
+| `e0n/qe-upgradefinder-Hotornot-ajavabkbyoyo.json` | Upgrade Finder | Raid | +10 pass 1 | 23:07:35.258Z | 117683 | `dc9d0ee69a1481057d54d3aac8ef905629723e0c30ce07e767ab53fa50e5ea2b` |
+| `e0n/qe-droptimizer-Hotornot-uadbwruosccw.json` | Top Gear | Dungeon | catalyzed pass 1 | 23:07:45.126Z | 17530 | `888d9019764dc46671f29cdeba792c58cf824b24398669f9e8e458ac7ca76848` |
+| `e0n/qe-droptimizer-Hotornot-bcizulbcjchl.json` | Top Gear | Dungeon | catalyzed pass 2 | 23:07:55.607Z | 17948 | `910931c3e37c52d40cc437b37a0889b7bdece854c14dfc214a9a5931c4812c39` |
+| `e0n/qe-droptimizer-Hotornot-cjqkahuhasec.json` | Top Gear | Dungeon | catalyzed pass 3 | 23:08:02.371Z | 11473 | `67d3955d6b35eeae3daf88338e3ff55ddcf70920efd9822b34de729274200256` |
+| `e0n/qe-droptimizer-Hotornot-ohcmftusqqqm.json` | Top Gear | Raid | catalyzed pass 1 | 23:08:10.974Z | 17403 | `d4a83735c0bc8ae8b4b4f592ced3cf4c97e8f9f716686874a995a697fe4a18d2` |
+| `e0n/qe-droptimizer-Hotornot-cnnvikjskuom.json` | Top Gear | Raid | catalyzed pass 2 | 23:08:22.357Z | 18476 | `00ef6d00d324d57924acfa0bac675e92f68ed6baa6cebf5530f4bf3c99632334` |
+| `e0n/qe-droptimizer-Hotornot-dckfaceiopyi.json` | Top Gear | Raid | catalyzed pass 3 | 23:08:29.339Z | 11488 | `2f4e999afda001cdd133574e8ccee9abbef6d13cffd13a0e40e2e1a5a06a2e03` |
+| `e0n/qe-droptimizer-Hotornot-xianmquqozff.json` | Top Gear | Dungeon | thisWeek pass 1 | 23:08:38.304Z | 17530 | `e098dd3eb6d51971630ae5111ecd7dd1218fd5dc883fa476efdd073a4094f6ad` |
+| `e0n/qe-droptimizer-Hotornot-mzckrwcphvzi.json` | Top Gear | Dungeon | thisWeek pass 2 | 23:08:50.620Z | 17948 | `b15a7fe7049b46d08af87c370917ea0ab83d34d1728dd1bbbc99c5d7fb4929a3` |
+| `e0n/qe-droptimizer-Hotornot-jseokwvwfbss.json` | Top Gear | Dungeon | thisWeek pass 3 | 23:08:57.504Z | 11473 | `3ad8655a705a08139a60fd38f3752f25c4997d19ea3d26d199bd81fdfabfa6e6` |
+| `e0n/qe-droptimizer-Hotornot-vcuhcmnnmvux.json` | Top Gear | Raid | thisWeek pass 1 | 23:09:06.269Z | 17403 | `2c2323131f087261888c10d2733a7c3cf026caae4a8b42f849e268e73421b277` |
+| `e0n/qe-droptimizer-Hotornot-drusaefcqnxf.json` | Top Gear | Raid | thisWeek pass 2 | 23:09:17.685Z | 18476 | `a47703b0f769409b2e258977f445c2d50b9a695f40335a0e17be896c9fdd948b` |
+| `e0n/qe-droptimizer-Hotornot-wmhzmwhknvpm.json` | Top Gear | Raid | thisWeek pass 3 | 23:09:24.702Z | 11488 | `aab744f6eb2d3cf02c4d0c136decf5d5e604ad038075925bad64b6492d76028e` |
+| `e0n/qe-droptimizer-Hotornot-navpfnteyosy.json` | Top Gear | Dungeon | maxed pass 1 | 23:09:33.536Z | 16911 | `86d3a4d9f63c6c4df282b8bd0201b4a0e35a47b2b967ded903276922bd2914f0` |
+| `e0n/qe-droptimizer-Hotornot-rxudkxjpsbfc.json` | Top Gear | Dungeon | maxed pass 2 | 23:09:45.369Z | 16238 | `8b1a59ddd277c8e4820f111e8478f7bee8df1c384b735256956644f52a70f79d` |
+| `e0n/qe-droptimizer-Hotornot-pjeiwblqphel.json` | Top Gear | Dungeon | maxed pass 3 | 23:09:51.969Z | 11482 | `2d571d6902c63e63e10feaecc906117a245f5e059d5d4785671f75ff9e217f1a` |
+| `e0n/qe-droptimizer-Hotornot-tskmulqeplbk.json` | Top Gear | Raid | maxed pass 1 | 23:10:00.584Z | 18086 | `8b9b63162e8d3eb365aad2545836490759f812d8582076a175302df813ca34d3` |
+| `e0n/qe-droptimizer-Hotornot-vbiybxevltmq.json` | Top Gear | Raid | maxed pass 2 | 23:10:11.549Z | 17031 | `f696fedba00276b8f386e03b616702e6132ec3f2f3474d75ff3139efc53ea2ae` |
+| `e0n/qe-droptimizer-Hotornot-nmawdnwywmrd.json` | Top Gear | Raid | maxed pass 3 | 23:10:18.267Z | 11497 | `f5f6de8900ee4df2d63c0ae74e2a7039c72a87d9e9b037409f764d2dd6c519b7` |
