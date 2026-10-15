@@ -412,13 +412,13 @@ describe("Rate on arrival over the owner's 2026-09-16 gear", function()
         -- had to fetch): the batch waits for the fight to end, then rates.
         local resolve = ns.EngineCompare.Resolve
         local calls = 0
-        ns.EngineCompare.Resolve = function(links, done)
+        ns.EngineCompare.Resolve = function(wanted, done)
             calls = calls + 1
             if calls == 1 then
                 world.inCombat = true
-                return done({}, #links, 0)
+                return done({}, #wanted, 0)
             end
-            return resolve(links, done)
+            return resolve(wanted, done)
         end
         intoBag(world, links[SKULLSASH])
         bagEvent(world)
