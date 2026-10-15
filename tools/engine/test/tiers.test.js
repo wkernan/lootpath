@@ -88,7 +88,8 @@ test('luaTiers writes { [setID] = { [2] = { mult = 1 + tier2 }, [4] = { mult = 1
 test('the dev file carries no trace of the fit-side tier shape', () => {
     const r = fitOnce();
     for (const field of ['setIDs', 'twoPiece', 'fourPiece', 'forceTier']) assert.ok(!r.lua.includes(field), field);
-    assert.match(r.lua, /tiers = \{\n {8}\[2057\] = \{\n {12}\[2\] = \{\n {16}mult = 1\.021,/);
+    // Under the spec since schema version 2 (E-4, WKE-708): three levels in.
+    assert.match(r.lua, /\n {12}tiers = \{\n {16}\[2057\] = \{\n {20}\[2\] = \{\n {24}mult = 1\.021,/);
 });
 
 test('EngineScore loads the dev file and applies --tier2 at 2 pieces and --tier4 on top at 4', (t) => {

@@ -1457,12 +1457,15 @@ end
 function EngineCompare.Lines(run)
     local T = EngineCompare.TEXT
     local file = run.file or {}
+    -- `method` and `derivedAt` are the spec's own since schema version 2
+    -- (E-4, WKE-708); the compare scores the default spec.
+    local entry = ns.EngineScore.SpecEntry(file) or {}
     local lines = {
         string.format(
             T.header,
-            tostring(file.method),
+            tostring(entry.method),
             tostring(file.patch),
-            tostring(file.derivedAt),
+            tostring(entry.derivedAt),
             run.charKey,
             run.weekKey or "unknown"
         ),
@@ -1720,10 +1723,11 @@ local function store()
 end
 
 local function entryOf(block, file)
+    local spec = ns.EngineScore.SpecEntry(file) or {}
     return {
         weightsPatch = file.patch,
-        method = file.method,
-        derivedAt = file.derivedAt,
+        method = spec.method,
+        derivedAt = spec.derivedAt,
         qeExportedAt = block.exportedAt,
         band = block.band,
         atLevel = block.atLevel,

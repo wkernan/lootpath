@@ -18,6 +18,12 @@
 --   value   = (baseValue + w_int * int + sum_r w_r * pct_r) * tier multiplier
 --   percent = 100 * (V(best set with the candidate) - V(worn)) / V(worn)
 --
+-- The stats summed, the ratings converted and the tier sets are the spec's
+-- own, read from its entry in the weights file (schema version 2, E-4,
+-- WKE-708: StatsFor, SpecEntry); `int` above is the entry's `primaryStat`,
+-- Intellect for Restoration. Nothing upstream reads a primary stat other than
+-- Intellect yet (ns.EngineStats, EngineSearch, EngineCompare: E-6).
+--
 -- Our percents are UNSCALED: no 1.5 (Top Gear's `modelDiff`) anywhere here.
 --
 -- Effects (E-3a, WKE-679): an item whose ID is in the effects table
@@ -44,7 +50,12 @@ local EngineScore = ns.EngineScore
 EngineScore.FUNCTION_NAMES = { "GetBuildInfo" }
 
 EngineScore.SCHEMA = "lootpath-engine-weights"
-EngineScore.VERSION = 1
+-- Schema version 2 (E-4, WKE-708): each spec carries its own shape - `role`,
+-- `primaryStat`, `stats`, `method`, `derivedAt` and `tiers` - so any class and
+-- role can be described by data (docs/OWN-ENGINE.md section 5). A version 1
+-- file is refused whole: an old dev file in a local install must never load
+-- half-right.
+EngineScore.VERSION = 2
 
 -- What the loader says, and nothing else. Printed only for a developer.
 EngineScore.TEXT = {
@@ -57,9 +68,33 @@ EngineScore.TEXT = {
 EngineScore.DEFAULT_SPEC = 105
 EngineScore.DEFAULT_CONTENT = "Dungeon"
 
--- The stats a total carries and the ones converted to percent.
-EngineScore.STATS = { "int", "haste", "crit", "mastery", "vers", "leech" }
-EngineScore.RATINGS = { "haste", "crit", "mastery", "vers", "leech" }
+-- What a spec entry may say (E-4, WKE-708). `role` is the client's own
+-- string, GetSpecializationInfo's fifth return ("HEALER" and "TANK" read in
+-- committed captures; "DAMAGER" in Blizzard's own FrameXML). `stats` is the
+-- ordered list the score sums: the spec's `primaryStat` first, then the
+-- ratings it values, each converted to percent after the sum - today's five
+-- secondaries and leech, plus avoidance and speed, the client's other tertiary
+-- ratings (ns.EngineStats reads both). A stat outside these is refused, not
+-- skipped. `method` "synthetic" is for the specs' own fixtures; no tool writes
+-- it.
+EngineScore.ROLES = { HEALER = true, DAMAGER = true, TANK = true }
+EngineScore.PRIMARY_STATS = { int = true, agi = true, str = true }
+EngineScore.RATING_STATS = {
+    haste = true,
+    crit = true,
+    mastery = true,
+    vers = true,
+    leech = true,
+    avoidance = true,
+    speed = true,
+}
+EngineScore.METHODS = {
+    placeholder = true,
+    ["fit-to-qe-exports"] = true,
+    ["combat-log"] = true,
+    simc = true,
+    synthetic = true,
+}
 
 -- The off-hand slots a two-hander displaces (Inventory.SLOT_BY_EQUIPLOC's
 -- vocabulary, which is QE Live's Top Gear export's).
@@ -157,18 +192,171 @@ function EngineScore.TiersProblem(tiers)
     return nil
 end
 
+-- The developer line beside a refusal for a spec entry that is not in the
+-- version 2 shape (E-4, WKE-708): `%s` names the field, under `specs[<id>]`.
+EngineScore.SPEC_SHAPE = "weights file: %s"
+-- ... and for a file of another version: the version it is and the one read.
+EngineScore.VERSION_DETAIL = "weights file: version %s - this Lootpath reads version %d; rebuild it with tools/engine"
+
+local function sortedKeys(t)
+    local keys = {}
+    for k in pairs(t) do
+        keys[#keys + 1] = k
+    end
+    table.sort(keys, function(a, b)
+        return tostring(a) < tostring(b)
+    end)
+    return keys
+end
+
+-- SpecProblem(specID, entry) -> nil when the entry is in version 2's shape,
+-- else the field that is not, named under `specs[<specID>]`: `role` one of
+-- ROLES; `primaryStat` one of PRIMARY_STATS; `stats` a list whose first is the
+-- primary stat and whose rest are RATING_STATS, none twice; `method` one of
+-- METHODS; `derivedAt` a string; `tiers` in TiersProblem's shape. A tier
+-- problem comes back with a second return, true, so Load can say what a tier
+-- must look like.
+function EngineScore.SpecProblem(specID, entry)
+    local name = "specs[" .. tostring(specID) .. "]"
+    if type(specID) ~= "number" then
+        name = "specs." .. tostring(specID)
+    end
+    if not isWhole(specID) then
+        return name .. " is not keyed by a specID"
+    end
+    if type(entry) ~= "table" then
+        return name .. " is not a table"
+    end
+    if entry.role == nil then
+        return name .. ".role is missing"
+    end
+    if not EngineScore.ROLES[entry.role] then
+        return name .. ".role is not HEALER, DAMAGER or TANK"
+    end
+    if entry.primaryStat == nil then
+        return name .. ".primaryStat is missing"
+    end
+    if not EngineScore.PRIMARY_STATS[entry.primaryStat] then
+        return name .. ".primaryStat is not int, agi or str"
+    end
+    local stats = entry.stats
+    if stats == nil then
+        return name .. ".stats is missing"
+    end
+    if type(stats) ~= "table" or #stats == 0 then
+        return name .. ".stats is not a list"
+    end
+    local n = 0
+    for _ in pairs(stats) do
+        n = n + 1
+    end
+    if n ~= #stats then
+        return name .. ".stats is not a list"
+    end
+    if stats[1] ~= entry.primaryStat then
+        return name .. ".stats[1] is not the primary stat"
+    end
+    local seen = { [stats[1]] = true }
+    for i = 2, #stats do
+        local stat = stats[i]
+        if seen[stat] then
+            return name .. ".stats[" .. i .. "] is listed twice"
+        end
+        if not EngineScore.RATING_STATS[stat] then
+            return name .. ".stats[" .. i .. "] is not a rating the engine reads"
+        end
+        seen[stat] = true
+    end
+    if entry.method == nil then
+        return name .. ".method is missing"
+    end
+    if not EngineScore.METHODS[entry.method] then
+        return name .. ".method is not one the engine knows"
+    end
+    if type(entry.derivedAt) ~= "string" then
+        return name .. ".derivedAt is missing"
+    end
+    local tiersProblem = EngineScore.TiersProblem(entry.tiers)
+    if tiersProblem then
+        return name .. "." .. tiersProblem, true
+    end
+    return nil
+end
+
+-- SpecEntry(file, spec) -> the file's entry for `spec` (DEFAULT_SPEC when
+-- nil), or nil. `file` defaults to what Load kept.
+function EngineScore.SpecEntry(file, spec)
+    file = file or EngineScore.file
+    local specs = type(file) == "table" and file.specs
+    local entry = type(specs) == "table" and specs[spec or EngineScore.DEFAULT_SPEC]
+    if type(entry) == "table" then
+        return entry
+    end
+    return nil
+end
+
+-- What StatsFor reads off an entry, built once per entry so a hot loop never
+-- rebuilds it.
+local listsOf = setmetatable({}, { __mode = "k" })
+
+local function statLists(entry)
+    if type(entry) ~= "table" then
+        return nil
+    end
+    local held = listsOf[entry]
+    if held then
+        return held
+    end
+    local stats, primary = entry.stats, entry.primaryStat
+    if type(stats) ~= "table" or #stats == 0 or stats[1] ~= primary then
+        return nil
+    end
+    local list, ratings = {}, {}
+    for i, stat in ipairs(stats) do
+        list[i] = stat
+        if i > 1 then
+            ratings[#ratings + 1] = stat
+        end
+    end
+    held = { stats = list, ratings = ratings, primary = primary }
+    listsOf[entry] = held
+    return held
+end
+
+-- StatsFor(spec[, file]) -> stats, ratings, primaryStat | nil: the spec's
+-- ordered stat list (the primary first), the ratings among them (every stat
+-- after the primary, each converted to percent after the sum) and its primary
+-- stat, read from the entry (E-4, WKE-708; before it these were the constants
+-- EngineScore.STATS and EngineScore.RATINGS). Restoration's entry gives
+-- exactly those: int, haste, crit, mastery, vers, leech. The lists are the
+-- module's own copies; a caller does not change them.
+function EngineScore.StatsFor(spec, file)
+    local lists = statLists(EngineScore.SpecEntry(file, spec))
+    if not lists then
+        return nil
+    end
+    return lists.stats, lists.ratings, lists.primary
+end
+
 -- Load() -> true, line | false, refusal, detail. Reads ns.engineWeights (set
 -- by Data/EngineWeights.lua at load) and GetBuildInfo()'s version, and keeps
--- the file only when its schema, version and spec table are there, its `tiers`
--- is in tierOf's shape and its patch is the client's. `detail` is for a
+-- the file only when its schema and version are this module's, its spec table
+-- holds at least one spec, every spec is in version 2's shape (SpecProblem;
+-- its `tiers` in tierOf's) and its patch is the client's. `detail` is for a
 -- developer: the field a broken file tripped on, when one is named.
 function EngineScore.Load()
     local file = ns.engineWeights
     if type(file) ~= "table" then
         return refuse(EngineScore.TEXT.broken)
     end
-    if file.schema ~= EngineScore.SCHEMA or file.version ~= EngineScore.VERSION then
+    if file.schema ~= EngineScore.SCHEMA then
         return refuse(EngineScore.TEXT.broken)
+    end
+    if file.version ~= EngineScore.VERSION then
+        return refuse(
+            EngineScore.TEXT.broken,
+            string.format(EngineScore.VERSION_DETAIL, tostring(file.version), EngineScore.VERSION)
+        )
     end
     if type(file.specs) ~= "table" or next(file.specs) == nil then
         return refuse(EngineScore.TEXT.broken)
@@ -176,9 +364,17 @@ function EngineScore.Load()
     if type(file.patch) ~= "string" then
         return refuse(EngineScore.TEXT.broken)
     end
-    local tiersProblem = EngineScore.TiersProblem(file.tiers)
-    if tiersProblem then
-        return refuse(EngineScore.TEXT.broken, string.format(EngineScore.TIERS_SHAPE, tiersProblem))
+    local allPlaceholder = true
+    for _, specID in ipairs(sortedKeys(file.specs)) do
+        local entry = file.specs[specID]
+        local problem, isTiers = EngineScore.SpecProblem(specID, entry)
+        if problem then
+            local shape = isTiers and EngineScore.TIERS_SHAPE or EngineScore.SPEC_SHAPE
+            return refuse(EngineScore.TEXT.broken, string.format(shape, problem))
+        end
+        if entry.method ~= "placeholder" then
+            allPlaceholder = false
+        end
     end
     local patch = clientPatch()
     if not patch then
@@ -190,7 +386,9 @@ function EngineScore.Load()
     EngineScore.file = file
     EngineScore.refusal = nil
     EngineScore.refusalDetail = nil
-    if file.method == "placeholder" then
+    -- The placeholder line only when every spec is a placeholder: "none of
+    -- them mean anything" is said of the whole file.
+    if allPlaceholder then
         EngineScore.status = "placeholder"
         return true, string.format(EngineScore.TEXT.placeholder, file.patch)
     end
@@ -280,11 +478,11 @@ local function bandOf(file, opts)
     return EngineScore.BandFor(file, opts.spec, opts.contentType, opts.keyLevel)
 end
 
-local function add(totals, stats, times)
+local function add(totals, list, stats, times)
     if type(stats) ~= "table" then
         return
     end
-    for _, stat in ipairs(EngineScore.STATS) do
+    for _, stat in ipairs(list) do
         local v = stats[stat]
         if type(v) == "number" then
             totals[stat] = totals[stat] + v * times
@@ -457,24 +655,32 @@ function EngineScore.SetValue(items, opts)
     if type(band.weights) ~= "table" then
         return nil, EngineScore.NO_BAND
     end
+    -- The spec's own stat list and tier sets (E-4, WKE-708). A file Load did
+    -- not check may lack them; it makes no value.
+    local spec = opts.spec or EngineScore.DEFAULT_SPEC
+    local list, ratings, primary = EngineScore.StatsFor(spec, file)
+    if not list then
+        return nil, EngineScore.TEXT.broken
+    end
+    local entry = EngineScore.SpecEntry(file, spec)
 
     local totals = {}
-    for _, stat in ipairs(EngineScore.STATS) do
+    for _, stat in ipairs(list) do
         totals[stat] = 0
     end
     local finish = opts.assumedFinish and band.assumedFinish or nil
     local effects, unmodelled, unknown, hps = {}, nil, nil, 0
     for _, item in ipairs(items) do
-        add(totals, item, 1)
+        add(totals, list, item, 1)
         if opts.assumedFinish then
             if finish then
-                add(totals, finish.gemVector, tonumber(item.sockets) or 0)
+                add(totals, list, finish.gemVector, tonumber(item.sockets) or 0)
                 local bySlot = finish.enchantBySlot
-                add(totals, type(bySlot) == "table" and bySlot[item.slot] or nil, 1)
+                add(totals, list, type(bySlot) == "table" and bySlot[item.slot] or nil, 1)
             end
         elseif type(item.gems) == "table" then
             for _, gem in ipairs(item.gems) do
-                add(totals, gem.stats, 1)
+                add(totals, list, gem.stats, 1)
             end
         end
         local state, entry, answer = EngineScore.EffectOf(item, opts.effects)
@@ -483,7 +689,7 @@ function EngineScore.SetValue(items, opts)
             kept.confidence = answer.confidence
             if answer.stat then
                 kept.stat = answer.stat
-                add(totals, answer.stat, 1)
+                add(totals, list, answer.stat, 1)
             else
                 kept.hps = answer.hps
                 hps = hps + answer.hps
@@ -497,7 +703,7 @@ function EngineScore.SetValue(items, opts)
             unknown[#unknown + 1] = { itemID = item.itemID }
         end
     end
-    add(totals, band.assumedBuffs, 1)
+    add(totals, list, band.assumedBuffs, 1)
 
     local pcts = {}
     if opts.dr == "table" then
@@ -505,7 +711,7 @@ function EngineScore.SetValue(items, opts)
         if type(dr) ~= "table" then
             return nil, "no dr table"
         end
-        for _, stat in ipairs(EngineScore.RATINGS) do
+        for _, stat in ipairs(ratings) do
             local p = EngineScore.TablePercent(totals[stat], dr[stat])
             if p == nil then
                 return nil, "no dr table"
@@ -518,7 +724,7 @@ function EngineScore.SetValue(items, opts)
         if type(rate) ~= "function" then
             return nil, "unrated"
         end
-        for _, stat in ipairs(EngineScore.RATINGS) do
+        for _, stat in ipairs(ratings) do
             local p, secret = rate(index[stat], totals[stat])
             if secret then
                 return nil, "secret"
@@ -531,8 +737,8 @@ function EngineScore.SetValue(items, opts)
     end
 
     local w = band.weights
-    local value = (band.baseValue or 0) + (w.int or 0) * totals.int
-    for _, stat in ipairs(EngineScore.RATINGS) do
+    local value = (band.baseValue or 0) + (w[primary] or 0) * totals[primary]
+    for _, stat in ipairs(ratings) do
         value = value + (w[stat] or 0) * pcts[stat]
     end
     -- A modelled healing effect joins the value only through the file's own
@@ -547,7 +753,7 @@ function EngineScore.SetValue(items, opts)
             hpsNotAdded = true
         end
     end
-    local tier = tierOf(items, file.tiers, opts.forceTier)
+    local tier = tierOf(items, entry.tiers, opts.forceTier)
     value = value * tier.mult
 
     return {

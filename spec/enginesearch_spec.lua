@@ -175,7 +175,7 @@ end
 
 local function weights(tier2, tier4)
     local w = dofile(WEIGHTS)
-    w.tiers = { [TIER] = { [2] = { mult = tier2 or 1.0001 }, [4] = { mult = tier4 or 1.06 } } }
+    w.specs[105].tiers = { [TIER] = { [2] = { mult = tier2 or 1.0001 }, [4] = { mult = tier4 or 1.06 } } }
     return w
 end
 

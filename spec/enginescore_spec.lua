@@ -90,6 +90,25 @@ describe("Data/EngineWeights.lua", function()
         return rest == ""
     end
 
+    -- A one-line list of plain quoted words under `key =`: the spec's `stats`
+    -- (E-4, WKE-708): `stats = { "int", "haste" },`.
+    local function isWordList(line)
+        local body = line:match("^%s*[%a_][%w_]* = { (.-) },?$")
+        if not body then
+            return false
+        end
+        local rest = (body .. ", "):gsub('"[%a_][%w_]*", ', "")
+        return rest == ""
+    end
+
+    it("does not wave through a one-line list that could run something", function()
+        assert.is_true(isWordList('            stats = { "int", "haste", "crit", "mastery", "vers", "leech" },'))
+        assert.is_false(isWordList('            stats = { "int", f() },'))
+        assert.is_false(isWordList('            stats = { "int", x },'))
+        assert.is_false(isWordList('            stats = { "int" .. "x" },'))
+        assert.is_false(isWordList('            stats = { "in t" },'))
+    end)
+
     it("does not wave through a one-line table that could run something", function()
         assert.is_true(isNumberTable("                { from = 1320, penalty = 0.1 },"))
         assert.is_true(isNumberTable("            [2] = { mult = 1.111 },"))
@@ -113,6 +132,7 @@ describe("Data/EngineWeights.lua", function()
                 or line:match('^%s*%[%-?[%d"+%w]+%] = {$')
                 or line:match("^%s*},?$")
                 or isNumberTable(line)
+                or isWordList(line)
             assert.is_truthy(ok, "unexpected line in a data-only chunk: " .. line)
             assert.is_falsy(line:match("^[^%-]*%f[%w]function%f[%W]"), line)
             assert.is_falsy(line:match("^[^%-]*%f[%w]for%f[%W]"), line)
@@ -126,12 +146,21 @@ describe("Data/EngineWeights.lua", function()
     it("is the placeholder, and says so", function()
         local file = loadShipped().engineWeights
         assert.equal("lootpath-engine-weights", file.schema)
-        assert.equal(1, file.version)
-        assert.equal("placeholder", file.method)
+        assert.equal(2, file.version)
         assert.equal("12.1.0", file.patch)
-        assert.equal("never", file.derivedAt)
-        assert.is_table(file.specs[105].Dungeon.bands["10+"])
-        assert.is_table(file.specs[105].Raid)
+        -- Schema version 2 (E-4, WKE-708): Restoration's own shape.
+        local resto = file.specs[105]
+        assert.equal("HEALER", resto.role)
+        assert.equal("int", resto.primaryStat)
+        assert.same(STATS, resto.stats)
+        assert.equal("placeholder", resto.method)
+        assert.equal("never", resto.derivedAt)
+        assert.is_table(resto.tiers[-1])
+        assert.is_nil(file.method)
+        assert.is_nil(file.derivedAt)
+        assert.is_nil(file.tiers)
+        assert.is_table(resto.Dungeon.bands["10+"])
+        assert.is_table(resto.Raid)
         assert.truthy(readAll(SHIPPED):find("SYNTHETIC PLACEHOLDER", 1, true))
     end)
 
@@ -217,10 +246,153 @@ describe("ns.EngineScore.Load", function()
 
     it("refuses another version", function()
         local _, ok, sentence = refusedWith(function(ns)
-            ns.engineWeights.version = 2
+            ns.engineWeights.version = 3
         end)
         assert.is_false(ok)
         assert.equal(BROKEN, sentence)
+    end)
+
+    -- E-4 (WKE-708): a version 1 file - the shape every weights file had before
+    -- it, method, derivedAt and tiers at the top - is refused whole, so an old
+    -- dev file in a local install never loads half-right.
+    it("refuses a version 1 file, the old shape, with the broken sentence and says why to a developer", function()
+        local ns, ok, sentence = refusedWith(function(ns)
+            local w = ns.engineWeights
+            local resto = w.specs[105]
+            w.version = 1
+            w.method, w.derivedAt, w.tiers = resto.method, resto.derivedAt, resto.tiers
+            for _, field in ipairs({ "role", "primaryStat", "stats", "method", "derivedAt", "tiers" }) do
+                resto[field] = nil
+            end
+        end)
+        assert.is_false(ok)
+        assert.equal(BROKEN, sentence)
+        assert.is_nil(ns.EngineScore.file)
+        assert.equal("refused", ns.EngineScore.status)
+        assert.equal(
+            "weights file: version 1 - this Lootpath reads version 2; rebuild it with tools/engine",
+            ns.EngineScore.refusalDetail
+        )
+        assert.is_nil(ns.EngineScore.StatsFor(105))
+    end)
+
+    it("refuses a version 2 file whose only change is the version number going back to 1", function()
+        local _, ok, sentence = refusedWith(function(ns)
+            ns.engineWeights.version = 1
+        end)
+        assert.is_false(ok)
+        assert.equal(BROKEN, sentence)
+    end)
+
+    it("refuses every spec entry not in version 2's shape, and names each field", function()
+        local function without(field)
+            return function(e)
+                e[field] = nil
+            end
+        end
+        local function set(field, value)
+            return function(e)
+                e[field] = value
+            end
+        end
+        local cases = {
+            { without("role"), "specs[105].role is missing" },
+            { set("role", "healer"), "specs[105].role is not HEALER, DAMAGER or TANK" },
+            { without("primaryStat"), "specs[105].primaryStat is missing" },
+            { set("primaryStat", "intellect"), "specs[105].primaryStat is not int, agi or str" },
+            { without("stats"), "specs[105].stats is missing" },
+            { set("stats", {}), "specs[105].stats is not a list" },
+            { set("stats", "int"), "specs[105].stats is not a list" },
+            { set("stats", { "int", "haste", x = "crit" }), "specs[105].stats is not a list" },
+            { set("stats", { "haste", "int" }), "specs[105].stats[1] is not the primary stat" },
+            { set("stats", { "int", "haste", "haste" }), "specs[105].stats[3] is listed twice" },
+            { set("stats", { "int", "int" }), "specs[105].stats[2] is listed twice" },
+            { set("stats", { "int", "stamina" }), "specs[105].stats[2] is not a rating the engine reads" },
+            { set("stats", { "int", "agi" }), "specs[105].stats[2] is not a rating the engine reads" },
+            { without("method"), "specs[105].method is missing" },
+            { set("method", "logs"), "specs[105].method is not one the engine knows" },
+            { without("derivedAt"), "specs[105].derivedAt is missing" },
+        }
+        for _, case in ipairs(cases) do
+            local ns, ok, sentence = refusedWith(function(ns)
+                case[1](ns.engineWeights.specs[105])
+            end)
+            assert.is_false(ok, case[2])
+            assert.equal(BROKEN, sentence, case[2])
+            assert.equal("weights file: " .. case[2], ns.EngineScore.refusalDetail, case[2])
+        end
+        local _, ok = refusedWith(function(ns)
+            ns.engineWeights.specs["105"] = ns.engineWeights.specs[105]
+            ns.engineWeights.specs[105] = nil
+        end)
+        assert.is_false(ok)
+    end)
+
+    it("reads Restoration's six stats off the loaded entry, in order, Intellect first", function()
+        local ns = H.load()
+        local stats, ratings, primary = ns.EngineScore.StatsFor(105)
+        assert.same({ "int", "haste", "crit", "mastery", "vers", "leech" }, stats)
+        assert.same({ "haste", "crit", "mastery", "vers", "leech" }, ratings)
+        assert.equal("int", primary)
+        assert.same(stats, (ns.EngineScore.StatsFor()))
+        assert.is_nil(ns.EngineScore.StatsFor(102))
+    end)
+
+    -- One file, two specs, each its own shape (the reason for version 2): a
+    -- damage dealer beside Restoration loads, keeps its own list, and leaves
+    -- Restoration's lists and value exactly as they were.
+    it("loads a second spec beside Restoration with its own stats, and Restoration's value does not move", function()
+        local function worn()
+            return {
+                vec("Head", { int = 200, haste = 300, crit = 200, mastery = 300, vers = 300 }),
+                vec("Chest", { int = 150, haste = 400, crit = 300, mastery = 900, vers = 100 }),
+            }
+        end
+        local ns = H.load()
+        ns.engineWeights = dofile(WEIGHTS)
+        assert.is_true((ns.EngineScore.Load()))
+        local before = assert(ns.EngineScore.SetValue(worn(), { dr = "table", forceTier = true })).value
+        H.unload()
+        ns = H.load()
+        local w = dofile(WEIGHTS)
+        w.specs[103] = {
+            role = "DAMAGER",
+            primaryStat = "agi",
+            stats = { "agi", "mastery", "crit", "haste", "vers", "speed" },
+            method = "simc",
+            derivedAt = "never",
+            tiers = { [-2] = { [2] = { mult = 1.01 } } },
+        }
+        ns.engineWeights = w
+        local ok, line = ns.EngineScore.Load()
+        assert.is_true(ok)
+        assert.equal("Engine ratings for 12.1.0 loaded.", line)
+        assert.same({ "agi", "mastery", "crit", "haste", "vers", "speed" }, (ns.EngineScore.StatsFor(103)))
+        assert.same(STATS, (ns.EngineScore.StatsFor(105)))
+        local after = assert(ns.EngineScore.SetValue(worn(), { dr = "table", forceTier = true })).value
+        assert.equal(before, after)
+    end)
+
+    it("says placeholder only when every spec is one", function()
+        local ns = H.load()
+        local w = ns.engineWeights
+        w.specs[103] = {
+            role = "DAMAGER",
+            primaryStat = "agi",
+            stats = { "agi", "haste" },
+            method = "placeholder",
+            derivedAt = "never",
+            tiers = { [-2] = { [2] = { mult = 1.01 } } },
+        }
+        local ok, line = ns.EngineScore.Load()
+        assert.is_true(ok)
+        assert.equal("placeholder", ns.EngineScore.status)
+        assert.equal("Engine ratings for 12.1.0 loaded - placeholder numbers, none of them mean anything.", line)
+        w.specs[103].method = "simc"
+        ok, line = ns.EngineScore.Load()
+        assert.is_true(ok)
+        assert.equal("loaded", ns.EngineScore.status)
+        assert.equal("Engine ratings for 12.1.0 loaded.", line)
     end)
 
     it("refuses a file without a spec table", function()
@@ -262,7 +434,7 @@ describe("ns.EngineScore.Load", function()
 
     it("refuses a file whose tiers are in the fit tool's old shape, naming the field", function()
         local ns, ok, sentence = refusedWith(function(ns)
-            ns.engineWeights.tiers = OLD_SHAPE
+            ns.engineWeights.specs[105].tiers = OLD_SHAPE
         end)
         assert.is_false(ok)
         assert.equal(BROKEN, sentence)
@@ -270,7 +442,7 @@ describe("ns.EngineScore.Load", function()
         assert.equal("refused", ns.EngineScore.status)
         local _, _, detail = ns.EngineScore.Load()
         assert.equal(
-            "weights file: tiers.forceTier is not keyed by a setID"
+            "weights file: specs[105].tiers.forceTier is not keyed by a setID"
                 .. " - tiers must be { [setID] = { [pieces] = { mult = n } } }",
             detail
         )
@@ -296,21 +468,26 @@ describe("ns.EngineScore.Load", function()
         }
         for _, case in ipairs(cases) do
             local ns, ok, sentence = refusedWith(function(ns)
-                ns.engineWeights.tiers = case[1]
+                ns.engineWeights.specs[105].tiers = case[1]
             end)
             assert.is_false(ok, case[2])
             assert.equal(BROKEN, sentence, case[2])
             assert.equal(case[2], ns.EngineScore.TiersProblem(case[1]))
+            assert.equal(
+                string.format(ns.EngineScore.TIERS_SHAPE, "specs[105]." .. case[2]),
+                ns.EngineScore.refusalDetail,
+                case[2]
+            )
         end
     end)
 
     it("loads every committed file whose tiers are in tierOf's shape", function()
-        assert.is_nil(H.load().EngineScore.TiersProblem(loadShipped().engineWeights.tiers))
+        assert.is_nil(H.load().EngineScore.TiersProblem(loadShipped().engineWeights.specs[105].tiers))
         H.unload()
         for _, path in ipairs({ WEIGHTS, FITTED }) do
             local ns = H.load()
             ns.engineWeights = dofile(path)
-            assert.is_nil(ns.EngineScore.TiersProblem(ns.engineWeights.tiers), path)
+            assert.is_nil(ns.EngineScore.TiersProblem(ns.engineWeights.specs[105].tiers), path)
             assert.is_true((ns.EngineScore.Load()), path)
             H.unload()
         end
@@ -320,16 +497,16 @@ describe("ns.EngineScore.Load", function()
         local ns, world = H.load({ loaded = false })
         table.insert(ns.onReady, 1, function()
             ns.db.global.developer = { engine = true }
-            ns.engineWeights.tiers = OLD_SHAPE
+            ns.engineWeights.specs[105].tiers = OLD_SHAPE
         end)
         world.fireEvent("ADDON_LOADED", H.ADDON)
         local out = world.output()
         assert.truthy(out:find(BROKEN, 1, true))
-        assert.truthy(out:find("weights file: tiers.forceTier is not keyed by a setID", 1, true))
+        assert.truthy(out:find("weights file: specs[105].tiers.forceTier is not keyed by a setID", 1, true))
         H.unload()
         local ns2, world2 = H.load({ loaded = false })
         table.insert(ns2.onReady, 1, function()
-            ns2.engineWeights.tiers = OLD_SHAPE
+            ns2.engineWeights.specs[105].tiers = OLD_SHAPE
         end)
         world2.fireEvent("ADDON_LOADED", H.ADDON)
         assert.equal("refused", ns2.EngineScore.status)
@@ -380,10 +557,11 @@ describe("ns.EngineScore.SetValue", function()
             assert.equal(F.model.assumedFinish[k] or 0, band.assumedBuffs[k] or 0, k)
         end
         assert.equal(1, #F.model.tiers.setIDs)
-        assert.equal(F.model.tiers.setIDs[1], (next(W.tiers)))
-        assert.is_nil(next(W.tiers, F.model.tiers.setIDs[1]))
-        near(1 + F.model.tiers.twoPiece, W.tiers[2057][2].mult, "2pc")
-        near(1 + F.model.tiers.fourPiece, W.tiers[2057][4].mult, "4pc")
+        local tiers = W.specs[105].tiers
+        assert.equal(F.model.tiers.setIDs[1], (next(tiers)))
+        assert.is_nil(next(tiers, F.model.tiers.setIDs[1]))
+        near(1 + F.model.tiers.twoPiece, tiers[2057][2].mult, "2pc")
+        near(1 + F.model.tiers.fourPiece, tiers[2057][4].mult, "4pc")
     end)
 
     it("equals a hand computation of the worn set", function()

@@ -10,11 +10,43 @@
 // files (ARCHITECTURE.md section 9, 2026-10-06, E-1b).
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const crypto = require('crypto');
 const T = require('../topgear-agreement');
 
 // The game's own Data/EngineWeights.lua, read in the owner's install on
-// 2026-10-06 (derived 2026-10-02T02:21:19.971Z): the refit must be it.
+// 2026-10-06 (derived 2026-10-02T02:21:19.971Z), schema version 1: the refit,
+// read back in version 1's layout (v1View below), must be it.
 const GAME_WEIGHTS_SHA256 = '72126c5d940b949bea7f2daba87fa8326a8e6f33ce8ad3ca8632eeef7cb9c78d';
+// The same refit as tools/engine writes it since E-4 (WKE-708), schema
+// version 2: read from this test's own run.
+const REFIT_V2_SHA256 = '7d67ff8dd53f490ddeeda5a406410e1d743079224f1cb0affa3d7c504dcb8ed7';
+
+// v1View(text) -> the version 2 file in version 1's layout, byte for byte as
+// tools/engine wrote it before E-4: `version = 1`, `method` and `derivedAt`
+// back at the top, the spec's `role`, `primaryStat`, `stats`, `method` and
+// `derivedAt` lines gone, its `tiers` block back at the end of the file one
+// level out. Nothing else moves, so every number the game scored with is
+// compared, unchanged, against the game's own file.
+function v1View(text) {
+    const one = (re, what) => {
+        const m = text.match(re);
+        assert.ok(m, `v1View: no ${what}`);
+        return m;
+    };
+    const method = one(/\n {12}method = ("[^"]*"),/, 'spec method')[1];
+    const derivedAt = one(/\n {12}derivedAt = ("[^"]*"),/, 'spec derivedAt')[1];
+    const tiers = one(/\n {12}tiers = \{\n[\s\S]*?\n {12}\},/, 'spec tiers')[0];
+    let out = text.replace(tiers, '');
+    for (const re of [/\n {12}role = "[^"]*",/, /\n {12}primaryStat = "[^"]*",/, /\n {12}stats = \{[^}]*\n {12}\},/, /\n {12}method = "[^"]*",/, /\n {12}derivedAt = "[^"]*",/]) {
+        assert.ok(re.test(out), `v1View: ${re}`);
+        out = out.replace(re, '');
+    }
+    out = out.replace(/\n {4}version = 2,\n {4}devOnly = true,\n( {4}patch = "[^"]*",\n)/, (_, patch) => `\n    version = 1,\n    method = ${method},\n    devOnly = true,\n${patch}    derivedAt = ${derivedAt},\n`);
+    const outdented = tiers.replace(/\n {8}/g, '\n');
+    assert.ok(out.endsWith('\n}\n'), 'v1View: the file ends with its table');
+    return `${out.slice(0, -3)}${outdented}\n}\n`;
+}
 
 let cached = null;
 function result(t) {
@@ -31,10 +63,12 @@ function result(t) {
 const near = (expected, actual, tol, what) => assert.ok(Math.abs(expected - actual) <= tol, `${what}: expected ${expected}, got ${actual}`);
 const caseOf = (r, mode, name) => r.cases.find((c) => c.mode === mode && c.name === name);
 
-test('the refitted weights are the game file, byte for byte', (t) => {
+test('the refitted weights are the game file, byte for byte, read in version 1\'s layout', (t) => {
     const r = result(t);
     if (!r) return;
-    assert.equal(r.weights.sha256, GAME_WEIGHTS_SHA256);
+    assert.equal(r.weights.sha256, REFIT_V2_SHA256);
+    const v1 = v1View(fs.readFileSync(r.weights.path, 'utf8'));
+    assert.equal(crypto.createHash('sha256').update(v1).digest('hex'), GAME_WEIGHTS_SHA256);
 });
 
 test('the single-swap rows reproduce the rows week one STORED (effects as the game ran them)', (t) => {
