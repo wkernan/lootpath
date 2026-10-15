@@ -50,9 +50,23 @@ default, see "What is assumed"), `--effect-ids` (default the four below),
 `--resamples 200`, `--seed 1`, `--out <dir>`, `--derived-at <ISO>`,
 `--compare <SavedVariables.lua>` and `--balance none|class` (E-0m, below).
 
+**The file is schema version 2** (E-4, WKE-708; `docs/OWN-ENGINE.md` §5,
+"Schema v2"). The tool fits one spec, Restoration Druid, and writes its entry
+whole under `specs[105]`: `role = "HEALER"`, `primaryStat = "int"`, `stats =
+{ "int", "haste", "crit", "mastery", "vers", "leech" }` (the list the score
+sums, the primary first - `lib/luaout.js` `RESTORATION`), `method =
+"fit-to-qe-exports"`, `derivedAt` (`--derived-at`), the content types and their
+bands as before, and the spec's `tiers`. `patch`, `devOnly`, `fittedTo`,
+`superseded` and `dr` stay at the top. Every number is the one version 1
+carried: `test/topgear-agreement.test.js` reads the refit back in version 1's
+layout and holds it to the sha256 of the game's own version 1 file. A version 1
+file in a local install is refused whole (`Not rated - the rating data didn't
+load.`, and for a developer `weights file: version 1 - this Lootpath reads
+version 2; rebuild it with tools/engine`): rebuild it with this tool.
+
 **The tier rule in the dev file is EngineScore's shape** (E-0i, WKE-680):
 `tiers = { [setID] = { [2] = { mult = 1 + tier2 }, [4] = { mult = 1 + tier4 } } }`
-for every `--tier-sets` ID. `EngineScore` adds the bonuses a set has reached
+for every `--tier-sets` ID, under the spec since schema version 2. `EngineScore` adds the bonuses a set has reached
 before it multiplies (`1 + Σ(mult − 1)`), so four pieces score `1 + tier2 +
 tier4`, the same as `lib/score.js`. The fit's own `{ setIDs, twoPiece,
 fourPiece, forceTier }` stays in the fit JSON and `score.js`; before E-0i it was
@@ -323,8 +337,8 @@ own machine:
    over the game copy and `/reload` (`sync.ps1 -IncludeData` would also do it,
    but overwrites the companion's files in `Data\` too).
 
-The file says `method = "fit-to-qe-exports"`, `devOnly = true` and `DEV ONLY -
-never ship` in its header, with every document and sha256 it was fitted to.
+The file says `method = "fit-to-qe-exports"` (in the spec's entry since schema
+version 2), `devOnly = true` and `DEV ONLY - never ship` in its header, with every document and sha256 it was fitted to.
 E-0c refuses a file whose `patch` is not the client's; the patch is the
 transcript's build (12.1.0 for the committed captures). `.pkgmeta` never packages
 it: `tools` is in its `ignore` list, and the file is gitignored besides.
@@ -424,7 +438,10 @@ same gate). A synthetic export generated from known weights fits back inside the
 interval; effect and censored rows are excluded and counted; every row carries
 its stats source; the score fixture's values hold, by hand too; the dev file
 loads in Lua 5.1 (from PATH, or the repo's `lootpath-lua` Docker image) and
-carries the fitted numbers; the itemstats transcript is read (80 items, the
+carries the fitted numbers in schema version 2's shape (E-4: `test/patch-guard.test.js`
+also loads the shipped placeholder on a 12.1.0 client, refuses a version 1 file
+and a spec entry without `primaryStat` or `stats`, and reads `StatsFor(105)`);
+the itemstats transcript is read (80 items, the
 helm's stats, versatility's key, `client` rows flagged with their source, the
 two client sources agreeing where they overlap); the DR table reproduces the
 client's 35 conversions; the real-stats fixture is the extraction, byte for
