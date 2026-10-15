@@ -392,12 +392,43 @@ describe("Rate on arrival over the owner's 2026-09-16 gear", function()
             records = scan.records,
             bank = false,
         }
+        -- Nothing is read in combat: the item reads are never even asked for.
+        local resolve = ns.EngineCompare.Resolve
+        ns.EngineCompare.Resolve = function(...)
+            assert.is_false(world.inCombat == true, "Resolve reached in combat")
+            return resolve(...)
+        end
         world.inCombat = true
         ns.EngineCompare.ObserveRead(r)
         assert.equal(0, #ns.EngineCompare.arrivals)
         world.inCombat = false
         world.fireEvent("PLAYER_REGEN_ENABLED")
         assert.equal(1, #ns.EngineCompare.arrivals)
+        assert.equal(1, #engineLines(world))
+    end)
+
+    it("holds reads that come back in combat until PLAYER_REGEN_ENABLED", function()
+        -- The item reads finish after a fight has started (a link the client
+        -- had to fetch): the batch waits for the fight to end, then rates.
+        local resolve = ns.EngineCompare.Resolve
+        local calls = 0
+        ns.EngineCompare.Resolve = function(links, done)
+            calls = calls + 1
+            if calls == 1 then
+                world.inCombat = true
+                return done({}, #links, 0)
+            end
+            return resolve(links, done)
+        end
+        intoBag(world, links[SKULLSASH])
+        bagEvent(world)
+        assert.equal(0, #ns.EngineCompare.arrivals)
+        assert.same({}, engineLines(world))
+        world.inCombat = false
+        world.fireEvent("PLAYER_REGEN_ENABLED")
+        assert.equal(2, calls)
+        assert.equal(1, #ns.EngineCompare.arrivals)
+        assert.is_number(ns.EngineCompare.arrivals[1].ours)
         assert.equal(1, #engineLines(world))
     end)
 
