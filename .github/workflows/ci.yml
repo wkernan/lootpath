@@ -100,7 +100,7 @@ jobs:
         uses: BigWigsMods/packager@v2.5.1
         with:
           args: -d
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: Lootpath-zip
           path: .release/*.zip
