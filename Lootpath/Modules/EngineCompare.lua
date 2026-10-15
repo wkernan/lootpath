@@ -1821,7 +1821,14 @@ function EngineCompare.Run(contentType, keyLevel, onDone)
             local s = store()
             if result.uf then
                 local docKey = ns.UFImport.KeyLevelKey(result.uf.keyLevel)
-                EngineCompare.Store(s, run.weekKey, run.charKey, contentType, docKey, entryOf(result.uf, inputs.file, inputs.spec))
+                EngineCompare.Store(
+                    s,
+                    run.weekKey,
+                    run.charKey,
+                    contentType,
+                    docKey,
+                    entryOf(result.uf, inputs.file, inputs.spec)
+                )
             end
             if result.tg and not result.tg.topMissing then
                 EngineCompare.Store(

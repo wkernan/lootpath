@@ -449,7 +449,9 @@ describe("the role gate opens for the developer engine only (E-6)", function()
         end)
         assert.equal(104, run.spec)
         local out = world.output()
-        assert.truthy(out:find("engine best - weights synthetic, patch 12.1.0, derived never - Dungeon, band 10+", 1, true))
+        assert.truthy(
+            out:find("engine best - weights synthetic, patch 12.1.0, derived never - Dungeon, band 10+", 1, true)
+        )
         assert.truthy(out:find("primary stat agi: on 55 of 55 pieces read.", 1, true))
         assert.is_true(run.result.value >= run.wornValue)
         assert.is_nil(out:lower():find("plan", 1, true))
@@ -488,7 +490,10 @@ describe("the role gate opens for the developer engine only (E-6)", function()
             error("the compare ran")
         end)
         C_Item.GetItemStats = real
-        assert.same({ PREFIX .. "engine compare needs an Upgrade Finder rating; there is none for Guardian." }, world.printed)
+        assert.same(
+            { PREFIX .. "engine compare needs an Upgrade Finder rating; there is none for Guardian." },
+            world.printed
+        )
         assert.equal(0, asked)
         assert.equal(before, healerKeys(ns))
     end)
@@ -552,4 +557,152 @@ describe("the role gate opens for the developer engine only (E-6)", function()
         assert.is_nil(ns.Companion.Gate())
         assert.equal(before, healerKeys(ns))
     end)
+end)
+
+-- E-7's SimC entries (WKE-710) carry weights per POINT of each stat; the
+-- engine multiplies a rating's weight by its percent, so a per-point rating
+-- weight is converted with the file's own `dr[rating].ratingPerPercent`
+-- (EngineScore.WeightsPerPercent; ARCHITECTURE.md section 7, E-6).
+local SIMC = "spec/fixtures/engine/weights-simc-e7.lua"
+
+local function simcFile()
+    local holder = {}
+    assert(loadfile(SIMC))("Lootpath", holder)
+    return holder.engineWeights
+end
+
+describe("SimC's per-point weights (E-6 over E-7)", function()
+    local ns, world
+    before_each(function()
+        ns, world = H.load()
+        ns.db.global.developer = { engine = true }
+    end)
+    after_each(function()
+        H.unload()
+    end)
+
+    -- Proven red by answering band.weights unchanged for a per-point band in
+    -- WeightsPerPercent: the per-point set is worth 1/44 of its haste and the
+    -- two values differ.
+    it("values a per-point band as the same band per percent, through the file's own rating per percent", function()
+        local w = weights({ [103] = "DAMAGER" })
+        local band = w.specs[103].Dungeon.bands["10+"]
+        band.baseValue = 0
+        band.assumedBuffs = {}
+        band.weights = { agi = 2, haste = 3, crit = 0, mastery = 0, vers = 0 }
+        local perPercent = deepcopy(w)
+        band.unit = "per point"
+        perPercent.specs[103].Dungeon.bands["10+"].weights.haste = 3 * w.dr.haste.ratingPerPercent
+        local set = { item("Head", { agi = 100, haste = 600 }) }
+        local opts = { spec = 103, dr = "table", contentType = "Dungeon" }
+        opts.file = w
+        local a = assert(ns.EngineScore.SetValue(set, opts))
+        opts.file = perPercent
+        local b = assert(ns.EngineScore.SetValue(set, opts))
+        assert.is_true(close(a.value, b.value))
+        -- Below the first bracket a per-point weight is exactly per point.
+        assert.is_true(close(a.value, 2 * 100 + 3 * 600))
+    end)
+
+    -- Proven red by taking the unit check out of SpecProblem: the file loads.
+    it("refuses a band in a unit it cannot read, and a per-point rating with no rating per percent", function()
+        world.build[1] = "12.1.5"
+        local file = simcFile()
+        file.specs[103].Raid.bands.all.unit = "per second"
+        ns.engineWeights = file
+        local ok, line, detail = ns.EngineScore.Load()
+        assert.is_false(ok)
+        assert.equal(ns.EngineScore.TEXT.broken, line)
+        assert.equal("weights file: specs[103].Raid.bands[all].unit is not per point or per percent", detail)
+        file = simcFile()
+        file.dr.mastery = nil
+        ns.engineWeights = file
+        ok, line, detail = ns.EngineScore.Load()
+        assert.is_false(ok)
+        assert.equal("weights file: specs[102] is per point and dr.mastery has no ratingPerPercent", detail)
+    end)
+
+    -- E-7's own file loads, and each of its specs is the spec in use when the
+    -- client says so: Balance's entry is Intellect (SimC's word for it, and
+    -- the client's 4), Feral's and Guardian's Agility.
+    it("loads E-7's file and scores each of its specs as the spec in use, with no code for any of them", function()
+        world.build[1] = "12.1.5"
+        ns.engineWeights = simcFile()
+        assert(ns.EngineScore.Load())
+        world.spec = { index = 1, id = 102, name = "Balance", icon = 136096, role = "DAMAGER", primaryStat = 4 }
+        local spec, entry = ns.EngineScore.SpecInUse()
+        assert.equal(102, spec)
+        assert.equal("int", entry.primaryStat)
+        world.spec = FERAL
+        assert.equal(103, (ns.EngineScore.SpecInUse()))
+        world.spec = GUARDIAN
+        assert.equal(104, (ns.EngineScore.SpecInUse()))
+        -- Restoration is not in E-7's file: its one line names the three.
+        world.spec = { index = 4, id = 105, name = "Restoration", icon = 136041, role = "HEALER" }
+        local none, _, line = ns.EngineScore.SpecInUse()
+        assert.is_nil(none)
+        assert.equal("Coming soon for Restoration. Lootpath rates Balance, Feral and Guardian gear for now.", line)
+    end)
+end)
+
+describe("engine best over E-7's file on the owner's inventory (synthetic stats)", function()
+    local ns, world
+    after_each(function()
+        H.unload()
+    end)
+
+    -- The figures this prints measure the plumbing over SimC's weights and
+    -- SYNTHETIC item stats; they rate nothing real.
+    for _, case in ipairs({
+        { spec = FERAL, agility = true, name = "Feral" },
+        { spec = GUARDIAN, agility = true, name = "Guardian" },
+        {
+            spec = { index = 1, id = 102, name = "Balance", icon = 136096, role = "DAMAGER", primaryStat = 4 },
+            agility = false,
+            name = "Balance",
+        },
+    }) do
+        it("runs in " .. case.name .. ", storing nothing", function()
+            ns, world = H.load()
+            local db = R.load(SV)
+            ns.db.char = deepcopy(db.char[CHAR])
+            ns.db.global = deepcopy(db.global)
+            ns.db.global.developer = { engine = true }
+            world.build[1] = "12.1.5"
+            R.inventory(world, R.snapshot("inventory", DRESSED, SV))
+            ns.engineWeights = simcFile()
+            assert(ns.EngineScore.Load())
+            local entries = {}
+            for _, record in ipairs(ns.Inventory.Scan().records) do
+                entries[#entries + 1] = { link = record.link, level = record.itemLevel }
+            end
+            Stats.install(world, entries)
+            if case.agility then
+                for _, stats in pairs(world.itemStats) do
+                    stats.ITEM_MOD_AGILITY_SHORT, stats.ITEM_MOD_INTELLECT_SHORT = stats.ITEM_MOD_INTELLECT_SHORT, nil
+                end
+            end
+            world.spec = case.spec
+            local before = healerKeys(ns)
+            world.printed = {}
+            local run
+            ns.EngineCompare.Command("best raid", function(r)
+                run = r
+            end)
+            drive(world, function()
+                return run ~= nil
+            end)
+            assert.equal(case.spec.id, run.spec)
+            assert.is_table(run.result)
+            assert.equal("all", run.result.band)
+            assert.is_true(run.result.value >= run.wornValue)
+            assert.equal(55, run.primary.on)
+            assert.equal(before, healerKeys(ns))
+            for _, line in ipairs(world.printed) do
+                if not line:find("^|cff66ccffLootpath|r:   ") then
+                    io.stdout:write("\n[enginespec] simc " .. case.name .. ": " .. line .. "\n")
+                end
+            end
+        end)
+    end
 end)

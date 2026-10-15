@@ -466,7 +466,13 @@ function EngineSearch.Candidates(items, weights, opts)
     if not list then
         return nil, ns.EngineScore.TEXT.broken
     end
-    local w = band.weights
+    -- Per percent of every rating, whatever unit the band is in (E-6:
+    -- SimC's per-point bands, EngineScore.WeightsPerPercent), so the proxy
+    -- weighs a rating as SetValue does.
+    local w, unitWhy = ns.EngineScore.WeightsPerPercent(weights, band, ratings)
+    if not w then
+        return nil, unitWhy
+    end
     local signs = {}
     for _, stat in ipairs(list) do
         local x = tonumber(w[stat]) or 0

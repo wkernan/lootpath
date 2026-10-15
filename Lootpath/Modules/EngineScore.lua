@@ -108,6 +108,16 @@ EngineScore.RATING_STATS = {
     avoidance = true,
     speed = true,
 }
+-- The unit a band's weights are in (E-6, WKE-712). Absent, or "per percent",
+-- is every file before E-7: a rating's weight is value per percent of the
+-- rating, the primary stat's per point. "per point" is SimulationCraft's scale
+-- factor (tools/simc, E-7, WKE-710): value per POINT of every stat, rating or
+-- not. The engine converts a per-point rating weight to per percent with the
+-- file's own `dr[rating].ratingPerPercent` (WeightsPerPercent); the writer
+-- keeps SimC's numbers as SimC printed them. Any other unit is refused.
+EngineScore.UNITS = { ["per percent"] = true, ["per point"] = true }
+EngineScore.PER_POINT = "per point"
+
 EngineScore.METHODS = {
     placeholder = true,
     ["fit-to-qe-exports"] = true,
@@ -299,6 +309,56 @@ function EngineScore.SpecProblem(specID, entry)
     local tiersProblem = EngineScore.TiersProblem(entry.tiers)
     if tiersProblem then
         return name .. "." .. tiersProblem, true
+    end
+    -- Every band's unit (E-6): one the engine knows how to read, or none.
+    for _, content in ipairs(sortedKeys(entry)) do
+        local bands = type(entry[content]) == "table" and entry[content].bands
+        if type(bands) == "table" then
+            for _, key in ipairs(sortedKeys(bands)) do
+                local band = bands[key]
+                if type(band) == "table" and band.unit ~= nil and not EngineScore.UNITS[band.unit] then
+                    return string.format(
+                        "%s.%s.bands[%s].unit is not per point or per percent",
+                        name,
+                        tostring(content),
+                        tostring(key)
+                    )
+                end
+            end
+        end
+    end
+    return nil
+end
+
+-- What a per-point band needs from the file (E-6): every rating the spec sums
+-- converts with a `ratingPerPercent` in the file's `dr`. nil, or the rating
+-- that has none, named.
+local function perPointProblem(file, specID, entry)
+    local per = false
+    for _, content in pairs(entry) do
+        local bands = type(content) == "table" and content.bands
+        if type(bands) == "table" then
+            for _, band in pairs(bands) do
+                if type(band) == "table" and band.unit == EngineScore.PER_POINT then
+                    per = true
+                end
+            end
+        end
+    end
+    if not per then
+        return nil
+    end
+    for i = 2, #entry.stats do
+        local stat = entry.stats[i]
+        local dr = type(file.dr) == "table" and file.dr[stat]
+        local rpp = type(dr) == "table" and dr.ratingPerPercent
+        if type(rpp) ~= "number" or rpp <= 0 then
+            return string.format(
+                "weights file: specs[%s] is per point and dr.%s has no ratingPerPercent",
+                tostring(specID),
+                stat
+            )
+        end
     end
     return nil
 end
@@ -501,6 +561,10 @@ function EngineScore.Load()
             local shape = isTiers and EngineScore.TIERS_SHAPE or EngineScore.SPEC_SHAPE
             return refuse(EngineScore.TEXT.broken, string.format(shape, problem))
         end
+        local perPoint = perPointProblem(file, specID, entry)
+        if perPoint then
+            return refuse(EngineScore.TEXT.broken, perPoint)
+        end
         if entry.method ~= "placeholder" then
             allPlaceholder = false
         end
@@ -605,6 +669,50 @@ local function bandOf(file, opts)
         return nil, EngineScore.NO_BAND
     end
     return EngineScore.BandFor(file, opts.spec, opts.contentType, opts.keyLevel)
+end
+
+-- WeightsPerPercent(file, band, ratings) -> the band's weights with every
+-- rating's weight per percent of the rating | nil, why. A band in no unit or
+-- "per percent" answers its own table. A "per point" band (SimC's scale
+-- factors, E-7) answers a copy whose rating weights are multiplied by the
+-- file's `dr[rating].ratingPerPercent`: value per point times points per
+-- percent is value per percent, so w * pct(total) is w_point times the
+-- rating's effective points - exact below the first DR bracket, and the
+-- brackets slow it above, as they do for every other weight. The primary
+-- stat's weight is per point in every unit. Built once per band and file.
+local perPercentOf = setmetatable({}, { __mode = "k" })
+
+function EngineScore.WeightsPerPercent(file, band, ratings)
+    local w = type(band) == "table" and band.weights
+    if type(w) ~= "table" then
+        return nil, EngineScore.NO_BAND
+    end
+    if band.unit == nil or band.unit == "per percent" then
+        return w
+    end
+    if band.unit ~= EngineScore.PER_POINT then
+        return nil, "weights in unit " .. tostring(band.unit)
+    end
+    local held = perPercentOf[band]
+    if held and held.file == file and held.ratings == ratings then
+        return held.weights
+    end
+    local out = {}
+    for stat, x in pairs(w) do
+        out[stat] = x
+    end
+    for _, stat in ipairs(ratings or {}) do
+        local dr = type(file) == "table" and type(file.dr) == "table" and file.dr[stat]
+        local rpp = type(dr) == "table" and dr.ratingPerPercent
+        if type(rpp) ~= "number" or rpp <= 0 then
+            return nil, "no rating per percent for " .. stat
+        end
+        if type(w[stat]) == "number" then
+            out[stat] = w[stat] * rpp
+        end
+    end
+    perPercentOf[band] = { file = file, ratings = ratings, weights = out }
+    return out
 end
 
 local function add(totals, list, stats, times)
@@ -865,7 +973,10 @@ function EngineScore.SetValue(items, opts)
         end
     end
 
-    local w = band.weights
+    local w, unitWhy = EngineScore.WeightsPerPercent(file, band, ratings)
+    if not w then
+        return nil, unitWhy
+    end
     local value = (band.baseValue or 0) + (w[primary] or 0) * totals[primary]
     for _, stat in ipairs(ratings) do
         value = value + (w[stat] or 0) * pcts[stat]
