@@ -245,8 +245,14 @@ local function agilityInventory(seed)
             spare.sockets = 0
         end
     end
-    add("Neck")
-    add("Neck")
+    local neck = add("Neck")
+    -- Below the other neck in every rating and far above it in Agility: the
+    -- best neck for this spec, which a prune blind to Agility drops.
+    local agiNeck = add("Neck", { agi = neck.agi + 900, sockets = neck.sockets })
+    for _, stat in ipairs({ "haste", "crit", "mastery", "vers" }) do
+        agiNeck[stat] = math.max(0, neck[stat] - 30)
+    end
+    agiNeck.agiNeck = true
     for _, slot in ipairs({ "Back", "Wrist", "Waist", "Feet" }) do
         add(slot)
     end
@@ -274,9 +280,10 @@ describe("the search prunes over the spec's own stat list (E-6)", function()
         H.unload()
     end)
 
-    -- Proven red by pruning over Restoration's fixed six (the list this file
-    -- held before E-6): the Intellect-heavy spares are kept, no Agility-only
-    -- spare is outclassed, and the count below fails.
+    -- Proven red by pruning over Restoration's fixed six (the lists
+    -- EngineSearch held before E-6): the Agility neck is dropped as outclassed
+    -- in every stat that list weighs, and the search no longer equals brute
+    -- force over every piece.
     it("drops what the Agility list outclasses and still equals brute force", function()
         local w = weights({ [103] = "DAMAGER" })
         local opts = { spec = 103, dr = "table", contentType = "Dungeon" }
@@ -291,6 +298,9 @@ describe("the search prunes over the spec's own stat list (E-6)", function()
                 end
             end
             assert.equal(2, spares, "seed " .. seed)
+            for _, d in ipairs(c.dropped) do
+                assert.is_nil(d.item.agiNeck, "seed " .. seed)
+            end
             droppedTotal = droppedTotal + #c.dropped
             local best = assert(ns.EngineSearch.Best(items, w, opts))
             local brute = assert(ns.EngineSearch.BruteForce(items, w, opts))
@@ -304,6 +314,7 @@ describe("the search prunes over the spec's own stat list (E-6)", function()
             assert.is_true(close(best.value, brute.value), "seed " .. seed)
             assert.is_true(close(brute.value, unpruned.value), "seed " .. seed)
             assert.equal(keysOf(brute.items), keysOf(best.items), "seed " .. seed)
+            assert.equal(keysOf(unpruned.items), keysOf(best.items), "seed " .. seed)
             io.stdout:write(
                 string.format(
                     "\n[enginespec] agility seed %d: %d pieces, %d outclassed, search %d set values,"
