@@ -657,9 +657,9 @@ function EngineScore.SetValue(items, opts)
     end
     -- The spec's own stat list and tier sets (E-4, WKE-708). A file Load did
     -- not check may lack them; it makes no value.
-    local entry = EngineScore.SpecEntry(file, opts.spec)
-    local lists = statLists(entry)
-    if not entry or not lists then
+    local specEntry = EngineScore.SpecEntry(file, opts.spec)
+    local lists = statLists(specEntry)
+    if not specEntry or not lists then
         return nil, EngineScore.TEXT.broken
     end
     local list, ratings, primary = lists.stats, lists.ratings, lists.primary
@@ -753,7 +753,7 @@ function EngineScore.SetValue(items, opts)
             hpsNotAdded = true
         end
     end
-    local tier = tierOf(items, entry.tiers, opts.forceTier)
+    local tier = tierOf(items, specEntry.tiers, opts.forceTier)
     value = value * tier.mult
 
     return {
