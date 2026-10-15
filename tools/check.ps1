@@ -101,6 +101,10 @@ Invoke-Gate 'companion' {
     # tools/engine (E-0e): the structure run's tests ride the same gate, as in CI.
     Push-Location (Join-Path $repo 'tools\engine')
     try { node --test } finally { Pop-Location }
+    if ($LASTEXITCODE -ne 0) { return }
+    # tools/simc (E-7): the SimC runner's tests, over committed reports only.
+    Push-Location (Join-Path $repo 'tools\simc')
+    try { node --test } finally { Pop-Location }
 }
 
 Write-Host "`n=== summary ===" -ForegroundColor Cyan

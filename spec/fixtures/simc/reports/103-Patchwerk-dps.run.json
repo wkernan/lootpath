@@ -1,0 +1,24 @@
+{
+  "args": [
+    "fight_style=Patchwerk",
+    "iterations=100000",
+    "target_error=0",
+    "threads=16",
+    "deterministic=1",
+    "seed=7101",
+    "report_details=0",
+    "calculate_scale_factors=1",
+    "scale_only=strength,agility,intellect,haste,crit,mastery,versatility",
+    "scale_over=dps",
+    "json2=103-Patchwerk-dps.json",
+    "output=103-Patchwerk-dps.txt"
+  ],
+  "profile": {
+    "path": "C:\\tmp\\simc\\x-1210.01.2358079\\simc-1210.01.2358079-win64\\profiles\\MID2\\MID2_Druid_Feral.simc",
+    "tier": "MID2",
+    "sha256": "ad95e5d1a396b44dc1e72a6bcff38ef2b27cc8b17b4664cd4e17ff13bb7c1550"
+  },
+  "source": "simc-sample-profile",
+  "textSha256": "322378dcce52cd0b874335d5992b4c00b009709f61a720e3fb9cbc315cc928fb",
+  "simcSha256": "f06cfd911a272df156322a873ef0210673bad9ddc0c127b91f26489156e6447a"
+}

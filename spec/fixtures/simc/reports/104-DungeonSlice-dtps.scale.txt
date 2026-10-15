@@ -1,0 +1,4 @@
+Player: MID1_Druid_Guardian night_elf druid guardian 90
+  DPS=69668.13091543593 DPS-Error=23.697770991664107/0.03% DPS-Range=17738.287997087948/25.46%
+  Scale Factors:
+    Weights :  Agi=0(0)  Sta=0(0)  AP=0(0)  Crit=0(0)  Haste=0(0)  Mastery=0(0)  Vers=0(0)  Armor=0(0)  Wdps=0(0)
