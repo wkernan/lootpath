@@ -138,6 +138,35 @@ the dungeon band for a tank can only be valued on DPS, and the runner refuses a
 `dtps` value there. Which of these a tank's weights should be is the owner's
 decision (ARCHITECTURE.md §7 E-7, §11).
 
+## The writer: `write-weights.js`
+
+```powershell
+node write-weights.js 102 103 104            # -> out/EngineWeights.simc.lua
+```
+
+Writes a version 2 weights file (E-4's schema, `docs/OWN-ENGINE.md` §5) with
+one entry per spec through `tools/engine/lib/luaout.js` (`simcSpecEntry`,
+`buildSimcTable`, `renderSimc` - the same writer the fit tool uses, extended,
+not forked). Per spec: `role`, `primaryStat`, `stats`, `method = "simc"`,
+`derivedAt`, `source`, `simc` (version, git revision, game data), `Raid` from
+the Patchwerk run and `Dungeon` from the DungeonSlice run, each ONE band `all`
+(key-level scaling is not modelled), and `tiers = { [-1] = { [2] = { mult = 1
+}, [4] = { mult = 1 } } }` - no tier bonus is measured by a scale-factor run,
+and the loader refuses a spec with no `tiers`, so the entry carries the
+placeholder file's neutral set. A band holds `weights` and `errors` per stat,
+`unit = "per point"`, `value` (the metric, its mean and error), the fight,
+the iterations and the profile's sha256, and **`baseValue = 0`**: a scale factor
+is a slope at the sample profile and no intercept is measured.
+
+**Two things E-6 must handle before anything scores with it.** The weights are
+per POINT of each stat, while `EngineScore.SetValue` multiplies a rating's
+weight by its PERCENT; and nothing in the engine reads a primary stat other
+than Intellect yet. Nothing reads a SimC entry today (`EngineScore.DEFAULT_SPEC`
+is 105 and the compare scores the default spec), so the file is not copied into
+the game. It loads: `EngineScore.Load` accepts it on a 12.1.5 client and refuses
+it on any other (`test/writer.test.js`, in Lua). It holds only SimC entries; a
+file with Restoration's fitted entry beside them is not built here.
+
 ## The fixtures
 
 `spec/fixtures/simc/reports/` holds, per run, SimC's JSON report unedited

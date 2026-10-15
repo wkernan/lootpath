@@ -157,4 +157,103 @@ function render(table, meta) {
     ].join('\n');
 }
 
-module.exports = { luaString, luaValue, luaTiers, buildTable, render, RESTORATION };
+// --- SimC entries (E-7, WKE-710) ---------------------------------------------
+// tools/simc writes DPS and tank specs into the same version 2 shape through
+// these, so there is one writer of the weights file, not two.
+
+// No tier bonus is measured by a scale-factor run, and EngineScore.Load
+// refuses a spec without `tiers` (TiersProblem). Set -1 is carried by no item
+// and a multiplier of 1 changes nothing: the placeholder file's convention.
+const NO_TIER_SET = -1;
+function neutralTiers() {
+    return new Map([[NO_TIER_SET, new Map([[2, { mult: 1 }], [4, { mult: 1 }]])]]);
+}
+
+// simcSpecEntry(byContent) -> one spec's version 2 entry from tools/simc's
+// intermediate files (`lootpath-simc-scale-factors` v1), keyed by content type
+// (`{ Raid: <Patchwerk>, Dungeon: <DungeonSlice> }`). Each content type gets
+// ONE band, `all`: key-level scaling is not modelled. The weights are SimC's,
+// per POINT of each stat (`unit`), not per percent of a rating: the band says
+// so and nothing reads a SimC entry until E-6. `baseValue` is 0: a scale
+// factor is a slope at the sample profile, and no intercept is measured.
+function simcSpecEntry(byContent) {
+    const parts = Object.entries(byContent).filter(([, e]) => e);
+    if (!parts.length) throw new Error('no SimC entry to write');
+    const [, first] = parts[0];
+    for (const [ct, e] of parts) {
+        if (e.schema !== 'lootpath-simc-scale-factors' || e.version !== 1) throw new Error(`${ct}: not a tools/simc file (schema ${e.schema} v${e.version})`);
+        for (const k of ['specID', 'role', 'primaryStat', 'patch']) {
+            if (e[k] !== first[k]) throw new Error(`${ct}: ${k} is ${e[k]}, the other content type's is ${first[k]}`);
+        }
+        if (JSON.stringify(e.stats) !== JSON.stringify(first.stats)) throw new Error(`${ct}: stats differ between content types`);
+        if (e.simc.gitRevision !== first.simc.gitRevision) throw new Error(`${ct}: SimC build differs between content types`);
+        for (const k of e.stats) {
+            if (typeof e.weights[k] !== 'number' || !Number.isFinite(e.weights[k])) throw new Error(`${ct}: no weight for ${k}`);
+        }
+    }
+    const entry = {
+        role: first.role,
+        primaryStat: first.primaryStat,
+        stats: first.stats.slice(),
+        method: 'simc',
+        derivedAt: parts.map(([, e]) => e.derivedAt).sort().pop(),
+        source: first.source,
+        simc: { version: first.simc.version, gitRevision: first.simc.gitRevision, wowVersion: first.simc.wowVersion },
+    };
+    for (const [ct, e] of parts) {
+        entry[ct] = {
+            bands: {
+                all: {
+                    baseValue: 0,
+                    unit: e.unit,
+                    weights: Object.fromEntries(e.stats.map((k) => [k, e.weights[k]])),
+                    errors: Object.fromEntries(e.stats.map((k) => [k, e.factors[e.value.metric].stats[k].error])),
+                    value: { metric: e.value.metric, mean: e.value.mean, error: e.value.error },
+                    fight: e.fight,
+                    iterations: e.settings.iterations,
+                    profile: e.profile.sha256,
+                    assumedFinish: {},
+                    assumedBuffs: {},
+                },
+            },
+        };
+    }
+    entry.tiers = neutralTiers();
+    return entry;
+}
+
+// buildSimcTable(specs, meta) -> a version 2 table of SimC entries.
+// `specs` is a Map specID -> simcSpecEntry(); every intermediate must be for
+// the same game patch (meta.patch), the one file-level `patch`.
+function buildSimcTable(specs, meta) {
+    return {
+        schema: 'lootpath-engine-weights',
+        version: 2,
+        devOnly: true,
+        patch: meta.patch,
+        specs,
+        dr: meta.dr,
+    };
+}
+
+function renderSimc(table, meta) {
+    const runs = meta.inputs.map((i) => `--   ${i.file}  sha256 ${i.sha256}`).join('\n');
+    return [
+        '-- DEV ONLY - never ship.',
+        '--',
+        "-- Written by tools/simc/write-weights.js (E-7, WKE-710): stat weights from",
+        "-- SimulationCraft's own scale factors over its sample profiles, run by us. Weights",
+        '-- are per POINT of each stat (`unit`), baseValue 0, no tier bonus measured (set',
+        '-- -1). Gitignored; .pkgmeta never packages tools/. Regenerate it; never edit it.',
+        '--',
+        '-- From:',
+        runs,
+        '',
+        'local _, ns = ...',
+        '',
+        `ns.engineWeights = ${luaValue(table, 0)}`,
+        '',
+    ].join('\n');
+}
+
+module.exports = { luaString, luaValue, luaTiers, buildTable, render, RESTORATION, NO_TIER_SET, simcSpecEntry, buildSimcTable, renderSimc };
