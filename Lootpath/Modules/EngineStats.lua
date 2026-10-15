@@ -72,6 +72,21 @@ EngineStats.FUNCTION_NAMES = {
 -- only key here the transcript did not show (no item carried it): it stays at
 -- the wiki's name, grade (ii). A key not in this table is kept under
 -- `other[key]`, never dropped.
+--
+-- Agility and Strength (E-6, WKE-712): the transcript was read in Restoration,
+-- and the client named Intellect ONLY - on all 69 items that carry a primary
+-- stat, leather pieces included, while their tooltips drew the other primaries
+-- greyed ("|cff7f7f7f140 Agility|r", line type 42). So which key
+-- `GetItemStats` answers Agility under in an Agility spec is NOT read: the two
+-- names below are Blizzard's own global strings (ITEM_MOD_AGILITY_SHORT =
+-- "Agility", ITEM_MOD_STRENGTH_SHORT = "Strength" in the annotations'
+-- GlobalStrings, .luals/vscode-wow-api/src/data/globalstring/enUS.ts), the
+-- same family as the Intellect key the transcript proves, grade (ii) until a
+-- `capture itemstats` in an Agility and a Strength spec reads them
+-- (ARCHITECTURE.md section 11). The mixed names the same strings carry
+-- (`ITEM_MOD_AGILITY_OR_INTELLECT_SHORT` and its siblings) are NOT mapped: a
+-- key that may mean either primary is not counted as one, and it lands in
+-- `other` where `EngineSearch`'s "primary read on" line shows it.
 EngineStats.STAT_KEYS = {
     ITEM_MOD_INTELLECT_SHORT = "int", -- 69 items
     ITEM_MOD_STAMINA_SHORT = "stamina", -- 61
@@ -86,11 +101,15 @@ EngineStats.STAT_KEYS = {
     ITEM_MOD_CR_SPEED_SHORT = "speed", -- 1
     ITEM_MOD_MODIFIED_CRAFTING_STAT_1 = "randomStat1", -- 1
     ITEM_MOD_CR_AVOIDANCE_SHORT = "avoidance", -- not seen; the wiki's name
+    ITEM_MOD_AGILITY_SHORT = "agi", -- not seen in Restoration; global string, (ii)
+    ITEM_MOD_STRENGTH_SHORT = "str", -- not seen in Restoration; global string, (ii)
 }
 
 -- The vector's fields, in one order, each 0 when the item carries none.
 EngineStats.VECTOR = {
     "int",
+    "agi",
+    "str",
     "stamina",
     "crit",
     "haste",
@@ -108,14 +127,23 @@ EngineStats.VECTOR = {
 -- The rating indices, read from Blizzard's own constants in
 -- PaperDollFrame.lua (under .luals/, Blizzard_UIPanels_Game/Mainline:14, 17,
 -- 20, 26, 29 of the annotated copy). Literal here because they are FrameXML
--- globals, not part of the exported API.
+-- globals, not part of the exported API. Speed and avoidance (E-6, WKE-712):
+-- CR_SPEED = 14 and CR_AVOIDANCE = 21, lines 17 and 24 of the same file, so a
+-- spec whose `stats` lists them converts through the client like the rest;
+-- the transcript converted only the five above, so what the client answers
+-- for these two is grade (ii) (ARCHITECTURE.md section 11).
 EngineStats.RATING_INDEX = {
     crit = 11, -- CR_CRIT_SPELL
+    speed = 14, -- CR_SPEED
     leech = 17, -- CR_LIFESTEAL
     haste = 20, -- CR_HASTE_SPELL
+    avoidance = 21, -- CR_AVOIDANCE
     mastery = 26, -- CR_MASTERY
     vers = 29, -- CR_VERSATILITY_DAMAGE_DONE
 }
+
+-- The ratings CurrentRatings reads: the five the transcript read, unchanged.
+EngineStats.CURRENT_RATINGS = { "crit", "leech", "haste", "mastery", "vers" }
 
 -- "A few thousand" entries, oldest out first. A bag, a bank, the vault and a
 -- whole journal walk at one difficulty stay well under it.
@@ -361,7 +389,7 @@ end
 
 -- ForLink(link) -> the item's read, or nil.
 --
--- `{ itemID, key, int, stamina, crit, haste, mastery, vers, leech, avoidance,
+-- `{ itemID, key, int, agi, str, stamina, crit, haste, mastery, vers, leech, avoidance,
 --    speed, armor, prismaticSockets, dps, randomStat1,
 --    other = { [key] = value } | nil, sockets,
 --    gems = { { id, stats = <vector>, unknown = true | nil }, ... }, level, setID,
@@ -761,8 +789,8 @@ function EngineStats.CurrentRatings()
         return nil
     end
     local out, anySecret = {}, false
-    for field, index in pairs(EngineStats.RATING_INDEX) do
-        local v, secret = scalar(call(GetCombatRating, index))
+    for _, field in ipairs(EngineStats.CURRENT_RATINGS) do
+        local v, secret = scalar(call(GetCombatRating, EngineStats.RATING_INDEX[field]))
         anySecret = anySecret or secret
         out[field] = tonumber(v)
     end

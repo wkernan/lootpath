@@ -1831,8 +1831,41 @@ function Stub.install()
         if not spec then
             return nil
         end
-        return spec.id, spec.name, "placeholder", spec.icon, spec.role, 4
+        -- The sixth return is `primaryStat`, the client's number: 4 for
+        -- Restoration and 2 for Guardian in the owner's captures
+        -- (Lootpath-20260914-171359.lua, Lootpath-20260914-113012.lua). A spec
+        -- without `primaryStat` answers 4, as every spec here did before E-6.
+        return spec.id, spec.name, "placeholder", spec.icon, spec.role, spec.primaryStat or 4
     end)
+    -- E-6 (WKE-712): a spec described by its ID, as Blizzard's own frames ask
+    -- (`local id, name, description, texture, role, class, classDisplayName =
+    -- GetSpecializationInfoByID(specId)`, ClubFinder.lua:599 under .luals/).
+    -- Answered out of `world.spec`, `world.specs` and `world.otherSpecs` (specs
+    -- of other classes a test names); nil for an ID none of them carries.
+    define("GetSpecializationInfoByID", function(specID)
+        local found
+        if world.spec and world.spec.id == specID then
+            found = world.spec
+        end
+        for _, list in ipairs({ world.specs or {}, world.otherSpecs or {} }) do
+            for _, spec in ipairs(list) do
+                if not found and spec.id == specID then
+                    found = spec
+                end
+            end
+        end
+        if not found then
+            return nil
+        end
+        return found.id, found.name, "placeholder", found.icon, found.role, "DRUID", "Druid"
+    end)
+    -- The client's primary-stat numbers (FrameXML globals Blizzard's own
+    -- PaperDollFrame compares GetSpecializationInfo's sixth return against).
+    -- Intellect 4 and Agility 2 are what the owner's captures read for
+    -- Restoration and Guardian; Strength's 1 is a PLACEHOLDER no capture reads.
+    define("LE_UNIT_STAT_STRENGTH", 1)
+    define("LE_UNIT_STAT_AGILITY", 2)
+    define("LE_UNIT_STAT_INTELLECT", 4)
     define("C_SpecializationInfo", {
         GetSpecialization = function()
             return world.spec and world.spec.index or nil
