@@ -268,6 +268,11 @@ end
 
 -- One scan, read both ways: `{ keys, slots }`, or nil when the client will not
 -- answer (combat, or no scanner at all).
+--
+-- A-1 (WKE-709): the read also keeps the scan's own `records` and whether the
+-- bank was open (`bank`), and every read is handed to each observer
+-- (`Drift.Observe`) - the developer engine's arrival detector reads Drift's
+-- scan rather than making a second one. Nothing here knows who observes.
 function Drift.Read()
     if not (ns.Inventory and ns.Inventory.Scan) then
         return nil
@@ -276,7 +281,102 @@ function Drift.Read()
     if not (scan and scan.ok) then
         return nil
     end
-    return { keys = Drift.KeySet(scan.records), slots = Drift.SlotSet(scan.records) }
+    local read = {
+        keys = Drift.KeySet(scan.records),
+        slots = Drift.SlotSet(scan.records),
+        records = scan.records,
+        bank = scan.bankAvailable == true,
+    }
+    for _, observer in ipairs(Drift.observers) do
+        observer(read)
+    end
+    return read
+end
+
+-- ---------------------------------------------------------------------------
+-- Arrivals (A-1, WKE-709). Pure: two reads in, the gear that is NEW out. No
+-- value is computed here and nothing is shown; the one reader is the developer
+-- engine (ns.EngineCompare, behind `db.global.developer.engine`), which
+-- registers itself with `Drift.Observe`.
+
+-- Every function handed a read, in the order they were registered.
+Drift.observers = {}
+
+function Drift.Observe(fn)
+    if type(fn) == "function" then
+        Drift.observers[#Drift.observers + 1] = fn
+    end
+    return fn
+end
+
+-- Arrivals(known, read) -> arrivals, known'.
+--
+-- `known` is what the detector carries between reads (nil before the first):
+-- `{ keys = { [key] = true }, held = { [key] = itemID }, sawBank }` - every
+-- key seen this session ANYWHERE the scan can see (worn, bags, and the bank
+-- while it is open), the keys worn or in the bags at the last read, and
+-- whether any read has seen the bank yet. `arrivals` is the list of the read's
+-- records, worn or in the bags, that are new gear. A key is NOT an arrival
+-- when:
+--   * it has been seen before this session, anywhere - a piece moving between
+--     the bags, the character and the bank is the same piece;
+--   * the read sees the bank and no read before it did - the piece may have
+--     come out of a bank never read, which is a move, not a drop;
+--   * a key of the same item worn or carried at the last read is gone in this
+--     one - a crest or an upgrade changes the key of a piece already held;
+--   * the read is the first one (the seed) or one that is wearing nothing
+--     (`Drift.IsReadable`, the client not answering yet).
+-- `ns.ItemKey` is the key (`ns.Inventory` records carry it), so two copies
+-- with the same bonus IDs are one key: a second identical copy is not seen.
+function Drift.Arrivals(known, read)
+    if type(read) ~= "table" or type(read.records) ~= "table" or not Drift.IsReadable(read) then
+        return {}, known
+    end
+    local seen, held = {}, {}
+    for _, record in ipairs(read.records) do
+        if record.key then
+            seen[record.key] = true
+            if Drift.LOCATIONS[record.location] then
+                held[record.key] = record.itemID or true
+            end
+        end
+    end
+    if type(known) ~= "table" then
+        return {}, { keys = seen, held = held, sawBank = read.bank == true }
+    end
+    -- The items whose held key is gone from this read altogether (not just
+    -- moved into the open bank): a new key of one of them is that piece
+    -- changed, not a piece arrived.
+    local changed = {}
+    for key, itemID in pairs(known.held or {}) do
+        if seen[key] == nil then
+            changed[itemID] = true
+        end
+    end
+    local bankUnread = read.bank == true and not known.sawBank
+    local arrivals, listed = {}, {}
+    for _, record in ipairs(read.records) do
+        local key = record.key
+        if
+            key
+            and Drift.LOCATIONS[record.location]
+            and not known.keys[key]
+            and not listed[key]
+            and not bankUnread
+            and not (record.itemID and changed[record.itemID])
+        then
+            listed[key] = true
+            arrivals[#arrivals + 1] = record
+        end
+    end
+    local keys = {}
+    for key in pairs(known.keys) do
+        keys[key] = true
+    end
+    for key in pairs(seen) do
+        keys[key] = true
+    end
+    return arrivals, { keys = keys, held = held, sawBank = known.sawBank == true or read.bank == true }
 end
 
 -- The key set as it is now, or nil when the client will not answer (combat).

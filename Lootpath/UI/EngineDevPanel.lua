@@ -68,6 +68,11 @@ Panel.TEXT = {
     notRated = "not rated: %d (effect not modelled)",
     unknown = "not rated: %d (trinket not in the effects table)",
     generic = "generic: %d (effect from a generic rule)",
+    -- A-1 (WKE-709): the arrivals block.
+    arrivals = "Arrivals this session",
+    noArrivals = "Loot or buy a piece to fill this. It is kept until you reload.",
+    arrivalBand = "%s %s",
+    genericNote = "generic effect",
 }
 
 -- The column layouts, in pixels. A row's `layout` names one; a row without
@@ -75,12 +80,19 @@ Panel.TEXT = {
 Panel.COLUMNS = {
     weeks = { 82, 64, 64, 56, 78, 36, 56, 56, 56, 56 },
     block = { 78, 330, 72, 48, 80, 80 },
+    arrivals = { 230, 72, 40, 86, 64, 64, 48, 116 },
 }
 Panel.WEEKS_HEAD = { "week", "content", "document", "band", "class", "n", "rho", "k", "MAE", "MAE@k" }
 -- `theirs` and `ours` are the compare's own words for the two columns.
 Panel.BLOCK_HEAD = { "class", "item", "slot", "level", "theirs", "ours" }
 Panel.THEIRS_CELL = 5
 Panel.OURS_CELL = 6
+-- A-1 (WKE-709): an arrival's row. Ours and QE Live's stored figure for the
+-- same item are two cells, never one string; the rows keep the order the
+-- pieces arrived in, newest first, never sorted by ours.
+Panel.ARRIVALS_HEAD = { "item", "slot", "level", "band", "ours", "theirs", "ms", "note" }
+Panel.ARRIVAL_OURS_CELL = 5
+Panel.ARRIVAL_THEIRS_CELL = 6
 
 -- ---------------------------------------------------------------------------
 -- The switch.
@@ -332,10 +344,52 @@ local function bestSection(rows, lastBest)
     end
 end
 
+-- A-1 (WKE-709): the pieces rated as they landed this session, newest first
+-- (ns.EngineCompare.arrivals, in memory only). Our percent in its own cell;
+-- QE Live's stored Upgrade Finder figure for the same `id@level`, when one is
+-- stored, in another; a piece with no number says why in the note.
+local function arrivalsSection(rows, arrivals, refusal)
+    local T = Panel.TEXT
+    line(rows, T.arrivals, "section")
+    if type(refusal) == "string" then
+        line(rows, refusal)
+    end
+    if #arrivals == 0 then
+        line(rows, T.noArrivals)
+        return
+    end
+    rows[#rows + 1] = { kind = "head", layout = "arrivals", cells = Panel.ARRIVALS_HEAD }
+    for index, entry in ipairs(arrivals) do
+        local band = entry.band and string.format(T.arrivalBand, tostring(entry.contentType), tostring(entry.band))
+            or "-"
+        local note = entry.why or (entry.generic and T.genericNote) or ""
+        rows[#rows + 1] = {
+            kind = "row",
+            layout = "arrivals",
+            arrivalIndex = index,
+            key = entry.key,
+            ours = entry.ours,
+            theirs = entry.theirs,
+            cells = {
+                tostring(entry.link or entry.name or entry.key),
+                tostring(entry.slot or "-"),
+                fmt(entry.level, "%d"),
+                band,
+                fmt(entry.ours, "%+.3f"),
+                fmt(entry.theirs, "%.3f"),
+                fmt(entry.ms, "%.2f"),
+                tostring(note),
+            },
+        }
+    end
+end
+
 -- Model(stored, lastBest, opts) -> { rows, charKey, weeks, latest }.
 -- `stored` is `db.global.engineCompare`; `lastBest` is what
 -- ns.EngineCompare kept of the session's last search (`{ run, lines }`) or
--- nil; `opts.charKey` the character (default EngineCompare.CharKey()).
+-- nil; `opts.charKey` the character (default EngineCompare.CharKey());
+-- `opts.arrivals` the session's arrivals (A-1; no block when nil) and
+-- `opts.refusal` the weights file's refusal line, if it refused.
 -- Every row is `{ kind, layout?, cells }`; a compare row also carries `key`,
 -- `class`, `theirs`, `ours` and `storedIndex` (its place in the stored rows).
 function Panel.Model(stored, lastBest, opts)
@@ -354,6 +408,9 @@ function Panel.Model(stored, lastBest, opts)
     else
         line(rows, string.format(ns.EngineCompare.TEXT.weeksNone, charKey))
         line(rows, Panel.TEXT.nothing)
+    end
+    if type(opts.arrivals) == "table" then
+        arrivalsSection(rows, opts.arrivals, opts.refusal)
     end
     bestSection(rows, lastBest)
     return { rows = rows, charKey = charKey, weeks = #weeks, latest = latest and latest.week or nil }
@@ -506,7 +563,10 @@ function Panel.Refresh()
         model = Panel.CombatModel()
     else
         local global = ns.db and ns.db.global or {}
-        model = Panel.Model(global.engineCompare, ns.EngineCompare.lastBest)
+        model = Panel.Model(global.engineCompare, ns.EngineCompare.lastBest, {
+            arrivals = ns.EngineCompare.arrivals,
+            refusal = ns.EngineCompare.arrivalRefusal,
+        })
     end
     Panel.Draw(frame, model)
     return model
