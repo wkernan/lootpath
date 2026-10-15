@@ -191,3 +191,37 @@ test('a --stats file carrying a linklevel snapshot is read for it beside its ite
     assert.equal(table.points.get('251123@305').source, SOURCE_LINKLEVEL);
     assert.equal(table.points.get('251123@305').stats.int, 640);
 });
+
+// E-0n (WKE-706): the client moved to 12.1.5 and a reset-day Refresh takes no
+// patch-bearing capture, so the owner ran a fresh `capture itemstats` on
+// 12.1.5 - stored, not replacing, the 2026-10-01 itemstats snapshot already
+// in the file. The patch must come from THAT one, not whichever snapshot a
+// loop reaches first.
+const { loadTable, notePatch } = require('../lib/stats');
+const RESET_1215 = path.join(__dirname, '..', '..', '..', 'spec', 'fixtures', 'captures', 'Lootpath-20261013-183853.lua');
+
+test('the patch comes from the NEWEST patch-bearing snapshot, by capturedAt - not the first one read', () => {
+    // This file's own itemstats holds two snapshots: index 1 (2026-10-01,
+    // 12.1.0) and index 2 (2026-10-13, 12.1.5) - the later capture, kept
+    // without displacing the first's points.
+    const table = readSavedVariablesInto(newTable(), fs.readFileSync(RESET_1215, 'utf8'), 'reset-day');
+    assert.equal(table.patch, '12.1.5');
+});
+
+test('loadTable picks the newest patch regardless of --stats argument order', () => {
+    const files = [CAPTURE, ITEMSTATS, LINKLEVEL, RESET_1215];
+    assert.equal(loadTable(files, fs).patch, '12.1.5', 'newest file last');
+    assert.equal(loadTable([...files].reverse(), fs).patch, '12.1.5', 'newest file first');
+    // Every file here but RESET_1215 is 12.1.0 only: without it the patch is
+    // still the one the files agree on.
+    assert.equal(loadTable([CAPTURE, ITEMSTATS, LINKLEVEL], fs).patch, '12.1.0');
+});
+
+test('a snapshot with no capturedAt never displaces a dated one', () => {
+    const table = newTable();
+    notePatch(table, '12.1.0', 1000);
+    notePatch(table, '12.1.5', undefined);
+    assert.equal(table.patch, '12.1.0', 'the dated snapshot stands over an undated one, whichever order they arrive');
+    notePatch(table, '12.1.5', 2000);
+    assert.equal(table.patch, '12.1.5', 'a later dated snapshot still wins');
+});

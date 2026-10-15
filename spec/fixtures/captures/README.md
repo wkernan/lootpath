@@ -10,6 +10,45 @@ snapshots arrive with every loop rather than by request.
 
 ## Committed
 
+- Lootpath-20261014-165427.lua - **week three rerun on the carried weights (E-0n carry-forward, PR #350).**
+  The coordinator copied the carried file into the game's `Data\EngineWeights.lua` (`patch 12.1.5`,
+  derivedAt 2026-10-14T19:34:31.408Z); the owner ran `/reload`, the three `/lootpath engine compare`
+  commands, `/reload` and pulled. Week `2026-10-13` is REPLACED: bands `6`, `10`, `raid-3`, 86 `["stats"]`
+  vectors, every row derived 2026-10-14T19:34:31.408Z. Weeks `2026-09-29` and `2026-10-06` unchanged.
+  sha256 as pulled (CRLF) `191a0660fc7295993d23e97d0ca3b1a74cd5f1112272ac9c203924241555328c`,
+  6,760,622 bytes; as committed (`eol=lf`)
+  `7a765158ed8a4dfad625b986629e53fe9cab03d99f895ef5e2fadc37ab0d7cc1`, 6,397,283 bytes. No
+  `sawSecret = true`. No secrets.
+- Lootpath-20261014-124538.lua - **week three of the developer engine's compare, the first on the
+  12.1.5 refit (E-0n, WKE-706, PR #348) and the first whose stored rows carry E-0m's stat vectors.**
+  After the coordinator copied the refit into the game's `Data\EngineWeights.lua` (`patch 12.1.5`,
+  derivedAt 2026-10-14T01:47:56.929Z), the owner ran `/reload`, `/lootpath engine compare dungeon 6`,
+  `compare dungeon 10`, `compare raid`, `/reload` and pulled. `engineCompare` now holds weeks
+  `2026-09-29`, `2026-10-06` and `2026-10-13`; week `2026-10-13` stores bands `6`, `10` and `raid-3`
+  and 86 `["stats"]` vectors. sha256 as pulled (CRLF)
+  `737d4a269d9ba294b71ea88d0e940dc2368a091ade1cb26c9148aeb287239488`, 6,760,924 bytes; as committed
+  (`eol=lf`) `cb45fdf7b4b76d6b1c4fd11a34666c497dfcc8dbb3424a335b0c7773d04e940e`, 6,397,576 bytes.
+  No `sawSecret = true`. No secrets.
+- Lootpath-20261013-183853.lua - **reset day 2026-10-13 on the 12.1.5 client: the owner's
+  `capture itemstats` for E-0n (WKE-706).** Every `/lootpath engine` command that evening
+  refused with `Update Lootpath - its ratings are for 12.1.0, you're on 12.1.5.`; the refit
+  the owner chose needs a stat read on the new client, so he ran `/lootpath capture itemstats`,
+  reloaded and pulled. `captures.itemstats` now holds two snapshots in stored order: index 1
+  captured 2026-10-01T14:26:25Z on `12.1.0` / `69933`, index 2 captured 2026-10-13T23:38:46Z on
+  `12.1.5` / `70391` (`Oct 13 2026`), `sawSecret = false`. `linklevel` (2026-10-02, 12.1.0) and
+  `upgrade` (2026-09-15/16, 12.1.0) are unchanged. sha256 as pulled (CRLF)
+  `ba1e333898a91df8206eb52590f7fd507181413e87889469d5ff3ec0e8cd2a9f`, 6,724,847 bytes; as
+  committed (`eol=lf`) `d27f46faaa2b9ffcdac66a5a99c09cde3209a31dceccb69b6fd38c3941b32ba4`,
+  6,362,829 bytes. No `sawSecret = true` in the file. No secrets.
+- Lootpath-20261013-180632.lua - **reset day 2026-10-13, the pull after the refused compares.**
+  The owner refreshed (the companion's verdict written 2026-10-13T23:10:18Z), claimed the
+  vault's Vile Vial of Volatile Venom 318, ran the three compares (each refused on 12.1.5, so
+  `engineCompare` gains no week), reloaded and pulled. Every patch-bearing capture in it is
+  12.1.0 (itemstats 2026-10-01, linklevel 2026-10-02, upgrade 2026-09-15/16) - the reason the
+  183853 pull above exists. sha256 as pulled (CRLF)
+  `dc423976a0e0eaae6d874e4ad639645d5acd642a8c94fe6ccef8dbfbfe350bf2`, 6,602,501 bytes; as
+  committed (`eol=lf`) `3e5b54af0d573f4c80b7a52ccb9188577e07be0bc2ccb7df65a29f9fcc57f9ad`,
+  6,247,146 bytes. No `sawSecret = true`. No secrets.
 - Lootpath-20261009-204729.lua - **week two of the engine compare (week 2026-10-06), on the Druid in
   Restoration.** The owner refreshed at 20:43 local, ran `/lootpath engine compare dungeon 6`,
   `compare dungeon 10` and `compare raid`, reloaded and pulled. `engineCompare` holds
