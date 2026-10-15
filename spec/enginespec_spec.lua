@@ -493,14 +493,14 @@ describe("the role gate opens for the developer engine only (E-6)", function()
         world.printed = {}
         local asked = 0
         local real = C_Item.GetItemStats
-        C_Item.GetItemStats = function(...)
+        rawset(C_Item, "GetItemStats", function(...)
             asked = asked + 1
             return real(...)
-        end
+        end)
         ns.EngineCompare.Command("compare dungeon", function()
             error("the compare ran")
         end)
-        C_Item.GetItemStats = real
+        rawset(C_Item, "GetItemStats", real)
         assert.same(
             { PREFIX .. "engine compare needs an Upgrade Finder rating; there is none for Guardian." },
             world.printed
@@ -630,6 +630,7 @@ describe("SimC's per-point weights (E-6 over E-7)", function()
         ns.engineWeights = file
         ok, line, detail = ns.EngineScore.Load()
         assert.is_false(ok)
+        assert.equal(ns.EngineScore.TEXT.broken, line)
         assert.equal("weights file: specs[102] is per point and dr.mastery has no ratingPerPercent", detail)
     end)
 
