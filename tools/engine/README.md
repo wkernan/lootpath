@@ -256,6 +256,21 @@ node fit-weights.js `
   ..\..\spec\fixtures\qe
 ```
 
+## The vector refit the game runs from 2026-10-15 (E-0m's route, the owner's "OK")
+
+The carried command above plus week three's stored vectors and class balance:
+
+```powershell
+node fit-weights.js <the five --stats files above> `
+  --compare ..\..\spec\fixtures\captures\Lootpath-20261014-165427.lua --balance class `
+  --key-levels 1=2,2=4,4=6,6=8,7=10 --resamples 0 `
+  ..\..\spec\fixtures\qe
+```
+
+`cross-score.js` reads its table from the 12.1.5 capture alone; the figures for
+this file against this week's documents were read from a scratch copy of it with
+this command's table and `balance: 'class'` (ARCHITECTURE.md §9, 2026-10-15).
+
 ## The model and the fit
 
 `lib/score.js` is E-0c's contract: totals over the worn set with the row's item
