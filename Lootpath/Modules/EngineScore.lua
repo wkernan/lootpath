@@ -657,12 +657,12 @@ function EngineScore.SetValue(items, opts)
     end
     -- The spec's own stat list and tier sets (E-4, WKE-708). A file Load did
     -- not check may lack them; it makes no value.
-    local spec = opts.spec or EngineScore.DEFAULT_SPEC
-    local list, ratings, primary = EngineScore.StatsFor(spec, file)
-    if not list then
+    local entry = EngineScore.SpecEntry(file, opts.spec)
+    local lists = statLists(entry)
+    if not entry or not lists then
         return nil, EngineScore.TEXT.broken
     end
-    local entry = EngineScore.SpecEntry(file, spec)
+    local list, ratings, primary = lists.stats, lists.ratings, lists.primary
 
     local totals = {}
     for _, stat in ipairs(list) do
