@@ -190,10 +190,16 @@ function gameWeights(opts) {
     return { file, luaPath: r.luaPath, derivedAt: meta.derivedAt };
 }
 
-// EngineScore.BandFor (EngineScore.lua:228-263): the exact key level, else
+// The Restoration entry of a weights table (Map or plain object): since schema
+// version 2 (E-4, WKE-708) its tier sets live there, beside its bands.
+function restoOf(file) {
+    return file.specs instanceof Map ? file.specs.get(105) : file.specs[105];
+}
+
+// EngineScore.BandFor (EngineScore.lua): the exact key level, else
 // the highest "<n>+" at or under it, else the content type's only band.
 function bandFor(file, contentType, keyLevel) {
-    const resto = file.specs instanceof Map ? file.specs.get(105) : file.specs[105];
+    const resto = restoOf(file);
     const bands = resto && resto[contentType] && resto[contentType].bands;
     if (!bands) return null;
     const level = Number.isInteger(keyLevel) && keyLevel >= 0 ? keyLevel : null;
@@ -256,7 +262,7 @@ function scorer(file, band) {
         weights: band.weights,
         assumedFinish: band.assumedBuffs && Object.keys(band.assumedBuffs).length ? band.assumedBuffs : null,
         dr: file.dr || DEFAULT_DR,
-        tiers: scoreTiers(file.tiers),
+        tiers: scoreTiers(restoOf(file).tiers),
     };
     return (items) => setValue(items, model);
 }
@@ -266,7 +272,7 @@ function scorer(file, band) {
 function cands(pieces, file, band) {
     return pieces.map((p) => {
         const eff = effective(p, band);
-        return { piece: p, order: p.idx, eff, tier: tierKeyOf(p, file.tiers), scoring: { stats: eff, setId: p.setID } };
+        return { piece: p, order: p.idx, eff, tier: tierKeyOf(p, restoOf(file).tiers), scoring: { stats: eff, setId: p.setID } };
     });
 }
 
@@ -643,7 +649,7 @@ function check(o) {
     const { band, key } = found;
     const value = scorer(file, band);
     const effects = o.effects || effectIDs();
-    const result = { contentType: o.contentType, keyLevel: o.keyLevel, band: key, derivedAt: file.derivedAt, pieces: pieces.length, modes: {} };
+    const result = { contentType: o.contentType, keyLevel: o.keyLevel, band: key, derivedAt: restoOf(file).derivedAt, pieces: pieces.length, modes: {} };
     for (const mode of o.modes || ['all', 'kept']) {
         const all = cands(pieces, file, band);
         const p = pools(all, band, effects, mode === 'kept');

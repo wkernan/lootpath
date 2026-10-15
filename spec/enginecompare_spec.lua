@@ -816,13 +816,13 @@ describe("/lootpath engine compare over the owner's 2026-09-16 SavedVariables", 
     end)
 
     it("prints the field a refused weights file tripped on", function()
-        ns.engineWeights.tiers = { setIDs = { 2057 }, twoPiece = 0.03, fourPiece = 0.055, forceTier = true }
+        ns.engineWeights.specs[105].tiers = { setIDs = { 2057 }, twoPiece = 0.03, fourPiece = 0.055, forceTier = true }
         ns.EngineScore.file = nil
         world.printed = {}
         assert.is_nil(compare(ns, "compare raid"))
         local out = world.output()
         assert.truthy(out:find("Not rated - the rating data didn't load.", 1, true))
-        assert.truthy(out:find("weights file: tiers.forceTier is not keyed by a setID", 1, true))
+        assert.truthy(out:find("weights file: specs[105].tiers.forceTier is not keyed by a setID", 1, true))
     end)
 end)
 
@@ -942,7 +942,7 @@ describe("/lootpath engine compare names the band it scores with", function()
             assert(loadfile(SHIPPED))("Lootpath", shipped)
             return shipped.engineWeights
         end)
-        assert.equal("placeholder", ns.EngineScore.file.method)
+        assert.equal("placeholder", ns.EngineScore.file.specs[105].method)
         for _, case in ipairs({ { "dungeon 10", "10+" }, { "raid", "all" } }) do
             local run = compare(ns, "compare " .. case[1])
             assert.equal(case[2], run.result.uf.band)

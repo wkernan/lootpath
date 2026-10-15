@@ -342,11 +342,15 @@ local function effective(item, band, assumedFinish)
     return v
 end
 
--- The tier set a piece counts toward: its setID when the weights file carries
--- that set, else false. A setID the file does not carry moves no value.
-local function tierKeyOf(item, weights)
+-- The tier set a piece counts toward: its setID when the spec's entry in the
+-- weights file carries that set, else false. A setID the entry does not carry
+-- moves no value. The tier sets are the spec's own since schema version 2
+-- (E-4, WKE-708).
+local function tierKeyOf(item, weights, spec)
     local id = item.setID
-    if id ~= nil and type(weights.tiers) == "table" and type(weights.tiers[id]) == "table" then
+    local entry = ns.EngineScore.SpecEntry(weights, spec)
+    local tiers = entry and entry.tiers
+    if id ~= nil and type(tiers) == "table" and type(tiers[id]) == "table" then
         return id
     end
     return false
@@ -467,7 +471,8 @@ function EngineSearch.Candidates(items, weights, opts)
             for _, stat in ipairs(STATS) do
                 signed = signed + signs[stat] * eff[stat]
             end
-            local cand = { item = item, order = i, eff = eff, tier = tierKeyOf(item, weights), proxy = proxy }
+            local cand =
+                { item = item, order = i, eff = eff, tier = tierKeyOf(item, weights, opts.spec), proxy = proxy }
             cand.signed = signed
             local pool = poolOf(item.slot)
             byPool[pool] = byPool[pool] or {}
@@ -521,13 +526,13 @@ end
 -- ---------------------------------------------------------------------------
 -- Masks.
 
-local function tierOptions(list, weights)
+local function tierOptions(list, weights, spec)
     local seen, options = {}, {}
     for _, entry in ipairs(list) do
         local item = entry.item or entry
         local key = entry.tier
         if key == nil then
-            key = tierKeyOf(item, weights)
+            key = tierKeyOf(item, weights, spec)
         end
         local index = key and tostring(key) or "none"
         if not seen[index] then
@@ -544,12 +549,12 @@ local function tierOptions(list, weights)
     return options
 end
 
--- Masks(items, weights) -> `{ { [tierSlot] = setID | false } }`: for each
+-- Masks(items, weights[, spec]) -> `{ { [tierSlot] = setID | false } }`: for each
 -- tier slot holding a candidate, every tier set the weights file carries that
 -- a candidate there belongs to, plus false ("none of them") when a candidate
 -- belongs to none; every combination, in a fixed order. `items` is a list of
 -- vectors with `slot`, or Candidates' pools.
-function EngineSearch.Masks(items, weights)
+function EngineSearch.Masks(items, weights, spec)
     weights = weights or ns.EngineScore.file or {}
     local bySlot = {}
     if type(items) == "table" and items[1] == nil and next(items) ~= nil then
@@ -569,7 +574,7 @@ function EngineSearch.Masks(items, weights)
     for _, slot in ipairs(EngineSearch.TIER_SLOTS) do
         local list = bySlot[slot]
         if list and #list > 0 then
-            local options = tierOptions(list, weights)
+            local options = tierOptions(list, weights, spec)
             local nextMasks = {}
             for _, mask in ipairs(masks) do
                 for _, key in ipairs(options) do
@@ -1155,7 +1160,7 @@ function EngineSearch.Best(items, weights, opts)
     if not candidates then
         return nil, noBand
     end
-    local masks = EngineSearch.Masks(candidates.pools, ctx.weights)
+    local masks = EngineSearch.Masks(candidates.pools, ctx.weights, ctx.opts.spec)
     local best, lastWhy
     for _, mask in ipairs(masks) do
         local coords, noMask = coordinatesFor(candidates.pools, mask)
@@ -1476,12 +1481,14 @@ end
 function EngineSearch.Lines(run)
     local T = EngineSearch.TEXT
     local file = run.file or {}
+    -- `method` and `derivedAt` are the spec's own since schema version 2.
+    local entry = ns.EngineScore.SpecEntry(file, run.spec) or {}
     local lines = {
         string.format(
             T.header,
-            tostring(file.method),
+            tostring(entry.method),
             tostring(file.patch),
-            tostring(file.derivedAt),
+            tostring(entry.derivedAt),
             tostring(run.contentType),
             tostring(run.result and run.result.band or "-")
         ),

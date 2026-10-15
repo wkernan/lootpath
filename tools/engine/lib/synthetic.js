@@ -6,7 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { DEFAULT_DR } = require('./dr');
-const { luaValue } = require('./luaout');
+const { luaValue, RESTORATION } = require('./luaout');
 const { mulberry32 } = require('./fit');
 
 const TIER = 2057;
@@ -18,14 +18,14 @@ function syntheticFile(tier4) {
         assumedFinish: { gemVector: { haste: 50 }, enchantBySlot: { Finger: { mastery: 30 } } },
         assumedBuffs: {},
     };
-    return {
-        schema: 'lootpath-engine-weights',
-        version: 1,
+    // Schema version 2 (E-4, WKE-708): the tier set is the spec's own.
+    const resto = {
+        role: RESTORATION.role,
+        primaryStat: RESTORATION.primaryStat,
+        stats: RESTORATION.stats.slice(),
         method: 'synthetic',
-        patch: '12.1.0',
         derivedAt: 'never',
-        specs: new Map([[105, { Dungeon: { bands: { 10: band } } }]]),
-        dr: DEFAULT_DR,
+        Dungeon: { bands: { 10: band } },
         tiers: new Map([
             [
                 TIER,
@@ -35,6 +35,13 @@ function syntheticFile(tier4) {
                 ]),
             ],
         ]),
+    };
+    return {
+        schema: 'lootpath-engine-weights',
+        version: 2,
+        patch: '12.1.0',
+        specs: new Map([[RESTORATION.specID, resto]]),
+        dr: DEFAULT_DR,
     };
 }
 

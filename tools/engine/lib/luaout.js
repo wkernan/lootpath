@@ -1,5 +1,8 @@
 // Writes tools/engine/out/EngineWeights.dev.lua in E-0c's file shape
-// (`Data/EngineWeights.lua`, WKE-672) from the structure run's fits.
+// (`Data/EngineWeights.lua`, WKE-672) from the structure run's fits - schema
+// version 2 since E-4 (WKE-708): `role`, `primaryStat`, `stats`, `method`,
+// `derivedAt` and `tiers` are the spec's own; `patch` and `dr` stay
+// file-level (docs/OWN-ENGINE.md section 5).
 //
 // DEV ONLY. The file is gitignored, `.pkgmeta` ignores all of `tools/`, and
 // the header says so; it exists so a LOCAL install can be pointed at weights
@@ -80,15 +83,25 @@ function luaTiers(tiers) {
     return out;
 }
 
+// The one spec the fit tool fits: Restoration Druid, QE Live's own
+// (GetSpecializationInfo's specID 105, role "HEALER"; Intellect; the stat list
+// EngineScore summed before version 2 made it per spec, in the same order).
+const RESTORATION = Object.freeze({
+    specID: 105,
+    role: 'HEALER',
+    primaryStat: 'int',
+    stats: Object.freeze(['int', 'haste', 'crit', 'mastery', 'vers', 'leech']),
+});
+
 // bandKey(fit) -> the key inside `bands` (a key level for Dungeon, the raid
 // difficulty list for Raid). When two documents share a band, the later
 // `exportedAt` wins and the other is listed under `superseded`.
 function buildTable(fits, meta) {
-    const resto = {};
+    const content = {};
     const superseded = [];
     const sorted = fits.slice().sort((a, b) => String(a.fit.exportedAt).localeCompare(String(b.fit.exportedAt)));
     for (const { fit, band } of sorted) {
-        const ct = (resto[fit.contentType] = resto[fit.contentType] || { bands: {} });
+        const ct = (content[fit.contentType] = content[fit.contentType] || { bands: {} });
         if (ct.bands[band]) superseded.push(ct.bands[band].fittedTo);
         ct.bands[band] = {
             baseValue: fit.baseValue,
@@ -100,18 +113,24 @@ function buildTable(fits, meta) {
             mae: fit.overall.mae,
         };
     }
+    const resto = {
+        role: RESTORATION.role,
+        primaryStat: RESTORATION.primaryStat,
+        stats: RESTORATION.stats.slice(),
+        method: 'fit-to-qe-exports',
+        derivedAt: meta.derivedAt,
+        ...content,
+        tiers: luaTiers(meta.tiers),
+    };
     return {
         schema: 'lootpath-engine-weights',
-        version: 1,
-        method: 'fit-to-qe-exports',
+        version: 2,
         devOnly: true,
         patch: meta.patch,
-        derivedAt: meta.derivedAt,
         fittedTo: meta.documents,
         superseded,
-        specs: new Map([[105, resto]]),
+        specs: new Map([[RESTORATION.specID, resto]]),
         dr: meta.dr,
-        tiers: luaTiers(meta.tiers),
     };
 }
 
@@ -138,4 +157,4 @@ function render(table, meta) {
     ].join('\n');
 }
 
-module.exports = { luaString, luaValue, luaTiers, buildTable, render };
+module.exports = { luaString, luaValue, luaTiers, buildTable, render, RESTORATION };

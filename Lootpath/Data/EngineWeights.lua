@@ -6,8 +6,8 @@
 -- E-0c; CLAUDE.md's scoped exception).
 --
 -- THIS COMMITTED COPY IS A SYNTHETIC PLACEHOLDER. Every number under `specs`
--- and `tiers` is invented and visibly so (weights of 1, a base of 12345, a set
--- ID of -1 that no item carries); `method = "placeholder"` says it, and the
+-- is invented and visibly so (weights of 1, a base of 12345, a set ID of -1
+-- that no item carries); the spec's `method = "placeholder"` says it, and the
 -- loader says it again in its developer line. No value made from this file
 -- means anything. The first real weights are E-0e's fit to QE Live's own
 -- exports (WKE-674, dev-only, never shipped); later ones come from logs.
@@ -26,24 +26,37 @@
 -- no call, no loop and no function:
 --
 --   ns.engineWeights = {
---       schema = "lootpath-engine-weights", version = 1,
---       method = "placeholder" | "fit-to-qe-exports" | "logs" | "synthetic",
+--       schema = "lootpath-engine-weights", version = 2,
 --       patch = "12.1.0",            -- GetBuildInfo()'s first return it is for;
 --                                    -- any other client refuses the file
---       derivedAt = "never",
---       specs = { [specID] = { [contentType] = { bands = { [band] = {
---           baseValue = number,
---           weights = { int, haste, crit, mastery, vers, leech },  -- per point
---                                    -- of Intellect, per percent of a rating
---           assumedFinish = {        -- QE Live's rule: every set fully finished
---               gemVector = { <stat> = n },             -- times the socket count
---               enchantBySlot = { [slot] = { <stat> = n } },
---           },
---           assumedBuffs = { <stat> = n },  -- added to every set's totals
---       } } } } },
+--       specs = { [specID] = {
+--           role = "HEALER" | "DAMAGER" | "TANK",  -- GetSpecializationInfo's
+--           primaryStat = "int" | "agi" | "str",
+--           stats = { <primaryStat>, <rating>, ... },  -- what the score sums,
+--                                    -- in order; every stat after the first
+--                                    -- is a rating, converted to percent
+--           method = "placeholder" | "fit-to-qe-exports" | "combat-log" | "simc",
+--           derivedAt = "never",     -- when THIS spec's numbers were derived
+--           [contentType] = { bands = { [band] = {
+--               baseValue = number,
+--               weights = { <stat> = n },  -- per point of the primary stat,
+--                                    -- per percent of a rating
+--               assumedFinish = {    -- QE Live's rule: every set fully finished
+--                   gemVector = { <stat> = n },         -- times the socket count
+--                   enchantBySlot = { [slot] = { <stat> = n } },
+--               },
+--               assumedBuffs = { <stat> = n },  -- added to every set's totals
+--           } } },
+--           tiers = { [setID] = { [pieces] = { mult = n } } },  -- the spec's sets
+--       } },
 --       dr = { [stat] = { ratingPerPercent = n, brackets = { { from, penalty } } } },
---       tiers = { [setID] = { [pieces] = { mult = n } } },
 --   }
+--
+-- Schema version 2 (E-4, WKE-708, docs/OWN-ENGINE.md section 5): one file can
+-- carry a combat-log healer beside a SimC damage dealer, each with its own
+-- stats, tier sets and provenance. `patch` and `dr` stay file-level (one
+-- client, Blizzard's brackets are not per spec). EngineScore.Load refuses a
+-- version 1 file, and a spec entry missing any of the fields above.
 --
 -- A tier multiplier is the one bonus at that piece count, and the bonuses a
 -- set has reached ADD before they multiply: 1 + (m2 - 1) + (m4 - 1) at four
@@ -58,12 +71,15 @@ if type(ns) ~= "table" then
 end
 ns.engineWeights = {
     schema = "lootpath-engine-weights",
-    version = 1,
-    method = "placeholder",
+    version = 2,
     patch = "12.1.0",
-    derivedAt = "never",
     specs = {
         [105] = {
+            role = "HEALER",
+            primaryStat = "int",
+            stats = { "int", "haste", "crit", "mastery", "vers", "leech" },
+            method = "placeholder",
+            derivedAt = "never",
             Dungeon = {
                 bands = {
                     ["10+"] = {
@@ -96,6 +112,12 @@ ns.engineWeights = {
                         },
                         assumedBuffs = { int = 1 },
                     },
+                },
+            },
+            tiers = {
+                [-1] = {
+                    [2] = { mult = 1.111 },
+                    [4] = { mult = 1.222 },
                 },
             },
         },
@@ -153,12 +175,6 @@ ns.engineWeights = {
                 { from = 1380, penalty = 0.6 },
                 { from = 3381, penalty = 1 },
             },
-        },
-    },
-    tiers = {
-        [-1] = {
-            [2] = { mult = 1.111 },
-            [4] = { mult = 1.222 },
         },
     },
 }

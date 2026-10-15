@@ -14,6 +14,10 @@
 -- per socket, an enchant per slot - the issue's shape) is used only by the
 -- parity-mode tests, and none of the fixture's items has a socket.
 --
+-- Schema version 2 (E-4, WKE-708): the spec entry carries Restoration's role,
+-- primary stat, stat list, method, derivedAt and tier set; the numbers are
+-- unchanged from version 1.
+--
 -- The `dr` table is E-0e's lib/dr.js DEFAULT_DR, the same brackets the shipped
 -- placeholder carries (maxroll.gg, read 2026-09-30, patch 12.0.1; mastery is
 -- crit's table, an assumption dr.js names).
@@ -21,12 +25,15 @@
 -- Loaded with dofile: it returns the table rather than setting a field.
 return {
     schema = "lootpath-engine-weights",
-    version = 1,
-    method = "synthetic",
+    version = 2,
     patch = "12.1.0",
-    derivedAt = "never",
     specs = {
         [105] = {
+            role = "HEALER",
+            primaryStat = "int",
+            stats = { "int", "haste", "crit", "mastery", "vers", "leech" },
+            method = "synthetic",
+            derivedAt = "never",
             Dungeon = {
                 bands = {
                     ["10+"] = {
@@ -38,6 +45,12 @@ return {
                         },
                         assumedBuffs = { int = 100, haste = 50 },
                     },
+                },
+            },
+            tiers = {
+                [2057] = {
+                    [2] = { mult = 1.03 },
+                    [4] = { mult = 1.055 },
                 },
             },
         },
@@ -95,12 +108,6 @@ return {
                 { from = 1380, penalty = 0.6 },
                 { from = 3381, penalty = 1 },
             },
-        },
-    },
-    tiers = {
-        [2057] = {
-            [2] = { mult = 1.03 },
-            [4] = { mult = 1.055 },
         },
     },
 }
