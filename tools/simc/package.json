@@ -1,0 +1,11 @@
+{
+  "name": "lootpath-simc-dev",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Developer-only SimulationCraft runner (E-7): stat scale factors per DPS or tank spec from SimC's own sample profiles, as data. SimC models no healer. Never shipped.",
+  "license": "MIT",
+  "main": "run-scale-factors.js",
+  "scripts": {
+    "test": "node --test"
+  }
+}

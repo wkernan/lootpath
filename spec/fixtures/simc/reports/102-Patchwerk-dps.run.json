@@ -1,0 +1,24 @@
+{
+  "args": [
+    "fight_style=Patchwerk",
+    "iterations=100000",
+    "target_error=0",
+    "threads=16",
+    "deterministic=1",
+    "seed=7101",
+    "report_details=0",
+    "calculate_scale_factors=1",
+    "scale_only=strength,agility,intellect,haste,crit,mastery,versatility",
+    "scale_over=dps",
+    "json2=102-Patchwerk-dps.json",
+    "output=102-Patchwerk-dps.txt"
+  ],
+  "profile": {
+    "path": "C:\\tmp\\simc\\x-1210.01.2358079\\simc-1210.01.2358079-win64\\profiles\\MID1\\MID1_Druid_Balance.simc",
+    "tier": "MID1",
+    "sha256": "31ee99e7f131bc49ceda2edf60d5ce32b207edd90285907979a6f1738d5e761b"
+  },
+  "source": "simc-sample-profile",
+  "textSha256": "4a843e6dc27f1d2e8a7de29490a629a73081df50d0749f048ca0384738160929",
+  "simcSha256": "f06cfd911a272df156322a873ef0210673bad9ddc0c127b91f26489156e6447a"
+}

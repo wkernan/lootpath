@@ -1,0 +1,24 @@
+{
+  "args": [
+    "fight_style=DungeonSlice",
+    "iterations=100000",
+    "target_error=0",
+    "threads=16",
+    "deterministic=1",
+    "seed=7101",
+    "report_details=0",
+    "calculate_scale_factors=1",
+    "scale_only=strength,agility,intellect,haste,crit,mastery,versatility",
+    "scale_over=dps",
+    "json2=102-DungeonSlice-dps.json",
+    "output=102-DungeonSlice-dps.txt"
+  ],
+  "profile": {
+    "path": "C:\\tmp\\simc\\x-1210.01.2358079\\simc-1210.01.2358079-win64\\profiles\\MID1\\MID1_Druid_Balance.simc",
+    "tier": "MID1",
+    "sha256": "31ee99e7f131bc49ceda2edf60d5ce32b207edd90285907979a6f1738d5e761b"
+  },
+  "source": "simc-sample-profile",
+  "textSha256": "0a03c1e1380ea5d492574d5db0273a29205ddaa542ff0a7f257f3c60fa393828",
+  "simcSha256": "f06cfd911a272df156322a873ef0210673bad9ddc0c127b91f26489156e6447a"
+}

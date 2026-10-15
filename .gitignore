@@ -72,3 +72,11 @@ tools/media/contact-sheet/
 # Lootpath engine (tools/engine, E-0e): the structure run's output - fitted
 # weights and EngineWeights.dev.lua - is a diagnostic and never committed.
 tools/engine/out/
+
+# Lootpath SimC runner (tools/simc, E-7): the runner's output and any local
+# copy of the SimulationCraft binary. The binary is a download (GPL-3.0, a tool,
+# never shipped) and lives outside the repo by default (C:\tmp\simc\...); bin/
+# is here only so a copy put beside the tool can never be committed. The sim
+# REPORTS the tests read are committed under spec/fixtures/simc/reports/ instead.
+tools/simc/out/
+tools/simc/bin/

@@ -88,6 +88,12 @@ jobs:
         working-directory: tools/engine
         env:
           LOOTPATH_REQUIRE_LUA: "1"
+      # tools/simc (E-7, WKE-710): the SimulationCraft runner's tests over the
+      # committed sim reports. SimC itself never runs here.
+      - run: node --test
+        working-directory: tools/simc
+        env:
+          LOOTPATH_REQUIRE_LUA: "1"
 
   package:
     name: packager

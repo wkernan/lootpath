@@ -20,3 +20,10 @@ that commits it.
   equipped and 35 bag items, no vault section. Committed so the spike's diff
   against `hotornot-20260907.txt` can be re-read without re-running anything;
   `simc-profile.test.js` fails if the builder and this file drift apart.
+
+## SimulationCraft's own reports (E-7)
+
+- `reports/` - WKE-710. Not addon strings: the JSON reports and scale-factor
+  lines of SimulationCraft runs `tools/simc/run-scale-factors.js` made for
+  Balance, Feral and Guardian. `reports/README.md` says how and lists every
+  file's sha256.

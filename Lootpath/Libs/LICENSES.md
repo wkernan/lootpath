@@ -10,6 +10,17 @@ enters `Libs/` without a line here. Checked 2026-09-05.
 | AceDB-3.0 | https://repos.wowace.com/wow/ace3/trunk/AceDB-3.0 | trunk | Ace3 BSD-style (below) | packager external; locally `tools/fetch-libs.ps1` |
 | json.lua | https://github.com/rxi/json.lua | 0.1.2 (repo pushed 2023-11-28) | MIT (header intact in `Libs/json.lua`) | vendored; the only change is a six-line footer that also exposes the module on the addon namespace, because the WoW loader discards a chunk's return value |
 
+## Data: numbers made by a tool we run (E-7, 2026-10-15)
+
+The row per dataset that `docs/OWN-ENGINE.md` §2c asks for: what made the
+numbers, under what licence, the clause relied on, and whether they ship. The
+tool itself is never vendored, never committed and never shipped; only its
+output is used.
+
+| Dataset | Source | Build and date | Tool and licence | Clause relied on | Written permission | Ships? |
+|---|---|---|---|---|---|---|
+| Stat scale factors for DPS and tank specs (Balance 102, Feral 103, Guardian 104 first; `tools/simc/`) | SimulationCraft's own sample profiles, read as sim input by path (`profiles/MID2/MID2_Druid_Feral.simc`, `profiles/MID1/MID1_Druid_Balance.simc`, `profiles/MID1/MID1_Druid_Guardian.simc`) | SimC `1210-01`, git `2358079` (game data 12.1.5.70391 Live, hotfix 2026-10-14); nightly archive `simc-1210.01.2358079-win64.7z`, sha256 `b0ec78d5cf533f34d599aba9493183d589e6cb411bfe6d2bbfb0f9fa811fb36f`; run 2026-10-15 | SimulationCraft, **GPL-3.0**; a tool, NOT shipped, output only | GPL-3.0 §2: "The output from running a covered work is covered by this License only if the output, given its content, constitutes a covered work." No `.inc` file, class module, profile or action list is copied; the committed fixtures are SimC's JSON reports and the scale-factor lines of its text reports (`spec/fixtures/simc/reports/README.md`) | none needed | **No.** Developer data only; whether SimC-derived weights ever ship is decided with the weights file (E-4/E-6) |
+
 ## The art, and what made it (UX-4b, 2026-09-16)
 
 Nothing here is loaded by the addon at run time and nothing here is under
