@@ -1150,7 +1150,7 @@ describe("ns.EngineScore client names", function()
     end)
 
     it("names every client function the file calls", function()
-        assert.same({ "GetBuildInfo" }, ns.EngineScore.FUNCTION_NAMES)
+        assert.same({ "GetBuildInfo", "GetSpecializationInfoByID" }, ns.EngineScore.FUNCTION_NAMES)
         local source = readAll("Lootpath/Modules/EngineScore.lua")
         source = source:gsub("%-%-%[%[.-%]%]", ""):gsub("%-%-[^\n]*", "")
         source = source:gsub('"[^"\n]*"', '""'):gsub("'[^'\n]*'", "''")

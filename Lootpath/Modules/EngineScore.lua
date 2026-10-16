@@ -21,8 +21,11 @@
 -- The stats summed, the ratings converted and the tier sets are the spec's
 -- own, read from its entry in the weights file (schema version 2, E-4,
 -- WKE-708: StatsFor, SpecEntry); `int` above is the entry's `primaryStat`,
--- Intellect for Restoration. Nothing upstream reads a primary stat other than
--- Intellect yet (ns.EngineStats, EngineSearch, EngineCompare: E-6).
+-- Intellect for Restoration, Agility or Strength for a spec whose entry says
+-- so (E-6, WKE-712: ns.EngineStats reads both, EngineSearch prunes over the
+-- spec's own list). The spec scored in game is the client's current spec
+-- (SpecInUse); a spec the file does not carry rates nothing and says one
+-- `Coming soon` line built from the file's own spec list.
 --
 -- Our percents are UNSCALED: no 1.5 (Top Gear's `modelDiff`) anywhere here.
 --
@@ -47,7 +50,8 @@ local EngineScore = ns.EngineScore
 -- Load asks the client anything; SetValue and UpgradePercent call nothing but
 -- the rating function they are handed (default ns.EngineStats.Rating, which
 -- names its own).
-EngineScore.FUNCTION_NAMES = { "GetBuildInfo" }
+-- SpecName (E-6) asks the client a spec's name by its ID.
+EngineScore.FUNCTION_NAMES = { "GetBuildInfo", "GetSpecializationInfoByID" }
 
 EngineScore.SCHEMA = "lootpath-engine-weights"
 -- Schema version 2 (E-4, WKE-708): each spec carries its own shape - `role`,
@@ -63,8 +67,24 @@ EngineScore.TEXT = {
     broken = "Not rated - the rating data didn't load.",
     loaded = "Engine ratings for %s loaded.",
     placeholder = "Engine ratings for %s loaded - placeholder numbers, none of them mean anything.",
+    -- E-6 (WKE-712): a spec the weights file does not carry. The H-1 words'
+    -- shape (UI.COMING_SOON_TITLE); the second sentence names the specs the
+    -- file DOES carry, by the client's own names - never a list of ours.
+    comingSoon = "Coming soon for %s. Lootpath rates %s gear for now.",
+    comingSoonNone = "Coming soon for %s.",
 }
 
+-- The developer line beside the broken sentence when a spec's entry names a
+-- primary stat the client says the spec does not use (E-6, WKE-712).
+EngineScore.PRIMARY_DETAIL = "weights file: specs[%s].primaryStat is %s; the client says %s"
+-- The spec's name when the client names none (Companion.GATE_SPEC_UNNAMED's
+-- words).
+EngineScore.UNNAMED_SPEC = "this spec"
+
+-- The spec a PURE call scores when its options name none: the specs and the
+-- offline tools. Every in-game caller (`engine best`, `engine compare`, the
+-- arrivals) passes the client's current spec from SpecInUse instead (E-6,
+-- WKE-712), so this is a test-and-tool fallback, never the spec in use.
 EngineScore.DEFAULT_SPEC = 105
 EngineScore.DEFAULT_CONTENT = "Dungeon"
 
@@ -88,6 +108,16 @@ EngineScore.RATING_STATS = {
     avoidance = true,
     speed = true,
 }
+-- The unit a band's weights are in (E-6, WKE-712). Absent, or "per percent",
+-- is every file before E-7: a rating's weight is value per percent of the
+-- rating, the primary stat's per point. "per point" is SimulationCraft's scale
+-- factor (tools/simc, E-7, WKE-710): value per POINT of every stat, rating or
+-- not. The engine converts a per-point rating weight to per percent with the
+-- file's own `dr[rating].ratingPerPercent` (WeightsPerPercent); the writer
+-- keeps SimC's numbers as SimC printed them. Any other unit is refused.
+EngineScore.UNITS = { ["per percent"] = true, ["per point"] = true }
+EngineScore.PER_POINT = "per point"
+
 EngineScore.METHODS = {
     placeholder = true,
     ["fit-to-qe-exports"] = true,
@@ -280,6 +310,56 @@ function EngineScore.SpecProblem(specID, entry)
     if tiersProblem then
         return name .. "." .. tiersProblem, true
     end
+    -- Every band's unit (E-6): one the engine knows how to read, or none.
+    for _, content in ipairs(sortedKeys(entry)) do
+        local bands = type(entry[content]) == "table" and entry[content].bands
+        if type(bands) == "table" then
+            for _, key in ipairs(sortedKeys(bands)) do
+                local band = bands[key]
+                if type(band) == "table" and band.unit ~= nil and not EngineScore.UNITS[band.unit] then
+                    return string.format(
+                        "%s.%s.bands[%s].unit is not per point or per percent",
+                        name,
+                        tostring(content),
+                        tostring(key)
+                    )
+                end
+            end
+        end
+    end
+    return nil
+end
+
+-- What a per-point band needs from the file (E-6): every rating the spec sums
+-- converts with a `ratingPerPercent` in the file's `dr`. nil, or the rating
+-- that has none, named.
+local function perPointProblem(file, specID, entry)
+    local per = false
+    for _, content in pairs(entry) do
+        local bands = type(content) == "table" and content.bands
+        if type(bands) == "table" then
+            for _, band in pairs(bands) do
+                if type(band) == "table" and band.unit == EngineScore.PER_POINT then
+                    per = true
+                end
+            end
+        end
+    end
+    if not per then
+        return nil
+    end
+    for i = 2, #entry.stats do
+        local stat = entry.stats[i]
+        local dr = type(file.dr) == "table" and file.dr[stat]
+        local rpp = type(dr) == "table" and dr.ratingPerPercent
+        if type(rpp) ~= "number" or rpp <= 0 then
+            return string.format(
+                "weights file: specs[%s] is per point and dr.%s has no ratingPerPercent",
+                tostring(specID),
+                stat
+            )
+        end
+    end
     return nil
 end
 
@@ -338,6 +418,115 @@ function EngineScore.StatsFor(spec, file)
     return lists.stats, lists.ratings, lists.primary
 end
 
+-- ---------------------------------------------------------------------------
+-- The spec in use (E-6, WKE-712).
+
+-- ClientPrimaryStat(index) -> "int" | "agi" | "str" | nil: the weights file's
+-- short name for the client's own primary-stat number (GetSpecializationInfo's
+-- sixth return), read through the client's LE_UNIT_STAT_* globals - the
+-- constants Blizzard's own PaperDollFrame compares that return against - so no
+-- number here is ours. nil when the client defines none of them or the number
+-- is none of the three.
+local PRIMARY_GLOBALS = {
+    { short = "int", global = "LE_UNIT_STAT_INTELLECT" },
+    { short = "agi", global = "LE_UNIT_STAT_AGILITY" },
+    { short = "str", global = "LE_UNIT_STAT_STRENGTH" },
+}
+
+function EngineScore.ClientPrimaryStat(index)
+    index = tonumber(index)
+    if not index then
+        return nil
+    end
+    for _, p in ipairs(PRIMARY_GLOBALS) do
+        local value = tonumber((ns.Safe(rawget(_G, p.global))))
+        if value ~= nil and value == index then
+            return p.short
+        end
+    end
+    return nil
+end
+
+-- SpecName(specID) -> the client's name for a spec, or nil. Blizzard's own
+-- frames read it as GetSpecializationInfoByID's second return
+-- (Blizzard_EncounterJournal.lua:2913, ClubFinder.lua:599 under .luals/).
+function EngineScore.SpecName(specID)
+    if type(specID) ~= "number" then
+        return nil
+    end
+    local name = ns.Safe(ns.Probe(rawget(_G, "GetSpecializationInfoByID"), specID)[2])
+    if type(name) ~= "string" or name == "" then
+        return nil
+    end
+    return name
+end
+
+-- CoveredNames(file) -> "Restoration", "Restoration and Guardian", "A, B and
+-- C" - the specs the file carries, in specID order, by the client's names; nil
+-- when the client names none of them.
+function EngineScore.CoveredNames(file)
+    file = file or EngineScore.file
+    local specs = type(file) == "table" and file.specs
+    if type(specs) ~= "table" then
+        return nil
+    end
+    local ids = {}
+    for id in pairs(specs) do
+        if type(id) == "number" then
+            ids[#ids + 1] = id
+        end
+    end
+    table.sort(ids)
+    local names = {}
+    for _, id in ipairs(ids) do
+        names[#names + 1] = EngineScore.SpecName(id)
+    end
+    if #names == 0 then
+        return nil
+    end
+    if #names == 1 then
+        return names[1]
+    end
+    return table.concat(names, ", ", 1, #names - 1) .. " and " .. names[#names]
+end
+
+-- ComingSoonLine(specName[, file]) -> the one line a spec the file does not
+-- carry says.
+function EngineScore.ComingSoonLine(specName, file)
+    local name = specName or EngineScore.UNNAMED_SPEC
+    local covered = EngineScore.CoveredNames(file)
+    if not covered then
+        return string.format(EngineScore.TEXT.comingSoonNone, name)
+    end
+    return string.format(EngineScore.TEXT.comingSoon, name, covered)
+end
+
+-- SpecInUse([file]) -> specID, entry | nil, nil, line, detail. The spec is the
+-- one the client says you are in (Companion.CurrentSpecID); it is scored only
+-- when the file carries it, and only when the entry's primary stat is the one
+-- the client says the spec uses (when the client says - a nil answer is not a
+-- disagreement). Otherwise `line` is what to say: the `Coming soon` line for a
+-- spec the file does not carry (or a client that names no spec), the broken
+-- sentence with the field named in `detail` for a primary-stat disagreement.
+function EngineScore.SpecInUse(file)
+    file = file or EngineScore.file
+    local companion = ns.Companion or {}
+    local spec = companion.CurrentSpecID and companion.CurrentSpecID() or nil
+    local entry = spec and EngineScore.SpecEntry(file, spec) or nil
+    if not entry then
+        local name = companion.CurrentSpec and companion.CurrentSpec() or nil
+        return nil, nil, EngineScore.ComingSoonLine(name, file)
+    end
+    local client = EngineScore.ClientPrimaryStat(companion.CurrentPrimaryStat and companion.CurrentPrimaryStat())
+    if client and client ~= entry.primaryStat then
+        return nil,
+            nil,
+            EngineScore.TEXT.broken,
+            string.format(EngineScore.PRIMARY_DETAIL, tostring(spec), tostring(entry.primaryStat), client)
+    end
+    return spec, entry
+end
+
 -- Load() -> true, line | false, refusal, detail. Reads ns.engineWeights (set
 -- by Data/EngineWeights.lua at load) and GetBuildInfo()'s version, and keeps
 -- the file only when its schema and version are this module's, its spec table
@@ -371,6 +560,10 @@ function EngineScore.Load()
         if problem then
             local shape = isTiers and EngineScore.TIERS_SHAPE or EngineScore.SPEC_SHAPE
             return refuse(EngineScore.TEXT.broken, string.format(shape, problem))
+        end
+        local perPoint = perPointProblem(file, specID, entry)
+        if perPoint then
+            return refuse(EngineScore.TEXT.broken, perPoint)
         end
         if entry.method ~= "placeholder" then
             allPlaceholder = false
@@ -476,6 +669,50 @@ local function bandOf(file, opts)
         return nil, EngineScore.NO_BAND
     end
     return EngineScore.BandFor(file, opts.spec, opts.contentType, opts.keyLevel)
+end
+
+-- WeightsPerPercent(file, band, ratings) -> the band's weights with every
+-- rating's weight per percent of the rating | nil, why. A band in no unit or
+-- "per percent" answers its own table. A "per point" band (SimC's scale
+-- factors, E-7) answers a copy whose rating weights are multiplied by the
+-- file's `dr[rating].ratingPerPercent`: value per point times points per
+-- percent is value per percent, so w * pct(total) is w_point times the
+-- rating's effective points - exact below the first DR bracket, and the
+-- brackets slow it above, as they do for every other weight. The primary
+-- stat's weight is per point in every unit. Built once per band and file.
+local perPercentOf = setmetatable({}, { __mode = "k" })
+
+function EngineScore.WeightsPerPercent(file, band, ratings)
+    local w = type(band) == "table" and band.weights
+    if type(w) ~= "table" then
+        return nil, EngineScore.NO_BAND
+    end
+    if band.unit == nil or band.unit == "per percent" then
+        return w
+    end
+    if band.unit ~= EngineScore.PER_POINT then
+        return nil, "weights in unit " .. tostring(band.unit)
+    end
+    local held = perPercentOf[band]
+    if held and held.file == file and held.ratings == ratings then
+        return held.weights
+    end
+    local out = {}
+    for stat, x in pairs(w) do
+        out[stat] = x
+    end
+    for _, stat in ipairs(ratings or {}) do
+        local dr = type(file) == "table" and type(file.dr) == "table" and file.dr[stat]
+        local rpp = type(dr) == "table" and dr.ratingPerPercent
+        if type(rpp) ~= "number" or rpp <= 0 then
+            return nil, "no rating per percent for " .. stat
+        end
+        if type(w[stat]) == "number" then
+            out[stat] = w[stat] * rpp
+        end
+    end
+    perPercentOf[band] = { file = file, ratings = ratings, weights = out }
+    return out
 end
 
 local function add(totals, list, stats, times)
@@ -736,7 +973,10 @@ function EngineScore.SetValue(items, opts)
         end
     end
 
-    local w = band.weights
+    local w, unitWhy = EngineScore.WeightsPerPercent(file, band, ratings)
+    if not w then
+        return nil, unitWhy
+    end
     local value = (band.baseValue or 0) + (w[primary] or 0) * totals[primary]
     for _, stat in ipairs(ratings) do
         value = value + (w[stat] or 0) * pcts[stat]

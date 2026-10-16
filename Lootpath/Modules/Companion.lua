@@ -1480,6 +1480,24 @@ function Companion.CurrentRole()
     return safeString(probed[5])
 end
 
+-- The primary stat the client says the current spec uses, as the client's own
+-- number - `GetSpecializationInfo`'s sixth return, `primaryStat` (Blizzard's
+-- exported SpecializationInfoDocumentation under .luals/) - or nil when it
+-- names none. Read in committed captures: Restoration 4, Guardian 2
+-- (`spec/fixtures/captures/Lootpath-20260914-171359.lua`,
+-- `Lootpath-20260914-113012.lua`). What the number MEANS is the client's
+-- LE_UNIT_STAT_* globals' business (ns.EngineScore.ClientPrimaryStat), never a
+-- table of ours (E-6, WKE-712).
+function Companion.CurrentPrimaryStat()
+    local index, info = specReaders()
+    if index == nil or type(info) ~= "function" then
+        return nil
+    end
+    local probed = ns.Probe(info, index)
+    local stat = tonumber((ns.Safe(probed[6])))
+    return stat
+end
+
 -- The healing specialization's own name for this class - `Restoration` for a
 -- Druid, `Holy` for a Paladin - read by asking the client about each of its
 -- specializations in turn, so the sentence names the right one without a table

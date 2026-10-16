@@ -217,6 +217,9 @@ EngineCompare.TEXT = {
     stored = "stored for week %s.",
     noWeek = "the weekly reset clock did not answer; nothing stored.",
     weeksNone = "no compare stored for %s.",
+    -- E-6 (WKE-712): QE Live rates healers only, so a spec whose role the
+    -- client says is not HEALER has nothing to compare against.
+    noRating = "engine compare needs an Upgrade Finder rating; there is none for %s.",
     weekLine = "%s: %s",
 }
 
@@ -669,13 +672,22 @@ function EngineCompare.RowVector(read)
     return out
 end
 
-local function scoreOpts(contentType, file, keyLevel)
-    return { assumedFinish = true, forceTier = true, contentType = contentType, file = file, keyLevel = keyLevel }
+-- `spec` is the spec in use (E-6, WKE-712; Run sets `inputs.spec` from
+-- ns.EngineScore.SpecInUse); nil is EngineScore's pure-call fallback.
+local function scoreOpts(contentType, file, keyLevel, spec)
+    return {
+        assumedFinish = true,
+        forceTier = true,
+        spec = spec,
+        contentType = contentType,
+        file = file,
+        keyLevel = keyLevel,
+    }
 end
 
 -- The band key a block is scored with, or nil and why (BandFor's reason).
 local function bandOfBlock(block, inputs, keyLevel)
-    local band, key = ns.EngineScore.BandFor(inputs.file, nil, inputs.contentType, keyLevel)
+    local band, key = ns.EngineScore.BandFor(inputs.file, inputs.spec, inputs.contentType, keyLevel)
     if band then
         block.band = key
     else
@@ -817,7 +829,7 @@ function EngineCompare.CompareUF(inputs, worn)
     }
     newCounts(block)
     bandOfBlock(block, inputs, document.keyLevel)
-    local opts = scoreOpts(inputs.contentType, inputs.file, document.keyLevel)
+    local opts = scoreOpts(inputs.contentType, inputs.file, document.keyLevel, inputs.spec)
     local rows = {}
     local sign = ns.UFImport.UPGRADE_BETTER_PERCENT_SIGN
     if EngineCompare.REBUILD_AT_LEVEL then
@@ -1078,14 +1090,18 @@ function EngineCompare.SearchTopSet(inputs, verdict, keyLevel)
         search.notSearchable = unsearchable
         return search
     end
-    local result, why =
-        ns.EngineSearch.Best(items, inputs.file, { contentType = inputs.contentType, keyLevel = keyLevel })
+    local result, why = ns.EngineSearch.Best(
+        items,
+        inputs.file,
+        { spec = inputs.spec, contentType = inputs.contentType, keyLevel = keyLevel }
+    )
     if not result then
         search.why = tostring(why)
         return search
     end
     local valueOpts = {
         file = inputs.file,
+        spec = inputs.spec,
         contentType = inputs.contentType,
         keyLevel = keyLevel,
         assumedFinish = true,
@@ -1196,7 +1212,7 @@ function EngineCompare.CompareTopGear(inputs, worn)
         block.topMissing = missing
         return finishBlock(block, {})
     end
-    local opts = scoreOpts(inputs.contentType, inputs.file, keyLevel)
+    local opts = scoreOpts(inputs.contentType, inputs.file, keyLevel, inputs.spec)
     local base, baseWhy = ns.EngineScore.SetValue(top, opts)
     local wornValue = ns.EngineScore.SetValue(worn, opts)
     block.topValue = base and base.value or nil
@@ -1458,8 +1474,8 @@ function EngineCompare.Lines(run)
     local T = EngineCompare.TEXT
     local file = run.file or {}
     -- `method` and `derivedAt` are the spec's own since schema version 2
-    -- (E-4, WKE-708); the compare scores the default spec.
-    local entry = ns.EngineScore.SpecEntry(file) or {}
+    -- (E-4, WKE-708); the compare scores the spec in use (E-6, WKE-712).
+    local entry = ns.EngineScore.SpecEntry(file, run.spec) or {}
     local lines = {
         string.format(
             T.header,
@@ -1722,8 +1738,8 @@ local function store()
     return global.engineCompare
 end
 
-local function entryOf(block, file)
-    local spec = ns.EngineScore.SpecEntry(file) or {}
+local function entryOf(block, file, specID)
+    local spec = ns.EngineScore.SpecEntry(file, specID) or {}
     return {
         weightsPatch = file.patch,
         method = spec.method,
@@ -1744,9 +1760,20 @@ end
 
 -- Run(contentType, keyLevel, onDone): gathers, waits, computes, stores and
 -- prints. `onDone(run)` is for tests; the lines are printed either way.
+--
+-- E-6 (WKE-712): in a spec whose role the client says is not HEALER (the H-1
+-- gate, ns.Companion.Gate) it refuses with one line and reads nothing - QE
+-- Live rates no damage dealer or tank, so there is no rating to measure
+-- against. Otherwise it scores the spec in use (ns.EngineScore.SpecInUse): a
+-- healing spec the weights file does not carry says the `Coming soon` line.
 function EngineCompare.Run(contentType, keyLevel, onDone)
     if InCombatLockdown() then
         ns.Log("%s", EngineCompare.TEXT.combat)
+        return
+    end
+    local gate = ns.Companion and ns.Companion.Gate and ns.Companion.Gate() or nil
+    if gate then
+        ns.Log("%s", string.format(EngineCompare.TEXT.noRating, gate.spec))
         return
     end
     if not ns.EngineScore.file then
@@ -1759,16 +1786,26 @@ function EngineCompare.Run(contentType, keyLevel, onDone)
             return
         end
     end
+    local spec, _, specLine, specDetail = ns.EngineScore.SpecInUse()
+    if not spec then
+        ns.Log("%s", specLine)
+        if specDetail then
+            ns.Log("%s", specDetail)
+        end
+        return
+    end
     local inputs, links = EngineCompare.Gather(contentType, keyLevel)
     if not inputs then
         ns.Log("%s", EngineCompare.TEXT.combat)
         return
     end
+    inputs.spec = spec
     EngineCompare.Resolve(links, function(reads, notReady, secret)
         inputs.reads = reads
         local result = EngineCompare.Compute(inputs)
         local run = {
             file = inputs.file,
+            spec = spec,
             contentType = contentType,
             askedLevel = keyLevel,
             charKey = EngineCompare.CharKey(),
@@ -1784,7 +1821,14 @@ function EngineCompare.Run(contentType, keyLevel, onDone)
             local s = store()
             if result.uf then
                 local docKey = ns.UFImport.KeyLevelKey(result.uf.keyLevel)
-                EngineCompare.Store(s, run.weekKey, run.charKey, contentType, docKey, entryOf(result.uf, inputs.file))
+                EngineCompare.Store(
+                    s,
+                    run.weekKey,
+                    run.charKey,
+                    contentType,
+                    docKey,
+                    entryOf(result.uf, inputs.file, inputs.spec)
+                )
             end
             if result.tg and not result.tg.topMissing then
                 EngineCompare.Store(
@@ -1793,7 +1837,7 @@ function EngineCompare.Run(contentType, keyLevel, onDone)
                     run.charKey,
                     contentType,
                     EngineCompare.TOP_GEAR_KEY,
-                    entryOf(result.tg, inputs.file)
+                    entryOf(result.tg, inputs.file, inputs.spec)
                 )
             end
             run.verdicts = EngineCompare.Verdicts(s, run.charKey)
@@ -1878,7 +1922,7 @@ EngineCompare.arrivals = {}
 -- The session's last `compare` or `best`: `{ contentType, keyLevel }`.
 EngineCompare.lastAsked = nil
 
-local arrival = { known = nil, pending = {}, refusalSaid = false, listener = nil }
+local arrival = { known = nil, pending = {}, refusalSaid = false, specSaid = nil, listener = nil }
 
 -- The detector's carried state and the pending batches, dropped: the switch
 -- went off, or a test starts over.
@@ -1886,6 +1930,7 @@ function EngineCompare.ResetArrivals()
     arrival.known = nil
     arrival.pending = {}
     arrival.refusalSaid = false
+    arrival.specSaid = nil
     EngineCompare.arrivals = {}
     EngineCompare.arrivalRefusal = nil
 end
@@ -1929,9 +1974,10 @@ function EngineCompare.TheirsFor(contentType, keyLevel, itemID, level)
     return entry.upgradePercent * ns.UFImport.UPGRADE_BETTER_PERCENT_SIGN
 end
 
+-- The spec an arrival is rated for: the client's current one (E-6, WKE-712:
+-- no default spec in game), or nil when the client names none.
 local function arrivalSpec()
-    local id = ns.Companion and ns.Companion.CurrentSpecID and ns.Companion.CurrentSpecID() or nil
-    return id or ns.EngineScore.DEFAULT_SPEC
+    return ns.Companion and ns.Companion.CurrentSpecID and ns.Companion.CurrentSpecID() or nil
 end
 
 -- RateArrival(item, worn, band) -> the arrival's entry: `{ key, link, name,
@@ -2053,6 +2099,20 @@ function EngineCompare.RateArrivals(onDone)
         arrival.pending = {}
         return
     end
+    -- E-6 (WKE-712): a spec the weights file does not carry rates nothing and
+    -- says its one line once a session, as a refused file does.
+    local spec, _, specLine, specDetail = ns.EngineScore.SpecInUse(file)
+    if not spec then
+        arrival.pending = {}
+        if arrival.specSaid ~= specLine then
+            arrival.specSaid = specLine
+            ns.Log("%s", specLine)
+            if specDetail then
+                ns.Log("%s", specDetail)
+            end
+        end
+        return
+    end
     local batches = arrival.pending
     arrival.pending = {}
     local links, seen = {}, {}
@@ -2083,7 +2143,7 @@ function EngineCompare.RateArrivals(onDone)
             return
         end
         local contentType, keyLevel = EngineCompare.ArrivalBand()
-        local band = { contentType = contentType, keyLevel = keyLevel, spec = arrivalSpec(), file = file }
+        local band = { contentType = contentType, keyLevel = keyLevel, spec = spec, file = file }
         local rated = {}
         for _, batch in ipairs(batches) do
             local worn = ns.EngineSearch.Vectors(batch.worn, reads)

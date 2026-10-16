@@ -122,6 +122,10 @@ EngineSearch.TEXT = {
     paused = "paused for combat %d time(s), picked up after.",
     leftOut = "left out: %d not ready, %d secret, %d not for this spec, %d outclassed by other pieces.",
     notRated = "  not rated: %d piece(s) in the best set carry an effect not modelled.",
+    -- E-6 (WKE-712): how many of the pieces read carry the spec's primary
+    -- stat. A spec whose primary the client names under a key ns.EngineStats
+    -- does not map reads 0 here - the sign to look at the item reads.
+    primary = "primary stat %s: on %d of %d pieces read.",
     worn = "worn",
     bag = "bag",
     bank = "bank",
@@ -231,8 +235,14 @@ end
 -- Scoring context: the band, the options SetValue is called with, the cache
 -- and the evaluation count.
 
-local STATS = { "int", "haste", "crit", "mastery", "vers", "leech" }
-local RATINGS = { "haste", "crit", "mastery", "vers", "leech" }
+-- The stats a piece is compared and proxied over are the SPEC's own (E-6,
+-- WKE-712): its entry's `stats`, primary first, through
+-- ns.EngineScore.StatsFor - the same list SetValue sums, so the drop and the
+-- value never disagree about which stats count. Restoration's are int, haste,
+-- crit, mastery, vers, leech, the fixed six this file held before.
+local function listsOf(weights, spec)
+    return ns.EngineScore.StatsFor(spec, weights)
+end
 
 local function scoreOptsOf(weights, opts)
     return {
@@ -306,11 +316,11 @@ end
 -- ---------------------------------------------------------------------------
 -- Candidates.
 
-local function addInto(v, stats, times)
+local function addInto(v, list, stats, times)
     if type(stats) ~= "table" then
         return
     end
-    for _, stat in ipairs(STATS) do
+    for _, stat in ipairs(list) do
         local x = stats[stat]
         if type(x) == "number" then
             v[stat] = v[stat] + x * times
@@ -320,23 +330,23 @@ end
 
 -- What one item adds to a set's totals in SetValue's mode: its stats, plus
 -- (parity) its sockets times the gem vector and its slot's enchant, or (own
--- finish) its gems' stats.
-local function effective(item, band, assumedFinish)
+-- finish) its gems' stats - over the spec's own stat list.
+local function effective(item, band, assumedFinish, list)
     local v = {}
-    for _, stat in ipairs(STATS) do
+    for _, stat in ipairs(list) do
         v[stat] = 0
     end
-    addInto(v, item, 1)
+    addInto(v, list, item, 1)
     if assumedFinish then
         local finish = band.assumedFinish
         if type(finish) == "table" then
-            addInto(v, finish.gemVector, tonumber(item.sockets) or 0)
+            addInto(v, list, finish.gemVector, tonumber(item.sockets) or 0)
             local bySlot = finish.enchantBySlot
-            addInto(v, type(bySlot) == "table" and bySlot[item.slot] or nil, 1)
+            addInto(v, list, type(bySlot) == "table" and bySlot[item.slot] or nil, 1)
         end
     elseif type(item.gems) == "table" then
         for _, gem in ipairs(item.gems) do
-            addInto(v, gem.stats, 1)
+            addInto(v, list, gem.stats, 1)
         end
     end
     return v
@@ -373,12 +383,12 @@ end
 -- (worse where a weight is negative); strictly better somewhere, or equal
 -- everywhere and earlier in the fixed order. `a` must carry no limit category
 -- and no hook flag; `b` must carry no effect entry.
-local function outclasses(a, b, signs)
+local function outclasses(a, b, signs, list)
     if a.tier ~= b.tier then
         return false
     end
     local strictly = false
-    for _, stat in ipairs(STATS) do
+    for _, stat in ipairs(list) do
         local s = signs[stat]
         if s ~= 0 then
             local da, db = a.eff[stat] * s, b.eff[stat] * s
@@ -430,7 +440,7 @@ end
 --
 -- Why a drop never loses the optimum. SetValue is non-decreasing in every
 -- total whose weight is positive (and non-increasing where it is negative):
--- the value is baseValue + w_int * int + sum_r w_r * pct_r(total_r), each
+-- the value is baseValue + w_p * primary + sum_r w_r * pct_r(total_r), each
 -- pct_r is non-decreasing in its total (the client's conversion and the
 -- bracket table both only slow down, never turn back), and the tier
 -- multiplier depends only on how many pieces of each set are worn. Pieces are
@@ -452,9 +462,19 @@ function EngineSearch.Candidates(items, weights, opts)
     if type(band) ~= "table" or type(band.weights) ~= "table" then
         return nil, why or ns.EngineScore.NO_BAND
     end
-    local w = band.weights
+    local list, ratings, primary = listsOf(weights, opts.spec)
+    if not list then
+        return nil, ns.EngineScore.TEXT.broken
+    end
+    -- Per percent of every rating, whatever unit the band is in (E-6:
+    -- SimC's per-point bands, EngineScore.WeightsPerPercent), so the proxy
+    -- weighs a rating as SetValue does.
+    local w, unitWhy = ns.EngineScore.WeightsPerPercent(weights, band, ratings)
+    if not w then
+        return nil, unitWhy
+    end
     local signs = {}
-    for _, stat in ipairs(STATS) do
+    for _, stat in ipairs(list) do
         local x = tonumber(w[stat]) or 0
         signs[stat] = (x > 0 and 1) or (x < 0 and -1) or 0
     end
@@ -462,13 +482,13 @@ function EngineSearch.Candidates(items, weights, opts)
     local byPool = {}
     for i, item in ipairs(items or {}) do
         if type(item) == "table" and type(item.slot) == "string" then
-            local eff = effective(item, band, assumedFinish)
-            local proxy = (tonumber(w.int) or 0) * eff.int
-            for _, stat in ipairs(RATINGS) do
+            local eff = effective(item, band, assumedFinish, list)
+            local proxy = (tonumber(w[primary]) or 0) * eff[primary]
+            for _, stat in ipairs(ratings) do
                 proxy = proxy + (tonumber(w[stat]) or 0) * percentOf(weights, opts, stat, eff[stat])
             end
             local signed = 0
-            for _, stat in ipairs(STATS) do
+            for _, stat in ipairs(list) do
                 signed = signed + signs[stat] * eff[stat]
             end
             local cand =
@@ -476,13 +496,13 @@ function EngineSearch.Candidates(items, weights, opts)
             cand.signed = signed
             local pool = poolOf(item.slot)
             byPool[pool] = byPool[pool] or {}
-            local list = byPool[pool]
-            list[#list + 1] = cand
+            local inPool = byPool[pool]
+            inPool[#inPool + 1] = cand
         end
     end
     local pools, dropped, kept = {}, {}, 0
-    for pool, list in pairs(byPool) do
-        table.sort(list, function(a, b)
+    for pool, cands in pairs(byPool) do
+        table.sort(cands, function(a, b)
             if a.signed ~= b.signed then
                 return a.signed > b.signed
             end
@@ -490,12 +510,12 @@ function EngineSearch.Candidates(items, weights, opts)
         end)
         local need = (pool == "Finger" or pool == "Trinket") and 2 or 1
         local keep = {}
-        for _, c in ipairs(list) do
+        for _, c in ipairs(cands) do
             local drop = false
             if opts.prune ~= false and canBeDropped(c, opts.effects) then
                 local over = {}
                 for _, k in ipairs(keep) do
-                    if canOutclass(k) and outclasses(k, c, signs) then
+                    if canOutclass(k) and outclasses(k, c, signs, list) then
                         over[#over + 1] = k
                     end
                 end
@@ -1497,7 +1517,7 @@ function EngineSearch.Lines(run)
     if not result then
         lines[#lines + 1] = string.format(T.noSet, tostring(run.why))
         if tostring(run.why):find("^no band") then
-            local keys = EngineSearch.BandKeys(run.file, nil, run.contentType)
+            local keys = EngineSearch.BandKeys(run.file, run.spec, run.contentType)
             lines[#lines + 1] =
                 string.format(T.bands, tostring(run.contentType), #keys > 0 and table.concat(keys, ", ") or "none")
         end
@@ -1528,6 +1548,9 @@ function EngineSearch.Lines(run)
     local n = (unmodelled and #unmodelled or 0) + (unknown and #unknown or 0)
     if n > 0 then
         lines[#lines + 1] = string.format(T.notRated, n)
+    end
+    if run.primary then
+        lines[#lines + 1] = string.format(T.primary, run.primary.stat, run.primary.on, run.primary.of)
     end
     return lines
 end
@@ -1589,11 +1612,21 @@ function EngineSearch.Command(words, onDone)
             return
         end
     end
+    -- E-6 (WKE-712): the spec is the client's current one, scored only when
+    -- the weights file carries it; otherwise its one line and nothing else.
+    local spec, _, specLine, specDetail = ns.EngineScore.SpecInUse()
+    if not spec then
+        ns.Log("%s", specLine)
+        if specDetail then
+            ns.Log("%s", specDetail)
+        end
+        return
+    end
     if state.job then
         ns.Log("%s", T.running)
         return
     end
-    local records, notForSpec = EngineSearch.Gather(ns.EngineScore.DEFAULT_SPEC)
+    local records, notForSpec = EngineSearch.Gather(spec)
     if not records then
         ns.Log("%s", T.combat)
         return
@@ -1608,7 +1641,14 @@ function EngineSearch.Command(words, onDone)
     local file = ns.EngineScore.file
     ns.EngineCompare.Resolve(links, function(reads)
         local items, counts = EngineSearch.Vectors(records, reads)
-        local opts = { contentType = contentType, keyLevel = keyLevel }
+        local opts = { spec = spec, contentType = contentType, keyLevel = keyLevel }
+        local _, _, primary = ns.EngineScore.StatsFor(spec, file)
+        local on = 0
+        for _, item in ipairs(items) do
+            if (tonumber(item[primary]) or 0) > 0 then
+                on = on + 1
+            end
+        end
         local worn = {}
         for _, item in ipairs(items) do
             if item.location == "equipped" then
@@ -1618,6 +1658,8 @@ function EngineSearch.Command(words, onDone)
         local wornScored = ns.EngineScore.SetValue(worn, scoreOptsOf(file, opts))
         local run = {
             file = file,
+            spec = spec,
+            primary = { stat = primary, on = on, of = #items },
             contentType = contentType,
             keyLevel = keyLevel,
             notReady = counts.notReady,
