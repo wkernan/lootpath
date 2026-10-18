@@ -3842,7 +3842,19 @@ function Roads.ItemSentence(answer)
                 -- own key, so "from the vault" is the one thing that is no
                 -- longer true. R-3b's words for the pick, arrived, are the
                 -- answer: put it on, crest it, or refresh.
+                --
+                -- R-2s (WKE-707): crest-short is the one case that read wrong -
+                -- the reset-day claim of the Vile Vial, after which the bag copy
+                -- read `Crest this to 334 - then refresh.` The vault keeps the
+                -- offer's bonus IDs through a crest (R-2j's own point above), so
+                -- the key never changed and nothing needs a refresh to catch up;
+                -- R-2l's short form, written for exactly this question - a piece
+                -- you hold that wins only once crested - says it in the owner's
+                -- words, `Crest to 334`. Put-on and already-worn keep R-3b's.
                 if answer.held == true and Roads.HoldsVaultPick(answer.heldItem, own) then
+                    if Roads.ArrivedShort(answer.heldItem, own) then
+                        return string.format(Roads.CREST_WEAR_SENTENCE, tonumber(own.arrivesAt))
+                    end
                     return Roads.ArrivedSentence(answer.heldItem, own)
                 end
                 if own.rating and own.rating.level and own.arrivesAt and own.rating.level > own.arrivesAt then

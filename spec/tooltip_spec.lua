@@ -1634,13 +1634,17 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         return record
     end
 
-    it("never tells the player to grab from the vault the pick in his bags (R-2j)", function()
+    -- R-2s (WKE-707) shortened the crest clause: the long `Crest this to
+    -- 334 - then refresh.` asked for a refresh that teaches the rating
+    -- nothing new, since the vault keeps the offer's bonus IDs through every
+    -- crest and already speaks for this key at every level.
+    it("never tells the player to grab from the vault the pick in his bags (R-2j, R-2s)", function()
         local before = lines(VAULT_WORLDROOT)
         assert.equal("Grab this - crest it after.", before[2])
         local held = takeWorldrootAsOffered()
         local block = lines(held.key)
         assert.equal("Lootpath · 2H Weapon", block[1])
-        assert.equal("Crest this to 321 - then refresh.", block[2])
+        assert.equal("Crest to 321", block[2])
         -- Everything under the sentence is the block it was (since R-2l,
         -- WKE-695, no `Better:` line and no age line on either).
         assert.equal(#before, #block)

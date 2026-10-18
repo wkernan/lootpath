@@ -1248,14 +1248,21 @@ describe("Roads over the owner's week of 2026-09-08", function()
 
     -- The owner's screen. PROVEN RED: without the R-2j branch in
     -- `ItemSentence` this is `Grab this from the vault.`, his own line.
-    it("never sends a bag copy of the vault pick back to the vault (R-2j)", function()
+    --
+    -- R-2s (WKE-707) shortened the crest clause itself: the reset-day claim of
+    -- the Vile Vial read `Crest this to 334 - then refresh.` A refresh teaches
+    -- nothing new here - the vault keeps the offer's bonus IDs through every
+    -- crest, so the document already speaks for this key at every level - and
+    -- the short form already written for that same fact elsewhere now covers
+    -- this case too: `Crest to 321`.
+    it("never sends a bag copy of the vault pick back to the vault (R-2j, R-2s)", function()
         local held = holdWorldroot("bag")
         emptyTheVault()
         local answer = answerFor("2H Weapon", held.key)
         assert.is_true(answer.held)
         assert.equal(WORLDROOT_VAULT_KEY, answer.own.keys[1])
         local sentence = ns.Roads.ItemSentence(answer)
-        assert.equal("Crest this to 321 - then refresh.", sentence)
+        assert.equal("Crest to 321", sentence)
         local slotRoads = ns.Roads.ForSlot("2H Weapon", inputs)
         local plan = ns.Roads.PlanSentence(inputs).sentence
         noSurfaceGrabs({ sentence, slotRoads.plan, plan })
@@ -1301,11 +1308,12 @@ describe("Roads over the owner's week of 2026-09-08", function()
 
     -- The same copy worn: R-3b's worn words, the crest first while it is under
     -- the level the rating picked it at. PROVEN RED: without the branch this
-    -- is `Grab this from the vault.` over the staff on his back.
-    it("gives a worn copy of the vault pick R-3b's worn words (R-2j)", function()
+    -- is `Grab this from the vault.` over the staff on his back. R-2s
+    -- (WKE-707) shortened the crest clause the same way as the bag copy above.
+    it("gives a worn copy of the vault pick R-3b's worn words (R-2j, R-2s)", function()
         local held = holdWorldroot("equipped")
         emptyTheVault()
-        assert.equal("Crest this to 321 - then refresh.", ns.Roads.ItemSentence(answerFor("2H Weapon", held.key)))
+        assert.equal("Crest to 321", ns.Roads.ItemSentence(answerFor("2H Weapon", held.key)))
         local slotRoads = ns.Roads.ForSlot("2H Weapon", inputs)
         assert.equal(ns.Roads.ARRIVED_CLAIMED_WORN, ns.Roads.PlanPick(slotRoads).claimed)
         assert.equal("Crest the Worldroot.", slotRoads.plan)
