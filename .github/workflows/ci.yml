@@ -94,6 +94,12 @@ jobs:
         working-directory: tools/simc
         env:
           LOOTPATH_REQUIRE_LUA: "1"
+      # tools/combatlog (E-5, WKE-711): the combat-log weights tool's tests over
+      # the committed stripped log; Lua 5.1 (above) loads the file it writes.
+      - run: node --test
+        working-directory: tools/combatlog
+        env:
+          LOOTPATH_REQUIRE_LUA: "1"
 
   package:
     name: packager
