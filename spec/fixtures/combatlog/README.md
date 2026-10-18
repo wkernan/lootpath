@@ -52,6 +52,28 @@ never enter the repo; the owner keeps them.
   `e5bd02c07d2393759eb5be8e7b4f2738d4a5fc217c78a8c044f9596d1da92cea`
   (59,223,581 bytes), kept by the owner only.
 
+## WoWCombatLog-20261018-VoidscarArena-12.txt.gz
+
+- **What it is:** the owner's completed Voidscar Arena +12 later the same night, healed in
+  Restoration (spec 105 in all four of the owner's `COMBATANT_INFO`), from `CHALLENGE_MODE_START`
+  at 00:35:49.820 CDT on 2026-10-18 to `CHALLENGE_MODE_END` at 00:59:43.240 (`1,12,1470280` -
+  timed, level 12, 1,470,280 ms). Cut from the same `WoWCombatLog-101726_202201.txt`, which the
+  game kept appending to after the Altar key (138,392,877 bytes by 01:05); lines 237,328-435,386
+  of it. Encounters Taz'Rah, Atroxus, Charonus.
+- **Stripping:** `node tools/combatlog/anonymise.js` (the merged tool), four other players ->
+  `Player-0-0000000N` / `PlayerN-Realm`, 198,059 lines in and out; the coordinator re-checked:
+  no original name, bare name or GUID left. The owner kept.
+- **Counts** (Python over the stripped text): `SPELL_HEAL` 19,493, `SPELL_PERIODIC_HEAL` 12,956,
+  `SPELL_ABSORBED` 1,467, `SPELL_AURA_APPLIED` 11,244, `SPELL_AURA_REFRESH` 17,528,
+  `SPELL_AURA_REMOVED` 9,969, `SPELL_CAST_SUCCESS` 10,196, `COMBATANT_INFO` 20,
+  `ENCOUNTER_START`/`END` 3 each, `UNIT_DIED` 142. The owner's heal events: 23,105, of which
+  13,161 carry overheal > 0 and 3,344 the crit flag.
+- **sha256:** stripped plain text `bf4a55f4a7e087d5aa2c76c9fc9bb7415e94090e73d2685eedeb0b2f4315426e`
+  (61,115,928 bytes); the gzip as committed
+  `6f699427982a5b8211c342669eefbc668222207a9371919020cb133aad9746a3` (4,558,159 bytes). The
+  unstripped segment: `5645c7e9c4ca3eae366530a8029e25df452d527c9d786f7178e1814a9227d81f`
+  (63,619,523 bytes), kept by the owner only.
+
 Also recorded that evening, not committed: `WoWCombatLog-101726_181457.txt`
 (92,450,055 bytes), a Temple of Sethraliss +12 whose `CHALLENGE_MODE_START` fell
 before logging began (four `ENCOUNTER_START`/`END` pairs, `CHALLENGE_MODE_END`
