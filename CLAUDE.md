@@ -49,8 +49,10 @@ already edited the shared checkout, move the work to a worktree first
 ## How work moves
 
 - Branch per issue (`lp-<n>-<slug>`) in its own worktree, PR to `main`,
-  never commit to `main` directly. Merge your own PR only when every CI
-  check is green. Never bypass a check; never disable a test to get green.
+  never commit to `main` directly. Agents open the PR and never merge it;
+  the coordinating session merges, only when every CI check is green
+  (ARCHITECTURE.md §7, 2026-10-15). Never bypass a check; never disable a
+  test to get green.
 - Read the whole Linear issue, including its "Working in this repo" section.
   Verify the issue's premise against the code before building. A wrong premise
   is reported in the PR and the right thing is built instead: scaling down is
@@ -66,7 +68,40 @@ already edited the shared checkout, move the work to a worktree first
   broken CI.
 - Every Linear issue an agent picks up carries both rules in its own text -
   the worktree and the rebase - under "Working in this repo". An issue
-  without them is not ready; add them before handing it out.
+  without them is not ready; add them before handing it out. **Except an
+  issue for Stokowski:** write it with the `stokowski-ticket` skill and leave
+  the worktree recipe, the `.ps1` steps and status changes out; the section
+  below covers them.
+
+## If you are a Stokowski agent
+
+You are one if your prompt came from Stokowski: a headless run on the Linux
+orchestrator VM, in a workspace under `~/workspaces/lootpath/`. There, these
+replace the Windows rules above (decision 2026-10-18, ARCHITECTURE.md §7):
+
+- **The workspace is your worktree.** Stokowski cloned it for this issue
+  alone. Do not create another, and ignore `C:\` paths.
+- **Use Stokowski's branch**, the one your prompt names, not `lp-<n>-<slug>`.
+  Linear links the PR to the issue by that name.
+- **The gates run natively.** There is no PowerShell: run CI's own commands
+  from the repo root instead of `tools\check.ps1`: `luacheck . --no-color`,
+  `stylua --check .`, `bash tools/luals-check.sh`, `busted`, and
+  `node --test` in `tools/companion`, `tools/engine`, `tools/simc` and
+  `tools/combatlog`. The LuaLS gate needs the annotations first, from CI's
+  own clone step: `git clone --depth 1 --recurse-submodules
+  --shallow-submodules https://github.com/Ketho/vscode-wow-api.git
+  .luals/vscode-wow-api`.
+  The full `busted` run takes about 4.5 minutes on this VM: run it once, in
+  the foreground, and run only the covering specs while you work.
+- **Never merge, and never change the Linear issue.** Stokowski moves its
+  status and posts your `.stokowski/report.json` as the comment. A
+  "set this issue In Progress" line in an older issue does not apply to you.
+- **The rebase rule still applies.** Rebase onto `origin/main` before opening
+  the PR. On a rework run, add commits rather than force-pushing.
+- **Every other rule in this file applies unchanged:** the brain, evidence,
+  guards proven red, client rules, attribution and the PR template.
+- You cannot run anything in game, sync into the game, or touch the owner's
+  machine. Book each in-game step as human-required.
 
 ## Evidence
 
