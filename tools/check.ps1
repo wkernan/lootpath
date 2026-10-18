@@ -105,6 +105,10 @@ Invoke-Gate 'companion' {
     # tools/simc (E-7): the SimC runner's tests, over committed reports only.
     Push-Location (Join-Path $repo 'tools\simc')
     try { node --test } finally { Pop-Location }
+    if ($LASTEXITCODE -ne 0) { return }
+    # tools/combatlog (E-5): the combat-log weights tool's tests, over the committed stripped log.
+    Push-Location (Join-Path $repo 'tools\combatlog')
+    try { node --test } finally { Pop-Location }
 }
 
 Write-Host "`n=== summary ===" -ForegroundColor Cyan

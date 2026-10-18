@@ -5,3 +5,5 @@ spec/fixtures/
 .lua/
 .luarocks/
 tools/engine/out/
+tools/simc/out/
+tools/combatlog/out/

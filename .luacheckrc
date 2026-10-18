@@ -13,6 +13,8 @@ exclude_files = {
     ".lua/**",
     ".luarocks/**",
     "tools/engine/out/**", -- E-0e's generated dev weights file, gitignored
+    "tools/simc/out/**", -- E-7's generated SimC weights file, gitignored
+    "tools/combatlog/out/**", -- E-5's generated combat-log weights file, gitignored
 }
 
 -- Globals the addon defines (its slash command) or mutates. UISpecialFrames is
