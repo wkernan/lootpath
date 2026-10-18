@@ -1,0 +1,11 @@
+{
+  "name": "lootpath-combatlog-dev",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Developer-only combat-log weights tool (E-5): healer stat weights from the game's own WoWCombatLog.txt through the per-event method of docs/COMBAT-LOG-WEIGHTS.md, and the name-stripping pass for logs before they are committed. Never shipped.",
+  "license": "MIT",
+  "main": "weights.js",
+  "scripts": {
+    "test": "node --test"
+  }
+}

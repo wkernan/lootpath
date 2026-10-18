@@ -80,3 +80,8 @@ tools/engine/out/
 # REPORTS the tests read are committed under spec/fixtures/simc/reports/ instead.
 tools/simc/out/
 tools/simc/bin/
+
+# Lootpath combat-log weights (tools/combatlog, E-5): the tool's weights file and
+# JSON are developer data, never committed; the logs it reads are committed only
+# stripped, under spec/fixtures/combatlog/.
+tools/combatlog/out/

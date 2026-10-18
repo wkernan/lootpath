@@ -1,6 +1,7 @@
 # SimC spell_query output, one query per spell, run 2026-10-17 by the E-5 agent:
 #   simc.exe spell_query=spell.id=<id>   and   simc.exe spell_query=spell.label=4337
 # SimC 1210-01, git 2358079, game data 12.1.5.70391 (GPL-3.0 tool; output only - Blizzard's numbers).
+# SimulationCraft 1210-01 for World of Warcraft 12.1.5.70391 Live (hotfix 2026-10-14/70391, git build midnight 2358079)
 
 ######## spell.id=774
 Name             : Rejuvenation (id=774) [Spell Family (7)] 
@@ -29,19 +30,19 @@ Aura Interrupt   : Leave World (19)
 Effects          :
 #1 (id=311)      : Apply Aura (6) | Periodic Heal (8): every 3 seconds
                    Base Value: 0 | Scaled Value: 0 | SP Coefficient: 0.924 | PvP Coefficient: 0.87 | Target: Targeted Ally (21)
-Description      : Heals the target for $o1 over $d.$?s155675[
-
-You can apply Rejuvenation twice to the same target.][]$?s33891[
-
+Description      : Heals the target for $o1 over $d.$?s155675[
+
+You can apply Rejuvenation twice to the same target.][]$?s33891[
+
 |C0033AA11Tree of Life: Healing increased by $5420s5% and Mana cost reduced by $5420s4%.|R][]
 Tooltip          : Healing $w1 every $t1 sec.
-Variables        : $mult=${1}
-$mstrshape=$?s48411[${1+0.01*$48411m1}][${1}]
-$gotem1=$?s51179[${1+0.01*$51179m1}][${1}]
-$gotem2=$?s51180[${1+0.01*$51180m1}][${$<gotem1>}]
-$gotem3=$?s51181[${1+0.01*$51181m1}][${$<gotem2>}]
-$tol=$?a5420[${1+0.01+$5420m1}][${1}]
-$gift=$?s87305[${1.25}][${1}]
+Variables        : $mult=${1}
+$mstrshape=$?s48411[${1+0.01*$48411m1}][${1}]
+$gotem1=$?s51179[${1+0.01*$51179m1}][${1}]
+$gotem2=$?s51180[${1+0.01*$51180m1}][${$<gotem1>}]
+$gotem3=$?s51181[${1+0.01*$51181m1}][${$<gotem2>}]
+$tol=$?a5420[${1+0.01+$5420m1}][${1}]
+$gift=$?s87305[${1.25}][${1}]
 $bloom=${$<gift>*$<genesis3>*$<mstrshape>*$<gotem3>*$<tol>}
 
 
@@ -69,13 +70,13 @@ Effects          :
                    Base Value: 0 | Scaled Value: 0 | SP Coefficient: 0.924 | PvP Coefficient: 0.87 | Target: Targeted Ally (21)
 Description      : $@spelldesc774
 Tooltip          : Healing $w1 every $t1 sec.
-Variables        : $mult=${1}
-$mstrshape=$?s48411[${1+0.01*$48411m1}][${1}]
-$gotem1=$?s51179[${1+0.01*$51179m1}][${1}]
-$gotem2=$?s51180[${1+0.01*$51180m1}][${$<gotem1>}]
-$gotem3=$?s51181[${1+0.01*$51181m1}][${$<gotem2>}]
-$tol=$?a5420[${1+0.01+$5420m1}][${1}]
-$gift=$?s87305[${1.25}][${1}]
+Variables        : $mult=${1}
+$mstrshape=$?s48411[${1+0.01*$48411m1}][${1}]
+$gotem1=$?s51179[${1+0.01*$51179m1}][${1}]
+$gotem2=$?s51180[${1+0.01*$51180m1}][${$<gotem1>}]
+$gotem3=$?s51181[${1+0.01*$51181m1}][${$<gotem2>}]
+$tol=$?a5420[${1+0.01+$5420m1}][${1}]
+$gift=$?s87305[${1.25}][${1}]
 $bloom=${$<gift>*$<genesis3>*$<mstrshape>*$<gotem3>*$<tol>}
 
 
@@ -113,12 +114,12 @@ Effects          :
 #3 (id=1215971)  : Apply Aura (6) | Modify Damage Taken% (87)
                    Base Value: 0 | Scaled Value: 0 | Misc Value: 0x7f | Target: Targeted Ally (21)
                    Affected School(s): All
-Description      : Heals a friendly target for $s1 and another ${$o2*$<mult>} over $d.$?s231032[ Initial heal has a $231032s1% increased chance for a critical effect if the target is already affected by Regrowth.][]$?s24858|s197625[ Usable while in Moonkin Form.][]$?s33891[
-
+Description      : Heals a friendly target for $s1 and another ${$o2*$<mult>} over $d.$?s231032[ Initial heal has a $231032s1% increased chance for a critical effect if the target is already affected by Regrowth.][]$?s24858|s197625[ Usable while in Moonkin Form.][]$?s33891[
+
 |C0033AA11Tree of Life: Instant cast.|R][]
 Tooltip          : Heals $w2 every $t2 sec.$?e2[ Damage taken reduced by $w3%.][]
-Variables        : $NSmult=$?a132158[${1+$132158s2/100}][${1}]
-$CCmult=$?a16870[${1+$16870s2/100}][${1}]
+Variables        : $NSmult=$?a132158[${1+$132158s2/100}][${1}]
+$CCmult=$?a16870[${1+$16870s2/100}][${1}]
 $mult=${$<NSmult>*$<CCmult>}
 
 
@@ -149,10 +150,10 @@ Attributes       : Not Shapeshifted (16), Include In Advanced Combat Log (72), A
 Effects          :
 #1 (id=23639)    : Apply Aura (6) | Periodic Heal (8): every 1 seconds
                    Base Value: 0 | Scaled Value: 0 | SP Coefficient: 0.2684 | Target: Targeted Ally (21)
-Description      : Heals the target for $o1 over $d. When Lifebloom expires, is dispelled, or is refreshed near expiration the target is instantly healed for $33778s1.
-
+Description      : Heals the target for $o1 over $d. When Lifebloom expires, is dispelled, or is refreshed near expiration the target is instantly healed for $33778s1.
+
 May be active on one target at a time.
-Tooltip          : Healing $w1 every $t1 sec.
+Tooltip          : Healing $w1 every $t1 sec.
 Blooms for additional healing when effect expires or is dispelled.
 
 
@@ -208,8 +209,8 @@ Effects          :
 #2 (id=40641)    : Dummy (3)
                    Base Value: 5 | Scaled Value: 5
                    Modified By: Improved Wild Growth (328025 effect#1)
-Description      : Heals up to $s2 injured allies within $A1 yards of the target for $o1 over $d. Healing starts high and declines over the duration.$?s33891[
-
+Description      : Heals up to $s2 injured allies within $A1 yards of the target for $o1 over $d. Healing starts high and declines over the duration.$?s33891[
+
 |C0033AA11Tree of Life: Affects $33891s3 additional $ltarget:targets;.|R][]
 Tooltip          : Heals $w1 damage every $t1 sec.
 
@@ -499,8 +500,8 @@ Effects          :
 #1 (id=1275696)  : Direct Heal (10)
                    Base Value: 0 | Scaled Value: 0 (delta=0.05) | Target: Targeted Ally (21)
 Description      : $@spelldesc1263879
-Variables        : $NSmult=$?a132158[${1+$132158s2/100}][${1}]
-$CCmult=$?a16870[${1+$16870s2/100}][${1}]
+Variables        : $NSmult=$?a132158[${1+$132158s2/100}][${1}]
+$CCmult=$?a16870[${1+$16870s2/100}][${1}]
 $mult=${$<NSmult>*$<CCmult>}
 
 
@@ -550,7 +551,7 @@ Effects          :
 #3 (id=1138013)  : Apply Party Aura (35) | Unknown(145)
                    Base Value: 0 | Scaled Value: 0 | Target: Self (1)
 Description      : Heals you for $o1% health over $d$?s301768[, and increases healing received by $301768s1%][].
-Tooltip          : Healing $w1% health every $t1 sec.$?a301768[
+Tooltip          : Healing $w1% health every $t1 sec.$?a301768[
 Healing received increased by $301768s2%.][]
 
 
@@ -726,11 +727,35 @@ Effects          :
                    Base Value: 3 | Scaled Value: 3 | Value Multiplier: 1 | Radius: 100 yards | Target: Targeted Ally or Raid (118)
 #2 (id=1286690)  : Remove Aura (203): Mark of the Wild Highlight
                    Base Value: 0 | Scaled Value: 0 | Trigger Spell: 1271910 | Radius: 100 yards | Target: Targeted Ally or Raid (118)
-Description      : Infuse a friendly target with the power of the wild, increasing their Versatility by $s1% for 60 minutes.
-
-If target is in your party or raid, all party and raid members will be affected.
+Description      : Infuse a friendly target with the power of the wild, increasing their Versatility by $s1% for 60 minutes.
+
+If target is in your party or raid, all party and raid members will be affected.
 
 Tooltip          : Versatility increased by $w1%.
+
+
+######## spell.id=1302255
+Name             : Genesis (id=1302255) [Spell Family (7)] 
+Class            : Druid
+School           : Physical
+Spell Type       : None
+Duration         : 8 seconds
+Labels           : 16: Class Spells
+                 : 21: Druid Spells
+                 : 292
+                 : 6656
+                 : 6767: Druid Restoration 12.1 Class Set 4pc (1296610 effect#1)
+Stacks           : 10 maximum
+Proc Chance      : 101%
+Triggered By     : Druid Restoration 12.1 Class Set 2pc (1296609)
+Attributes       : Asynchronous Aura (490)
+Effects          :
+#1 (id=1327783)  : Apply Aura (6) | Add Percent Modifier (108): Spell Periodic Amount (22)
+                   Base Value: 15 | Scaled Value: 15 | PvP Coefficient: 0.5 | Misc Value: 22 | Target: Self (1)
+                   Affected Spells: Rejuvenation (774), Regrowth (8936), Swiftmend (18562), Lifebloom (33763), Lifebloom (33778), Wild Growth (48438), Efflorescence (81269), Cenarion Ward (102352), Rejuvenation (Germination) (155777), Tranquility (157982), Lifebloom (188550), Cultivation (200389), Reactive Resin (203406), Grove Tending (279793), Early Harvest (287255), Adaptive Swarm (325748), Renewing Bloom (364686), Ephemeral Profusion (367330), Embrace of the Dream (392147), Verdancy (392329), Nourish (422090), Nourish (423618), Dream Bloom (434141), Symbiotic Blooms (439530), Bursting Growth (440121), Reactive Resin (468152), Blossom Burst (473919), Mass Blooming (474149), Insurance! (1215515), Insurance! (1215518), Tranquility (1236573), Regrowth (1264664), Spirit of the Thicket (1264905)
+                   Family Flags: 118
+Description      : $@spelldesc1296609
+Tooltip          : Heal over time effects are $s1% stronger.
 
 
 ######## spell.id=1287771
@@ -820,8 +845,8 @@ Effects          :
                    Base Value: 15 | Scaled Value: 15 | SP Coefficient: 1 | Radius: 100 yards | Target: Raid in Area (56)
 #2 (id=1244481)  : Apply Aura (6) | Scale% (Stacking) (61)
                    Base Value: 15 | Scaled Value: 15 | Radius: 100 yards | Target: Raid in Area (56)
-Description      : Increases Haste by $s1% for all party and raid members. Lasts $d.
-
+Description      : Increases Haste by $s1% for all party and raid members. Lasts $d.
+
 Allies receiving this effect will become Exhausted and be unable to benefit from Bloodlust, Heroism, or similar effects again for $57723d.
 Tooltip          : Haste increased by $s1%.
 

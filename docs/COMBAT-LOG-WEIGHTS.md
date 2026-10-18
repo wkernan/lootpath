@@ -263,8 +263,10 @@ Intellect).
 - **A segment** is one stretch of the key: each `ENCOUNTER_START` to its
   `ENCOUNTER_END` is a boss segment; the stretches between them (from
   `CHALLENGE_MODE_START`, and to `CHALLENGE_MODE_END`) are trash segments. A
-  raid log's segments are its encounters. A segment with no counted heal event
-  is dropped and counted.
+  raid log's segments are its encounters. A segment in which none of the
+  player's heals moved with Intellect (no heal without overheal) is dropped and
+  counted - the fixture's last stretch, the 267 ms between the last boss's end
+  and the key's, held two overhealed heals.
 - **The band** of a key is its level from `CHALLENGE_MODE_START`, written as
   the weights file's Dungeon band (the key level as text, e.g. "12"); a raid
   encounter's band is the Raid band "all".
