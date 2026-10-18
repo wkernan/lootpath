@@ -1268,6 +1268,59 @@ describe("Roads over the owner's week of 2026-09-08", function()
         noSurfaceGrabs({ sentence, slotRoads.plan, plan })
     end)
 
+    -- R-3 (WKE-707, the owner's second decision): the one line this case
+    -- still owed the tooltip - its own Upgrade Finder row, read at the level
+    -- the road ARRIVES at (321, the reward out of the vault). The owner's
+    -- five committed Dungeon documents agree on this row within a thousandth
+    -- (`qe-upgradefinder-Hotornot-lrxljklscrjr.json`, +2, read directly:
+    -- itemID 251935 at 321, `upgradePercent` 1.863), so `ns.Roads.ItemBadge`
+    -- signs it `+1.86%`.
+    it("gives the held vault pick's own Upgrade Finder percent (R-3, WKE-707)", function()
+        local held = holdWorldroot("bag")
+        emptyTheVault()
+        local answer = answerFor("2H Weapon", held.key)
+        assert.equal(321, answer.own.arrivesAt)
+        assert.equal(1.863, ns.Roads.UpgradePercent(answer))
+        assert.equal("+1.86%", ns.Roads.ItemBadge(ns.Roads.UpgradePercent(answer)))
+    end)
+
+    -- The content type pinned: the SAME key, the SAME 321, under the owner's
+    -- Raid documents instead of his Dungeon ones
+    -- (`qe-upgradefinder-Hotornot-kqyktjywppzw.json`, read directly: itemID
+    -- 251935 at 321, `upgradePercent` 1.791) reads a different number -
+    -- `+1.79%`, never the Dungeon figure above. A guard that ignored which
+    -- documents it was handed would read the same number either way.
+    it("reads the Raid documents' own number for the same pick, not the Dungeon one (R-3, WKE-707)", function()
+        local held = holdWorldroot("bag")
+        emptyTheVault()
+        local raid = ns.UFImport.Parse(readFile("spec/fixtures/qe/qe-upgradefinder-Hotornot-kqyktjywppzw.json"))
+        assert.is_true(raid.ok, raid.reason)
+        local saved = inputs.ufDocuments
+        inputs.ufDocuments = { { verdict = raid.verdict, keyLevel = 10 } }
+        local answer = answerFor("2H Weapon", held.key)
+        assert.equal(321, answer.own.arrivesAt)
+        assert.equal(1.791, ns.Roads.UpgradePercent(answer))
+        assert.equal("+1.79%", ns.Roads.ItemBadge(ns.Roads.UpgradePercent(answer)))
+        inputs.ufDocuments = saved
+    end)
+
+    -- The guard the ticket asked for directly: while the vault still lists
+    -- the reward the road arrives at ITS level (305, above), not the
+    -- document's own rated level (321, `own.rating.level`, read a few lines
+    -- up by "reads the vault's own key as the pick in your hands"). The two
+    -- disagree on purpose here. PROVEN RED by reading `own.rating.level`
+    -- instead of `own.arrivesAt` in `Roads.HeldVaultUpgradePercent`: the row
+    -- at 321 is real (the test above reads it), so that mistake would show
+    -- `+1.86%` for a copy no document has ever rated at the level it is
+    -- actually sitting at.
+    it("never reads the document's own rated level for the percent (R-3, WKE-707)", function()
+        local held = holdWorldroot("bag")
+        local answer = answerFor("2H Weapon", held.key)
+        assert.equal(305, answer.own.arrivesAt)
+        assert.equal(321, answer.own.rating.level)
+        assert.is_nil(ns.Roads.UpgradePercent(answer))
+    end)
+
     -- Between the claim and the client's next vault event the vault can still
     -- list the reward. The bag copy is still the reward; R-3b's words read it
     -- against the level the vault lists. PROVEN RED: without the branch this
@@ -1485,7 +1538,7 @@ describe("Roads over the owner's week of 2026-09-08", function()
         assert.is_true(ns.Roads.IsArrivedPick(short, pick))
         assert.is_true(ns.Roads.ArrivedShort(short, pick))
         assert.is_false(ns.Roads.ArrivedCrested(short, pick))
-        assert.equal("Crest this to 298 - then refresh.", ns.Roads.ItemSentence(answerFor("Back", short.key)))
+        assert.equal("Crest to 298", ns.Roads.ItemSentence(answerFor("Back", short.key)))
     end)
 
     it("says the same about a copy short of the plan's level that you have put on", function()
@@ -1493,7 +1546,7 @@ describe("Roads over the owner's week of 2026-09-08", function()
         local worn = cloakCopy(289, "equipped")
         local pick = ns.Roads.PlanPick(ns.Roads.ForSlot("Back", inputs))
         assert.is_true(ns.Roads.IsArrivedPick(worn, pick))
-        assert.equal("Crest this to 298 - then refresh.", ns.Roads.ItemSentence(answerFor("Back", worn.key)))
+        assert.equal("Crest to 298", ns.Roads.ItemSentence(answerFor("Back", worn.key)))
         -- The badge says where the piece has got to, and says nothing about a
         -- crest that has not happened.
         assert.equal(ns.Roads.ARRIVED_NOW_WORN, pick.claimed)
@@ -1991,9 +2044,9 @@ describe("Roads over the owner's claimed Legs pick of 2026-09-15 (R-3e)", functi
         -- `RoadsCache.FillNames`, which `Roads.ForSlot` alone does not run. So
         -- the sentence here says the slot's own word, and the owner's own words
         -- are what it says once the road is named.
-        assert.equal("Crest these to 321 - then refresh.", ns.Roads.ItemSentence(answer))
+        assert.equal("Crest to 321", ns.Roads.ItemSentence(answer))
         pick.item.name = "Enigmatic Dreamwatcher's Leggings"
-        assert.equal("Crest these to 321 - then refresh.", ns.Roads.ArrivedSentence(held, pick))
+        assert.equal("Crest to 321", ns.Roads.ArrivedSentence(held, pick))
         -- The pick's own row says the reward is out of the vault.
         assert.equal(ns.Roads.VAULT_CLAIMED, pick.claimed)
         assert.equal("claimed · in your bags", pick.claimed)
@@ -2014,7 +2067,7 @@ describe("Roads over the owner's claimed Legs pick of 2026-09-15 (R-3e)", functi
         assert.is_false(ns.Roads.IsArrivedPick(held, pick))
         -- And the sentence itself, asked directly, is the one the cloak reads.
         held.location = "equipped"
-        assert.equal("Crest these to 321 - then refresh.", ns.Roads.ArrivedSentence(held, pick))
+        assert.equal("Crest to 321", ns.Roads.ArrivedSentence(held, pick))
     end)
 
     -- The other state the same afternoon could have been in, and the reason the
@@ -2179,6 +2232,35 @@ describe("Roads vocabulary", function()
         local roads = ns.Roads.ForSlot(nil, {})
         assert.same({}, roads.groups[ns.Roads.GROUP_SET])
         assert.same({}, ns.Roads.ForItem(nil, {}).others)
+    end)
+
+    -- R-2s (WKE-707, the owner's first decision): the held-vault-pick clause
+    -- no longer special-cases its own short form - `ARRIVED_CREST_SENTENCE`
+    -- IS the short form now, the same words `CREST_WEAR_SENTENCE` already
+    -- says for a bag crest-to-win piece (R-2l). Pinned here so neither drifts
+    -- back toward the tail this issue dropped (no `%s`, no " - then refresh.",
+    -- no period).
+    it("pins both crest-clause constants to the owner's short form (R-2l, R-2s)", function()
+        assert.equal("Crest to %d", ns.Roads.CREST_WEAR_SENTENCE)
+        assert.equal("Crest to %d", ns.Roads.ARRIVED_CREST_SENTENCE)
+    end)
+
+    -- R-3 (WKE-707): `Roads.HeldVaultUpgradePercent` on its own, with no
+    -- inventory, vault or document pipeline behind it - positive only
+    -- (decision 2), gated the same way `Roads.IsUpgradePercent` gates every
+    -- other road's figure, and refusing anything that is not a road with an
+    -- item on it.
+    it("reads a held vault pick's own Upgrade Finder row, positive only", function()
+        local own = { item = { itemID = 251935 }, arrivesAt = 321 }
+        local function documentsAt(percent)
+            return { { verdict = { items = { ["251935@321"] = { upgradePercent = percent } } } } }
+        end
+        assert.equal(1.5, ns.Roads.HeldVaultUpgradePercent(own, documentsAt(1.5)))
+        assert.is_nil(ns.Roads.HeldVaultUpgradePercent(own, documentsAt(-0.5)))
+        assert.is_nil(ns.Roads.HeldVaultUpgradePercent(own, documentsAt(0)))
+        assert.is_nil(ns.Roads.HeldVaultUpgradePercent(own, {}))
+        assert.is_nil(ns.Roads.HeldVaultUpgradePercent(nil, documentsAt(1.5)))
+        assert.is_nil(ns.Roads.HeldVaultUpgradePercent({ item = {} }, documentsAt(1.5)))
     end)
 end)
 
@@ -2569,7 +2651,7 @@ describe("Roads over a claimed vault reward the pick catalyzes (R-2e)", function
         thisWeek()
         inputs.verdicts[1].verdict.alternatives = {}
         tier = held(TIER_LINK, "Enigmatic Dreamwatcher's Somnolent Stare", 315)
-        assert.equal("Crest this to 321 - then refresh.", (sentenceFor(tier)))
+        assert.equal("Crest to 321", (sentenceFor(tier)))
     end)
 
     -- The words on a plural slot, and the bound: only a pick the rating took
@@ -2733,7 +2815,7 @@ describe("Roads over a worn copy of the vault pick after the claim (R-2f)", func
         local road = pick()
         assert.is_true(road.wornIsPick)
         assert.is_true(ns.Roads.IsArrivedPick(worn, road))
-        assert.equal("Crest this to 315 - then refresh.", (sentenceFor(worn)))
+        assert.equal("Crest to 315", (sentenceFor(worn)))
     end)
 
     -- What the client has not said is not read as said.
@@ -2880,7 +2962,7 @@ describe("Roads over a worn copy of the pick below the pick's level (R-2h)", fun
         highlight("maxed")
         assert.is_true(ns.Roads.WornUnderCrested(worn, pick()))
         local sentence = sentenceFor(worn)
-        assert.equal("Crest this to 321 - then refresh.", sentence)
+        assert.equal("Crest to 321", sentence)
         assert.is_nil(sentence:find("Swap", 1, true))
         assert.is_nil(sentence:find("vault", 1, true))
     end)

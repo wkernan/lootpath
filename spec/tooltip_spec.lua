@@ -1634,22 +1634,30 @@ describe("In place: the tooltip block, the cache and the bag glow", function()
         return record
     end
 
-    -- R-2s (WKE-707) shortened the crest clause: the long `Crest this to
-    -- 334 - then refresh.` asked for a refresh that teaches the rating
-    -- nothing new, since the vault keeps the offer's bonus IDs through every
-    -- crest and already speaks for this key at every level.
-    it("never tells the player to grab from the vault the pick in his bags (R-2j, R-2s)", function()
+    -- R-2s (WKE-707, decision 1) shortened the crest clause: the long
+    -- `Crest this to 334 - then refresh.` asked for a refresh that teaches
+    -- the rating nothing new, since the vault keeps the offer's bonus IDs
+    -- through every crest and already speaks for this key at every level.
+    --
+    -- R-3 (WKE-707, decision 2) adds the one line this case still owed: the
+    -- pick's own Upgrade Finder percent, read at the level the road arrives
+    -- at (321, same as the test above's) - the owner's five Dungeon
+    -- documents, +1.86%, never the single Raid one these same files also
+    -- carry (R-3's content-type guard, `spec/roads_spec.lua`).
+    it("never tells the player to grab from the vault the pick in his bags (R-2j, R-2s, R-3)", function()
         local before = lines(VAULT_WORLDROOT)
         assert.equal("Grab this - crest it after.", before[2])
         local held = takeWorldrootAsOffered()
         local block = lines(held.key)
         assert.equal("Lootpath · 2H Weapon", block[1])
         assert.equal("Crest to 321", block[2])
-        -- Everything under the sentence is the block it was (since R-2l,
-        -- WKE-695, no `Better:` line and no age line on either).
-        assert.equal(#before, #block)
-        for index = 3, #block do
-            assert.equal(before[index], block[index])
+        assert.equal("+1.86% Upgrade", block[3])
+        -- The one new line is the percent; everything else is the block it
+        -- was (since R-2l, WKE-695, no `Better:` line and no age line on
+        -- either).
+        assert.equal(#before + 1, #block)
+        for index = 3, #before do
+            assert.equal(before[index], block[index + 1])
         end
         for _, text in ipairs(block) do
             assert.is_nil(text:find("Grab", 1, true), text)
@@ -2150,7 +2158,7 @@ describe("The tooltip over a worn copy of the pick below the pick's level (R-2h)
         local lines = block(record(WORN_LINK, 318, "equipped"), record(BAG_LINK, 308, "bag"))
         assert.same({
             "Lootpath · Head",
-            "Crest this to 321 - then refresh.",
+            "Crest to 321",
         }, lines)
         for _, text in ipairs(lines) do
             assert.is_nil(text:find("Swap", 1, true), text)
@@ -3852,7 +3860,7 @@ describe("A crested copy keeps the crest answer and the mark (R-2q)", function()
         assert.is_nil(ns.Roads.CrestToWin(inputs, converted))
         local lines, answer = block(converted.link)
         assert.is_nil(answer.crestTo)
-        assert.equal(string.format(ns.Roads.ARRIVED_CREST_SENTENCE, "this", 334), lines[2])
+        assert.equal(string.format(ns.Roads.ARRIVED_CREST_SENTENCE, 334), lines[2])
         assert.is_false(ns.Glow.Wants(converted.key))
     end)
 
