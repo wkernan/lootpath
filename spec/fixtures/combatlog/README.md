@@ -50,3 +50,13 @@ Also recorded that evening, not committed: `WoWCombatLog-101726_181457.txt`
 before logging began (four `ENCOUNTER_START`/`END` pairs, `CHALLENGE_MODE_END`
 `1,12,1620397`). The owner also uploaded the evening to Warcraft Logs
 (`reports/1Pt2mNAhTjnfcX7H`); Lootpath reads nothing from there.
+
+## simc-spells-70391.txt (E-5's spell table source)
+
+The client's spell data for every spell `docs/COMBAT-LOG-WEIGHTS.md` §5's table
+rests on, as SimulationCraft prints it: one `simc.exe spell_query=spell.id=<id>`
+per spell and one `spell_query=spell.label=4337`, each output verbatim after its
+first line (the build line, quoted once at the top). SimC `1210-01`, git
+`2358079`, game data 12.1.5.70391 (`C:\tmp\simc`, E-7's build; GPL-3.0, a tool,
+output only - `Lootpath/Libs/LICENSES.md`). Run 2026-10-17. sha256
+`c043ed4e73775d520a4e9ec49a16e889527c7ff2533f46ca5bd9ad462e6bf68a` (65,975 bytes).
