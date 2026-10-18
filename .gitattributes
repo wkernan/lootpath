@@ -3,3 +3,4 @@
 *.zip binary
 *.tga binary
 *.ttf binary
+*.gz binary
