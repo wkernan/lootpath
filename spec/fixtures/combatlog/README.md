@@ -7,6 +7,10 @@ here is one segment of the owner's log, every player but the owner replaced
 (`tools/combatlog/anonymise.py`), gzipped, with its sha256s below. The raw logs
 never enter the repo; the owner keeps them.
 
+`tools/combatlog/test/committed-keys.test.js` (E-5c, WKE-714) pins the
+Restoration weights these six keys produce together, measured at `main`
+0f230fe on 2026-10-19.
+
 ## WoWCombatLog-20261017-AltarOfFangs-12.txt.gz
 
 - **What it is:** the owner's completed Altar of Fangs +12 key on 2026-10-17,
