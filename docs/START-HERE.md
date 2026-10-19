@@ -4,7 +4,7 @@ The short way in. `docs/ARCHITECTURE.md` (the brain) is the full record, but at
 over 2 MB it is never read whole: use this page to orient, then `grep` the
 brain for what your work touches. Refreshed by the coordinating session when it
 folds the brain inbox (`docs/brain/inbox/README.md`). Last refreshed
-2026-10-18 night, from `main` c351328.
+2026-10-19, from `main` 208c0f4 (the first inbox fold).
 
 ## What Lootpath is
 
@@ -38,10 +38,11 @@ These are the ones a newcomer breaks. `CLAUDE.md` has the rest.
 Tags name lanes. Grep the brain for a tag to get its whole history.
 
 - **R-2x / R-3 (roads, tooltip, Upgrade Map, bag marks):** player-facing. The
-  latest is **R-2s / R-3 (WKE-707)**: the arrived-pick crest sentence becomes
-  `Crest to <level>`, and a held vault pick gets its own `+x% Upgrade`
-  line. It's PR #363, built through Stokowski. The tooltip's words are defined
-  in `docs/ROADS-UX.md`.
+  latest is **R-2s / R-3 (WKE-707), merged (PR #363) and synced**: every
+  arrived-pick crest sentence reads `Crest to <level>`, and a held vault pick
+  shows its own `+x% Upgrade` line unless it is worn at its crested level
+  (option B, §7 2026-10-18 night). The owner's in-game check is owed. The
+  tooltip's words are defined in `docs/ROADS-UX.md`.
 - **E-x (the own engine):** developer-only, never on a player surface.
   - E-4 (WKE-708): the weights file schema v2, one shape per spec.
   - E-5 (WKE-711): Restoration weights from the owner's own combat log.
@@ -55,8 +56,9 @@ Tags name lanes. Grep the brain for a tag to get its whole history.
 - **Scope:** every class and spec is in scope (§7, 2026-10-15 morning), with
   the tracks in parallel. Healer specs stay the only player-facing ones (H-1).
 - **Stokowski:** held since 2026-10-15, except the one test issue, WKE-707
-  (§7, 2026-10-18 evening). Issues for it are written with the
-  `stokowski-ticket` skill.
+  (§7, 2026-10-18 evening), which merged. Its five problems found on that run
+  were fixed the same day. Lifting the hold for more issues is the owner's
+  call. Issues for it are written with the `stokowski-ticket` skill.
 
 Check `gh pr list` for what is actually open: a lane's "PR open" above may have
 merged since.
@@ -67,8 +69,7 @@ From §11. Grep it for the full text.
 
 - What a combat-log weight must show before it may ship (E-5).
 - What a tank's stat weight measures: survival, damage or a blend (E-7).
-- Whether a held vault pick shows its `+x% Upgrade` line beyond the crest-short
-  case (WKE-707 code review, 2026-10-18).
+- Whether to lift the Stokowski hold beyond WKE-707.
 
 ## Finding things in the brain
 
