@@ -2722,7 +2722,7 @@ end
 -- itemID@level join `UFImport.LookupAcrossLevels` already uses for every
 -- other road - whatever `dropType` QE Live gave that row: the guards' own
 -- row, the vault Worldroot at 251935@321, carries `dropType` null and
--- `dropLoc` "Delves" in every committed Upgrade Finder document (all eight);
+-- `dropLoc` "Delves" in every committed Upgrade Finder document (all 20);
 -- the Vile Vial at 273796@334 in the owner's own Dungeon week carries
 -- `dropType` "bonus" instead. This function takes no position on the field
 -- either way. Positive only (`UFImport.IsUpgrade`); nil when the documents
