@@ -2,9 +2,11 @@
 // registry contract - identity, spellRow/ROWS/UNKNOWN, constants, buffs,
 // mastery - without a real second spec's data. Two spells; a mastery that
 // multiplies every heal's effective amount by a constant, needing no
-// tracker state at all. Register only inside a test, with
-// lib/specs/index.js's register(), and unregister() when done - never add
-// this to the shipped registry.
+// per-target state at all (its countFor always reads 0). Register only
+// inside a test, with lib/specs/index.js's register(), and unregister()
+// when done - never add this to the shipped registry. Lives beside
+// synth.js, not under test/, so node --test does not collect it as a test
+// file of its own.
 'use strict';
 
 const ROWS = [
@@ -30,6 +32,11 @@ function createTracker() {
         onUnitDied() {},
         diag() {
             return {};
+        },
+        // No per-target state to count: this mastery is a flat multiplier,
+        // not Harmony's stacking-aura count.
+        countFor() {
+            return 0;
         },
     };
 }

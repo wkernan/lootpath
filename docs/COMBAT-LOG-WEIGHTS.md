@@ -377,12 +377,15 @@ a change to either file.
   any of them.
 - `mastery`: `{ createTracker(player), gain(E, pct, tracker, dst, C) }`. The
   tracker `walk()` creates once per log exposes `onCombatantInfo(ci)`,
-  `onAura(a, kind)`, `onUnitDied(guid)` and `diag()` (the three resync counts
+  `onAura(a, kind)`, `onUnitDied(guid)`, `diag()` (the three resync counts
   `lib/entry.js` writes per log under the key `harmony`, whatever the spec -
   a spec whose mastery needs no cross-event tracking still returns an empty
-  `diag()`). `gain` is this heal's mastery gain, read against whatever
-  per-target or per-player state the tracker followed; 0 when the spec's
-  mastery predicts none for this event.
+  `diag()`) and `countFor(target)` (the player's current count on one
+  target - also what `walk()`'s `onHeal` diagnostic callback reports as `n`,
+  for `lib/probe.js`; a spec whose mastery tracks no per-target count can
+  still return 0 from it). `gain` is this heal's mastery gain, read against
+  whatever per-target or per-player state the tracker followed; 0 when the
+  spec's mastery predicts none for this event.
 
 A spec whose mastery is not "a count of stacking auras on the target", the
 way Harmony's is, still fits this shape - the tracker and `gain` are free to

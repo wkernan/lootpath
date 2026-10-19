@@ -11,7 +11,7 @@ const P = require('../lib/parse');
 const { walk } = require('../lib/attribute');
 const { loadDR } = require('../lib/dr');
 const specs = require('../lib/specs');
-const toySpec = require('./fixtures/toy-spec');
+const toySpec = require('../support/toy-spec');
 const { specOf, buildEntry } = require('../lib/entry');
 
 const dr = loadDR();

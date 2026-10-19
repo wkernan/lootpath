@@ -12,7 +12,7 @@ const P = require('../lib/parse');
 const { walk } = require('../lib/attribute');
 const { loadDR } = require('../lib/dr');
 const specs = require('../lib/specs');
-const toySpec = require('./fixtures/toy-spec');
+const toySpec = require('../support/toy-spec');
 
 const dr = loadDR();
 const near = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-9, `${msg}: ${a} vs ${b}`);
@@ -49,6 +49,24 @@ test('the toy spec, registered, gives hand-checkable int and mastery gains', () 
         near(s.gain.mastery, 100, 'mastery: 1000 * 0.1 from Toy A only');
         assert.equal(s.gain.crit, 0, 'the toy spec never crits');
         assert.equal(s.gain.hasteTick, 0, 'the toy spec is never hasted');
+    } finally {
+        specs.unregister(999);
+    }
+});
+
+test("walk()'s onHeal callback reports n from the tracker's countFor, for every registered spec (E-5b, WKE-713 rework)", () => {
+    specs.register(toySpec);
+    try {
+        S.reset();
+        const text = [
+            S.challengeStart(10),
+            S.combatant({ int: 1000, crit: 460, haste: 440, mastery: 460, vers: 540, leech: 69, spec: 999 }),
+            S.heal({ spellId: 9001, name: 'Toy A', amount: 1000 }),
+            S.challengeEnd(10),
+        ].join('\n');
+        const seen = [];
+        walk(P.parseText(text), { dr, player: S.PLAYER, onHeal: (h, ctx) => seen.push(ctx.n) });
+        assert.deepEqual(seen, [0], "the toy's countFor always reads 0: no per-target state to count");
     } finally {
         specs.unregister(999);
     }

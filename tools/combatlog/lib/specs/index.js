@@ -7,7 +7,9 @@
 // tracker/gain contract must fit the same shape (lib/attribute.js calls
 // mastery.createTracker/mastery.gain generically; it does not know Harmony's
 // stacking-aura formula, but it does assume there is a tracker object with
-// onCombatantInfo/onAura/onUnitDied/diag()).
+// onCombatantInfo/onAura/onUnitDied/diag()/countFor(target) - the last of
+// these is also what walk()'s onHeal diagnostic callback reports as `n`,
+// for lib/probe.js).
 'use strict';
 
 const restoration = require('./105-restoration-druid');

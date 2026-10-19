@@ -164,10 +164,9 @@ function createTracker(player) {
         diag() {
             return { ...diag };
         },
-        // Not part of lib/attribute.js's mastery contract: gain() below (in
-        // this same module) and walk()'s onHeal diagnostic callback (kept
-        // for lib/probe.js, unchanged) both need the player's current count
-        // on one target.
+        // Part of the tracker contract (lib/specs/index.js): gain() below
+        // and walk()'s onHeal diagnostic callback (kept for lib/probe.js,
+        // unchanged) both need the player's current count on one target.
         countFor(target) {
             const s = harmony.get(target);
             return s ? s.size : 0;

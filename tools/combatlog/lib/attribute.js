@@ -11,8 +11,8 @@
 // buffs, her constants and her mastery formula all come from the found
 // player's own spec module (lib/specs/index.js), found by her COMBATANT_INFO
 // spec ID. A spec module's mastery is a tracker object (onCombatantInfo,
-// onAura, onUnitDied, diag()) plus a gain() function; this file drives both
-// without knowing what either does.
+// onAura, onUnitDied, diag(), countFor(target)) plus a gain() function; this
+// file drives both without knowing what either does.
 'use strict';
 
 const P = require('./parse');
