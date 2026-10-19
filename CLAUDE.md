@@ -100,8 +100,11 @@ replace the Windows rules above (decision 2026-10-18, ARCHITECTURE.md §7):
 - **The gates run natively.** There is no PowerShell: run CI's own commands
   from the repo root instead of `tools\check.ps1`: `luacheck . --no-color`,
   `stylua --check .`, `bash tools/luals-check.sh`, `busted`, and
-  `node --test` in `tools/companion`, `tools/engine`, `tools/simc` and
-  `tools/combatlog`. The LuaLS gate needs the annotations first, from CI's
+  `node --test`, but only in a `tools/` directory your change touches
+  (`tools/companion`, `tools/engine`, `tools/simc`, `tools/combatlog`). A
+  Lua-only change runs none of them: CI runs all four on every PR, and
+  `tools/engine` alone takes over 2 minutes here. Run them one at a time,
+  never in parallel. The LuaLS gate needs the annotations first, from CI's
   own clone step: `git clone --depth 1 --recurse-submodules
   --shallow-submodules https://github.com/Ketho/vscode-wow-api.git
   .luals/vscode-wow-api`.
