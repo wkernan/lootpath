@@ -18,8 +18,8 @@ Closes WKE-
 
 ## Left undone, deliberately
 
-## ARCHITECTURE.md
+## Brain inbox
 
-<!-- Which decision, verified fact, or closed issue this PR records in docs/ARCHITECTURE.md. -->
+<!-- The inbox file this PR adds (docs/brain/inbox/WKE-<n>.md) and what it records: the decision, verified fact, or closed issue. Never edit docs/ARCHITECTURE.md in a work PR; the coordinating session folds the inbox in. -->
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
