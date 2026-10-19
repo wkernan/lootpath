@@ -1,14 +1,15 @@
-// From segments to E-4's schema version 2 Restoration entry (E-5, WKE-711;
-// docs/COMBAT-LOG-WEIGHTS.md §7, §9). One Dungeon band per key level, the
-// Raid band "all" for raid encounters; written through tools/engine's one
-// Lua writer (lib/luaout.js), so there is one writer of the weights file.
+// From segments to E-4's schema version 2 entry, for whichever healer spec
+// walked them (E-5, WKE-711; E-5b, WKE-713; docs/COMBAT-LOG-WEIGHTS.md §7,
+// §9). One Dungeon band per key level, the Raid band "all" for raid
+// encounters; written through tools/engine's one Lua writer (lib/luaout.js),
+// so there is one writer of the weights file.
 'use strict';
 
-const { luaValue, RESTORATION, NO_TIER_SET } = require('../../engine/lib/luaout');
+const { luaValue, NO_TIER_SET } = require('../../engine/lib/luaout');
 const { segmentWeights } = require('./attribute');
 const { ratingToPercent } = require('./dr');
 const E = require('./estimate');
-const { UNSIZED_BUFFS } = require('./spells');
+const { SPECS } = require('../specs');
 
 const RANKED = ['int', 'haste', 'crit', 'mastery', 'vers', 'leech'];
 const ALL = [...RANKED, 'hasteCast'];
@@ -22,7 +23,7 @@ function usable(seg) {
 }
 
 // segments of one band -> the band's numbers and provenance.
-function bandOf(segs, dr, opts) {
+function bandOf(segs, dr, spec, opts) {
     const o = opts || {};
     const rows = segs.map((s) => segmentWeights(s, dr));
     const rel = E.estimate(rows.map((r) => pick(r.relative, ALL)), o);
@@ -55,9 +56,9 @@ function bandOf(segs, dr, opts) {
 
     const sum = (f) => segs.reduce((s, x) => s + f(x.sums), 0);
     const untracked = {};
-    for (const id of Object.keys(UNSIZED_BUFFS)) {
+    for (const id of Object.keys(spec.UNSIZED_BUFFS)) {
         const e = sum((s) => s.unsized[id] || 0);
-        if (e > 0) untracked[UNSIZED_BUFFS[id].name] = { spellId: Number(id), stat: UNSIZED_BUFFS[id].stat, shareOfHealing: round(e / H, 4) };
+        if (e > 0) untracked[spec.UNSIZED_BUFFS[id].name] = { spellId: Number(id), stat: spec.UNSIZED_BUFFS[id].stat, shareOfHealing: round(e / H, 4) };
     }
     const unknown = {};
     for (const s of segs) for (const [id, e] of Object.entries(s.sums.unknown)) unknown[id] = (unknown[id] || 0) + e;
@@ -87,7 +88,14 @@ function bandOf(segs, dr, opts) {
     };
 }
 
-// walks: [{ file, sha256, walk }] -> the Restoration entry.
+// The spec ID a set of walked logs belongs to: the first usable segment's.
+// weights.js reuses this to tell buildTable which spec its entry is for.
+function specOf(walks) {
+    for (const { walk } of walks) for (const seg of walk.segments) if (usable(seg)) return seg.spec;
+    return null;
+}
+
+// walks: [{ file, sha256, walk }] -> the entry for whichever spec walked them.
 function buildEntry(walks, dr, meta) {
     const m = meta || {};
     const groups = new Map();
@@ -104,10 +112,13 @@ function buildEntry(walks, dr, meta) {
         }
     }
     if (!groups.size) throw new Error('no usable segment in the logs');
+    const specID = specOf(walks);
+    const spec = SPECS.get(specID);
+    if (!spec) throw new Error(`spec ${specID} has no combat-log module (specs/index.js)`);
     const entry = {
-        role: RESTORATION.role,
-        primaryStat: RESTORATION.primaryStat,
-        stats: RESTORATION.stats.slice(),
+        role: spec.role,
+        primaryStat: spec.primaryStat,
+        stats: spec.stats.slice(),
         method: 'combat-log',
         derivedAt: m.derivedAt,
         source: 'tools/combatlog (docs/COMBAT-LOG-WEIGHTS.md): per-event attribution over the player\'s own WoWCombatLog.txt',
@@ -123,14 +134,14 @@ function buildEntry(walks, dr, meta) {
     const sorted = [...groups.values()].sort((a, b) => a.contentType.localeCompare(b.contentType) || String(a.band).localeCompare(String(b.band), 'en', { numeric: true }));
     for (const g of sorted) {
         entry[g.contentType] = entry[g.contentType] || { bands: {} };
-        entry[g.contentType].bands[g.band] = bandOf(g.segs, dr, m.estimate);
+        entry[g.contentType].bands[g.band] = bandOf(g.segs, dr, spec, m.estimate);
     }
     entry.tiers = new Map([[NO_TIER_SET, new Map([[2, { mult: 1 }], [4, { mult: 1 }]])]]);
     return entry;
 }
 
 function buildTable(entry, meta) {
-    return { schema: 'lootpath-engine-weights', version: 2, devOnly: true, patch: meta.patch, specs: new Map([[RESTORATION.specID, entry]]), dr: meta.dr };
+    return { schema: 'lootpath-engine-weights', version: 2, devOnly: true, patch: meta.patch, specs: new Map([[meta.specID, entry]]), dr: meta.dr };
 }
 
 function render(table, meta) {
@@ -155,4 +166,4 @@ function render(table, meta) {
     ].join('\n');
 }
 
-module.exports = { RANKED, usable, bandOf, buildEntry, buildTable, render };
+module.exports = { RANKED, usable, specOf, bandOf, buildEntry, buildTable, render };

@@ -1,4 +1,5 @@
-// Which stat scales which Restoration Druid heal (E-5, WKE-711).
+// Restoration Druid (105): which stat scales which heal, and the spec's own
+// constants, for the combat-log weights tool (E-5, WKE-711; E-5b, WKE-713).
 //
 // docs/COMBAT-LOG-WEIGHTS.md §5 is the table and its rules, in words; this is
 // the same table as data. Every row was read from SimC 1210-01's spell_query
@@ -7,7 +8,15 @@
 // Crit (93)", "Periodic Can Crit (265)", "Spell Haste Affects Periodic (173)",
 // cast time, GCD, cooldown, charges, Limit, and "Ignore Caster Modifiers
 // (125)", "Ignore Healing Modifiers (219)", "Ignore Caster Healing Modifiers
-// (312)"). test/spells.test.js re-reads that file for every flag below.
+// (312)"). test/specs/restoration.test.js re-reads that file for every flag
+// below.
+//
+// This module is the whole of Restoration's own knowledge: everything in it
+// is specific to this spec and this character's own buffs. `specs/index.js`
+// is the registry that lets attribute.js and entry.js find it by spec ID
+// instead of assuming Restoration; a second healer spec is another module
+// like this one plus an entry in that registry, not a change to either of
+// those files (E-5b, WKE-713).
 //
 //   kind     coefficient | share | fixed | leech
 //   int      the heal moves with Intellect
@@ -18,6 +27,8 @@
 //   mastery  Harmony raises it
 //   vers     versatility raises it ('inherit' for a share: its parent's)
 'use strict';
+
+const { RESTORATION } = require('../../engine/lib/luaout');
 
 const S = (id, name, kind, o) => Object.freeze({ id, name, kind, int: false, crit: false, tick: false, cast: false, mastery: false, vers: false, ...o });
 
@@ -78,7 +89,7 @@ const CONSTANTS = Object.freeze({
     // Base mastery points: GetMasteryEffect 38.56050109863281 / 1.310999989509583
     // - the 985 rating's 21.41304397583008 points (the owner's 2026-10-01
     // transcript, spec/fixtures/captures/Lootpath-20261001-092631.lua).
-    // test/spells.test.js recomputes it from that file.
+    // test/specs/restoration.test.js recomputes it from that file.
     masteryBase: 8,
     // The crit multiplier for heals; probe.js reads it from a log.
     critMultiplier: 2,
@@ -115,4 +126,25 @@ function tracked(id) {
     return Boolean(PERCENT_BUFFS[id] || UNSIZED_BUFFS[id] || HASTE_PERCENT_BUFFS[id] || AMOUNT_BUFFS[id]);
 }
 
-module.exports = { AMOUNT_BUFFS, tracked, ROWS, SPELLS, UNKNOWN, spellRow, HARMONY_IDS, HARMONY, STACKS, stackFactor, CONSTANTS, PERCENT_BUFFS, UNSIZED_BUFFS, HASTE_PERCENT_BUFFS };
+module.exports = {
+    // The spec identity, read from the one shared source (tools/engine/lib/luaout.js)
+    // so the combat-log entry's role/primaryStat/stats can never drift from it.
+    specID: RESTORATION.specID,
+    role: RESTORATION.role,
+    primaryStat: RESTORATION.primaryStat,
+    stats: RESTORATION.stats.slice(),
+    AMOUNT_BUFFS,
+    tracked,
+    ROWS,
+    SPELLS,
+    UNKNOWN,
+    spellRow,
+    HARMONY_IDS,
+    HARMONY,
+    STACKS,
+    stackFactor,
+    CONSTANTS,
+    PERCENT_BUFFS,
+    UNSIZED_BUFFS,
+    HASTE_PERCENT_BUFFS,
+};

@@ -9,7 +9,7 @@ const path = require('path');
 const P = require('../lib/parse');
 const { probe } = require('../lib/probe');
 const { loadDR } = require('../lib/dr');
-const { CONSTANTS } = require('../lib/spells');
+const { CONSTANTS } = require('../specs/restoration');
 
 const FIXTURE = path.join(__dirname, '..', '..', '..', 'spec', 'fixtures', 'combatlog', 'WoWCombatLog-20261017-AltarOfFangs-12.txt.gz');
 const r = probe(P.parseText(P.readText(FIXTURE)), { dr: loadDR() });
