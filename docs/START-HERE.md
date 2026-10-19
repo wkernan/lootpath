@@ -4,7 +4,7 @@ The short way in. `docs/ARCHITECTURE.md` (the brain) is the full record, but at
 over 2 MB it is never read whole: use this page to orient, then `grep` the
 brain for what your work touches. Refreshed by the coordinating session when it
 folds the brain inbox (`docs/brain/inbox/README.md`). Last refreshed
-2026-10-19, from `main` 208c0f4 (the first inbox fold).
+2026-10-19, from `main` 5b26eb1 (the second inbox fold).
 
 ## What Lootpath is
 
@@ -46,6 +46,8 @@ Tags name lanes. Grep the brain for a tag to get its whole history.
 - **E-x (the own engine):** developer-only, never on a player surface.
   - E-4 (WKE-708): the weights file schema v2, one shape per spec.
   - E-5 (WKE-711): Restoration weights from the owner's own combat log.
+  - E-5b (WKE-713): each healer spec is one module under `tools/combatlog/lib/specs/`;
+    a second spec is data plus its `spell_query` capture. Six keys logged so far.
   - E-6 (WKE-712): the engine scores the current spec.
   - E-7 (WKE-710): SimulationCraft-run weights for DPS and tank specs.
   - Route C (§7, 2026-10-15 early morning): shipped weights come from
