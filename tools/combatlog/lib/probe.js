@@ -16,10 +16,7 @@
 'use strict';
 
 const { walk } = require('./attribute');
-// This probe is Restoration's own: Harmony and its stack table are hers, so
-// it reads her spec module directly rather than through specs/index.js's
-// by-spec-ID dispatch (E-5b, WKE-713).
-const { stackFactor, CONSTANTS } = require('../specs/restoration');
+const { stackFactor, CONSTANTS } = require('./spells');
 const { ratingToPercent } = require('./dr');
 
 const DECLINING = new Set([48438]);

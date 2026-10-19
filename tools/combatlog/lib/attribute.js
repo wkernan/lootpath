@@ -7,44 +7,33 @@
 // of it (one more point, for Intellect). No estimate here: lib/estimate.js
 // turns segments into a band's weights.
 //
-// Which spell moves which stat, and by how much, is read from the found
-// player's own spec module (specs/index.js), not assumed: this file knows no
-// spec's spells, buffs or constants by name, only the shape every spec
-// module shares. The mastery branch below is the one exception: it still
-// assumes mastery is a count of the player's own stacking auras on the
-// target (Harmony's shape), only its inputs (the stack factor, the
-// coefficient, the base points) come from the spec module. A spec whose
-// mastery isn't that shape needs this branch generalised first, not just a
-// new module.
+// This file names no spell, buff or spec: which spell moves which stat, her
+// buffs, her constants and her mastery formula all come from the found
+// player's own spec module (lib/specs/index.js), found by her COMBATANT_INFO
+// spec ID. A spec module's mastery is a tracker object (onCombatantInfo,
+// onAura, onUnitDied, diag()) plus a gain() function; this file drives both
+// without knowing what either does.
 'use strict';
 
 const P = require('./parse');
-const { SPECS } = require('../specs');
+const specs = require('./specs');
 const { ratingToPercent, slope } = require('./dr');
 
-// Healing specs the tool knows, by the client's spec ID.
-const HEALER_SPECS = new Set(SPECS.keys());
 const GAINS = ['int', 'vers', 'crit', 'hasteTick', 'hasteCast', 'mastery'];
 
-// The one GUID whose COMBATANT_INFO names a known healing spec.
+// The one GUID whose COMBATANT_INFO names a spec the registry has.
 function findPlayer(events) {
     const found = new Set();
     for (const ev of events) {
         if (ev.event !== 'COMBATANT_INFO') continue;
         const ci = P.combatantOf(ev);
-        if (HEALER_SPECS.has(ci.spec)) found.add(ci.guid);
+        if (specs.get(ci.spec)) found.add(ci.guid);
     }
     if (found.size !== 1) throw new Error(`name the player with --player: ${found.size} players in this log carry a healing spec the tool knows (${[...found].join(', ') || 'none'})`);
     return [...found][0];
 }
 
-// The player's spec ID, from her first COMBATANT_INFO. walk() seeds its spec
-// module with this before its main pass, so every unit's Harmony-aura
-// tracking has one from the start - a raid lists every member's COMBATANT_INFO
-// in one batch, in no guaranteed order, and Harmony's count is tracked for
-// them all, not only the player - then re-resolves it on each of her later
-// COMBATANT_INFO occurrences, same as her ratings, in case the log spans a
-// respec.
+// The player's spec ID, from her first COMBATANT_INFO.
 function findPlayerSpec(events, player) {
     for (const ev of events) {
         if (ev.event !== 'COMBATANT_INFO') continue;
@@ -54,10 +43,12 @@ function findPlayerSpec(events, player) {
     throw new Error(`no COMBATANT_INFO names ${player}'s spec`);
 }
 
-// A spec ID to its combat-log module, or a clear refusal.
+// A spec ID to its combat-log module, or the refusal Decision 3 (WKE-713)
+// names: a log whose player carries a spec the registry lacks is not guessed
+// at, it is refused.
 function resolveSpec(specID) {
-    const specModule = SPECS.get(specID);
-    if (!specModule) throw new Error(`spec ${specID} has no combat-log module (specs/index.js)`);
+    const specModule = specs.get(specID);
+    if (!specModule) throw new Error(`spec ${specID} is not in tools/combatlog/lib/specs (known: ${specs.ids().join(', ')})`);
     return specModule;
 }
 
@@ -86,20 +77,15 @@ function walk(events, opts) {
     const dr = o.dr;
     if (!dr) throw new Error('walk needs the dr table');
     const player = o.player || findPlayer(events);
-    // Seeded from the log's first COMBATANT_INFO of the player's, so every
-    // unit's Harmony-aura tracking below has a spec module from the start
-    // regardless of member order (findPlayerSpec's own comment); re-resolved
-    // on every later COMBATANT_INFO of hers, same as ratings, in case one log
-    // spans a respec.
-    let specID = findPlayerSpec(events, player);
-    let specModule = resolveSpec(specID);
-    let C = { ...specModule.CONSTANTS, ...(o.constants || {}) };
+    const specID = findPlayerSpec(events, player);
+    const spec = resolveSpec(specID);
+    const C = { ...spec.constants, ...(o.constants || {}) };
+    const tracker = spec.mastery.createTracker(player);
 
     let ratings = null; // { crit, haste, mastery, vers, leech } from COMBATANT_INFO
     let ciInt = null;
     let intNow = null;
     const buffs = new Set(); // spell IDs on the player that the tracker knows
-    const harmony = new Map(); // target -> Set of Harmony spell IDs of the player's
     const diag = { unseenRemovals: 0, resyncAdded: 0, resyncDropped: 0, intReadings: 0, intValues: new Set(), outsideSegments: 0, emptySegments: 0, combatantInfo: 0, ratingsChangedInSegment: 0 };
 
     const keys = [];
@@ -116,12 +102,6 @@ function walk(events, opts) {
         if (seg.sums.events > 0) segments.push(seg);
         else diag.emptySegments += 1;
         seg = null;
-    };
-
-    const harmonyOf = (unit) => {
-        let s = harmony.get(unit);
-        if (!s) harmony.set(unit, (s = new Set()));
-        return s;
     };
 
     for (const ev of events) {
@@ -162,30 +142,16 @@ function walk(events, opts) {
         if (e === 'COMBATANT_INFO') {
             diag.combatantInfo += 1;
             const ci = P.combatantOf(ev);
-            // Harmony's count on this unit, from the auras the client listed.
-            const listed = new Set(ci.auras.filter((a) => a.caster === player && specModule.HARMONY.has(a.spellId)).map((a) => a.spellId));
-            const known = harmonyOf(ci.guid);
-            for (const id of listed) if (!known.has(id)) diag.resyncAdded += 1;
-            for (const id of known) if (!listed.has(id)) diag.resyncDropped += 1;
-            harmony.set(ci.guid, listed);
+            tracker.onCombatantInfo(ci);
             if (ci.guid === player) {
                 const next = { crit: ci.crit[2], haste: ci.haste[2], mastery: ci.mastery, vers: ci.vers[1], leech: ci.leech };
                 if (seg && seg.ratings && JSON.stringify(seg.ratings) !== JSON.stringify(next)) diag.ratingsChangedInSegment += 1;
-                // Unlike a rating, a spec change is not safe to blend into one
-                // segment's weights: the heals before and after it moved
-                // under two different formulas. seg.ratings is only set
-                // once this segment has had a heal of hers (so seg.spec is
-                // already meaningfully the one every heal so far used).
-                if (seg && seg.ratings && ci.spec !== specID) throw new Error(`spec changed from ${specID} to ${ci.spec} inside one open segment (${seg.kind}: ${seg.name}) - one segment is one spec`);
                 ratings = next;
                 ciInt = ci.int;
                 if (intNow === null) intNow = ci.int;
-                specID = ci.spec;
-                specModule = resolveSpec(specID);
-                C = { ...specModule.CONSTANTS, ...(o.constants || {}) };
                 // The player's own buffs, as listed.
                 buffs.clear();
-                for (const a of ci.auras) if (specModule.tracked(a.spellId)) buffs.add(a.spellId);
+                for (const a of ci.auras) if (spec.buffs.tracked(a.spellId)) buffs.add(a.spellId);
             }
             continue;
         }
@@ -199,21 +165,15 @@ function walk(events, opts) {
 
         if (e === 'SPELL_AURA_APPLIED' || e === 'SPELL_AURA_REMOVED' || e === 'SPELL_AURA_REFRESH') {
             const a = P.auraOf(ev);
-            if (a.src === player && specModule.HARMONY.has(a.spellId)) {
-                const s = harmonyOf(a.dst);
-                if (e === 'SPELL_AURA_APPLIED') s.add(a.spellId);
-                else if (e === 'SPELL_AURA_REMOVED') {
-                    if (!s.delete(a.spellId)) diag.unseenRemovals += 1;
-                } else s.add(a.spellId);
-            }
-            if (a.dst === player && specModule.tracked(a.spellId)) {
+            tracker.onAura(a, e);
+            if (a.dst === player && spec.buffs.tracked(a.spellId)) {
                 if (e === 'SPELL_AURA_REMOVED') buffs.delete(a.spellId);
                 else buffs.add(a.spellId);
             }
             continue;
         }
         if (e === 'UNIT_DIED') {
-            harmony.delete(ev.f[5]);
+            tracker.onUnitDied(ev.f[5]);
             continue;
         }
         if (e === 'SPELL_ABSORBED') {
@@ -243,19 +203,19 @@ function walk(events, opts) {
             seg.int = ciInt;
             seg.spec = specID;
         }
-        const hs = harmony.get(h.dst);
-        attribute(seg.sums, h, { ratings, intNow, buffs, harmony: hs, dr, C, spec: specModule });
-        if (o.onHeal) o.onHeal(h, { t: ev.t, intNow, n: hs ? hs.size : 0, buffs: [...buffs].sort((a, b) => a - b).join(','), ratings, seg, spec: specModule });
+        attribute(seg.sums, h, { ratings, intNow, buffs, dr, C, spec, tracker, dst: h.dst });
+        if (o.onHeal) o.onHeal(h, { t: ev.t, intNow, n: tracker.countFor(h.dst), buffs: [...buffs].sort((a, b) => a - b).join(','), ratings, seg });
     }
     close(events.length ? events[events.length - 1].t : 0);
     diag.intValues = [...diag.intValues].sort((a, b) => a - b);
+    Object.assign(diag, tracker.diag());
     return { player, keys, segments, diag };
 }
 
 // The player's percents at this moment.
 function percents(ratings, buffs, dr, spec) {
     let versBuff = 0;
-    for (const id of buffs) if (spec.PERCENT_BUFFS[id] && spec.PERCENT_BUFFS[id].stat === 'vers') versBuff += spec.PERCENT_BUFFS[id].percent;
+    for (const id of buffs) if (spec.buffs.percent[id] && spec.buffs.percent[id].stat === 'vers') versBuff += spec.buffs.percent[id].percent;
     return {
         vers: ratingToPercent(ratings.vers, dr.vers) + versBuff,
         haste: ratingToPercent(ratings.haste, dr.haste),
@@ -266,7 +226,7 @@ function percents(ratings, buffs, dr, spec) {
 
 // One heal event of the player's into a segment's sums (§6).
 function attribute(sums, h, ctx) {
-    const { ratings, intNow, buffs, dr, C, spec } = ctx;
+    const { ratings, intNow, buffs, dr, C, spec, tracker, dst } = ctx;
     const row = spec.spellRow(h.spellId);
     sums.events += 1;
     sums.raw += h.amount;
@@ -277,7 +237,7 @@ function attribute(sums, h, ctx) {
     by.effective += h.effective;
     by.overheal += h.overheal;
     if (row.kind === 'unknown') sums.unknown[h.spellId] = (sums.unknown[h.spellId] || 0) + h.effective;
-    for (const id of buffs) if (spec.UNSIZED_BUFFS[id]) sums.unsized[id] = (sums.unsized[id] || 0) + h.effective;
+    for (const id of buffs) if (spec.buffs.unsized[id]) sums.unsized[id] = (sums.unsized[id] || 0) + h.effective;
 
     if (row.kind === 'leech') {
         sums.leechEvents += 1;
@@ -301,15 +261,7 @@ function attribute(sums, h, ctx) {
     const tick = row.tick === 'all' || (row.tick === 'periodic' && h.periodic);
     if (tick) g.hasteTick += E / (1 + pct.haste / 100) / 100;
     if (tick || row.cast) g.hasteCast += E / (1 + pct.haste / 100) / 100;
-    if (row.mastery) {
-        const n = ctx.harmony ? ctx.harmony.size : 0;
-        if (n > 0) {
-            const T = spec.stackFactor(n);
-            const c = C.harmonyCoefficient / 100;
-            const points = C.masteryBase + pct.masteryPoints;
-            g.mastery += (E * c * T) / (1 + points * c * T);
-        }
-    }
+    if (row.mastery) g.mastery += spec.mastery.gain(E, pct, tracker, dst, C);
 }
 
 // A segment's weights: per percent (per point for Intellect), per rating
@@ -339,4 +291,4 @@ function segmentWeights(seg, dr) {
     return { perPercent, perPoint, relative, relativePercent, slopes };
 }
 
-module.exports = { HEALER_SPECS, GAINS, findPlayer, walk, attribute, percents, segmentWeights, emptySums };
+module.exports = { GAINS, findPlayer, walk, attribute, percents, segmentWeights, emptySums };

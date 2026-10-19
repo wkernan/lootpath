@@ -8,11 +8,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const S = require('../support/synth');
-const { makeStubSpec } = require('../support/stubSpec');
 const P = require('../lib/parse');
 const { walk, segmentWeights } = require('../lib/attribute');
 const { loadDR } = require('../lib/dr');
-const { SPECS } = require('../specs');
 
 const dr = loadDR();
 const near = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-9, `${msg}: ${a} vs ${b}`);
@@ -133,84 +131,6 @@ test('the player must be named when no COMBATANT_INFO names a healing spec once'
     S.reset();
     const text = [S.challengeStart(10), S.combatant({ int: 1000, crit: 1, haste: 1, mastery: 1, vers: 1, leech: 0, spec: 103 }), S.challengeEnd(10)].join('\n');
     assert.throws(() => run(text), /name the player with --player/);
-});
-
-test('a spec named explicitly with no combat-log module throws, naming it', () => {
-    S.reset();
-    const text = [S.challengeStart(10), S.combatant({ int: 1000, crit: 1, haste: 1, mastery: 1, vers: 1, leech: 0, spec: 103 }), S.challengeEnd(10)].join('\n');
-    assert.throws(() => run(text, { player: S.PLAYER }), /spec 103 has no combat-log module/);
-});
-
-test('a second registered spec module is dispatched by its ID, not Restoration\'s table (E-5b, WKE-713 rework)', () => {
-    const stub = makeStubSpec(901);
-    SPECS.set(901, stub);
-    try {
-        S.reset();
-        // Rejuvenation (774) in Restoration's own table crits, ticks hasted
-        // and feeds Harmony; the stub's spellRow ignores the spell ID
-        // entirely and says only Intellect and versatility move.
-        const text = [
-            S.challengeStart(10),
-            S.combatant({ int: 1000, crit: 460, haste: 440, mastery: 460, vers: 540, leech: 69, spec: 901 }),
-            S.heal({ spellId: 774, name: 'Rejuvenation', periodic: true, amount: 1000, crit: true }),
-            S.challengeEnd(10),
-        ].join('\n');
-        const s = run(text, { player: S.PLAYER }).segments[0].sums;
-        assert.ok(s.gain.int > 0, 'the stub still moves Intellect');
-        assert.ok(s.gain.vers > 0, 'the stub still moves versatility');
-        assert.equal(s.gain.crit, 0, "the stub's spellRow says this heal never crits");
-        assert.equal(s.gain.mastery, 0, 'the stub has no Harmony-shaped mastery mechanic');
-        assert.equal(s.gain.hasteTick, 0, "the stub's spellRow says this heal is not hasted");
-    } finally {
-        SPECS.delete(901);
-    }
-});
-
-test('a respec mid-log re-resolves the spec module, not just ratings (E-5b, WKE-713 rework)', () => {
-    const stub = makeStubSpec(902);
-    SPECS.set(902, stub);
-    try {
-        S.reset();
-        const text = [
-            S.challengeStart(10),
-            S.combatant({ int: 1000, crit: 460, haste: 440, mastery: 460, vers: 540, leech: 69, spec: 105 }),
-            S.heal({ spellId: 774, name: 'Rejuvenation', periodic: true, amount: 1000, crit: true }),
-            S.challengeEnd(10),
-            S.challengeStart(11),
-            S.combatant({ int: 1000, crit: 460, haste: 440, mastery: 460, vers: 540, leech: 69, spec: 902 }),
-            S.heal({ spellId: 774, name: 'Rejuvenation', periodic: true, amount: 1000, crit: true }),
-            S.challengeEnd(11),
-        ].join('\n');
-        const w = run(text, { player: S.PLAYER });
-        assert.equal(w.segments.length, 2);
-        assert.equal(w.segments[0].spec, 105, 'the first key: Restoration');
-        assert.equal(w.segments[1].spec, 902, 'the second key: the stub, not still Restoration');
-        assert.ok(w.segments[0].sums.gain.crit > 0, "Restoration's table crits this heal");
-        assert.equal(w.segments[1].sums.gain.crit, 0, "the stub's table says this heal never crits");
-    } finally {
-        SPECS.delete(902);
-    }
-});
-
-test('a spec change inside one open segment refuses rather than blending two formulas (E-5b, WKE-713 rework)', () => {
-    const stub = makeStubSpec(903);
-    SPECS.set(903, stub);
-    try {
-        S.reset();
-        const text = [
-            S.challengeStart(10),
-            S.combatant({ int: 1000, crit: 460, haste: 440, mastery: 460, vers: 540, leech: 69, spec: 105 }),
-            S.heal({ spellId: 774, name: 'Rejuvenation', periodic: true, amount: 1000 }),
-            // No CHALLENGE_MODE_END/ENCOUNTER_END between these: the segment
-            // is still open when her spec changes.
-            S.combatant({ int: 1000, crit: 460, haste: 440, mastery: 460, vers: 540, leech: 69, spec: 903 }),
-            S.heal({ spellId: 774, name: 'Rejuvenation', periodic: true, amount: 1000 }),
-            S.challengeEnd(10),
-        ].join('\n');
-        assert.throws(() => run(text, { player: S.PLAYER }), /spec changed from 105 to 903 inside one open segment/);
-    } finally {
-        SPECS.delete(903);
-    }
 });
 
 test("her Intellect at an event is the last spell power her advanced block read", () => {

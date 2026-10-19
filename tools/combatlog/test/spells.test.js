@@ -1,16 +1,16 @@
 'use strict';
 
-// Restoration's spell table (specs/restoration.js) against the client data
-// it was read from, spec/fixtures/combatlog/simc-spells-70391.txt: every
-// coefficient, every crit, haste and modifier flag, Harmony's label list, and
-// the base mastery recomputed from the owner's committed transcript.
+// The spell table (lib/spells.js) against the client data it was read from,
+// spec/fixtures/combatlog/simc-spells-70391.txt: every coefficient, every
+// crit, haste and modifier flag, Harmony's label list, and the base mastery
+// recomputed from the owner's committed transcript.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
-const { ROWS, HARMONY_IDS, CONSTANTS, PERCENT_BUFFS, AMOUNT_BUFFS, stackFactor } = require('../../specs/restoration');
+const { ROWS, HARMONY_IDS, CONSTANTS, PERCENT_BUFFS, AMOUNT_BUFFS, stackFactor } = require('../lib/spells');
 
-const FIX = path.join(__dirname, '..', '..', '..', '..', 'spec', 'fixtures');
+const FIX = path.join(__dirname, '..', '..', '..', 'spec', 'fixtures');
 const DUMP = fs.readFileSync(path.join(FIX, 'combatlog', 'simc-spells-70391.txt'), 'utf8');
 const blocks = new Map();
 for (const part of DUMP.split(/^######## /m).slice(1)) {

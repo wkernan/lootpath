@@ -350,3 +350,59 @@ Intellect).
   its parent's rules held; its parent's crit and mastery are not followed.
 - Trinkets are never valued: procs reach the weights only through the tracker
   (memo §2b).
+
+## 12. Adding a healer spec
+
+E-5b (WKE-713) split this file's method from Restoration's own data: the code
+in `tools/combatlog/lib/attribute.js` and `lib/entry.js` names no spell, buff
+or spec. Everything above is Restoration's data, read through her module;
+adding another healer spec is a new module beside hers, found through
+`tools/combatlog/lib/specs/index.js`'s registry (`get(specID)`, `ids()`), not
+a change to either file.
+
+**The module's exported names.** One file,
+`tools/combatlog/lib/specs/<specID>-<spec-slug>.js` (Restoration's is
+`105-restoration-druid.js`), exporting exactly:
+
+- `identity`: `{ specID, name, role, primaryStat, stats }` - the client's
+  spec ID (`GetSpecializationInfo`), a word for generated text (the written
+  weights file's header reads `<name> stat weights`), `role` ("HEALER"),
+  `primaryStat` and the ranked `stats` list E-4's schema expects.
+- `spellRow(id)`, `ROWS`, `UNKNOWN` - §5's table, as data, and the row a
+  spell not in it counts as.
+- `constants`: `critMultiplier`, plus whatever the spec's own mastery
+  formula needs (Restoration's are `harmonyCoefficient` and `masteryBase`).
+- `buffs`: `{ percent, unsized, hastePercent, amount, tracked(id) }` - §3's
+  and §6's buff tables, and the one predicate that says whether an aura is
+  any of them.
+- `mastery`: `{ createTracker(player), gain(E, pct, tracker, dst, C) }`. The
+  tracker `walk()` creates once per log exposes `onCombatantInfo(ci)`,
+  `onAura(a, kind)`, `onUnitDied(guid)` and `diag()` (the three resync counts
+  `lib/entry.js` writes per log under the key `harmony`, whatever the spec -
+  a spec whose mastery needs no cross-event tracking still returns an empty
+  `diag()`). `gain` is this heal's mastery gain, read against whatever
+  per-target or per-player state the tracker followed; 0 when the spec's
+  mastery predicts none for this event.
+
+A spec whose mastery is not "a count of stacking auras on the target", the
+way Harmony's is, still fits this shape - the tracker and `gain` are free to
+use it differently - but if its per-event formula differs in kind from
+Restoration's, `lib/attribute.js`'s call site
+(`spec.mastery.gain(E, pct, tracker, dst, C)`) still has to be the only
+place that formula is read from; no spec-specific code belongs there.
+
+**Where its spell rows come from.** Every row in a real spec's `ROWS` is read
+from SimulationCraft's `spell_query` output, never guessed or copied from a
+wiki (§0's clean-room rule): `spell_query=spell.id=<id>` for each spell,
+committed verbatim under `spec/fixtures/combatlog/` (Restoration's is
+`simc-spells-70391.txt`), the same way §1 and §5 describe for her.
+
+**Its first log.** Committed stripped, the way §10 describes for
+Restoration's: every other player's name and GUID replaced
+(`tools/combatlog/anonymise.js`), never the raw capture.
+
+A toy spec (`tools/combatlog/test/fixtures/toy-spec.js`, WKE-713) proves this
+shape without any of that: two spells and a mastery that multiplies every
+heal by a constant, registered only inside `test/specs.test.js` through
+`lib/specs/index.js`'s `register()`/`unregister()`. It is never added to the
+shipped registry.

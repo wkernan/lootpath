@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // A healer spec's stat weights from the player's own combat log (E-5,
 // WKE-711; E-5b, WKE-713). The method is docs/COMBAT-LOG-WEIGHTS.md; which
-// spec's table and constants apply comes from specs/index.js, keyed by the
-// found player's spec ID. Only Restoration (105) has a module today. This
-// file only drives the method.
+// spec's table and constants apply comes from lib/specs/index.js, keyed by
+// the found player's spec ID. Only Restoration (105) has a module today.
+// This file only drives the method.
 //
 //   node weights.js <WoWCombatLog.txt[.gz]>... [--player <GUID>] [--patch 12.1.5]
 //                   [--out <dir>] [--derived-at <ISO>] [--resamples N] [--seed N]
@@ -22,6 +22,7 @@ const P = require('./lib/parse');
 const { walk, segmentWeights } = require('./lib/attribute');
 const { loadDR } = require('./lib/dr');
 const { buildEntry, buildTable, render, specOf, RANKED } = require('./lib/entry');
+const specs = require('./lib/specs');
 
 const USAGE = 'usage: node weights.js <log>... [--player <GUID>] [--patch <x.y.z>] [--out <dir>] [--derived-at <ISO>] [--resamples N] [--seed N]';
 
@@ -77,8 +78,9 @@ function run(argv, log) {
     if (o.resamples !== undefined) est.resamples = o.resamples;
     if (o.seed !== undefined) est.seed = o.seed;
     const entry = buildEntry(walks, dr, { derivedAt, estimate: est });
-    const table = buildTable(entry, { patch, dr, specID: specOf(walks) });
-    const lua = render(table, { logs: walks });
+    const specID = specOf(walks);
+    const table = buildTable(entry, { patch, dr, specID });
+    const lua = render(table, { logs: walks, specName: specs.get(specID).identity.name });
     fs.mkdirSync(o.out, { recursive: true });
     const file = path.join(o.out, 'EngineWeights.combatlog.lua');
     fs.writeFileSync(file, lua);
