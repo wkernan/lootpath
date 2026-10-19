@@ -1599,7 +1599,24 @@ end
 -- nil otherwise (decision 3): the first winning level's row for a piece that
 -- wins once crested, the road's own row for a drop or anything rated where it
 -- arrives. A Top Gear verdict is not a percent against what you wear and is
--- never handed back here; neither is a row at another level than the copy's.
+-- never handed back here; neither is a row at another level than the copy's -
+-- UFImport.lua's own identity rule (~:386-390, decision 2026-09-05).
+--
+-- R-3 (WKE-707): a held vault pick's own road rates `RATING_NONE` - the
+-- vault's no-rating badge, never `RATING_ITEM` - so it falls to the narrowly
+-- gated branch below, which answers only `ForItemIn`'s own
+-- `answer.heldVaultPercent`, itself read at `own.arrivesAt` rather than the
+-- copy's own held level. While the copy is short of its crest that IS a row
+-- at another level than the copy's - the owner's own exception to the
+-- identity rule above, decided for this one case because the row the player
+-- cares about is the one the crest is FOR, not the one the copy sits at
+-- today. `ForItemIn` carries the exception, not this function: it withholds
+-- the field for the one state the exception does not reach - equipped AND
+-- already at `arrivesAt`, where `Refresh - you're already wearing it.` is
+-- the whole answer and there is nothing left to crest into. Every other held
+-- state (bag, or short of the crest) still sets it. This function never
+-- widens what `rating.kind == RATING_ITEM` above already answers for every
+-- other road.
 function Roads.UpgradePercent(answer)
     if type(answer) ~= "table" then
         return nil
@@ -1612,6 +1629,8 @@ function Roads.UpgradePercent(answer)
         local rating = own and own.rating or nil
         if type(rating) == "table" and rating.kind == Roads.RATING_ITEM then
             percent = rating.percent
+        elseif answer.heldVaultPercent ~= nil then
+            percent = answer.heldVaultPercent
         end
     end
     if Roads.IsUpgradePercent(percent) then
@@ -2696,6 +2715,29 @@ function Roads.HoldsVaultPick(held, pick)
     return false
 end
 
+-- R-3 (WKE-707, the owner's second decision): the held vault pick's own
+-- Upgrade Finder row, read at the level the vault road ARRIVES at - never at
+-- `own.rating.level`, which on a vault road is `RATING_NONE`'s own badge
+-- level and carries no percent at all. Read here unchanged - the exact
+-- itemID@level join `UFImport.LookupAcrossLevels` already uses for every
+-- other road - whatever `dropType` QE Live gave that row: the guards' own
+-- row, the vault Worldroot at 251935@321, carries `dropType` null and
+-- `dropLoc` "Delves" in every committed Upgrade Finder document (all 20);
+-- the Vile Vial at 273796@334 in the owner's own Dungeon week carries
+-- `dropType` "bonus" instead. This function takes no position on the field
+-- either way. Positive only (`UFImport.IsUpgrade`); nil when the documents
+-- say nothing at this level, or say it is not an upgrade.
+function Roads.HeldVaultUpgradePercent(own, documents)
+    if type(own) ~= "table" or type(own.item) ~= "table" then
+        return nil
+    end
+    local entry = ns.UFImport.LookupAcrossLevels(documents, own.item.itemID, own.arrivesAt)
+    if not entry or not ns.UFImport.IsUpgrade(entry) then
+        return nil
+    end
+    return tonumber(entry.upgradePercent)
+end
+
 -- Whether the inventory holds a record under one of the pick's own keys (R-2k,
 -- WKE-694): the copy the rating rated, in your hands as it was rated.
 --
@@ -2703,7 +2745,7 @@ end
 -- the 318 helm in his bags at 334 - its own key, the Myth track crested to its
 -- cap - over the 321 Hero helm he wears. The worn 321 was read as that pick
 -- "already worn" (`Refresh - you're already wearing it.`) and the bag 308 as
--- the pick "short of its crest" (`Crest this to 318 - then refresh.`), each
+-- the pick "short of its crest" (`Crest to 318`, R-2s's short form), each
 -- carrying the 318's `rated with:` line, because R-3c's identity is the item ID
 -- and both copies share it. That identity is only ever needed when the pick
 -- changed key; while its own key is held, no other copy is it.
@@ -3309,14 +3351,23 @@ function Roads.ForItemIn(slotRoads, key, inputs)
     answer.own = own
     -- The vault pick in your hands keeps R-2j's words, which already say the
     -- crest: it is not a piece the R-2l sentence or its figure speak for.
-    if
-        answer.crestTo
-        and type(own) == "table"
+    local heldVaultPick = type(own) == "table"
         and own.kind == Roads.KIND_VAULT
         and own.planPick == true
         and Roads.HoldsVaultPick(item, own)
-    then
-        answer.crestTo = nil
+    if heldVaultPick then
+        if answer.crestTo then
+            answer.crestTo = nil
+        end
+        -- R-3 (WKE-707, rework 2, option B): the figure this case still owes
+        -- the tooltip is a reason to act, so it answers only while there is
+        -- still an act left - short of the crest (`Roads.ArrivedShort`), or
+        -- not yet equipped. A copy already worn at the level it arrives at
+        -- pairs with `Refresh - you're already wearing it.` alone; nothing is
+        -- left to upgrade into, so `Roads.UpgradePercent` reads back nothing.
+        if item ~= nil and (Roads.ArrivedShort(item, own) or item.location ~= "equipped") then
+            answer.heldVaultPercent = Roads.HeldVaultUpgradePercent(own, inputs.ufDocuments)
+        end
     end
     offerOthers(answer, slotRoads, not otherLevelRoad and ownGroup or nil, otherLevelRoad)
 
@@ -3621,9 +3672,17 @@ end
 -- No rating is named and none is invented. The level in the crest sentence is
 -- the plan's own, and which crest that step takes and what it costs are still
 -- not read from the client (principle 4).
+--
+-- R-2s (WKE-707, the owner's second decision): the crest clause drops the
+-- refresh tail and the piece word, matching `CREST_WEAR_SENTENCE` and his
+-- short-form rule - the reset-day claim of the Vile Vial no longer reads
+-- `Crest this to 334 - then refresh.`, it reads `Crest to 334`. All three
+-- callers below (the held-vault-pick case, R-2h's worn-under-crested case and
+-- R-3e's generic arrived-pick case) take the short form; nothing special-cases
+-- any one of them any more.
 Roads.ARRIVED_PUT_ON_SENTENCE = "Put %s on - then refresh."
 Roads.ARRIVED_WORN_SENTENCE = "Refresh - you're already wearing %s."
-Roads.ARRIVED_CREST_SENTENCE = "Crest %s to %d - then refresh."
+Roads.ARRIVED_CREST_SENTENCE = "Crest to %d"
 
 -- The sentence for a piece the rating's own pass never saw, which a later pass
 -- put in its best set (C-11, WKE-572). It names no number, no pass and no
@@ -3713,7 +3772,7 @@ function Roads.ArrivedSentence(held, pick)
     -- Short of the level the plan picked it at, wherever it is sitting (R-3e):
     -- the rest of the crest is what is left, not the refresh alone.
     if level and arrivesAt and Roads.ArrivedShort(held, pick) then
-        return string.format(Roads.ARRIVED_CREST_SENTENCE, Roads.ThisWord(slot), arrivesAt)
+        return string.format(Roads.ARRIVED_CREST_SENTENCE, arrivesAt)
     end
     if held.location == "equipped" then
         return string.format(Roads.ARRIVED_WORN_SENTENCE, Roads.ItWord(slot))
@@ -3841,7 +3900,10 @@ function Roads.ItemSentence(answer)
                 -- R-2j (WKE-693): the reward is in your hands under the vault's
                 -- own key, so "from the vault" is the one thing that is no
                 -- longer true. R-3b's words for the pick, arrived, are the
-                -- answer: put it on, crest it, or refresh.
+                -- answer: put it on, crest it, or refresh. R-2s (WKE-707)
+                -- needs no special case here any more: `ARRIVED_CREST_SENTENCE`
+                -- itself is the short form now, so the reset-day claim of the
+                -- Vile Vial reads `Crest to 334` through this same call.
                 if answer.held == true and Roads.HoldsVaultPick(answer.heldItem, own) then
                     return Roads.ArrivedSentence(answer.heldItem, own)
                 end
