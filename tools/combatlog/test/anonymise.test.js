@@ -50,7 +50,7 @@ test('a second pass over a stripped text is a no-op', () => {
     assert.equal(twice.text, once);
 });
 
-test("the committed fixture names no player but the owner and the pseudonyms, and passes through unchanged", () => {
+test("the committed fixture names no player but the owner and the pseudonyms, and passes through unchanged", (t) => {
     const text = readText(FIXTURE);
     const names = new Map();
     for (const m of text.matchAll(/(Player-\d+-[0-9A-F]+),"([^"]+)"/g)) names.set(m[1], m[2]);
@@ -65,7 +65,9 @@ test("the committed fixture names no player but the owner and the pseudonyms, an
     for (const g of guids) assert.ok(g === OWNER || /^Player-0-0000000\d$/.test(g), `an unstripped GUID: ${g}`);
     assert.equal(names.size, 5);
 
-    const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'lootpath-anon-')), 'again.txt');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lootpath-anon-'));
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const out = path.join(dir, 'again.txt');
     const r = cli.run([FIXTURE, out, OWNER], () => {});
     assert.equal(r.players, 4);
     const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
