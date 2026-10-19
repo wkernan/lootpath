@@ -1363,16 +1363,40 @@ describe("Roads over the owner's week of 2026-09-08", function()
     -- the level the rating picked it at. PROVEN RED: without the branch this
     -- is `Grab this from the vault.` over the staff on his back. R-2s
     -- (WKE-707) shortened the crest clause the same way as the bag copy above.
-    it("gives a worn copy of the vault pick R-3b's worn words (R-2j, R-2s)", function()
+    --
+    -- R-3 rework 2 (WKE-707, option B): the percent rides along while short
+    -- of the crest, worn or not, and drops out the one time it would sit
+    -- beside `Refresh - you're already wearing it.` with nothing left to
+    -- crest into. PROVEN RED: without the `Roads.ArrivedShort` guard in
+    -- `ForItemIn` the last assertion reads `1.863` instead of `nil`.
+    it("gives a worn copy of the vault pick R-3b's worn words (R-2j, R-2s, R-3 rework 2)", function()
         local held = holdWorldroot("equipped")
         emptyTheVault()
-        assert.equal("Crest to 321", ns.Roads.ItemSentence(answerFor("2H Weapon", held.key)))
+        local answer = answerFor("2H Weapon", held.key)
+        assert.equal("Crest to 321", ns.Roads.ItemSentence(answer))
+        assert.equal(1.863, ns.Roads.UpgradePercent(answer))
         local slotRoads = ns.Roads.ForSlot("2H Weapon", inputs)
         assert.equal(ns.Roads.ARRIVED_CLAIMED_WORN, ns.Roads.PlanPick(slotRoads).claimed)
         assert.equal("Crest the Worldroot.", slotRoads.plan)
         held.itemLevel = 321
-        assert.equal("Refresh - you're already wearing it.", ns.Roads.ItemSentence(answerFor("2H Weapon", held.key)))
+        local atLevel = answerFor("2H Weapon", held.key)
+        assert.equal("Refresh - you're already wearing it.", ns.Roads.ItemSentence(atLevel))
+        assert.is_nil(ns.Roads.UpgradePercent(atLevel))
         noSurfaceGrabs({ slotRoads.plan, ns.Roads.PlanSentence(inputs).sentence })
+    end)
+
+    -- The bag copy at the SAME level the owner's worn copy loses the percent
+    -- at: `Put this on - then refresh.` is still a thing to do - put it on -
+    -- so the percent that makes that worth doing stays on the tooltip.
+    -- PROVEN RED: without the `item.location ~= "equipped"` half of the
+    -- `ForItemIn` guard this reads `nil` instead of `1.863`.
+    it("keeps the percent on a bag copy already at its own crested level (R-3 rework 2, WKE-707)", function()
+        local held = holdWorldroot("bag")
+        emptyTheVault()
+        held.itemLevel = 321
+        local answer = answerFor("2H Weapon", held.key)
+        assert.equal("Put this on - then refresh.", ns.Roads.ItemSentence(answer))
+        assert.equal(1.863, ns.Roads.UpgradePercent(answer))
     end)
 
     -- And with no copy held, the vault road is the vault road: `Grab` as before

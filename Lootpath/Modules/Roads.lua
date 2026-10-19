@@ -1599,13 +1599,24 @@ end
 -- nil otherwise (decision 3): the first winning level's row for a piece that
 -- wins once crested, the road's own row for a drop or anything rated where it
 -- arrives. A Top Gear verdict is not a percent against what you wear and is
--- never handed back here; neither is a row at another level than the copy's.
+-- never handed back here; neither is a row at another level than the copy's -
+-- UFImport.lua's own identity rule (~:386-390, decision 2026-09-05).
 --
 -- R-3 (WKE-707): a held vault pick's own road rates `RATING_NONE` - the
 -- vault's no-rating badge, never `RATING_ITEM` - so it falls to the narrowly
 -- gated branch below, which answers only `ForItemIn`'s own
--- `answer.heldVaultPercent` and never widens what `rating.kind == RATING_ITEM`
--- above already answers for every other road.
+-- `answer.heldVaultPercent`, itself read at `own.arrivesAt` rather than the
+-- copy's own held level. While the copy is short of its crest that IS a row
+-- at another level than the copy's - the owner's own exception to the
+-- identity rule above, decided for this one case because the row the player
+-- cares about is the one the crest is FOR, not the one the copy sits at
+-- today. `ForItemIn` carries the exception, not this function: it withholds
+-- the field for the one state the exception does not reach - equipped AND
+-- already at `arrivesAt`, where `Refresh - you're already wearing it.` is
+-- the whole answer and there is nothing left to crest into. Every other held
+-- state (bag, or short of the crest) still sets it. This function never
+-- widens what `rating.kind == RATING_ITEM` above already answers for every
+-- other road.
 function Roads.UpgradePercent(answer)
     if type(answer) ~= "table" then
         return nil
@@ -2707,13 +2718,15 @@ end
 -- R-3 (WKE-707, the owner's second decision): the held vault pick's own
 -- Upgrade Finder row, read at the level the vault road ARRIVES at - never at
 -- `own.rating.level`, which on a vault road is `RATING_NONE`'s own badge
--- level and carries no percent at all. The vault never drops this item, so
--- QE Live never calls the row a `drop`; it is a bonus-roll listing
--- (`dropType` "bonus") the Upgrade Finder still ranks like any other row,
--- read here unchanged - the exact itemID@level join `UFImport.LookupAcrossLevels`
--- already uses for every other road. Positive only (`UFImport.IsUpgrade`);
--- nil when the documents say nothing at this level, or say it is not an
--- upgrade.
+-- level and carries no percent at all. Read here unchanged - the exact
+-- itemID@level join `UFImport.LookupAcrossLevels` already uses for every
+-- other road - whatever `dropType` QE Live gave that row: the guards' own
+-- row, the vault Worldroot at 251935@321, carries `dropType` null and
+-- `dropLoc` "Delves" in every committed Upgrade Finder document (all eight);
+-- the Vile Vial at 273796@334 in the owner's own Dungeon week carries
+-- `dropType` "bonus" instead. This function takes no position on the field
+-- either way. Positive only (`UFImport.IsUpgrade`); nil when the documents
+-- say nothing at this level, or say it is not an upgrade.
 function Roads.HeldVaultUpgradePercent(own, documents)
     if type(own) ~= "table" or type(own.item) ~= "table" then
         return nil
@@ -3346,10 +3359,15 @@ function Roads.ForItemIn(slotRoads, key, inputs)
         if answer.crestTo then
             answer.crestTo = nil
         end
-        -- R-3 (WKE-707): the one figure this case still owes the tooltip - its
-        -- own Upgrade Finder row, read at `own.arrivesAt`. `Roads.UpgradePercent`
-        -- reads it back under this same field.
-        answer.heldVaultPercent = Roads.HeldVaultUpgradePercent(own, inputs.ufDocuments)
+        -- R-3 (WKE-707, rework 2, option B): the figure this case still owes
+        -- the tooltip is a reason to act, so it answers only while there is
+        -- still an act left - short of the crest (`Roads.ArrivedShort`), or
+        -- not yet equipped. A copy already worn at the level it arrives at
+        -- pairs with `Refresh - you're already wearing it.` alone; nothing is
+        -- left to upgrade into, so `Roads.UpgradePercent` reads back nothing.
+        if item ~= nil and (Roads.ArrivedShort(item, own) or item.location ~= "equipped") then
+            answer.heldVaultPercent = Roads.HeldVaultUpgradePercent(own, inputs.ufDocuments)
+        end
     end
     offerOthers(answer, slotRoads, not otherLevelRoad and ownGroup or nil, otherLevelRoad)
 
