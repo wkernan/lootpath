@@ -4,7 +4,8 @@ The game's own `WoWCombatLog.txt`, written by `/combatlog` with Advanced Combat
 Logging on, is the input to the combat-log weights tool (`tools/combatlog/`,
 route C - `docs/ARCHITECTURE.md` §7, 2026-10-15 early morning). Each fixture
 here is one segment of the owner's log, every player but the owner replaced
-(`tools/combatlog/anonymise.py`), gzipped, with its sha256s below. The raw logs
+(`tools/combatlog/anonymise.js`; the first fixture by `anonymise.py`, which it
+replaced), gzipped, with its sha256s below. The raw logs
 never enter the repo; the owner keeps them.
 
 `tools/combatlog/test/committed-keys.test.js` (E-5c, WKE-714) pins the

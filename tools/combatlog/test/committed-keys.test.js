@@ -7,8 +7,10 @@
 //
 //   node weights.js ../../spec/fixtures/combatlog/WoWCombatLog-20261017-AltarOfFangs-12.txt.gz ../../spec/fixtures/combatlog/WoWCombatLog-20261018-VoidscarArena-12.txt.gz ../../spec/fixtures/combatlog/WoWCombatLog-20261018-RubyLifePools-12.txt.gz ../../spec/fixtures/combatlog/WoWCombatLog-20261018-MurderRow-12.txt.gz ../../spec/fixtures/combatlog/WoWCombatLog-20261018-BlindingVale-12.txt.gz ../../spec/fixtures/combatlog/WoWCombatLog-20261018-KingsRest-12.txt.gz --player Player-69-0CC01A11 --patch 12.1.5 --derived-at 2026-10-19T00:00:00Z --out /tmp/e5six
 //
-// If the change is intended, re-run the command above, update the figures
-// in this file, and say why in the PR.
+// The figures also move when the `dr` table in Lootpath/Data/EngineWeights.lua
+// changes: lib/dr.js reads the rating conversion from there. If the change is
+// intended, re-run the command above, update the figures in this file, and
+// say why in the PR.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -27,7 +29,8 @@ const LOGS = [
     'WoWCombatLog-20261018-KingsRest-12.txt.gz',
 ].map((f) => path.join(FIXTURES, f));
 
-const MOVED = "the six committed keys' weights moved; if the change is intended, re-run the command in this file's header, update the figures, and say why in the PR";
+const MOVED =
+    "the six committed keys' weights moved (a change to tools/combatlog, or to the `dr` table in Lootpath/Data/EngineWeights.lua, which lib/dr.js reads); if the change is intended, re-run the command in this file's header, update the figures, and say why in the PR";
 
 function run() {
     const out = fs.mkdtempSync(path.join(os.tmpdir(), 'lootpath-combatlog-six-'));
