@@ -88,11 +88,17 @@ function bandOf(segs, dr, spec, opts) {
     };
 }
 
-// The spec ID a set of walked logs belongs to: the first usable segment's.
-// weights.js reuses this to tell buildTable which spec its entry is for.
+// The spec ID a set of walked logs belongs to: every usable segment's, which
+// must agree - one entry is one spec, so a log of a different spec than the
+// others', passed by mistake, is refused rather than silently merged into
+// one or the other's label (every usable segment is still pooled into the
+// same bands either way: see buildEntry). weights.js reuses this to tell
+// buildTable which spec its entry is for.
 function specOf(walks) {
-    for (const { walk } of walks) for (const seg of walk.segments) if (usable(seg)) return seg.spec;
-    return null;
+    const specs = new Set();
+    for (const { walk } of walks) for (const seg of walk.segments) if (usable(seg)) specs.add(seg.spec);
+    if (specs.size > 1) throw new Error(`mixed specs in one run: ${[...specs].sort((a, b) => a - b).join(', ')} - one entry is one spec`);
+    return specs.size ? [...specs][0] : null;
 }
 
 // walks: [{ file, sha256, walk }] -> the entry for whichever spec walked them.
@@ -144,6 +150,13 @@ function buildTable(entry, meta) {
     return { schema: 'lootpath-engine-weights', version: 2, devOnly: true, patch: meta.patch, specs: new Map([[meta.specID, entry]]), dr: meta.dr };
 }
 
+// This header names Restoration by name, unlike the rest of this file: it is
+// generated TEXT, not spec-dispatched code, and changing it changes every
+// byte this PR promises stays identical for Restoration (E-5b, WKE-713;
+// docs/brain/inbox/WKE-713.md). It is accurate today - Restoration is the
+// only module in specs/index.js - and wrong the day a second one's entry
+// gets written; fix it then, when there is a real second spec's wording to
+// write instead of a guess.
 function render(table, meta) {
     const logs = meta.logs.map((l) => `--   ${l.file}  sha256 ${l.sha256}`).join('\n');
     return [

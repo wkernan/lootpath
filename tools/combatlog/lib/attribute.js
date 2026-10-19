@@ -10,7 +10,12 @@
 // Which spell moves which stat, and by how much, is read from the found
 // player's own spec module (specs/index.js), not assumed: this file knows no
 // spec's spells, buffs or constants by name, only the shape every spec
-// module shares.
+// module shares. The mastery branch below is the one exception: it still
+// assumes mastery is a count of the player's own stacking auras on the
+// target (Harmony's shape), only its inputs (the stack factor, the
+// coefficient, the base points) come from the spec module. A spec whose
+// mastery isn't that shape needs this branch generalised first, not just a
+// new module.
 'use strict';
 
 const P = require('./parse');
@@ -33,11 +38,13 @@ function findPlayer(events) {
     return [...found][0];
 }
 
-// The player's spec ID, read from her own COMBATANT_INFO. Resolved once, up
-// front, so every unit's Harmony-aura tracking has her spec module from the
-// log's first COMBATANT_INFO batch - a raid lists every member's in one
-// batch, in no guaranteed order, and Harmony's count is tracked for them all,
-// not only the player.
+// The player's spec ID, from her first COMBATANT_INFO. walk() seeds its spec
+// module with this before its main pass, so every unit's Harmony-aura
+// tracking has one from the start - a raid lists every member's COMBATANT_INFO
+// in one batch, in no guaranteed order, and Harmony's count is tracked for
+// them all, not only the player - then re-resolves it on each of her later
+// COMBATANT_INFO occurrences, same as her ratings, in case the log spans a
+// respec.
 function findPlayerSpec(events, player) {
     for (const ev of events) {
         if (ev.event !== 'COMBATANT_INFO') continue;
@@ -45,6 +52,13 @@ function findPlayerSpec(events, player) {
         if (ci.guid === player) return ci.spec;
     }
     throw new Error(`no COMBATANT_INFO names ${player}'s spec`);
+}
+
+// A spec ID to its combat-log module, or a clear refusal.
+function resolveSpec(specID) {
+    const specModule = SPECS.get(specID);
+    if (!specModule) throw new Error(`spec ${specID} has no combat-log module (specs/index.js)`);
+    return specModule;
 }
 
 function emptySums() {
@@ -72,10 +86,14 @@ function walk(events, opts) {
     const dr = o.dr;
     if (!dr) throw new Error('walk needs the dr table');
     const player = o.player || findPlayer(events);
-    const specID = findPlayerSpec(events, player);
-    const specModule = SPECS.get(specID);
-    if (!specModule) throw new Error(`spec ${specID} has no combat-log module (specs/index.js)`);
-    const C = { ...specModule.CONSTANTS, ...(o.constants || {}) };
+    // Seeded from the log's first COMBATANT_INFO of the player's, so every
+    // unit's Harmony-aura tracking below has a spec module from the start
+    // regardless of member order (findPlayerSpec's own comment); re-resolved
+    // on every later COMBATANT_INFO of hers, same as ratings, in case one log
+    // spans a respec.
+    let specID = findPlayerSpec(events, player);
+    let specModule = resolveSpec(specID);
+    let C = { ...specModule.CONSTANTS, ...(o.constants || {}) };
 
     let ratings = null; // { crit, haste, mastery, vers, leech } from COMBATANT_INFO
     let ciInt = null;
@@ -153,9 +171,18 @@ function walk(events, opts) {
             if (ci.guid === player) {
                 const next = { crit: ci.crit[2], haste: ci.haste[2], mastery: ci.mastery, vers: ci.vers[1], leech: ci.leech };
                 if (seg && seg.ratings && JSON.stringify(seg.ratings) !== JSON.stringify(next)) diag.ratingsChangedInSegment += 1;
+                // Unlike a rating, a spec change is not safe to blend into one
+                // segment's weights: the heals before and after it moved
+                // under two different formulas. seg.ratings is only set
+                // once this segment has had a heal of hers (so seg.spec is
+                // already meaningfully the one every heal so far used).
+                if (seg && seg.ratings && ci.spec !== specID) throw new Error(`spec changed from ${specID} to ${ci.spec} inside one open segment (${seg.kind}: ${seg.name}) - one segment is one spec`);
                 ratings = next;
                 ciInt = ci.int;
                 if (intNow === null) intNow = ci.int;
+                specID = ci.spec;
+                specModule = resolveSpec(specID);
+                C = { ...specModule.CONSTANTS, ...(o.constants || {}) };
                 // The player's own buffs, as listed.
                 buffs.clear();
                 for (const a of ci.auras) if (specModule.tracked(a.spellId)) buffs.add(a.spellId);
