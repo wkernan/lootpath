@@ -17,11 +17,19 @@ const { loadDR, ratingToPercent } = require('../lib/dr');
 const REPO = path.join(__dirname, '..', '..', '..');
 const FIXTURE = path.join(REPO, 'spec', 'fixtures', 'combatlog', 'WoWCombatLog-20261017-AltarOfFangs-12.txt.gz');
 
+const tmpDirs = [];
+test.after(() => {
+    for (const dir of tmpDirs) fs.rmSync(dir, { recursive: true, force: true });
+});
+
 function writeOnce() {
     const out = fs.mkdtempSync(path.join(os.tmpdir(), 'lootpath-combatlog-w-'));
+    tmpDirs.push(out);
     const r = weights.run([FIXTURE, '--patch', '12.1.5', '--derived-at', '2026-10-17T22:16:10Z', '--out', out], () => {});
     return { ...r, json: fs.readFileSync(path.join(out, 'combatlog-weights.json'), 'utf8') };
 }
+// The first run's output must survive until the Lua tests below read first.file,
+// so its folder is removed by the top-level after hook, not a per-test one.
 const first = writeOnce();
 
 test('version 2, method combat-log, Restoration\'s six stats, one Dungeon band "12" per percent, the tiers neutral', () => {
@@ -102,10 +110,12 @@ function findLua() {
         );
 }
 
-function load(clientPatch) {
+function load(clientPatch, t) {
     const lua = findLua();
     if (!lua) return null;
-    const script = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'lootpath-combatlog-lua-')), 'check.lua');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lootpath-combatlog-lua-'));
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const script = path.join(dir, 'check.lua');
     fs.writeFileSync(script, CHECK);
     const res = lua(script, clientPatch, first.file);
     if (res.status === null) throw new Error(`lua did not run: ${res.error}`);
@@ -120,7 +130,7 @@ function noLua(t) {
 }
 
 test('EngineScore.Load ACCEPTS the combat-log file on a 12.1.5 client and finds band "12" for a +12', (t) => {
-    const out = load('12.1.5');
+    const out = load('12.1.5', t);
     if (!out) return noLua(t);
     assert.equal(out[0], 'ok', `refused: ${out[1]} / ${out[2]}`);
     assert.equal(out[3], 'int int,haste,crit,mastery,vers,leech');
@@ -130,7 +140,7 @@ test('EngineScore.Load ACCEPTS the combat-log file on a 12.1.5 client and finds 
 });
 
 test('EngineScore.Load REFUSES it on a 12.1.0 client', (t) => {
-    const out = load('12.1.0');
+    const out = load('12.1.0', t);
     if (!out) return noLua(t);
     assert.equal(out[0], 'refused');
     assert.equal(out[1], "Update Lootpath - its ratings are for 12.1.5, you're on 12.1.0.");

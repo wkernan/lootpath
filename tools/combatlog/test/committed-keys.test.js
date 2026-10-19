@@ -32,8 +32,14 @@ const LOGS = [
 const MOVED =
     "the six committed keys' weights moved (a change to tools/combatlog, or to the `dr` table in Lootpath/Data/EngineWeights.lua, which lib/dr.js reads); if the change is intended, re-run the command in this file's header, update the figures, and say why in the PR";
 
+const tmpDirs = [];
+test.after(() => {
+    for (const dir of tmpDirs) fs.rmSync(dir, { recursive: true, force: true });
+});
+
 function run() {
     const out = fs.mkdtempSync(path.join(os.tmpdir(), 'lootpath-combatlog-six-'));
+    tmpDirs.push(out);
     return weights.run([...LOGS, '--player', 'Player-69-0CC01A11', '--patch', '12.1.5', '--derived-at', '2026-10-19T00:00:00Z', '--out', out], () => {});
 }
 const entry = run().entry;
