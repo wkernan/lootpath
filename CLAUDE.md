@@ -1,11 +1,25 @@
 # Lootpath - working rules
 
-**`docs/ARCHITECTURE.md` is the central brain. Read its §0 first in every
-session, then the sections it points at. Before the session ends, update it
-with anything learned, discussed, decided, created or worked on: §0 always,
-plus the numbered section the change belongs to. A conversation that only
-settled a question still updates §0, through a docs-only PR if nothing else
-is in flight.** This file stays short; everything else lives there.
+**`docs/ARCHITECTURE.md` is the central brain, but at over 2 MB it is never
+read whole and never edited by a work PR (decision 2026-10-18 night,
+`docs/brain/inbox/brain-inbox.md`).**
+
+- **Start with `docs/START-HERE.md`**: what Lootpath is, the rules that bind
+  every change, where each lane stands, and how to find the rest.
+- **Look things up in the brain by search.** `grep -n` for the issue's tag
+  (`R-2s`, `E-5`), its `WKE-` number or the symbol, then read the hits by
+  line range. §7 holds the decisions; do not reopen one without a new entry.
+- **Record what you learned, discussed, decided, created or worked on in
+  your own inbox file, `docs/brain/inbox/WKE-<n>.md`** (template in
+  `docs/brain/inbox/README.md`): the §0 entry, the §7 decision, and any
+  other section's change. A conversation that only settled a question still
+  writes one, through a docs-only PR if nothing else is in flight. Two PRs
+  never edit the same lines, so they never conflict.
+- **The coordinating session folds the inbox in.** After merging, it moves
+  each merged inbox file's entries into `ARCHITECTURE.md`, deletes the
+  file, and refreshes `START-HERE.md`, in one docs-only PR per batch.
+
+This file stays short; everything else lives in the brain.
 
 **Lootpath never computes a healer value.** Every healing number on screen is
 QE Live's `qe-live-droptimizer` v1 export, transported unchanged. Lootpath
@@ -91,8 +105,9 @@ replace the Windows rules above (decision 2026-10-18, ARCHITECTURE.md §7):
   own clone step: `git clone --depth 1 --recurse-submodules
   --shallow-submodules https://github.com/Ketho/vscode-wow-api.git
   .luals/vscode-wow-api`.
-  The full `busted` run takes about 4.5 minutes on this VM: run it once, in
-  the foreground, and run only the covering specs while you work.
+  The full `busted` run takes about 2 minutes on this VM when nothing else is
+  running (120 s measured 2026-10-18): run it once, in the foreground, and
+  run only the covering specs while you work.
 - **Never merge, and never change the Linear issue.** Stokowski moves its
   status and posts your `.stokowski/report.json` as the comment. A
   "set this issue In Progress" line in an older issue does not apply to you.
