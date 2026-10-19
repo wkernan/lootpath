@@ -74,6 +74,50 @@ never enter the repo; the owner keeps them.
   unstripped segment: `5645c7e9c4ca3eae366530a8029e25df452d527c9d786f7178e1814a9227d81f`
   (63,619,523 bytes), kept by the owner only.
 
+## WoWCombatLog-20261018-RubyLifePools-12.txt.gz
+
+- **What it is:** the owner's Ruby Life Pools +12 on 2026-10-18, healed in Restoration (spec 105 in every
+  `COMBATANT_INFO` of his), 14:41:11.438-15:02:02.704 CDT; `CHALLENGE_MODE_END` `1,12,1272737`. Cut from `WoWCombatLog-101826_143901.txt` (311,487,695 bytes; header `COMBAT_LOG_VERSION,22,ADVANCED_LOG_ENABLED,1,BUILD_VERSION,12.1.5`),
+  lines 125-185,835 (185,711 lines).
+- **Stripping:** `node tools/combatlog/anonymise.js`; four other players -> `PlayerN-Realm`; re-checked: no
+  original name, bare name or GUID left. The owner kept.
+- **Counts** (Python over the stripped text): `SPELL_HEAL` 20,727, `SPELL_PERIODIC_HEAL` 10,653, `SPELL_ABSORBED` 10,183, `COMBATANT_INFO` 20, encounters 3, `UNIT_DIED` 184; the owner's heal events 21,699 (12,453 with overheal, 3,554 crits).
+- **sha256:** gzip as committed `5adbaf81ac9003267179a5dca9e13e275d04c432aa80cc4b55811f08711f4f24` (4,195,654 bytes); stripped plain `82b08793f342c006224929c78e506476ab3c9b8a973c7c0f01e8a66186d9d17b`
+  (55,992,545 bytes); the unstripped segment `3f09ce59f09486133bde7dfdd1c6db9790407757f07a34b98ed60c80d42330f5` (58,040,288 bytes), kept by the owner only.
+
+## WoWCombatLog-20261018-MurderRow-12.txt.gz
+
+- **What it is:** the owner's Murder Row +12 on 2026-10-18, healed in Restoration (spec 105 in every
+  `COMBATANT_INFO` of his), 16:07:24.401-16:33:49.829 CDT; `CHALLENGE_MODE_END` `1,12,1681926`. Cut from `WoWCombatLog-101826_143901.txt` (311,487,695 bytes; header `COMBAT_LOG_VERSION,22,ADVANCED_LOG_ENABLED,1,BUILD_VERSION,12.1.5`),
+  lines 187,012-442,922 (255,911 lines).
+- **Stripping:** `node tools/combatlog/anonymise.js`; four other players -> `PlayerN-Realm`; re-checked: no
+  original name, bare name or GUID left. The owner kept.
+- **Counts** (Python over the stripped text): `SPELL_HEAL` 20,912, `SPELL_PERIODIC_HEAL` 13,634, `SPELL_ABSORBED` 7,468, `COMBATANT_INFO` 25, encounters 4, `UNIT_DIED` 170; the owner's heal events 25,381 (12,913 with overheal, 4,288 crits).
+- **sha256:** gzip as committed `7ed3ee5546da6beeba8b3a268979682d2fd1e6260a99fce4dfba8dae2345be0b` (5,823,824 bytes); stripped plain `0a7c7d58068d19e9328e8ea8563b4489d1c9628aaf4f9577bee8eb48831f988b`
+  (78,377,328 bytes); the unstripped segment `9a8d51890c45cb1c24b9001c223c0a45005dc4b08b31ef2d89f4a8b5635cc246` (81,087,910 bytes), kept by the owner only.
+
+## WoWCombatLog-20261018-BlindingVale-12.txt.gz
+
+- **What it is:** the owner's The Blinding Vale +12 on 2026-10-18, healed in Restoration (spec 105 in every
+  `COMBATANT_INFO` of his), 17:31:56.638-17:57:07.209 CDT; `CHALLENGE_MODE_END` `1,12,1652435`. Cut from `WoWCombatLog-101826_143901.txt` (311,487,695 bytes; header `COMBAT_LOG_VERSION,22,ADVANCED_LOG_ENABLED,1,BUILD_VERSION,12.1.5`),
+  lines 444,678-689,296 (244,619 lines).
+- **Stripping:** `node tools/combatlog/anonymise.js`; four other players -> `PlayerN-Realm`; re-checked: no
+  original name, bare name or GUID left. The owner kept.
+- **Counts** (Python over the stripped text): `SPELL_HEAL` 20,920, `SPELL_PERIODIC_HEAL` 12,886, `SPELL_ABSORBED` 3,628, `COMBATANT_INFO` 25, encounters 4, `UNIT_DIED` 609; the owner's heal events 25,208 (13,772 with overheal, 3,897 crits).
+- **sha256:** gzip as committed `990de928fad429db86e5595ca105069292a126aaba4d983a06f1411775f3559f` (5,705,175 bytes); stripped plain `75bf6b1dbaf2e14b8ed6c8b4d058558838de63e7c87f350103f8172e407b14ee`
+  (74,731,507 bytes); the unstripped segment `1d22aebaa0b51ec012af12edc24eed6a43dc56b5767eb20b00e6e6f5091327b2` (77,275,597 bytes), kept by the owner only.
+
+## WoWCombatLog-20261018-KingsRest-12.txt.gz
+
+- **What it is:** the owner's Kings' Rest +12, NOT completed (no `CHALLENGE_MODE_END`; the Council of Tribes and King Dazar each wiped, King Dazar twice) on 2026-10-18, healed in Restoration (spec 105 in every
+  `COMBATANT_INFO` of his), 18:31:22.625-19:09:16.117 (cut at the last `ENCOUNTER_END`, before the walk out into Silvermoon City brought 13 passers-by into the log) CDT; `CHALLENGE_MODE_END` none. Cut from `WoWCombatLog-101826_143901.txt` (311,487,695 bytes; header `COMBAT_LOG_VERSION,22,ADVANCED_LOG_ENABLED,1,BUILD_VERSION,12.1.5`),
+  lines 691,052-988,602 (297,551 lines).
+- **Stripping:** `node tools/combatlog/anonymise.js`; four other players -> `PlayerN-Realm`; re-checked: no
+  original name, bare name or GUID left. The owner kept.
+- **Counts** (Python over the stripped text): `SPELL_HEAL` 41,334, `SPELL_PERIODIC_HEAL` 17,644, `SPELL_ABSORBED` 6,603, `COMBATANT_INFO` 35, encounters 6 (two wipes on King Dazar, one on the Council), `UNIT_DIED` 135; the owner's heal events 35,325 (20,876 with overheal, 5,449 crits).
+- **sha256:** gzip as committed `15ad3a2670c810dcaab37883eadde84591a2550695629481974e7492e5ee3f6f` (6,886,630 bytes); stripped plain `8f1b0684bbfb2d1e7eda35d78923e0c55b5b94d355b0f991baf460606b3e165b`
+  (89,343,950 bytes); the unstripped segment `55545c29011b89d85dde0848c59d9f132b482fef254f1d890c765ee732c93f92` (92,956,474 bytes), kept by the owner only.
+
 Also recorded that evening, not committed: `WoWCombatLog-101726_181457.txt`
 (92,450,055 bytes), a Temple of Sethraliss +12 whose `CHALLENGE_MODE_START` fell
 before logging began (four `ENCOUNTER_START`/`END` pairs, `CHALLENGE_MODE_END`
