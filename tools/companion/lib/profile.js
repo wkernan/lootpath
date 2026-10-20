@@ -141,12 +141,6 @@ function build(text, options) {
     if (!transcript.vault || !Object.keys(snapshotRewardLinks(transcript.vault) || {}).length) {
         warnings.push('no generated Great Vault reward in the SavedVariables, so the profile has no vault section');
     }
-    // C-16a (WKE-622): the spec is the one field a flush never carries, and the
-    // newest `env` is always a flush, so it is read off the newest snapshot that
-    // NAMES one (`characterSpec`, simc-profile.js). When not one of the four
-    // kept snapshots names it - four flushes after the last refresh - say so:
-    // downstream the fork falls back to QE Live's own character for the class,
-    // and a Priest has two of those and is refused.
     // The vault's non-gear rewards, named once rather than warned about per
     // entry (WKE-719): grouped by name in first-seen order, with a count only
     // where there is more than one of a name.
@@ -158,6 +152,12 @@ function build(text, options) {
         vaultExtras = `vault extras left out, not gear: ${parts.join(', ')}`;
     }
 
+    // C-16a (WKE-622): the spec is the one field a flush never carries, and the
+    // newest `env` is always a flush, so it is read off the newest snapshot that
+    // NAMES one (`characterSpec`, simc-profile.js). When not one of the four
+    // kept snapshots names it - four flushes after the last refresh - say so:
+    // downstream the fork falls back to QE Live's own character for the class,
+    // and a Priest has two of those and is refused.
     const envSpec = built.envSpec || { spec: undefined, note: null };
     if (!envSpec.spec) {
         warnings.push(
