@@ -2,7 +2,8 @@
 
 This document is the single source of truth for what Lootpath is, how it works, every decision made and why, what is verified and what is not, and where the work stands. **Every session updates this file before it ends, after anything is learned, discussed, decided, created or worked on** - not only when a PR changes code. A conversation that settles a question, refutes a premise, or moves the plan is recorded here in the same session, through a docs-only PR if nothing else is in flight. If this file and the code disagree, say so in the PR and fix whichever is wrong; never leave them disagreeing. **A new session reads §0 first**, then the sections §0 points at.
 
-Last updated: 2026-10-19, evening (**Brain inbox folded, third batch:** `WKE-714.md` (E-5c: `tools/combatlog/test/committed-keys.test.js` pins the six committed keys' Restoration weights; §0, §6). WKE-714 merged (PR #371, `main` 58ff299), built by Stokowski right first time - $3.31, 12 minutes to the gate, no rework; the audit is in §9. The coordinator re-ran the six-key command on merged `main`: both sha256s (`c2f73a9e...`, `f6e52e82...`) unchanged. Six stale issues closed the same evening on the owner's word: WKE-529, WKE-528 canceled (superseded by the companion and route C); WKE-568, WKE-521, WKE-525, WKE-554 done.** §0, §6, §9.)
+Last updated: 2026-10-20, small hours UTC (**Brain inbox folded, fourth batch:** `e5c-followups.md` (the six-key test names the `dr` table as a second cause; the fixtures README names `anonymise.js`), `WKE-715.md` (E-5d: the combat-log tests delete their temp folders) and `WKE-718.md` (C-tmp: the companion tests delete theirs); all §0. Both cleanups were built by Stokowski right first time ($2.97 and $3.81, no rework; audits in §9) and checked on Windows by the coordinator before merging. Old test folders cleared after the merges: 63 + 50,543 on the owner's machine, 230 + 832 on the VM; engine-tool folders (`lootpath-e1d-*` and others) left in place. Stokowski's VM changed the same evening: wkernan/stokowski#14 deployed (the review runs each check once), the lootpath workspace commits as `wkernan-bot`, and its `checks` text is path-aware (§9). Next: week four's compares after the 2026-10-20 reset.** §0, §9.)
+Before that: 2026-10-19, evening (**Brain inbox folded, third batch:** `WKE-714.md` (E-5c: `tools/combatlog/test/committed-keys.test.js` pins the six committed keys' Restoration weights; §0, §6). WKE-714 merged (PR #371, `main` 58ff299), built by Stokowski right first time - $3.31, 12 minutes to the gate, no rework; the audit is in §9. The coordinator re-ran the six-key command on merged `main`: both sha256s (`c2f73a9e...`, `f6e52e82...`) unchanged. Six stale issues closed the same evening on the owner's word: WKE-529, WKE-528 canceled (superseded by the companion and route C); WKE-568, WKE-521, WKE-525, WKE-554 done.** §0, §6, §9.)
 Before that: 2026-10-19, afternoon (**Brain inbox folded, second batch:** `WKE-713.md` (E-5b: the combat-log tool reads each healer spec from its own module behind `lib/specs/index.js`; §0, §7, §6) and `e5-six-keys.md` (six keys logged; every Restoration combat-log weight clears the rank rule; §0, §9). WKE-713 merged (PR #369, `main` 5b26eb1) after one blind run, a rework and a fix-up; the coordinator re-ran the baseline on Windows on merged `main`: both recorded sha256s reproduce, 47 tests, 45 pass, 2 skipped without Lua. The Stokowski run's audit is in §9 (2026-10-19 afternoon). Next: week four's compares after the 2026-10-20 reset; the owner's decisions on the Stokowski improvements.** §0, §6, §7, §9.)
 Before that: 2026-10-19 (**Brain inbox folded, first batch:** `brain-inbox.md` (the inbox rule and `docs/START-HERE.md`, §0, §7, §12), `WKE-707.md` (R-2s/R-3 rework 2, option B, §7; the §11 Raid quote corrected) and `stokowski-node-gates.md` (§0). WKE-707 merged (PR #363) and synced into the game; PR #366 merged. Next: the owner's in-game check of WKE-707 (a held vault pick short of its crest: `Crest to <level>` over `+x% Upgrade`); week four's compares after the 2026-10-20 reset; whether to lift the Stokowski hold beyond WKE-707 - the owner's call.** §0, §7, §11, §12; `docs/START-HERE.md`.)
 Before that: 2026-10-18, midday (**The second combat log is in: Voidscar Arena +12, committed stripped as `spec/fixtures/combatlog/WoWCombatLog-20261018-VoidscarArena-12.txt.gz`. `tools/combatlog/weights.js` over both keys (13 segments, 42,360 heal events): mastery 0.6664 [0.6254, 0.7006], vers 0.5379 [0.5349, 0.5413] and crit 0.4580 [0.4450, 0.4719] shipped; haste (tick form) 0.2350 [0.2168, 0.2551] and leech 0.2745 [0.2029, 0.3489] still unshipped, their intervals overlapping each other. Crit became shippable with the second key: leech's interval narrowed below it. The two keys alone agree within their intervals on every stat (§9). Nothing in the game changes - these are developer data until the owner's promotion decision. Next: week four's compares after the 2026-10-20 reset; more keys and a raid for the Raid band.** §9.)
@@ -228,6 +229,70 @@ Before that: 2026-09-08, late night (WKE-541 / M2-4: the Equip Now tab stops cal
 ---
 
 ## 0. Where we are (read this first; keep it current)
+
+**As of 2026-10-19, night, C-tmp (WKE-718 built, merged as PR #375, `main` 1a9f025: every
+`fs.mkdtempSync` under `tools/companion/test/` is now removed by an `after`
+hook.)**
+WKE-715's Stokowski review found the same leak in `tools/combatlog` and left
+`tools/companion` as a separate ticket; the VM's `/tmp` held 1,553
+`lootpath-*` folders on 2026-10-19 night. 20 `mkdtempSync` sites across 16
+files were never removed (`character.test.js`, `config.test.js`,
+`emptygear.test.js`, `emptyslot.test.js`, `fingerprint.test.js` x3,
+`godisabled.test.js`, `keylevels.test.js`, `lock.test.js`, `log.test.js` x2,
+`logoutgear.test.js`, `onesentence.test.js`, `output.test.js`,
+`scenarios.test.js`, `status.test.js` x2, `visible.test.js`, `watch.test.js`).
+Each gets a module-level `const tmpDirs = []`, every `mkdtempSync` result
+pushed onto it, and one top-level `test.after(() => { for (const dir of
+tmpDirs) fs.rmSync(dir, { recursive: true, force: true }); })` - no `t.after`,
+no shared helper module (one there would run as its own test). `drift.test.js`
+and `forkstart.test.js` already cleaned up and were left alone; `output.test.js`
+and `forkstart.test.js` share the `lootpath-c17-` prefix but only
+`output.test.js` leaked it.
+Measured from the repo root with `ls -d /tmp/lootpath-* 2>/dev/null | sort >
+/tmp/b.txt; (cd tools/companion && node --test) | tail -8; ls -d
+/tmp/lootpath-* 2>/dev/null | sort > /tmp/a.txt; echo "new folders:
+$(comm -13 /tmp/b.txt /tmp/a.txt | wc -l)"`: `origin/main` 35f6e96 gives 322
+pass, 1 skipped, new folders 103; the branch gives 322 pass, 0 fail, 1
+skipped, new folders 0. A red-proof - commenting out the `rmSync` inside
+`config.test.js`'s hook - gives new folders 8; restored it gives 0 again.
+Nothing under `tools/companion/lib` or `tools/companion/*.js` changed, and no
+test's name, assert, fixture or helper signature moved. Existing
+`lootpath-*` folders from before this PR are left for the coordinator to
+clear after merge, on both the VM and the owner's Windows temp directory, and
+Windows itself still needs confirming through `tools\check.ps1`'s companion
+gate (this VM is Linux; the ticket's premise that Windows leaks the same 103
+folders is the owner's own earlier measurement, not re-verified here).
+
+**As of 2026-10-19, evening, E-5d (WKE-715 built, merged as PR #374, `main` 35f6e96: every
+`fs.mkdtempSync` under `tools/combatlog/test/` is now removed by an `after` hook.)**
+WKE-714's Stokowski review found that each `node --test` run in `tools/combatlog`
+left 6 folders in `os.tmpdir()` (the VM's `/tmp` held 224 of them on 2026-10-19
+evening) - `writer.test.js`'s `writeOnce()` (×2) and `load()` (×2),
+`committed-keys.test.js`'s `run()`, and `anonymise.test.js`'s `again.txt` fixture,
+none ever `rmSync`'d. `writeOnce()`'s and `run()`'s folders are module-level or
+shared across tests (the Lua tests read `first.file` after the writer tests run),
+so they are pushed onto a module-level array and removed by one top-level
+`test.after(...)` per file; `load()`'s and the `anonymise` fixture's folders are
+each used inside one test only, so that test's own `t.after(...)` removes them,
+following `tools/companion/test/drift.test.js`'s pattern. Measured at the repo
+root with `c(){ ls -d /tmp/lootpath-combatlog-* /tmp/lootpath-anon-* 2>/dev/null
+| wc -l; }; b=$(c); (cd tools/combatlog && node --test) | tail -8; echo "new
+folders: $(( $(c) - b ))"`: `origin/main` 108b3c2 gives 50 pass, new folders 6;
+the branch gives 50 pass, 0 fail, 0 skipped, new folders 0. A red-proof -
+commenting out `committed-keys.test.js`'s `rmSync` - gives new folders 1,
+restored it gives 0 again. Nothing in `weights.js`, `anonymise.js` or `lib/`
+changed, and no test's names, asserts, fixtures or `weights.run` argv moved.
+Scope was `tools/combatlog/test/` only; `tools/companion/test/` leaks the same
+way (`config.test.js`, `log.test.js`) but that is a separate ticket. Existing
+`/tmp/lootpath-combatlog-*` and `/tmp/lootpath-anon-*` folders from before this
+PR are left for the coordinator to clear after merge, on both the VM and the
+owner's Windows temp directory.
+
+**As of 2026-10-19, evening, E-5c follow-ups (merged as PR #372, `main` 079dbd6: two of WKE-714's review notes, from Stokowski's code-review stage.)**
+- `tools/combatlog/test/committed-keys.test.js`: the failure message and the header comment now say that the pinned figures also move when the `dr` table in `Lootpath/Data/EngineWeights.lua` changes, because `lib/dr.js` reads the rating conversion from there. A PR that regenerates the dev weights file then points at the right cause.
+- `spec/fixtures/combatlog/README.md`'s opening paragraph named `anonymise.py` as the stripper; it now names `anonymise.js`, with `anonymise.py` as what stripped the first fixture.
+
+Proven: `TRIM` 0.2 -> 0.25 fails the figures test with the new message; restored, 3/3 pass. No figure changed.
 
 **As of 2026-10-19, evening, E-5c (WKE-714 built, merged as PR #371, `main` 58ff299: a test
 pins the six committed keys' Restoration weights.)** Added
@@ -2685,6 +2750,7 @@ Unchanged by this decision: the six `Drift.Decide` states, the nudge row's own c
 
 ## 9. Verification ladder
 
+- **2026-10-19, evening to 2026-10-20 small hours UTC - Stokowski's VM changed, and two more runs audited.** (1) wkernan/stokowski#14 (82605a0) deployed 17:07 CDT: the review stage reproduces the red-proof that carries the ticket's central claim and tees each check into `$STOKOWSKI_ARTIFACTS` instead of running it twice (WKE-714's review had cost 2.2x implement). (2) The lootpath workspace's `after_create` sets `git config user.name wkernan-bot` / `user.email wkernan+bot@gmail.com` (WKE-714's agent had set the owner's address itself). (3) The lootpath `checks` text, pasted into every stage, became path-aware: the full Lua check is luacheck + stylua + `tools/luals-check.sh` + busted, and `node --test` runs only in the `tools/` directories CI covers that the change touches (companion, engine, simc, combatlog). This is operator config on the VM, not a Stokowski feature, so it was edited there, not ticketed. WKE-715 (E-5d, PR #374): implement 3,118,968 tokens, 41 tool calls, $1.06; code-review 1,392,903 tokens, 29 tool calls, $1.91, approve; $2.97, 11.5 minutes to the gate, no rework. WKE-718 (C-tmp, PR #375): implement 5,741,219 tokens, 75 tool calls, $1.71; code-review 1,435,512 tokens, 28 tool calls, $2.10, approve; $3.81, 16 minutes, no rework. In both, implement ran only the touched node suite plus luacheck and stylua, and the commits are authored by `wkernan-bot`. The coordinator re-measured each on Windows before merging (WKE-715: 0 new folders, red with the writer hook off; WKE-718: 323/323, 0 new folders, red with `fingerprint.test.js`'s hook off at its 23). Records: `C:\tmp\stokowski_audit\WKE-715-audit.md` and `WKE-718-audit.md`.
 - **2026-10-19, evening - WKE-714 through Stokowski, audited: the first run on the fixed orchestrator (wkernan/stokowski b5f933a, #9-#13 deployed 15:33).** Build route, ticket written with the `stokowski-ticket` skill and every figure run beforehand on Windows and on the VM at origin/main 0f230fe. Stages as Stokowski reported them: implement (Sonnet, fresh) 2,909,499 tokens, 40 tool calls, $1.04 - built exactly the four deliverables, both red-proofs, PR #371 opened 4.5 minutes in; code-review (Opus, xhigh, fresh) 1,540,357 tokens, 31 tool calls, $2.27, approve. Total $3.31, 12 minutes from Todo to the merge-review gate, against WKE-713's $27.07 (a ~970-line refactor against this 117-line test; the per-stage drop is the template fix, fresh sessions and a fully settled ticket). The coordinator reviewed, proved the guard red on Windows (`TRIM` 0.25 fails the figures test), approved as `wkernan` (the PR's author is `wkernan-bot`) and merged on green; Linear went Done and Stokowski dropped the gate on its own. Two findings, acted on: the review re-ran both red-proofs twice and cost 2.2x implement (wkernan/stokowski#14: run each check once, tee it into the artifacts); the workspace had no git identity and the agent set the owner's email (the VM's lootpath `after_create` now sets `wkernan-bot <wkernan+bot@gmail.com>`; the example hook in #14). Record: `C:\tmp\stokowski_audit\WKE-714-audit.md`.
 - **2026-10-19, afternoon - WKE-713 through Stokowski, audited (the owner: "ensure you are auditing it's performance, efficiency, what/how it built the issue and cost effectiveness").** Build route, ticket written with the `stokowski-ticket` skill. Stages as Stokowski reported them: implement (Sonnet) 18,013,551 tokens, 154 tool calls, $5.66 - built from the title alone, because Stokowski's templates read `issue.description` while its context carried only flat `issue_*` keys (fixed in wkernan/stokowski#9); code-review (Opus, xhigh) 2,680,006 tokens, $3.51, request changes; a second implement run stopped by the coordinator, cost unreported; rework implement 37,740,074 tokens, 88 tool calls, $9.00 - the VM still ran the unfixed code, so the agent fetched the ticket from Linear itself; code-review 2,053,787 tokens, $3.01, request changes (the `countFor` contract hole); address-review-comments (`session: inherit`) 27,024,857 tokens, 53 tool calls, $5.89 for four small fixes. Reported total $27.07. Coordinator's checks on Windows at each head and on merged `main`: the two recorded sha256s (`841af589...`, `bb62da38...`), the Deliverable 1 grep, 47 tests. Ranked improvements put to the owner: deploy #9 on the VM; fresh sessions for rework and fix-up stages; no `/code-review` or CI waiting in implement; live and stopped-stage cost; Rework without a recorded gate; the full activity log (the per-issue endpoint keeps 40 entries); path-aware checks. The record is `C:\tmp\stokowski_audit\WKE-713-audit.md`.
 **2026-10-19 - E-5 over six keys, the figures as `weights.js` printed them.** All six: Dungeon band 12, 48 segments, 149,932 heal events (63,559 without overheal), overheal 50.2% of raw; int 1.0000; haste 0.2278 [0.2198, 0.2364]; crit 0.4671 [0.4603, 0.4737]; mastery 0.6978 [0.6722, 0.7205]; vers 0.5472 [0.5432, 0.5516]; leech 0.2857 [0.2552, 0.3115]; no `UNSHIPPED` line; haste cast form 0.4541 [0.4487, 0.4598]; baseValue -24.650386725 (per percent at her stats: int 0.027385599, haste 0.274443185, crit 0.588377794, mastery 0.879046407, vers 0.809238607, leech 0.539794822). The four 2026-10-18 keys alone: 35 segments, 107,572 heal events (45,868 without overheal), overheal 49.7%; haste 0.2256 [0.2163, 0.2348]; crit 0.4702 [0.4631, 0.4777]; mastery 0.7117 [0.6831, 0.7349]; vers 0.5519 [0.5472, 0.5569]; leech 0.2891 [0.2579, 0.3121]; cast form 0.4537 [0.4476, 0.4605]; baseValue -24.296549657. Outputs under `C:\tmp\e5w_six` and `C:\tmp\e5w_four`. Stripping re-checked per key: no other player's name, bare name or GUID left (four replaced in each; Kings' Rest's walk-out tail with 13 passers-by cut off before stripping).
