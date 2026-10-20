@@ -14,8 +14,14 @@ const statusLib = require('../lib/status');
 
 const GOLDEN = path.join(__dirname, '..', '..', '..', 'spec', 'fixtures', 'expected', 'companionstatus-sample.lua');
 
+const tmpDirs = [];
+test.after(() => {
+    for (const dir of tmpDirs) fs.rmSync(dir, { recursive: true, force: true });
+});
+
 function dataFile() {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lootpath-c9-status-'));
+    tmpDirs.push(root);
     fs.mkdirSync(path.join(root, 'Interface', 'AddOns', 'Lootpath'), { recursive: true });
     return path.join(root, 'Interface', 'AddOns', 'Lootpath', 'Data', 'CompanionStatus.lua');
 }
@@ -141,6 +147,7 @@ test('a state the addon does not know is refused rather than written', () => {
 
 test('a status file that cannot be written costs one warning and never the run', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lootpath-c9-nostatus-'));
+    tmpDirs.push(root);
     const file = path.join(root, 'Interface', 'AddOns', 'Lootpath', 'Data', 'CompanionStatus.lua');
     const errors = [];
     const status = statusLib.make({ file, onError: (e) => errors.push(e) });

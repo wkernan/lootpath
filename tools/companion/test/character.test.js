@@ -42,6 +42,11 @@ const HIS_SPECS = [
 const DRUID = { name: 'Hotornot', realm: 'Area 52', class: 'DRUID', spec: 'Restoration' };
 const SHAMAN = { name: 'Bolts', realm: 'Area 52', class: 'SHAMAN', spec: 'Restoration' };
 
+const tmpDirs = [];
+test.after(() => {
+    for (const dir of tmpDirs) fs.rmSync(dir, { recursive: true, force: true });
+});
+
 // A fake QE Live page. `events` is every act in the order it happened, which is
 // what proves the switch is asked for BEFORE the import rather than beside it.
 //
@@ -644,6 +649,7 @@ test('the welcome dialog clicks the tile for the profile\'s own character', asyn
 // its own: without it every switch above is dead code.
 test('the run hands the driver the identity the profile was built from', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lootpath-c16-'));
+    tmpDirs.push(root);
     const dir = path.join(root, 'WTF', 'Account', 'TESTACCOUNT#1', 'SavedVariables');
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(

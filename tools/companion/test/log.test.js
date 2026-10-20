@@ -15,10 +15,16 @@ const path = require('path');
 
 const logLib = require('../lib/log');
 
+const tmpDirs = [];
+test.after(() => {
+    for (const dir of tmpDirs) fs.rmSync(dir, { recursive: true, force: true });
+});
+
 // A fake `_retail_` deep enough for output.js's one rule: the Data folder may be
 // created, the AddOns folder may not.
 function dataFile(name) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lootpath-c9-log-'));
+    tmpDirs.push(root);
     fs.mkdirSync(path.join(root, 'Interface', 'AddOns', 'Lootpath'), { recursive: true });
     return path.join(root, 'Interface', 'AddOns', 'Lootpath', 'Data', name || 'companion.log');
 }
@@ -73,6 +79,7 @@ test('a log file that cannot be written costs one warning and never the run', ()
     // No AddOns folder: output.js refuses to create one, which is exactly the
     // "the addon is not installed" case.
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lootpath-c9-nolog-'));
+    tmpDirs.push(root);
     const file = path.join(root, 'Interface', 'AddOns', 'Lootpath', 'Data', 'companion.log');
     const errors = [];
     const printed = [];
