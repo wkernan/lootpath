@@ -31,8 +31,9 @@ is refused, and healer weights come from elsewhere (docs/OWN-ENGINE.md §2b).
   --iterations <n>    default ${DEFAULTS.iterations}
   --threads <n>       default ${DEFAULTS.threads} (fixed: the split changes the draws)
   --seed <n>          default ${DEFAULTS.seed} (deterministic=1)
-  --tank-value <m>    dtps (default: survival) | dps (damage) - what a tank's
-                      weights measure; both are always run and kept
+  --tank-value <m>    dps (default: damage, the owner's E-7 decision
+                      2026-10-20) | dtps (survival, research only); both are
+                      always run and kept
   --out <dir>         default tools/simc/out
   --tag <word>        appended to the report names (<spec>-<fight>-<metric>.<tag>)
   --derived-at <iso>  default now
@@ -92,7 +93,7 @@ function run(argv, log) {
     if (known && known.healer) refuse(`spec ${specID} is ${known.specName} ${known.className}, a healer: SimulationCraft models no healer`);
     const fight = o.fight || 'Patchwerk';
     if (!FIGHTS.includes(fight)) throw new Error(`--fight must be one of ${FIGHTS.join(', ')}`);
-    const tankValue = o.tankValue || 'dtps';
+    const tankValue = o.tankValue || 'dps';
     if (!['dtps', 'dps'].includes(tankValue)) throw new Error('--tank-value must be dtps or dps');
     const out = path.resolve(o.out || path.join(__dirname, 'out'));
     const derivedAt = o.derivedAt || new Date().toISOString();

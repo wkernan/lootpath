@@ -41,21 +41,22 @@ test('REFUSED: a tank value computed the wrong way round (DTPS read as higher-is
     assert.throws(() => valueWeights(wrong), /reads the wrong way round: agi would be worth -/);
 });
 
-test('the Guardian entry is valued on DTPS by default and keeps its DPS factors beside it', () => {
+test('the Guardian entry is valued on DPS by default and keeps its DTPS factors beside it', () => {
     const runs = [runOf('104-Patchwerk-dps', 'dps'), runOf('104-Patchwerk-dtps', 'dtps')];
     const e = build(runs, META);
     assert.equal(e.role, 'TANK');
-    assert.equal(e.value.metric, 'dtps');
-    assert.match(e.value.means, /^survival/);
+    assert.equal(e.value.metric, 'dps');
+    assert.match(e.value.means, /^damage/);
     assert.ok(e.factors.dps && e.factors.dtps);
-    for (const k of e.stats) assert.equal(e.weights[k], -e.factors.dtps.stats[k].value);
+    for (const k of e.stats) assert.equal(e.weights[k], e.factors.dps.stats[k].value);
 });
 
-test('--tank-value dps values a Guardian on its damage', () => {
+test('--tank-value dtps values a Guardian on its survival (minus SimC\'s DTPS factor)', () => {
     const runs = [runOf('104-Patchwerk-dps', 'dps'), runOf('104-Patchwerk-dtps', 'dtps')];
-    const e = build(runs, { ...META, tankValue: 'dps' });
-    assert.equal(e.value.metric, 'dps');
-    for (const k of e.stats) assert.equal(e.weights[k], e.factors.dps.stats[k].value);
+    const e = build(runs, { ...META, tankValue: 'dtps' });
+    assert.equal(e.value.metric, 'dtps');
+    assert.match(e.value.means, /^survival/);
+    for (const k of e.stats) assert.equal(e.weights[k], -e.factors.dtps.stats[k].value);
 });
 
 test('REFUSED: a tank entry missing its DTPS run when DTPS was measurable', () => {

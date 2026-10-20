@@ -59,8 +59,8 @@ temp directory and passes every path as an absolute argument.
 cd C:\Code\lootpath-<n>\tools\simc
 node run-scale-factors.js 103                               # Feral, Patchwerk (the raid band)
 node run-scale-factors.js 103 --fight DungeonSlice          # Feral, the dungeon band
-node run-scale-factors.js 104                               # Guardian: DTPS (survival) value
-node run-scale-factors.js 104 --fight DungeonSlice --tank-value dps
+node run-scale-factors.js 104                               # Guardian: DPS (damage) value, the default
+node run-scale-factors.js 104 --fight DungeonSlice --tank-value dtps   # refused: DTPS isn't measurable there
 node run-scale-factors.js 250 --profile <path to a .simc>   # any other spec
 ```
 
@@ -102,7 +102,7 @@ simc.exe <profile> fight_style=<Patchwerk|DungeonSlice> iterations=100000 target
   item stats in this sense and are not scaled.
 - **The metric.** A DPS spec is valued on DPS. A TANK spec runs twice, over DTPS
   and over DPS, so both carry SimC's own errors; `--tank-value` picks which one
-  the weights are (default `dtps`). See "What a tank's value is".
+  the weights are (default `dps`). See "What a tank's value is".
 
 ## What the output holds
 
@@ -129,14 +129,15 @@ sign of a lower-is-better metric.
 
 SimC reports a DTPS factor as the change in damage taken per second per point,
 negative when the stat helps. A survival weight is **minus** that: damage taken
-saved per point. `--tank-value dtps` (the default) writes those; `dps` writes
-the tank's damage instead. Both are kept in `factors` either way. DTPS counts no
-healing, so a stat that works through self-healing or health reads near zero on
-it. And in **DungeonSlice the tank takes no damage at all in SimC 1210-01**
-(DTPS 0 on every iteration, the committed `104-DungeonSlice-dtps` report), so
-the dungeon band for a tank can only be valued on DPS, and the runner refuses a
-`dtps` value there. Which of these a tank's weights should be is the owner's
-decision (ARCHITECTURE.md §7 E-7, §11).
+saved per point. `--tank-value dps` (the default, the owner's decision of
+2026-10-20, ARCHITECTURE.md §7 E-7) writes the tank's own damage, as for a DPS
+spec; `--tank-value dtps` writes survival weights instead, kept as an explicit
+research option. Both are kept in `factors` either way. DTPS counts no healing,
+so a stat that works through self-healing or health reads near zero on it. And
+in **DungeonSlice the tank takes no damage at all in SimC 1210-01** (DTPS 0 on
+every iteration, the committed `104-DungeonSlice-dtps` report), so the dungeon
+band for a tank can only be valued on DPS there, and the runner refuses an
+explicit `dtps` value there.
 
 ## The writer: `write-weights.js`
 

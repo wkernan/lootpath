@@ -98,7 +98,7 @@ test('the writer emits version 2, method simc, one band `all` per content type, 
     }
     assert.equal(table.specs.get(102).primaryStat, 'int');
     assert.equal(table.specs.get(104).role, 'TANK');
-    assert.equal(table.specs.get(104).Raid.bands.all.value.metric, 'dtps');
+    assert.equal(table.specs.get(104).Raid.bands.all.value.metric, 'dps');
     assert.equal(table.specs.get(104).Dungeon.bands.all.value.metric, 'dps');
 });
 
@@ -117,7 +117,7 @@ test('EngineScore.Load ACCEPTS the SimC file on a 12.1.5 client and reads each s
     const [agi, vers, raidMetric, dungeonMetric] = out[6].split(' ');
     assert.equal(Number(agi), table.specs.get(103).Raid.bands.all.weights.agi);
     assert.equal(Number(vers), table.specs.get(104).Raid.bands.all.weights.vers);
-    assert.equal(raidMetric, 'dtps');
+    assert.equal(raidMetric, 'dps');
     assert.equal(dungeonMetric, 'dps');
 });
 
