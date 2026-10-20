@@ -4,7 +4,7 @@ The short way in. `docs/ARCHITECTURE.md` (the brain) is the full record, but at
 over 2 MB it is never read whole: use this page to orient, then `grep` the
 brain for what your work touches. Refreshed by the coordinating session when it
 folds the brain inbox (`docs/brain/inbox/README.md`). Last refreshed
-2026-10-19, from `main` 58ff299 (the third inbox fold).
+2026-10-20, from `main` 1a9f025 (the fourth inbox fold).
 
 ## What Lootpath is
 
@@ -50,6 +50,8 @@ Tags name lanes. Grep the brain for a tag to get its whole history.
     a second spec is data plus its `spell_query` capture. Six keys logged so far.
   - E-5c (WKE-714): a test pins the six keys' Restoration weights, so a change
     that moves them fails CI (`tools/combatlog/test/committed-keys.test.js`).
+  - E-5d (WKE-715) and C-tmp (WKE-718): the combat-log and companion tests delete
+    the temp folders they create.
   - E-6 (WKE-712): the engine scores the current spec.
   - E-7 (WKE-710): SimulationCraft-run weights for DPS and tank specs.
   - Route C (§7, 2026-10-15 early morning): shipped weights come from
