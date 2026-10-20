@@ -60,7 +60,7 @@ cd C:\Code\lootpath-<n>\tools\simc
 node run-scale-factors.js 103                               # Feral, Patchwerk (the raid band)
 node run-scale-factors.js 103 --fight DungeonSlice          # Feral, the dungeon band
 node run-scale-factors.js 104                               # Guardian: DPS (damage) value, the default
-node run-scale-factors.js 104 --fight DungeonSlice --tank-value dtps   # refused: DTPS isn't measurable there
+node run-scale-factors.js 104 --fight DungeonSlice          # Guardian, the dungeon band
 node run-scale-factors.js 250 --profile <path to a .simc>   # any other spec
 ```
 
@@ -136,7 +136,7 @@ research option. Both are kept in `factors` either way. DTPS counts no healing,
 so a stat that works through self-healing or health reads near zero on it. And
 in **DungeonSlice the tank takes no damage at all in SimC 1210-01** (DTPS 0 on
 every iteration, the committed `104-DungeonSlice-dtps` report), so the dungeon
-band for a tank can only be valued on DPS there, and the runner refuses an
+band for a tank can only be valued on DPS, and the runner refuses an
 explicit `dtps` value there.
 
 ## The writer: `write-weights.js`
