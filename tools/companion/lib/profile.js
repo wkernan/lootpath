@@ -141,6 +141,17 @@ function build(text, options) {
     if (!transcript.vault || !Object.keys(snapshotRewardLinks(transcript.vault) || {}).length) {
         warnings.push('no generated Great Vault reward in the SavedVariables, so the profile has no vault section');
     }
+    // The vault's non-gear rewards, named once rather than warned about per
+    // entry (WKE-719): grouped by name in first-seen order, with a count only
+    // where there is more than one of a name.
+    let vaultExtras = null;
+    if (built.vaultExtras && built.vaultExtras.length > 0) {
+        const counts = new Map();
+        for (const name of built.vaultExtras) counts.set(name, (counts.get(name) || 0) + 1);
+        const parts = [...counts.entries()].map(([name, count]) => (count > 1 ? `${name} x${count}` : name));
+        vaultExtras = `vault extras left out, not gear: ${parts.join(', ')}`;
+    }
+
     // C-16a (WKE-622): the spec is the one field a flush never carries, and the
     // newest `env` is always a flush, so it is read off the newest snapshot that
     // NAMES one (`characterSpec`, simc-profile.js). When not one of the four
@@ -170,6 +181,7 @@ function build(text, options) {
         // simc-profile.js). The companion logs it, because `0 vault` on reset
         // day was a choice between snapshots and the log said nothing about it.
         vaultChoice: transcript.vaultChoice || null,
+        vaultExtras,
         // C-16a (WKE-622): null when the newest `env` named the spec itself,
         // and one line naming the read it was borrowed from when it did not.
         // The companion logs it beside `vault read used:`, for the same reason:

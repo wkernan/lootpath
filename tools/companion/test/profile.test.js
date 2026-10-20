@@ -127,3 +127,19 @@ test('the profile says which vault read it was built from', () => {
     assert.ok(none.ok, none.ok ? '' : none.reason);
     assert.strictEqual(none.vaultChoice, 'there is no vault snapshot in this transcript');
 });
+
+// WKE-719: the owner's 2026-10-20 reset-day run logged five warnings claiming
+// the SavedVariables "carry no vault reward" for items that are not gear and
+// were never meant to carry a SimC slot - the vault's non-gear extras (Mythic
+// Keystones, the Thalassian Token of Merit), which `Lootpath/UI/VaultPanel.lua`
+// already names in words rather than gives a slot. They should be named once,
+// as information, not warned about per entry.
+const RESET_DAY_VAULT = fs.readFileSync(path.join(REPO, 'spec', 'fixtures', 'captures', 'Lootpath-20261020-145040.lua'), 'utf8');
+
+test('the vault\'s non-gear extras are named once, not warned about per entry', () => {
+    const built = profileLib.build(RESET_DAY_VAULT, {});
+    assert.ok(built.ok, built.ok ? '' : built.reason);
+    assert.ok(!built.warnings.some((w) => w.includes('vault reward')), built.warnings.join(' | '));
+    assert.strictEqual(built.vaultExtras, 'vault extras left out, not gear: Mythic Keystone x4, Thalassian Token of Merit');
+    assert.strictEqual(built.counts.vault, 2);
+});

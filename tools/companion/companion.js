@@ -178,6 +178,10 @@ async function once(config, log, args, deps) {
     // pick in it and one without. Said out loud, in the same log, for the same
     // reason the line above it is.
     if (profile.vaultChoice) log.info(`vault read used: ${profile.vaultChoice}`);
+    // WKE-719. The vault's non-gear rewards are named once here, as extras -
+    // never a per-entry warning, because leaving them out of the SimC profile
+    // is correct, not a gap.
+    if (profile.vaultExtras) log.info(profile.vaultExtras);
     // C-16a (WKE-622). The spec is read off the newest `env` snapshot that NAMES
     // one, not simply the newest, because a flush names none and the newest env
     // is always a flush. When it was borrowed from an older read, say which one:
