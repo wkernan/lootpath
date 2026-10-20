@@ -498,3 +498,30 @@ test("--vault-snapshot still names one outright, and says so", () => {
   assert.equal(at(transcript.vault), at(vaultSnapshots[0]));
   assert.equal(transcript.vaultChoice, "snapshot 0, named on the command line");
 });
+
+// WKE-719: the vault's non-gear rewards (every INVTYPE_NON_EQUIP_IGNORE entry
+// - a Mythic Keystone, or the Thalassian Token of Merit) are an extra, not a
+// gap: `vaultRows` must stop pushing them onto `missing` and instead name
+// them, in reward-list order, on a new `extras` list.
+const OWNER_2026_10_20_VAULT = path.join(REPO, "spec", "fixtures", "captures", "Lootpath-20261020-145040.lua");
+const ownerVaultText = fs.readFileSync(OWNER_2026_10_20_VAULT, "latin1");
+
+test("the vault's non-gear extras are named, not warned about as a missing reward", () => {
+  const built = buildProfile(readTranscript(ownerVaultText, {}), {});
+  assert.ok(!built.missing.some((m) => m.startsWith("vault reward")), built.missing.join(" | "));
+  assert.deepEqual(built.vaultExtras, ["Mythic Keystone", "Mythic Keystone", "Mythic Keystone", "Mythic Keystone", "Thalassian Token of Merit"]);
+  assert.equal(built.counts.vault, 2);
+});
+
+test("a real vault gap - an unmapped equipLoc that is not the extras' own - still warns", () => {
+  // Proven red by making the fix over-broad (skipping every unmapped equipLoc
+  // silently rather than only INVTYPE_NON_EQUIP_IGNORE): this warning and
+  // counts.vault would both disappear along with the genuine gap.
+  const transcript = readTranscript(ownerVaultText, {});
+  const rewards = luaArray(snapshotRewardLinks(transcript.vault));
+  const sandals = rewards.find((r) => r.itemID === 159327);
+  sandals.item.instant[4] = "INVTYPE_QUIVER";
+  const built = buildProfile(transcript, {});
+  assert.ok(built.missing.includes("vault reward 159327: equipLoc INVTYPE_QUIVER has no SimC slot number"), built.missing.join(" | "));
+  assert.equal(built.counts.vault, 1);
+});

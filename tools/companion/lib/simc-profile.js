@@ -587,7 +587,7 @@ function snapshotRewardLinks(vaultSnapshot) {
   return data.rewardLinks;
 }
 
-function vaultRows(vaultSnapshot, missing) {
+function vaultRows(vaultSnapshot, missing, extras) {
   const rows = [];
   if (!vaultSnapshot) return rows;
   if (probe(vaultSnapshot.data.hasAvailableRewards) !== true) return rows;
@@ -596,6 +596,14 @@ function vaultRows(vaultSnapshot, missing) {
     const link = probe(reward.link);
     if (!link) continue;
     const equipLoc = probe(reward.item && reward.item.instant, 4);
+    // Every rewarded activity also carries a non-gear extra (a Mythic Keystone,
+    // or row 217's Thalassian Token of Merit) with this equipLoc. It is not a
+    // gap: the addon's own VaultPanel treats it the same way, naming it on the
+    // gear's own line rather than giving it a slot.
+    if (equipLoc === "INVTYPE_NON_EQUIP_IGNORE") {
+      extras.push(itemNameFromLink(link) || `item ${reward.itemID}`);
+      continue;
+    }
     const simcSlotNum = INV_TYPE_TO_SIMC_SLOT_NUM[equipLoc];
     if (!simcSlotNum) {
       missing.push(`vault reward ${reward.itemID}: equipLoc ${equipLoc || "unknown"} has no SimC slot number`);
@@ -684,7 +692,8 @@ function buildProfile(transcript, options = {}) {
     }
   }
 
-  const vaultItems = vaultRows(vault, missing);
+  const vaultExtras = [];
+  const vaultItems = vaultRows(vault, missing, vaultExtras);
   if (vaultItems.length > 0) {
     lines.push("");
     lines.push("### Weekly Reward Choices");
@@ -720,6 +729,9 @@ function buildProfile(transcript, options = {}) {
   return {
     text,
     missing,
+    // The vault's non-gear rewards (Mythic Keystones, the Thalassian Token of
+    // Merit), in reward-list order, repeats kept. See vaultRows above.
+    vaultExtras,
     // C-14 (WKE-603): the SimC slot names this profile actually wears
     // something in. `counts.equipped` says how many; this says which.
     equippedSlots,
