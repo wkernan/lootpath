@@ -29,8 +29,14 @@ const CAPTURES = path.join(REPO, 'spec', 'fixtures', 'captures');
 const LOGOUT_PULL = fs.readFileSync(path.join(CAPTURES, 'Lootpath-20260916-142559.lua'), 'utf8');
 const FULL = fs.readFileSync(path.join(CAPTURES, 'Lootpath-20260906-200908.lua'), 'utf8');
 
+const tmpDirs = [];
+test.after(() => {
+    for (const dir of tmpDirs) fs.rmSync(dir, { recursive: true, force: true });
+});
+
 function harness(savedVariables) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lootpath-r7c-'));
+    tmpDirs.push(root);
     const dir = path.join(root, 'WTF', 'Account', 'TESTACCOUNT#1', 'SavedVariables');
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'Lootpath.lua'), savedVariables, 'utf8');

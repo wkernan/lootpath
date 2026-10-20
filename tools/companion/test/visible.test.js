@@ -26,8 +26,14 @@ const REPO = path.join(__dirname, '..', '..', '..');
 const TRANSCRIPT = fs.readFileSync(path.join(REPO, 'spec', 'fixtures', 'captures', 'Lootpath-20260906-200908.lua'), 'utf8');
 const ACCOUNT = 'TESTACCOUNT#1';
 
+const tmpDirs = [];
+test.after(() => {
+    for (const dir of tmpDirs) fs.rmSync(dir, { recursive: true, force: true });
+});
+
 function fakeGame(savedVariables) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lootpath-c9-'));
+    tmpDirs.push(root);
     const dir = path.join(root, 'WTF', 'Account', ACCOUNT, 'SavedVariables');
     fs.mkdirSync(dir, { recursive: true });
     if (savedVariables !== null) fs.writeFileSync(path.join(dir, 'Lootpath.lua'), savedVariables, 'utf8');

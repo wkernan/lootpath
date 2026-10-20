@@ -26,6 +26,11 @@ const configLib = require('../lib/config');
 const luaWriter = require('../lib/luawriter');
 const logLib = require('../lib/log');
 
+const tmpDirs = [];
+test.after(() => {
+    for (const dir of tmpDirs) fs.rmSync(dir, { recursive: true, force: true });
+});
+
 // MPLUS_KEY_REWARDS, read from the fork 2026-09-08: eight toggles, in his own
 // order, labelled the way a player says a key. The row is deliberately written
 // out as LABELS only - the test knows the labels his page shows and nothing
@@ -316,6 +321,7 @@ test('the level list is one question however it is typed', () => {
 // way the owner would reach it.
 function loadWith(value) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lootpath-c7-'));
+    tmpDirs.push(dir);
     const file = path.join(dir, 'config.json');
     fs.writeFileSync(file, JSON.stringify({ upgradeFinderKeyLevels: value }), 'utf8');
     return configLib.load(file);

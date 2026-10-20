@@ -11,8 +11,14 @@ const path = require('path');
 const configLib = require('../lib/config');
 const { writeVerdict } = require('../lib/output');
 
+const tmpDirs = [];
+test.after(() => {
+    for (const dir of tmpDirs) fs.rmSync(dir, { recursive: true, force: true });
+});
+
 function fakeWow(accounts) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lootpath-companion-'));
+    tmpDirs.push(root);
     for (const [name, contents] of Object.entries(accounts || {})) {
         const dir = path.join(root, 'WTF', 'Account', name, 'SavedVariables');
         fs.mkdirSync(dir, { recursive: true });

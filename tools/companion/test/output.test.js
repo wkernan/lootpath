@@ -19,10 +19,16 @@ const path = require('path');
 
 const output = require('../lib/output');
 
+const tmpDirs = [];
+test.after(() => {
+    for (const dir of tmpDirs) fs.rmSync(dir, { recursive: true, force: true });
+});
+
 // A real Data file inside a real AddOns tree, because `dataDir` refuses to
 // create the AddOns folder and that rule is not the one under test here.
 function dataFile(name) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lootpath-c17-'));
+    tmpDirs.push(root);
     fs.mkdirSync(path.join(root, 'Interface', 'AddOns', 'Lootpath'), { recursive: true });
     return path.join(root, 'Interface', 'AddOns', 'Lootpath', 'Data', name);
 }

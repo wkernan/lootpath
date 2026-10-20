@@ -14,8 +14,14 @@ const { watch } = require('../lib/watch');
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
+const tmpDirs = [];
+test.after(() => {
+    for (const dir of tmpDirs) fs.rmSync(dir, { recursive: true, force: true });
+});
+
 function temp() {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lootpath-watch-'));
+    tmpDirs.push(dir);
     return path.join(dir, 'Lootpath.lua');
 }
 

@@ -23,12 +23,18 @@ const REPO = path.join(__dirname, '..', '..', '..');
 const TRANSCRIPT = fs.readFileSync(path.join(REPO, 'spec', 'fixtures', 'captures', 'Lootpath-20260906-200908.lua'), 'utf8');
 const ACCOUNT = 'TESTACCOUNT#1';
 
+const tmpDirs = [];
+test.after(() => {
+    for (const dir of tmpDirs) fs.rmSync(dir, { recursive: true, force: true });
+});
+
 // A whole fake `_retail_` under os.tmpdir(): the account folder the companion
 // discovers by glob, and the AddOns\Lootpath folder output.js insists on before
 // it will create `Data\`. The owner's companion may be watching his real game
 // folder while these run; nothing here goes near it.
 function fakeGame(savedVariables) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lootpath-c4-'));
+    tmpDirs.push(root);
     fs.mkdirSync(savedVariablesDir(root), { recursive: true });
     fs.writeFileSync(savedVariablesFile(root), savedVariables, 'utf8');
     fs.mkdirSync(path.join(root, 'Interface', 'AddOns', 'Lootpath'), { recursive: true });
@@ -349,6 +355,7 @@ test('the settings line is canonical: key order cannot move the hash', () => {
 
 test('isCurrent refuses when the remembered verdict points somewhere else', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lootpath-c4-state-'));
+    tmpDirs.push(dir);
     const here = path.join(dir, 'QEVerdict.lua');
     const other = path.join(dir, 'other.lua');
     fs.writeFileSync(here, 'x');
@@ -363,6 +370,7 @@ test('isCurrent refuses when the remembered verdict points somewhere else', () =
 
 test('a state file with no hash in it is not trusted', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lootpath-c4-state-'));
+    tmpDirs.push(dir);
     fs.writeFileSync(fingerprintLib.statePath(dir), JSON.stringify({ writtenAt: '2026-09-08T00:00:00Z' }), 'utf8');
     const read = fingerprintLib.readState(dir);
     assert.strictEqual(read.ok, false);

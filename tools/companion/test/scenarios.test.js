@@ -23,6 +23,11 @@ const fingerprintLib = require('../lib/fingerprint');
 const logLib = require('../lib/log');
 const luawriterLib = require('../lib/luawriter');
 
+const tmpDirs = [];
+test.after(() => {
+    for (const dir of tmpDirs) fs.rmSync(dir, { recursive: true, force: true });
+});
+
 function quietLog() {
     return logLib.make(() => {});
 }
@@ -34,6 +39,7 @@ const NO_VAULT = { hasVaultGear: false };
 // it: through a config file.
 function loadWith(raw) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lootpath-c6-'));
+    tmpDirs.push(dir);
     const file = path.join(dir, 'config.json');
     fs.writeFileSync(file, JSON.stringify(raw), 'utf8');
     return configLib.load(file);

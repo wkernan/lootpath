@@ -53,6 +53,11 @@ const REPO = path.join(__dirname, '..', '..', '..');
 const CAPTURES = path.join(REPO, 'spec', 'fixtures', 'captures');
 const FULL = fs.readFileSync(path.join(CAPTURES, 'Lootpath-20260906-200908.lua'), 'utf8');
 
+const tmpDirs = [];
+test.after(() => {
+    for (const dir of tmpDirs) fs.rmSync(dir, { recursive: true, force: true });
+});
+
 // His own line, character for character: `"Add " + "Boots, " + "Ring, " + " Weapon, "`
 // with the last two characters sliced off (`TopGear.tsx:385`).
 const HIS_LINE = 'Add Boots, Ring,  Weapon';
@@ -325,6 +330,7 @@ test('C-14a: the player sentence names no source and says nothing about a plan',
 // status file gets the player's.
 function harness() {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lootpath-c14a-'));
+    tmpDirs.push(root);
     const dir = path.join(root, 'WTF', 'Account', 'TESTACCOUNT#1', 'SavedVariables');
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'Lootpath.lua'), FULL, 'utf8');

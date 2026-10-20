@@ -27,8 +27,14 @@ const DUMP = fs.readFileSync(
     'utf8'
 );
 
+const tmpDirs = [];
+test.after(() => {
+    for (const dir of tmpDirs) fs.rmSync(dir, { recursive: true, force: true });
+});
+
 function dataFile() {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lootpath-c14-status-'));
+    tmpDirs.push(root);
     fs.mkdirSync(path.join(root, 'Interface', 'AddOns', 'Lootpath'), { recursive: true });
     return path.join(root, 'Interface', 'AddOns', 'Lootpath', 'Data', 'CompanionStatus.lua');
 }

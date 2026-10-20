@@ -14,8 +14,14 @@ const path = require('path');
 
 const lockLib = require('../lib/lock');
 
+const tmpDirs = [];
+test.after(() => {
+    for (const dir of tmpDirs) fs.rmSync(dir, { recursive: true, force: true });
+});
+
 function lockFile() {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lootpath-c9-lock-'));
+    tmpDirs.push(dir);
     return path.join(dir, 'state', 'watch.lock');
 }
 
