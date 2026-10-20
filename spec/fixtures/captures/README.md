@@ -10,6 +10,20 @@ snapshots arrive with every loop rather than by request.
 
 ## Committed
 
+- Lootpath-20261020-145040.lua - **week four of the developer engine's compare: the first week of the
+  2026-10-15 vector refit on documents it never saw.** The game ran `Data\EngineWeights.lua` `patch 12.1.5`,
+  `fit-to-qe-exports`, derivedAt 2026-10-15T15:31:13.136Z. Reset day 2026-10-20: the owner started the
+  companion watcher, opened the Great Vault (two Dungeons rewards generated: Enigmatic Dreamwatcher's
+  Plumage and Sand-Shined Snakeskin Sandals, both 318 Myth 1/6), refreshed (22 QE Live documents, verdict
+  written 19:39:56Z: `Grab the Sandals from the vault and crest it. Skip the vault shoulders.`), claimed the
+  Sandals, ran the three `/lootpath engine compare` commands, `/reload` and pulled. Week `2026-10-20` is
+  NEW: Dungeon `6`, `10` and `pass1`, Raid `10` (band `raid-3`) and `pass1`, 90 rows, 86 `["stats"]`
+  vectors, every row derived 2026-10-15T15:31:13.136Z. Weeks `2026-09-29`, `2026-10-06` and `2026-10-13`
+  are identical to `Lootpath-20261014-165427.lua`'s (deep-compared, key order ignored). Crest counts at
+  the time: Adventurer 51, Veteran 25, Champion 12, Hero 14, Myth 1. sha256 as pulled (CRLF)
+  `d279a058d549bcfebaa62da52a3bc2093923be3d255e9bce619d3278b40e852d`, 6,858,835 bytes; as committed
+  (`eol=lf`) `a433c158f0c6437330a1f35bfb46d04020c63385621ef536a3006bdd4afb05c5`, 6,490,937 bytes. No
+  `sawSecret = true`. No secrets.
 - Lootpath-20261014-165427.lua - **week three rerun on the carried weights (E-0n carry-forward, PR #350).**
   The coordinator copied the carried file into the game's `Data\EngineWeights.lua` (`patch 12.1.5`,
   derivedAt 2026-10-14T19:34:31.408Z); the owner ran `/reload`, the three `/lootpath engine compare`
