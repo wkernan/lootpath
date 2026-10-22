@@ -12,7 +12,9 @@ const SCHEMA = 'lootpath-simc-scale-factors';
 const VERSION = 1;
 
 // What a tank's "value" is, said once, written into every tank entry. The
-// owner decides (docs/ARCHITECTURE.md §7 E-7, §11); `--tank-value` switches it.
+// owner decided damage (dps) on 2026-10-20 (ARCHITECTURE.md §7 E-7, §11);
+// survival (dtps) is kept as an explicit research option. `--tank-value`
+// switches it.
 const TANK_VALUE = {
     dtps:
         'survival: damage taken per second, lower is better, so each weight is minus SimC\'s DTPS factor (damage taken saved per point). DTPS counts no healing, so a stat that works through self-healing or health (Guardian mastery) reads near zero. The DPS factors are kept beside it.',
@@ -41,7 +43,7 @@ function build(runs, meta) {
     if (first.settings.fightStyle !== meta.fight) refuse(`the report's fight style is ${first.settings.fightStyle}, not ${meta.fight}`);
     const byMetric = Object.fromEntries(runs.map((r) => [r.metric.name, r]));
     const role = first.player.role;
-    const valueMetric = role === 'TANK' ? meta.tankValue || 'dtps' : 'dps';
+    const valueMetric = role === 'TANK' ? meta.tankValue || 'dps' : 'dps';
     if (role === 'DAMAGER' && valueMetric !== 'dps') refuse('a DAMAGER spec is valued on DPS');
     const valueRun = byMetric[valueMetric];
     if (!valueRun) refuse(`no ${valueMetric} run for this ${role} spec`);

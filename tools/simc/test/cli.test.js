@@ -63,7 +63,7 @@ test('every committed spec and fight rebuilds from its reports alone', () => {
         [['102', '--fight', 'DungeonSlice'], 'int', 'DAMAGER', 'dps'],
         [['103', '--fight', 'Patchwerk'], 'agi', 'DAMAGER', 'dps'],
         [['103', '--fight', 'DungeonSlice'], 'agi', 'DAMAGER', 'dps'],
-        [['104', '--fight', 'Patchwerk'], 'agi', 'TANK', 'dtps'],
+        [['104', '--fight', 'Patchwerk'], 'agi', 'TANK', 'dps'],
         [['104', '--fight', 'DungeonSlice', '--tank-value', 'dps'], 'agi', 'TANK', 'dps'],
     ];
     for (const [args, primary, role, metric] of cases) {
@@ -79,10 +79,15 @@ test('every committed spec and fight rebuilds from its reports alone', () => {
     }
 });
 
-test('Guardian DungeonSlice: DTPS is not measurable there, so a survival value is refused and the damage value records why', () => {
+test('Guardian DungeonSlice: DTPS is not measurable there, so an explicit survival value is refused', () => {
     const out = tmp();
-    assert.throws(() => run(['104', '--fight', 'DungeonSlice', '--from-reports', FIX, '--out', out], quiet), /no DTPS/);
-    const { result } = run(['104', '--fight', 'DungeonSlice', '--tank-value', 'dps', '--from-reports', FIX, '--out', out], quiet);
+    assert.throws(() => run(['104', '--fight', 'DungeonSlice', '--tank-value', 'dtps', '--from-reports', FIX, '--out', out], quiet), /no DTPS/);
+});
+
+test('Guardian DungeonSlice: with no --tank-value, the damage default records why survival is unmeasured', () => {
+    const out = tmp();
+    const { result } = run(['104', '--fight', 'DungeonSlice', '--from-reports', FIX, '--out', out], quiet);
+    assert.equal(result.value.metric, 'dps');
     assert.match(result.unmeasured.dtps, /no DTPS/);
     assert.equal(result.factors.dtps, undefined);
 });
