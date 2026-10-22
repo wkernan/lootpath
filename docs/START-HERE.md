@@ -4,7 +4,7 @@ The short way in. `docs/ARCHITECTURE.md` (the brain) is the full record, but at
 over 2 MB it is never read whole: use this page to orient, then `grep` the
 brain for what your work touches. Refreshed by the coordinating session when it
 folds the brain inbox (`docs/brain/inbox/README.md`). Last refreshed
-2026-10-20, from `main` 1a9f025 (the fourth inbox fold).
+2026-10-20, from `main` bcc6933 (the fifth inbox fold).
 
 ## What Lootpath is
 
@@ -41,7 +41,7 @@ Tags name lanes. Grep the brain for a tag to get its whole history.
   latest is **R-2s / R-3 (WKE-707), merged (PR #363) and synced**: every
   arrived-pick crest sentence reads `Crest to <level>`, and a held vault pick
   shows its own `+x% Upgrade` line unless it is worn at its crested level
-  (option B, §7 2026-10-18 night). The owner's in-game check is owed. The
+  (option B, §7 2026-10-18 night). Verified in game on 2026-10-20: `Crest to 334` / `+0.54% Upgrade`. The
   tooltip's words are defined in `docs/ROADS-UX.md`.
 - **E-x (the own engine):** developer-only, never on a player surface.
   - E-4 (WKE-708): the weights file schema v2, one shape per spec.
@@ -52,6 +52,9 @@ Tags name lanes. Grep the brain for a tag to get its whole history.
     that moves them fails CI (`tools/combatlog/test/committed-keys.test.js`).
   - E-5d (WKE-715) and C-tmp (WKE-718): the combat-log and companion tests delete
     the temp folders they create.
+  - Week four (2026-10-20): the vector refit's first unseen week; rank exact for
+    tier, armour and weapon, jewellery the one class off, no class passes the bar.
+    E-5's key stability: the Restoration rank holds in all 63 key subsets (§9).
   - E-6 (WKE-712): the engine scores the current spec.
   - E-7 (WKE-710): SimulationCraft-run weights for DPS and tank specs.
   - Route C (§7, 2026-10-15 early morning): shipped weights come from
@@ -61,10 +64,10 @@ Tags name lanes. Grep the brain for a tag to get its whole history.
 - **UX-5x:** item cards and the character-sheet background.
 - **Scope:** every class and spec is in scope (§7, 2026-10-15 morning), with
   the tracks in parallel. Healer specs stay the only player-facing ones (H-1).
-- **Stokowski:** held since 2026-10-15, except the one test issue, WKE-707
-  (§7, 2026-10-18 evening), which merged. Its five problems found on that run
-  were fixed the same day. Lifting the hold for more issues is the owner's
-  call. Issues for it are written with the `stokowski-ticket` skill.
+- **Stokowski:** armed issue by issue on the owner's word since 2026-10-18:
+  WKE-707, 713, 714, 715, 718 and 719, all merged; since 714 each was right
+  first time for $2.97-4.56 (audits in §9). Issues for it are written with the
+  `stokowski-ticket` skill; arming one is still the owner's call.
 
 Check `gh pr list` for what is actually open: a lane's "PR open" above may have
 merged since.
