@@ -4,7 +4,7 @@ The short way in. `docs/ARCHITECTURE.md` (the brain) is the full record, but at
 over 2 MB it is never read whole: use this page to orient, then `grep` the
 brain for what your work touches. Refreshed by the coordinating session when it
 folds the brain inbox (`docs/brain/inbox/README.md`). Last refreshed
-2026-10-20, from `main` bcc6933 (the fifth inbox fold).
+2026-10-21, from `main` 9c8dbcd (the sixth inbox fold).
 
 ## What Lootpath is
 
@@ -56,7 +56,12 @@ Tags name lanes. Grep the brain for a tag to get its whole history.
     tier, armour and weapon, jewellery the one class off, no class passes the bar.
     E-5's key stability: the Restoration rank holds in all 63 key subsets (§9).
   - E-6 (WKE-712): the engine scores the current spec.
-  - E-7 (WKE-710): SimulationCraft-run weights for DPS and tank specs.
+  - E-7 (WKE-710): SimulationCraft-run weights for DPS and tank specs; a tank's
+    weight measures damage by default (the owner, 2026-10-20; WKE-720).
+  - E-5's bar (the owner, 2026-10-20): a healing spec's own numbers show per spec
+    and content type (Mythic+, dungeons, raid) once that content's logs clear the
+    rank rule, also with any one log left out. Restoration +12 passes; one low and
+    one high key decide the other key levels.
   - Route C (§7, 2026-10-15 early morning): shipped weights come from
     combat logs, never fitted to QE Live.
 - **A-1 (WKE-709):** rate on arrival, behind the developer switch. The
@@ -65,8 +70,8 @@ Tags name lanes. Grep the brain for a tag to get its whole history.
 - **Scope:** every class and spec is in scope (§7, 2026-10-15 morning), with
   the tracks in parallel. Healer specs stay the only player-facing ones (H-1).
 - **Stokowski:** armed issue by issue on the owner's word since 2026-10-18:
-  WKE-707, 713, 714, 715, 718 and 719, all merged; since 714 each was right
-  first time for $2.97-4.56 (audits in §9). Issues for it are written with the
+  WKE-707, 713, 714, 715, 718, 719 and 720, all merged; since 714 each cost
+  $2.97-6.28, with one automatic review loop on 720 (audits in §9). Issues for it are written with the
   `stokowski-ticket` skill; arming one is still the owner's call.
 
 Check `gh pr list` for what is actually open: a lane's "PR open" above may have
@@ -76,9 +81,9 @@ merged since.
 
 From §11. Grep it for the full text.
 
-- What a combat-log weight must show before it may ship (E-5).
-- What a tank's stat weight measures: survival, damage or a blend (E-7).
-- Whether to lift the Stokowski hold beyond WKE-707.
+- The promotion bar for SimC-derived DPS and tank weights.
+- A player for each healing spec other than Restoration Druid.
+- Which issue Stokowski builds next (armed one at a time, on the owner's word).
 
 ## Finding things in the brain
 
