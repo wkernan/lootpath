@@ -21,7 +21,7 @@ jobs:
       - uses: leafo/gh-actions-lua@v13.0.0
         with:
           luaVersion: "5.1"
-      - uses: leafo/gh-actions-luarocks@v6.1.0
+      - uses: leafo/gh-actions-luarocks@v6.1.1
       - run: luarocks install luacheck
       - run: luacheck . --no-color
 
@@ -61,7 +61,7 @@ jobs:
       - uses: leafo/gh-actions-lua@v13.0.0
         with:
           luaVersion: "5.1"
-      - uses: leafo/gh-actions-luarocks@v6.1.0
+      - uses: leafo/gh-actions-luarocks@v6.1.1
       - run: luarocks install busted
       - run: busted
 
