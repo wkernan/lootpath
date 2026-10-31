@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: leafo/gh-actions-lua@v13.0.0
+      - uses: leafo/gh-actions-lua@v13.1.0
         with:
           luaVersion: "5.1"
       - uses: leafo/gh-actions-luarocks@v6.1.0
@@ -58,7 +58,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: leafo/gh-actions-lua@v13.0.0
+      - uses: leafo/gh-actions-lua@v13.1.0
         with:
           luaVersion: "5.1"
       - uses: leafo/gh-actions-luarocks@v6.1.0
@@ -81,7 +81,7 @@ jobs:
       # tools/engine (E-0e, WKE-674): the structure run's tests, beside the
       # companion's. Dev-only, no dependency. Lua 5.1 is installed so the test
       # that loads the dev weights file in the gates' Lua cannot skip here.
-      - uses: leafo/gh-actions-lua@v13.0.0
+      - uses: leafo/gh-actions-lua@v13.1.0
         with:
           luaVersion: "5.1"
       - run: node --test
